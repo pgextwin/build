@@ -40,7 +40,11 @@ jobs:
 
 ## 現在の位置づけ
 
-pgextwin Phase 2の共通ビルド基盤です。最初のpilot extensionとしてpg_bigmを使用します。
+- Phase 2 共通ビルド基盤: 完了
+- Phase 3 pg_bigm pilot: 完了 — [Phase 3 pilot report](docs/phase3-pg_bigm-pilot.md)
+- Phase 4 第2Extension pilot: pg_cronを検証中 — [pg_cron計画](docs/phase4-pg_cron-plan.md)
+
+第2pilotでは、background workerを持つExtensionとupstream公式のMSVC/nmakeビルド経路を使い、Reusable Workflowがpg_bigm/CMake固有の実装になっていないことを検証します。
 
 ## ライセンス
 
