@@ -26,12 +26,17 @@ Extension-specific source adaptation and functional tests remain in each extensi
 Caller repositories use:
 
 ```yaml
+permissions:
+  contents: write
+
 jobs:
   windows:
     uses: pgextwin/build/.github/workflows/build-extension.yml@main
     with:
       extension_config_path: config/extension.json
 ```
+
+`contents: write` is required only so the reusable workflow can publish or update GitHub Releases from `release/*` branches. Build and test jobs in the reusable workflow run with read-only contents permission.
 
 See [Hook contract](docs/hook-contract.md) and [Architecture](docs/architecture.md).
 
