@@ -42,7 +42,11 @@ See [Hook contract](docs/hook-contract.md) and [Architecture](docs/architecture.
 
 ## Status
 
-This repository is the Phase 2 shared-build foundation for pgextwin. The initial pilot extension is pg_bigm.
+- Phase 2 shared build foundation: complete
+- Phase 3 pg_bigm pilot: complete — see [Phase 3 pilot report](docs/phase3-pg_bigm-pilot.md)
+- Phase 4 second-extension pilot: pg_cron validation in progress — see [pg_cron plan](docs/phase4-pg_cron-plan.md)
+
+The second pilot intentionally exercises a background-worker extension and the upstream native MSVC/nmake build path so that the reusable workflow is validated beyond the pg_bigm/CMake profile.
 
 ## License
 
