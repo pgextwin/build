@@ -4,18 +4,9 @@
   "title": "pgextwin extension manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "name",
-    "upstream",
-    "postgresql",
-    "windows",
-    "license"
-  ],
+  "required": ["schemaVersion", "name", "upstream", "postgresql", "windows", "license"],
   "properties": {
-    "schemaVersion": {
-      "const": 1
-    },
+    "schemaVersion": { "const": 1 },
     "name": {
       "type": "string",
       "minLength": 1,
@@ -24,11 +15,7 @@
     "upstream": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "repository",
-        "ref",
-        "version"
-      ],
+      "required": ["repository"],
       "properties": {
         "repository": {
           "type": "string",
@@ -41,8 +28,47 @@
         "version": {
           "type": "string",
           "minLength": 1
+        },
+        "perPostgresql": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ref", "version"],
+            "properties": {
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": ["ref", "version"],
+          "not": {
+            "required": ["perPostgresql"]
+          }
+        },
+        {
+          "required": ["perPostgresql"],
+          "not": {
+            "anyOf": [
+              { "required": ["ref"] },
+              { "required": ["version"] }
+            ]
+          }
+        }
+      ]
     },
     "postgresql": {
       "type": "object",
@@ -68,32 +94,17 @@
       },
       "oneOf": [
         {
-          "required": [
-            "minMajor",
-            "maxMajor"
-          ],
+          "required": ["minMajor", "maxMajor"],
           "not": {
-            "required": [
-              "majors"
-            ]
+            "required": ["majors"]
           }
         },
         {
-          "required": [
-            "majors"
-          ],
+          "required": ["majors"],
           "not": {
             "anyOf": [
-              {
-                "required": [
-                  "minMajor"
-                ]
-              },
-              {
-                "required": [
-                  "maxMajor"
-                ]
-              }
+              { "required": ["minMajor"] },
+              { "required": ["maxMajor"] }
             ]
           }
         }
@@ -102,26 +113,17 @@
     "windows": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "architecture"
-      ],
+      "required": ["architecture"],
       "properties": {
-        "architecture": {
-          "const": "x64"
-        }
+        "architecture": { "const": "x64" }
       }
     },
     "license": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "verifyAgainstUpstream",
-        "upstreamPath"
-      ],
+      "required": ["verifyAgainstUpstream", "upstreamPath"],
       "properties": {
-        "verifyAgainstUpstream": {
-          "type": "boolean"
-        },
+        "verifyAgainstUpstream": { "type": "boolean" },
         "upstreamPath": {
           "type": "string",
           "minLength": 1
