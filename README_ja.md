@@ -24,12 +24,17 @@
 呼び出し側は次のように利用します。
 
 ```yaml
+permissions:
+  contents: write
+
 jobs:
   windows:
     uses: pgextwin/build/.github/workflows/build-extension.yml@main
     with:
       extension_config_path: config/extension.json
 ```
+
+`contents: write` は、`release/*` ブランチからGitHub Releaseを作成・更新するために必要です。Reusable Workflow内の通常のビルド・テストジョブはread-only権限で実行します。
 
 詳細は [Hook contract](docs/hook-contract.md) と [Architecture](docs/architecture.md) を参照してください。
 
