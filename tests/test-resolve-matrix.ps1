@@ -68,6 +68,32 @@ if ($uniform["verify_upstream_license"] -ne "true") {
     throw "License verification output was not true."
 }
 
+$uniformLicenseFiles = $uniform["license_files"] | ConvertFrom-Json
+
+if (@($uniformLicenseFiles).Count -ne 1 -or
+    $uniformLicenseFiles[0].repositoryPath -ne "LICENSE" -or
+    $uniformLicenseFiles[0].upstreamPath -ne "LICENSE") {
+    throw "Legacy upstreamPath was not normalized to the expected single license-file mapping."
+}
+
+$multiLicense = Invoke-ResolverFixture -ExtensionFixture "extension-multi-license.json"
+
+$multiLicenseFiles = $multiLicense["license_files"] | ConvertFrom-Json
+
+if (@($multiLicenseFiles).Count -ne 2) {
+    throw "Expected two license file mappings."
+}
+
+if ($multiLicenseFiles[0].repositoryPath -ne "COPYRIGHT" -or
+    $multiLicenseFiles[0].upstreamPath -ne "COPYRIGHT") {
+    throw "Unexpected first multi-license mapping."
+}
+
+if ($multiLicenseFiles[1].repositoryPath -ne "COPYRIGHT.postgresql" -or
+    $multiLicenseFiles[1].upstreamPath -ne "COPYRIGHT.postgresql") {
+    throw "Unexpected second multi-license mapping."
+}
+
 $perMajor = Invoke-ResolverFixture -ExtensionFixture "extension-per-major.json"
 
 if ($perMajor["extension_name"] -ne "fixture-per-major") {
