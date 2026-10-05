@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "postgresql": [
+    {
+      "major": 13,
+      "minor": "13.0",
+      "chocolateyPackage": "postgresql13",
+      "chocolateyVersion": "13.0.0",
+      "eol": "2000-01-01",
+      "testPort": 55432
+    },
+    {
+      "major": 14,
+      "minor": "14.0",
+      "chocolateyPackage": "postgresql14",
+      "chocolateyVersion": "14.0.0",
+      "eol": "2099-01-01",
+      "testPort": 55432
+    },
+    {
+      "major": 16,
+      "minor": "16.0",
+      "chocolateyPackage": "postgresql16",
+      "chocolateyVersion": "16.0.0",
+      "eol": "2099-01-01",
+      "testPort": 55432
+    },
+    {
+      "major": 18,
+      "minor": "18.0",
+      "chocolateyPackage": "postgresql18",
+      "chocolateyVersion": "18.0.0",
+      "eol": "2099-01-01",
+      "testPort": 55432
+    }
+  ]
+}
