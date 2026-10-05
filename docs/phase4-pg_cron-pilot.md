@@ -129,19 +129,20 @@ These are CI probe artifacts, not public pgextwin Releases.
 | Per-major ZIP artifacts produced | PASS |
 | Shared workflow requires no pg_cron-specific special case | PASS |
 
-## Remaining administrative/productization work
+## Productization status
 
-The technical pilot is complete, but Phase 4 is not productized until:
+Phase 4 productization is complete.
 
-1. public repository `pgextwin/pg_cron` is created,
-2. the validated probe implementation is copied into that repository,
-3. English/Japanese README and Windows documentation are finalized,
-4. CI passes in the real repository,
-5. a release branch creates the first official pgextwin pg_cron Release,
-6. the release is added to `pgextwin/catalog`,
-7. the website consumes the published catalog entry.
+- Public repository: `pgextwin/pg_cron`
+- Productization PR: `pgextwin/pg_cron#1`
+- Main commit: `d9ffa5390dd90f922dcee8fb88cd88ea5c3b58bf`
+- First pgextwin Release: `v1.6.8-windows.1`
+- Release matrix: PostgreSQL 14 / 15 / 16 / 17 / 18 all PASS
+- Release assets: five Windows x64 ZIP files plus `SHA256SUMS.txt`
+- Public catalog entry: published
+- Website: consumes the catalog dynamically; GitHub Pages enablement remains a separate repository-administration task.
 
-Repository creation is an administrative GitHub operation and is the next Work-mode boundary.
+The Release was also exercised after the shared workflow gained PostgreSQL-major-specific upstream support, proving backward compatibility with pg_cron's existing uniform upstream manifest.
 
 ---
 
@@ -157,4 +158,4 @@ pg_bigmとは異なり、pg_cronはbackground worker、`shared_preload_libraries
 
 PostgreSQL 14/15ではPostgreSQL側のWindows DLL export仕様差により追加互換処理が必要でした。upstream Cソースは変更せず、一時的なDEFファイルで `_PG_init` とSQL-callable関数だけをexportしています。PostgreSQL 16以降はupstream `Makefile.win` をそのまま使用します。
 
-次の境界はGitHub管理操作です。正式な `pgextwin/pg_cron` repositoryを作成した後、この検証済み実装を移植して正式Releaseまで進めます。
+その後、正式な `pgextwin/pg_cron` repositoryへ移植し、PG14〜18の全機能テスト、`v1.6.8-windows.1` Release、catalog公開まで完了しました。Websiteはcatalogを動的に読むため、残る管理操作はGitHub Pages有効化です。
