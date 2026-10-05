@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "name": "example_extension",
+  "upstream": {
+    "repository": "owner/repository",
+    "ref": "v1.0.0",
+    "version": "1.0.0"
+  },
+  "postgresql": {
+    "minMajor": 14,
+    "maxMajor": 18
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  }
+}
