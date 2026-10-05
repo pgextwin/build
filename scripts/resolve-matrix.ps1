@@ -1,0 +1,104 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ExtensionConfigPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$PostgreSqlConfigPath
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$extension = Get-Content $ExtensionConfigPath -Raw | ConvertFrom-Json
+$postgres = Get-Content $PostgreSqlConfigPath -Raw | ConvertFrom-Json
+
+if ($extension.schemaVersion -ne 1) {
+    throw "Unsupported extension config schemaVersion: $($extension.schemaVersion)"
+}
+
+foreach ($required in @("name", "upstream", "postgresql")) {
+    if (-not $extension.PSObject.Properties.Name.Contains($required)) {
+        throw "Extension config is missing required property '$required'."
+    }
+}
+
+foreach ($required in @("repository", "ref", "version")) {
+    if (-not $extension.upstream.PSObject.Properties.Name.Contains($required)) {
+        throw "Extension config upstream section is missing '$required'."
+    }
+}
+
+$allowedMajors = @()
+
+if ($extension.postgresql.PSObject.Properties.Name.Contains("majors")) {
+    $allowedMajors = @($extension.postgresql.majors | ForEach-Object { [int]$_ })
+}
+else {
+    if (-not $extension.postgresql.PSObject.Properties.Name.Contains("minMajor") -or
+        -not $extension.postgresql.PSObject.Properties.Name.Contains("maxMajor")) {
+        throw "postgresql must define either 'majors' or both 'minMajor' and 'maxMajor'."
+    }
+
+    $min = [int]$extension.postgresql.minMajor
+    $max = [int]$extension.postgresql.maxMajor
+
+    if ($min -gt $max) {
+        throw "postgresql.minMajor must be less than or equal to maxMajor."
+    }
+
+    $allowedMajors = @($min..$max)
+}
+
+$today = [DateTime]::UtcNow.Date
+
+$supported = @(
+    $postgres.postgresql | Where-Object {
+        $major = [int]$_.major
+        $eol = [DateTime]::ParseExact(
+            $_.eol,
+            "yyyy-MM-dd",
+            [Globalization.CultureInfo]::InvariantCulture
+        ).Date
+
+        $allowedMajors -contains $major -and $eol -ge $today
+    }
+)
+
+if ($supported.Count -eq 0) {
+    throw "No maintained PostgreSQL versions are eligible for extension '$($extension.name)'."
+}
+
+$verifyLicense = $true
+$licensePath = "LICENSE"
+
+if ($extension.PSObject.Properties.Name.Contains("license")) {
+    if ($extension.license.PSObject.Properties.Name.Contains("verifyAgainstUpstream")) {
+        $verifyLicense = [bool]$extension.license.verifyAgainstUpstream
+    }
+
+    if ($extension.license.PSObject.Properties.Name.Contains("upstreamPath") -and
+        -not [string]::IsNullOrWhiteSpace([string]$extension.license.upstreamPath)) {
+        $licensePath = [string]$extension.license.upstreamPath
+    }
+}
+
+$matrix = @{ include = $supported } | ConvertTo-Json -Compress -Depth 8
+
+$outputs = [ordered]@{
+    matrix                  = $matrix
+    extension_name          = [string]$extension.name
+    upstream_repository     = [string]$extension.upstream.repository
+    upstream_ref            = [string]$extension.upstream.ref
+    upstream_version        = [string]$extension.upstream.version
+    verify_upstream_license = $verifyLicense.ToString().ToLowerInvariant()
+    upstream_license_path   = $licensePath
+}
+
+foreach ($entry in $outputs.GetEnumerator()) {
+    "$($entry.Key)=$($entry.Value)" >> $env:GITHUB_OUTPUT
+}
+
+Write-Host "Extension: $($extension.name)"
+Write-Host "Upstream: $($extension.upstream.repository)@$($extension.upstream.ref)"
+Write-Host "Build matrix: $matrix"
