@@ -35,6 +35,12 @@ Extensions that already have sufficiently usable official or established communi
 
 The initial research excluded or deprioritized projects such as oracle_fdw, TimescaleDB, PostGIS, pgRouting, pgSphere, pgvector, orafce, plpgsql_check, and http where existing Windows distribution materially reduces the value of duplicating the work.
 
+## Commercial Windows binaries as a reference
+
+SRA OSS currently states that it supplies Windows binaries for pg_hint_plan, pgAudit, and pg_repack to PostgreSQL support customers. These are valuable implementation and compatibility references, but they are not general public GitHub-style binary releases for ordinary Windows PostgreSQL users.
+
+Accordingly, the roadmap keeps these extensions as pgextwin targets. pgextwin's role is public, reproducible, CI-tested distribution for standard Windows PostgreSQL installations rather than replacing vendor support offerings.
+
 ## pg_hint_plan infrastructure requirement
 
 pg_hint_plan uses a separate stable release series for each PostgreSQL major version.
