@@ -4,9 +4,18 @@
   "title": "pgextwin extension manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "name", "upstream", "postgresql", "windows", "license"],
+  "required": [
+    "schemaVersion",
+    "name",
+    "upstream",
+    "postgresql",
+    "windows",
+    "license"
+  ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": {
+      "const": 1
+    },
     "name": {
       "type": "string",
       "minLength": 1,
@@ -15,7 +24,9 @@
     "upstream": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository"],
+      "required": [
+        "repository"
+      ],
       "properties": {
         "repository": {
           "type": "string",
@@ -38,7 +49,10 @@
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["ref", "version"],
+            "required": [
+              "ref",
+              "version"
+            ],
             "properties": {
               "ref": {
                 "type": "string",
@@ -54,17 +68,32 @@
       },
       "oneOf": [
         {
-          "required": ["ref", "version"],
+          "required": [
+            "ref",
+            "version"
+          ],
           "not": {
-            "required": ["perPostgresql"]
+            "required": [
+              "perPostgresql"
+            ]
           }
         },
         {
-          "required": ["perPostgresql"],
+          "required": [
+            "perPostgresql"
+          ],
           "not": {
             "anyOf": [
-              { "required": ["ref"] },
-              { "required": ["version"] }
+              {
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "required": [
+                  "version"
+                ]
+              }
             ]
           }
         }
@@ -94,17 +123,32 @@
       },
       "oneOf": [
         {
-          "required": ["minMajor", "maxMajor"],
+          "required": [
+            "minMajor",
+            "maxMajor"
+          ],
           "not": {
-            "required": ["majors"]
+            "required": [
+              "majors"
+            ]
           }
         },
         {
-          "required": ["majors"],
+          "required": [
+            "majors"
+          ],
           "not": {
             "anyOf": [
-              { "required": ["minMajor"] },
-              { "required": ["maxMajor"] }
+              {
+                "required": [
+                  "minMajor"
+                ]
+              },
+              {
+                "required": [
+                  "maxMajor"
+                ]
+              }
             ]
           }
         }
@@ -113,22 +157,74 @@
     "windows": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["architecture"],
+      "required": [
+        "architecture"
+      ],
       "properties": {
-        "architecture": { "const": "x64" }
+        "architecture": {
+          "const": "x64"
+        }
       }
     },
     "license": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["verifyAgainstUpstream", "upstreamPath"],
+      "required": [
+        "verifyAgainstUpstream"
+      ],
       "properties": {
-        "verifyAgainstUpstream": { "type": "boolean" },
+        "verifyAgainstUpstream": {
+          "type": "boolean"
+        },
         "upstreamPath": {
           "type": "string",
           "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repositoryPath",
+              "upstreamPath"
+            ],
+            "properties": {
+              "repositoryPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "upstreamPath": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "upstreamPath"
+          ],
+          "not": {
+            "required": [
+              "files"
+            ]
+          }
+        },
+        {
+          "required": [
+            "files"
+          ],
+          "not": {
+            "required": [
+              "upstreamPath"
+            ]
+          }
+        }
+      ]
     }
   }
 }

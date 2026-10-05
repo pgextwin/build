@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "name": "fixture-multi-license",
+  "upstream": {
+    "repository": "example/fixture",
+    "ref": "v1",
+    "version": "1"
+  },
+  "postgresql": {
+    "majors": [14]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "files": [
+      {
+        "repositoryPath": "COPYRIGHT",
+        "upstreamPath": "COPYRIGHT"
+      },
+      {
+        "repositoryPath": "COPYRIGHT.postgresql",
+        "upstreamPath": "COPYRIGHT.postgresql"
+      }
+    ]
+  }
+}

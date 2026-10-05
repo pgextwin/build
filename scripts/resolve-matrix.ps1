@@ -136,16 +136,50 @@ $matrixEntries = @(
 )
 
 $verifyLicense = $true
-$licensePath = "LICENSE"
+$licenseFiles = @(
+    [ordered]@{
+        repositoryPath = "LICENSE"
+        upstreamPath = "LICENSE"
+    }
+)
 
 if ($extension.PSObject.Properties.Name.Contains("license")) {
     if ($extension.license.PSObject.Properties.Name.Contains("verifyAgainstUpstream")) {
         $verifyLicense = [bool]$extension.license.verifyAgainstUpstream
     }
 
-    if ($extension.license.PSObject.Properties.Name.Contains("upstreamPath") -and
-        -not [string]::IsNullOrWhiteSpace([string]$extension.license.upstreamPath)) {
-        $licensePath = [string]$extension.license.upstreamPath
+    $hasLegacyLicensePath = $extension.license.PSObject.Properties.Name.Contains("upstreamPath")
+    $hasLicenseFiles = $extension.license.PSObject.Properties.Name.Contains("files")
+
+    if ($hasLegacyLicensePath -and $hasLicenseFiles) {
+        throw "license must use either 'upstreamPath' or 'files', not both."
+    }
+
+    if ($hasLicenseFiles) {
+        $licenseFiles = @(
+            foreach ($file in $extension.license.files) {
+                if (-not $file.PSObject.Properties.Name.Contains("repositoryPath") -or
+                    -not $file.PSObject.Properties.Name.Contains("upstreamPath") -or
+                    [string]::IsNullOrWhiteSpace([string]$file.repositoryPath) -or
+                    [string]::IsNullOrWhiteSpace([string]$file.upstreamPath)) {
+                    throw "Each license.files entry must define non-empty 'repositoryPath' and 'upstreamPath'."
+                }
+
+                [ordered]@{
+                    repositoryPath = [string]$file.repositoryPath
+                    upstreamPath = [string]$file.upstreamPath
+                }
+            }
+        )
+    }
+    elseif ($hasLegacyLicensePath -and
+            -not [string]::IsNullOrWhiteSpace([string]$extension.license.upstreamPath)) {
+        $licenseFiles = @(
+            [ordered]@{
+                repositoryPath = "LICENSE"
+                upstreamPath = [string]$extension.license.upstreamPath
+            }
+        )
     }
 }
 
@@ -167,7 +201,7 @@ $outputs = [ordered]@{
     upstream_ref            = $uniformRef
     upstream_version        = $uniformVersion
     verify_upstream_license = $verifyLicense.ToString().ToLowerInvariant()
-    upstream_license_path   = $licensePath
+    license_files           = ($licenseFiles | ConvertTo-Json -Compress -Depth 5)
 }
 
 foreach ($entry in $outputs.GetEnumerator()) {
