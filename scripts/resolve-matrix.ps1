@@ -154,7 +154,7 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
     $hasLicenseFiles = $extension.license.PSObject.Properties.Name.Contains("files")
     $hasPerPostgresqlLicense = $extension.license.PSObject.Properties.Name.Contains("perPostgresql")
 
-    $licenseModes = @($hasLegacyLicensePath, $hasLicenseFiles, $hasPerPostgresqlLicense | Where-Object { $_ }).Count
+    $licenseModes = @($hasLegacyLicensePath, $hasLicenseFiles, $hasPerPostgresqlLicense).Where({ $_ }).Count
     if ($licenseModes -ne 1) {
         throw "license must use exactly one of 'upstreamPath', 'files', or 'perPostgresql'."
     }
