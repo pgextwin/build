@@ -6,9 +6,9 @@ This document records the fixed implementation order for the initial pgextwin ex
 
 | Order | Extension | Upstream | Status / next gate |
 |---:|---|---|---|
-| 1 | pg_bigm | pgbigm/pg_bigm | Existing public pgextwin package. Repository transferred to pgextwin/pg_bigm. |
-| 2 | pg_cron | citusdata/pg_cron | Technical pilot complete on PostgreSQL 14–18. Productization in pgextwin/pg_cron is in progress. |
-| 3 | pg_hint_plan | ossc-db/pg_hint_plan | Next implementation target. Requires PostgreSQL-major-specific upstream refs. |
+| 1 | pg_bigm | pgbigm/pg_bigm | Complete: public repository, PG14–18 Release, catalog publication, and post-transfer CI verified. |
+| 2 | pg_cron | citusdata/pg_cron | Complete: public repository, PG14–18 functional Release `v1.6.8-windows.1`, and catalog publication. |
+| 3 | pg_hint_plan | ossc-db/pg_hint_plan | Active technical pilot. Per-PostgreSQL upstream refs and multiple-license verification are supported by the shared build infrastructure. |
 | 4 | pgAudit | pgaudit/pgaudit | Planned after pg_hint_plan. Security/auditing wave. |
 | 5 | set_user | pgaudit/set_user | Planned immediately after pgAudit so the two security-oriented extensions are handled together. |
 | 6 | pg_repack | reorg/pg_repack | Planned after the security wave. Includes extension/server-side and client-tool packaging concerns. |
@@ -53,9 +53,13 @@ For the currently targeted PostgreSQL 14–18 set, the latest published stable r
 - PostgreSQL 17: REL17_1_7_1 / 1.7.1
 - PostgreSQL 18: REL18_1_8_0 / 1.8.0
 
-Therefore the shared manifest/workflow must support a PostgreSQL-major-specific upstream ref and version while retaining backward compatibility with the existing single-ref manifests used by pg_bigm and pg_cron.
+The shared manifest/workflow now supports PostgreSQL-major-specific upstream refs while retaining backward compatibility with the existing single-ref manifests used by pg_bigm and pg_cron.
 
-The new manifest mode is upstream.perPostgresql, with one ref/version mapping for every eligible PostgreSQL major. The matrix resolver copies the resolved upstreamRef and upstreamVersion into each build entry before checkout and packaging.
+The `upstream.perPostgresql` manifest mode provides one ref/version mapping for every eligible PostgreSQL major. The matrix resolver copies the resolved `upstreamRef` and `upstreamVersion` into each build entry before checkout and packaging.
+
+The shared license contract also supports multiple exact upstream license-file comparisons. This is required for pg_hint_plan because redistribution needs both its primary `COPYRIGHT` terms and the PostgreSQL-derived-code notice in `COPYRIGHT.postgresql`.
+
+The Windows technical pilot has already passed end-to-end on PostgreSQL 17 and 18: MSVC build, preload, `CREATE EXTENSION`, a real `SeqScan(...)` optimizer-hint check, and package generation. PostgreSQL 14–16 are being validated separately because those release lines directly depend on PostgreSQL query-jumble core code on Windows.
 
 ## Quality gate for every extension
 
