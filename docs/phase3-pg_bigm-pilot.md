@@ -9,10 +9,10 @@ The pilot proved that the shared pgextwin build architecture can separate common
 ## Repositories
 
 - Shared infrastructure: `pgextwin/build`
-- Pilot packaging repository: `ShutenOishi/pg_bigm`
+- Pilot packaging repository: `pgextwin/pg_bigm`
 - Upstream: `pgbigm/pg_bigm`
 
-The packaging repository is intentionally still under the personal account until the administrative repository-transfer step is performed.
+The packaging repository has been transferred to the `pgextwin` Organization. The existing Release assets were preserved, post-transfer documentation links were corrected, and the full PostgreSQL 14–18 matrix was revalidated successfully after the transfer.
 
 ## Verified architecture
 
@@ -78,11 +78,15 @@ The pg_bigm functional test creates the extension, creates a GIN index using `gi
 | Per-major Windows x64 artifacts are produced | PASS |
 | English/Japanese documentation updated | PASS |
 
-## Remaining administrative action
+## Productization status
 
-Transfer the pilot packaging repository from `ShutenOishi/pg_bigm` to `pgextwin/pg_bigm`.
+Productization is complete.
 
-That transfer does not change the build architecture and is intentionally separated from the technical pilot validation.
+- Repository: `pgextwin/pg_bigm`
+- Release: `v1.2-20250903-windows.1`
+- PostgreSQL 14–18 assets plus `SHA256SUMS.txt`
+- Public catalog entry: published
+- Post-transfer full-matrix CI: PASS
 
 ---
 
@@ -102,4 +106,4 @@ PostgreSQL 14 / 15 / 16 / 17 / 18 の全5世代で、ビルドだけでなく `C
 
 Reusable Workflow、中央PostgreSQL metadata、Extension manifest、LICENSE照合、Extension固有hook、5世代の実機能テスト、Windows x64 artifact生成、英日ドキュメントをすべて確認済みです。
 
-残る作業はGitHub上の管理操作として、`ShutenOishi/pg_bigm` を `pgextwin/pg_bigm` へ移管することだけです。
+その後、repositoryは `pgextwin/pg_bigm` へ移管済みです。既存Release assetを保持したまま、移管後のドキュメント修正とPostgreSQL 14〜18の再検証も完了し、catalogへ公開済みです。
