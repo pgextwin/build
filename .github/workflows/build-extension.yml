@@ -20,6 +20,7 @@ jobs:
       matrix: ${{ steps.meta.outputs.matrix }}
       extension_name: ${{ steps.meta.outputs.extension_name }}
       upstream_repository: ${{ steps.meta.outputs.upstream_repository }}
+      upstream_mode: ${{ steps.meta.outputs.upstream_mode }}
       upstream_ref: ${{ steps.meta.outputs.upstream_ref }}
       upstream_version: ${{ steps.meta.outputs.upstream_version }}
       verify_upstream_license: ${{ steps.meta.outputs.verify_upstream_license }}
@@ -68,7 +69,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ${{ needs.matrix.outputs.upstream_repository }}
-          ref: ${{ needs.matrix.outputs.upstream_ref }}
+          ref: ${{ matrix.upstreamRef }}
           path: upstream
 
       - name: Verify upstream license matches packaging repository
@@ -125,8 +126,8 @@ jobs:
           & ".\windows\ci\package.ps1" `
             -UpstreamDir (Join-Path $PWD "upstream") `
             -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" `
-            -UpstreamRef "${{ needs.matrix.outputs.upstream_ref }}" `
-            -UpstreamVersion "${{ needs.matrix.outputs.upstream_version }}" `
+            -UpstreamRef "${{ matrix.upstreamRef }}" `
+            -UpstreamVersion "${{ matrix.upstreamVersion }}" `
             -PostgreSqlMajor ([int]"${{ matrix.major }}") `
             -PostgreSqlMinor "${{ matrix.minor }}"
 
@@ -168,14 +169,13 @@ jobs:
           tag="${GITHUB_REF_NAME#release/}"
           extension="${{ needs.matrix.outputs.extension_name }}"
           upstream_repo="${{ needs.matrix.outputs.upstream_repository }}"
-          upstream_ref="${{ needs.matrix.outputs.upstream_ref }}"
 
           cat > release-notes.md <<EOF
           # ${extension} Windows x64 binaries
 
           ## English
 
-          These are **unofficial Windows x64 binaries** of [${extension}](https://github.com/${upstream_repo}), built from the pinned upstream source at \`${upstream_ref}\`.
+          These are **unofficial Windows x64 binaries** of [${extension}](https://github.com/${upstream_repo}), built from pinned upstream source references defined by this repository's manifest. The exact upstream ref used for each PostgreSQL package is recorded in its \`PACKAGE-INFO.txt\`.
 
           Every ZIP is compiled and functionally smoke-tested on GitHub Actions against the PostgreSQL major version in its filename. The build matrix includes only PostgreSQL versions that are both allowed by this extension's manifest and still under PostgreSQL community maintenance.
 
@@ -195,7 +195,7 @@ jobs:
 
           ## 日本語
 
-          [${extension}](https://github.com/${upstream_repo}) の **非公式 Windows x64 バイナリ**です。固定したupstreamソース \`${upstream_ref}\` からビルドしています。
+          [${extension}](https://github.com/${upstream_repo}) の **非公式 Windows x64 バイナリ**です。このrepositoryのmanifestで固定したupstreamソースからビルドしています。PostgreSQLメジャーごとに使用した正確なupstream refは各packageの \`PACKAGE-INFO.txt\` に記録されます。
 
           各ZIPは、ファイル名に記載されたPostgreSQLメジャーバージョンに対してGitHub Actions上でコンパイルし、Extension固有の機能スモークテストまで実施しています。対象は、そのExtensionのmanifestで許可され、かつPostgreSQLコミュニティのメンテナンス期間内にあるバージョンのみです。
 
