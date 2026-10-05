@@ -8,7 +8,7 @@ This document records the fixed implementation order for the initial pgextwin ex
 |---:|---|---|---|
 | 1 | pg_bigm | pgbigm/pg_bigm | Complete: public repository, PG14–18 Release, catalog publication, and post-transfer CI verified. |
 | 2 | pg_cron | citusdata/pg_cron | Complete: public repository, PG14–18 functional Release `v1.6.8-windows.1`, and catalog publication. |
-| 3 | pg_hint_plan | ossc-db/pg_hint_plan | Active technical pilot. Per-PostgreSQL upstream refs and multiple-license verification are supported by the shared build infrastructure. |
+| 3 | pg_hint_plan | ossc-db/pg_hint_plan | Technical pilot complete on PostgreSQL 14–18. Productization is pending creation of `pgextwin/pg_hint_plan`. |
 | 4 | pgAudit | pgaudit/pgaudit | Planned after pg_hint_plan. Security/auditing wave. |
 | 5 | set_user | pgaudit/set_user | Planned immediately after pgAudit so the two security-oriented extensions are handled together. |
 | 6 | pg_repack | reorg/pg_repack | Planned after the security wave. Includes extension/server-side and client-tool packaging concerns. |
@@ -59,7 +59,7 @@ The `upstream.perPostgresql` manifest mode provides one ref/version mapping for 
 
 The shared license contract also supports multiple exact upstream license-file comparisons. This is required for pg_hint_plan because redistribution needs both its primary `COPYRIGHT` terms and the PostgreSQL-derived-code notice in `COPYRIGHT.postgresql`.
 
-The Windows technical pilot has already passed end-to-end on PostgreSQL 17 and 18: MSVC build, preload, `CREATE EXTENSION`, a real `SeqScan(...)` optimizer-hint check, and package generation. PostgreSQL 14–16 are being validated separately because those release lines directly depend on PostgreSQL query-jumble core code on Windows.
+The Windows technical pilot is complete on PostgreSQL 14–18. PostgreSQL 17/18 use the upstream scanner source generated with win_flex. PostgreSQL 14–16 rebuild the required query-jumble object from the exact official PostgreSQL source release after SHA-256 verification, avoiding opaque precompiled compatibility objects. The final smoke test validates preload, `CREATE EXTENSION`, real `SeqScan(...)` and `IndexScan(...)` hint behavior, and the PG14–16 hint-table/query-id compatibility path. See [Phase 5 pg_hint_plan pilot report](phase5-pg_hint_plan-pilot.md).
 
 ## Quality gate for every extension
 
