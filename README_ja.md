@@ -42,9 +42,9 @@ jobs:
 
 - Phase 2 共通ビルド基盤: 完了
 - Phase 3 pg_bigm pilot: 完了 — [Phase 3 pilot report](docs/phase3-pg_bigm-pilot.md)
-- Phase 4 第2Extension pilot: pg_cronを検証中 — [pg_cron計画](docs/phase4-pg_cron-plan.md)
+- Phase 4 第2Extension技術pilot: 完了 — [pg_cron pilot report](docs/phase4-pg_cron-pilot.md)
 
-第2pilotでは、background workerを持つExtensionとupstream公式のMSVC/nmakeビルド経路を使い、Reusable Workflowがpg_bigm/CMake固有の実装になっていないことを検証します。
+第2pilotでは、background workerを持つExtensionとupstream公式のMSVC/nmakeビルド経路を使い、Reusable Workflowがpg_bigm/CMake固有の実装になっていないことを確認済みです。正式な `pgextwin/pg_cron` repository作成後にproductizationへ進みます。
 
 ## ライセンス
 
