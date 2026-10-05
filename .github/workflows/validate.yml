@@ -1,0 +1,22 @@
+name: Validate build infrastructure
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out build infrastructure
+        uses: actions/checkout@v7
+
+      - name: Test matrix resolver
+        shell: pwsh
+        run: ./tests/test-resolve-matrix.ps1
