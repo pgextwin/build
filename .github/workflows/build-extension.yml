@@ -1,0 +1,243 @@
+name: Build PostgreSQL extension for Windows
+
+on:
+  workflow_call:
+    inputs:
+      extension_config_path:
+        description: Path to the extension manifest in the caller repository
+        required: false
+        type: string
+        default: config/extension.json
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Resolve extension and PostgreSQL matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.meta.outputs.matrix }}
+      extension_name: ${{ steps.meta.outputs.extension_name }}
+      upstream_repository: ${{ steps.meta.outputs.upstream_repository }}
+      upstream_ref: ${{ steps.meta.outputs.upstream_ref }}
+      upstream_version: ${{ steps.meta.outputs.upstream_version }}
+      verify_upstream_license: ${{ steps.meta.outputs.verify_upstream_license }}
+      upstream_license_path: ${{ steps.meta.outputs.upstream_license_path }}
+
+    steps:
+      - name: Check out extension packaging repository
+        uses: actions/checkout@v7
+
+      - name: Check out pgextwin build infrastructure
+        uses: actions/checkout@v7
+        with:
+          repository: pgextwin/build
+          ref: main
+          path: .pgextwin-build
+
+      - name: Resolve maintained PostgreSQL versions
+        id: meta
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/resolve-matrix.ps1" `
+            -ExtensionConfigPath "${{ inputs.extension_config_path }}" `
+            -PostgreSqlConfigPath ".pgextwin-build/metadata/postgresql.json"
+
+  build:
+    name: PostgreSQL ${{ matrix.major }} / Windows x64
+    needs: matrix
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+
+    steps:
+      - name: Check out extension packaging repository
+        uses: actions/checkout@v7
+
+      - name: Check out pgextwin build infrastructure
+        uses: actions/checkout@v7
+        with:
+          repository: pgextwin/build
+          ref: main
+          path: .pgextwin-build
+
+      - name: Check out pinned upstream source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.matrix.outputs.upstream_repository }}
+          ref: ${{ needs.matrix.outputs.upstream_ref }}
+          path: upstream
+
+      - name: Verify upstream license matches packaging repository
+        if: needs.matrix.outputs.verify_upstream_license == 'true'
+        shell: pwsh
+        run: |
+          $repoLicense = (Get-FileHash "LICENSE" -Algorithm SHA256).Hash
+          $upstreamLicensePath = Join-Path "upstream" "${{ needs.matrix.outputs.upstream_license_path }}"
+
+          if (-not (Test-Path $upstreamLicensePath)) {
+            throw "Configured upstream license was not found: $upstreamLicensePath"
+          }
+
+          $upstreamLicense = (Get-FileHash $upstreamLicensePath -Algorithm SHA256).Hash
+
+          if ($repoLicense -ne $upstreamLicense) {
+            throw "LICENSE differs from the pinned upstream source."
+          }
+
+      - name: Install PostgreSQL ${{ matrix.major }}
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/install-postgresql.ps1" `
+            -Major ([int]"${{ matrix.major }}") `
+            -ChocolateyPackage "${{ matrix.chocolateyPackage }}" `
+            -ChocolateyVersion "${{ matrix.chocolateyVersion }}" `
+            -TestPort ([int]"${{ matrix.testPort }}")
+
+      - name: Build extension
+        shell: pwsh
+        run: |
+          & ".\windows\ci\build.ps1" `
+            -PgRoot $env:PGROOT `
+            -UpstreamDir (Join-Path $PWD "upstream")
+
+      - name: Install extension into test PostgreSQL
+        shell: pwsh
+        run: |
+          & ".\windows\ci\install.ps1" `
+            -PgRoot $env:PGROOT `
+            -UpstreamDir (Join-Path $PWD "upstream")
+
+      - name: Functional smoke test
+        shell: pwsh
+        run: |
+          & ".\windows\ci\smoke-test.ps1" `
+            -PgRoot $env:PGROOT `
+            -PgPort ([int]$env:PGPORT) `
+            -PostgreSqlMajor ([int]"${{ matrix.major }}")
+
+      - name: Package Windows binary
+        shell: pwsh
+        run: |
+          & ".\windows\ci\package.ps1" `
+            -UpstreamDir (Join-Path $PWD "upstream") `
+            -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" `
+            -UpstreamRef "${{ needs.matrix.outputs.upstream_ref }}" `
+            -UpstreamVersion "${{ needs.matrix.outputs.upstream_version }}" `
+            -PostgreSqlMajor ([int]"${{ matrix.major }}") `
+            -PostgreSqlMinor "${{ matrix.minor }}"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.matrix.outputs.extension_name }}-pg${{ matrix.major }}-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/heads/release/')
+    needs:
+      - matrix
+      - build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all Windows packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ needs.matrix.outputs.extension_name }}-pg*-windows-x64
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums and bilingual release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd dist
+          sha256sum ./*.zip > SHA256SUMS.txt
+          cd ..
+
+          tag="${GITHUB_REF_NAME#release/}"
+          extension="${{ needs.matrix.outputs.extension_name }}"
+          upstream_repo="${{ needs.matrix.outputs.upstream_repository }}"
+          upstream_ref="${{ needs.matrix.outputs.upstream_ref }}"
+
+          cat > release-notes.md <<EOF
+          # ${extension} Windows x64 binaries
+
+          ## English
+
+          These are **unofficial Windows x64 binaries** of [${extension}](https://github.com/${upstream_repo}), built from the pinned upstream source at \`${upstream_ref}\`.
+
+          Every ZIP is compiled and functionally smoke-tested on GitHub Actions against the PostgreSQL major version in its filename. The build matrix includes only PostgreSQL versions that are both allowed by this extension's manifest and still under PostgreSQL community maintenance.
+
+          ### Documentation
+
+          - [English README](https://github.com/${GITHUB_REPOSITORY}/blob/main/README.md)
+          - [Japanese README / 日本語README](https://github.com/${GITHUB_REPOSITORY}/blob/main/README_ja.md)
+          - [Upstream repository](https://github.com/${upstream_repo})
+
+          For extension behavior, SQL APIs, configuration, limitations, and licensing, the upstream project remains authoritative.
+
+          ### File verification
+
+          Use the attached \`SHA256SUMS.txt\` to verify each ZIP.
+
+          ---
+
+          ## 日本語
+
+          [${extension}](https://github.com/${upstream_repo}) の **非公式 Windows x64 バイナリ**です。固定したupstreamソース \`${upstream_ref}\` からビルドしています。
+
+          各ZIPは、ファイル名に記載されたPostgreSQLメジャーバージョンに対してGitHub Actions上でコンパイルし、Extension固有の機能スモークテストまで実施しています。対象は、そのExtensionのmanifestで許可され、かつPostgreSQLコミュニティのメンテナンス期間内にあるバージョンのみです。
+
+          ### ドキュメント
+
+          - [日本語README](https://github.com/${GITHUB_REPOSITORY}/blob/main/README_ja.md)
+          - [English README](https://github.com/${GITHUB_REPOSITORY}/blob/main/README.md)
+          - [Upstream repository / 公式リポジトリ](https://github.com/${upstream_repo})
+
+          Extension本体の機能仕様、SQL API、設定、制限事項、ライセンスについてはupstreamプロジェクトを正規の情報源としてください。
+
+          ### ファイル検証
+
+          Releaseに添付した \`SHA256SUMS.txt\` で各ZIPのSHA-256を確認できます。
+          EOF
+
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Publish or update Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TAG" \
+              --notes-file release-notes.md
+
+            gh release upload "$RELEASE_TAG" \
+              dist/*.zip \
+              dist/SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              dist/*.zip \
+              dist/SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes-file release-notes.md
+          fi
