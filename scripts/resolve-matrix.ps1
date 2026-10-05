@@ -38,7 +38,7 @@ if ($hasPerPostgresql) {
     }
 
     if ($null -eq $extension.upstream.perPostgresql -or
-        $extension.upstream.perPostgresql.PSObject.Properties.Count -eq 0) {
+        @($extension.upstream.perPostgresql.PSObject.Properties).Count -eq 0) {
         throw "upstream.perPostgresql must contain at least one PostgreSQL-major mapping."
     }
 
