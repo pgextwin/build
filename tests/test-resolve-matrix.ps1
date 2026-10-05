@@ -62,6 +62,12 @@ foreach ($entry in $uniformMatrix.include) {
     if ($entry.upstreamRef -ne "v1" -or $entry.upstreamVersion -ne "1") {
         throw "Uniform upstream metadata was not copied into matrix entry for PostgreSQL $($entry.major)."
     }
+
+    if (@($entry.licenseFiles).Count -ne 1 -or
+        $entry.licenseFiles[0].repositoryPath -ne "LICENSE" -or
+        $entry.licenseFiles[0].upstreamPath -ne "LICENSE") {
+        throw "Legacy license mapping was not copied into matrix entry for PostgreSQL $($entry.major)."
+    }
 }
 
 if ($uniform["verify_upstream_license"] -ne "true") {
@@ -92,6 +98,39 @@ if ($multiLicenseFiles[0].repositoryPath -ne "COPYRIGHT" -or
 if ($multiLicenseFiles[1].repositoryPath -ne "COPYRIGHT.postgresql" -or
     $multiLicenseFiles[1].upstreamPath -ne "COPYRIGHT.postgresql") {
     throw "Unexpected second multi-license mapping."
+}
+
+$multiLicenseMatrix = $multiLicense["matrix"] | ConvertFrom-Json
+$multiLicenseEntry = @($multiLicenseMatrix.include)[0]
+
+if (@($multiLicenseEntry.licenseFiles).Count -ne 2) {
+    throw "Expected two uniform license mappings in the build matrix."
+}
+
+$perMajorLicense = Invoke-ResolverFixture -ExtensionFixture "extension-per-major-license.json"
+
+if ($perMajorLicense["license_mode"] -ne "perPostgresql") {
+    throw "Expected perPostgresql license mode."
+}
+
+if ($perMajorLicense["license_files"] -ne "") {
+    throw "Global license_files output must be empty in perPostgresql license mode."
+}
+
+$perMajorLicenseMatrix = $perMajorLicense["matrix"] | ConvertFrom-Json
+$pg14License = @($perMajorLicenseMatrix.include | Where-Object { [int]$_.major -eq 14 })[0]
+$pg16License = @($perMajorLicenseMatrix.include | Where-Object { [int]$_.major -eq 16 })[0]
+
+if (@($pg14License.licenseFiles).Count -ne 2 -or
+    $pg14License.licenseFiles[0].repositoryPath -ne "licenses/pg14/COPYRIGHT" -or
+    $pg14License.licenseFiles[1].repositoryPath -ne "licenses/pg14/COPYRIGHT.postgresql") {
+    throw "Unexpected PostgreSQL 14 per-major license mappings."
+}
+
+if (@($pg16License.licenseFiles).Count -ne 2 -or
+    $pg16License.licenseFiles[0].repositoryPath -ne "licenses/pg16/COPYRIGHT" -or
+    $pg16License.licenseFiles[1].repositoryPath -ne "licenses/pg16/COPYRIGHT.postgresql") {
+    throw "Unexpected PostgreSQL 16 per-major license mappings."
 }
 
 $perMajor = Invoke-ResolverFixture -ExtensionFixture "extension-per-major.json"
