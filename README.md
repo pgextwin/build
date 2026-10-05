@@ -45,8 +45,9 @@ See [Hook contract](docs/hook-contract.md) and [Architecture](docs/architecture.
 - Phase 2 shared build foundation: complete
 - Phase 3 pg_bigm pilot: complete — see [Phase 3 pilot report](docs/phase3-pg_bigm-pilot.md)
 - Phase 4 second-extension technical pilot: complete — see [pg_cron pilot report](docs/phase4-pg_cron-pilot.md)
+- Phase 5 pg_hint_plan technical pilot: complete — see [pg_hint_plan pilot report](docs/phase5-pg_hint_plan-pilot.md)
 
-The second pilot validates a background-worker extension and the upstream native MSVC/nmake build path beyond the pg_bigm/CMake profile. `pg_bigm` and `pg_cron` are now public under the `pgextwin` Organization, both have verified Windows x64 Releases for PostgreSQL 14–18, and both are published in `pgextwin/catalog`. The next extension target is `pg_hint_plan`.
+The pg_hint_plan pilot further validated PostgreSQL-major-specific upstream releases, PostgreSQL-major-specific license notices, Flex-generated scanner code, and exact-version PostgreSQL query-jumble compatibility objects on Windows. `pg_bigm` and `pg_cron` are public with verified PostgreSQL 14–18 Releases and catalog entries. `pg_hint_plan` is technically validated and awaits creation of its permanent Organization repository for productization.
 
 ## License
 
