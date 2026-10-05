@@ -24,7 +24,7 @@ jobs:
       upstream_ref: ${{ steps.meta.outputs.upstream_ref }}
       upstream_version: ${{ steps.meta.outputs.upstream_version }}
       verify_upstream_license: ${{ steps.meta.outputs.verify_upstream_license }}
-      upstream_license_path: ${{ steps.meta.outputs.upstream_license_path }}
+      license_files: ${{ steps.meta.outputs.license_files }}
 
     steps:
       - name: Check out extension packaging repository
@@ -72,21 +72,32 @@ jobs:
           ref: ${{ matrix.upstreamRef }}
           path: upstream
 
-      - name: Verify upstream license matches packaging repository
+      - name: Verify upstream license files match packaging repository
         if: needs.matrix.outputs.verify_upstream_license == 'true'
         shell: pwsh
+        env:
+          PGEXTWIN_LICENSE_FILES: ${{ needs.matrix.outputs.license_files }}
         run: |
-          $repoLicense = (Get-FileHash "LICENSE" -Algorithm SHA256).Hash
-          $upstreamLicensePath = Join-Path "upstream" "${{ needs.matrix.outputs.upstream_license_path }}"
+          $licenseFiles = $env:PGEXTWIN_LICENSE_FILES | ConvertFrom-Json
 
-          if (-not (Test-Path $upstreamLicensePath)) {
-            throw "Configured upstream license was not found: $upstreamLicensePath"
-          }
+          foreach ($licenseFile in @($licenseFiles)) {
+            $repositoryPath = [string]$licenseFile.repositoryPath
+            $upstreamPath = Join-Path "upstream" ([string]$licenseFile.upstreamPath)
 
-          $upstreamLicense = (Get-FileHash $upstreamLicensePath -Algorithm SHA256).Hash
+            if (-not (Test-Path $repositoryPath)) {
+              throw "Configured packaging-repository license file was not found: $repositoryPath"
+            }
 
-          if ($repoLicense -ne $upstreamLicense) {
-            throw "LICENSE differs from the pinned upstream source."
+            if (-not (Test-Path $upstreamPath)) {
+              throw "Configured upstream license file was not found: $upstreamPath"
+            }
+
+            $repositoryHash = (Get-FileHash $repositoryPath -Algorithm SHA256).Hash
+            $upstreamHash = (Get-FileHash $upstreamPath -Algorithm SHA256).Hash
+
+            if ($repositoryHash -ne $upstreamHash) {
+              throw "License file '$repositoryPath' differs from upstream '$($licenseFile.upstreamPath)'."
+            }
           }
 
       - name: Install PostgreSQL ${{ matrix.major }}
