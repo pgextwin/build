@@ -76,7 +76,7 @@ jobs:
         if: needs.matrix.outputs.verify_upstream_license == 'true'
         shell: pwsh
         env:
-          PGEXTWIN_LICENSE_FILES: ${{ needs.matrix.outputs.license_files }}
+          PGEXTWIN_LICENSE_FILES: ${{ toJSON(matrix.licenseFiles) }}
         run: |
           $licenseFiles = $env:PGEXTWIN_LICENSE_FILES | ConvertFrom-Json
 

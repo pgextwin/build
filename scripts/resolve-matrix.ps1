@@ -136,12 +136,14 @@ $matrixEntries = @(
 )
 
 $verifyLicense = $true
+$licenseMode = "uniform"
 $licenseFiles = @(
     [ordered]@{
         repositoryPath = "LICENSE"
         upstreamPath = "LICENSE"
     }
 )
+$licensePerPostgresql = $null
 
 if ($extension.PSObject.Properties.Name.Contains("license")) {
     if ($extension.license.PSObject.Properties.Name.Contains("verifyAgainstUpstream")) {
@@ -150,9 +152,11 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
 
     $hasLegacyLicensePath = $extension.license.PSObject.Properties.Name.Contains("upstreamPath")
     $hasLicenseFiles = $extension.license.PSObject.Properties.Name.Contains("files")
+    $hasPerPostgresqlLicense = $extension.license.PSObject.Properties.Name.Contains("perPostgresql")
 
-    if ($hasLegacyLicensePath -and $hasLicenseFiles) {
-        throw "license must use either 'upstreamPath' or 'files', not both."
+    $licenseModes = @($hasLegacyLicensePath, $hasLicenseFiles, $hasPerPostgresqlLicense).Where({ $_ }).Count
+    if ($licenseModes -ne 1) {
+        throw "license must use exactly one of 'upstreamPath', 'files', or 'perPostgresql'."
     }
 
     if ($hasLicenseFiles) {
@@ -172,6 +176,15 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
             }
         )
     }
+    elseif ($hasPerPostgresqlLicense) {
+        if ($null -eq $extension.license.perPostgresql -or
+            @($extension.license.perPostgresql.PSObject.Properties).Count -eq 0) {
+            throw "license.perPostgresql must contain at least one PostgreSQL-major mapping."
+        }
+
+        $licenseMode = "perPostgresql"
+        $licensePerPostgresql = $extension.license.perPostgresql
+    }
     elseif ($hasLegacyLicensePath -and
             -not [string]::IsNullOrWhiteSpace([string]$extension.license.upstreamPath)) {
         $licenseFiles = @(
@@ -181,6 +194,38 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
             }
         )
     }
+}
+
+foreach ($entry in $matrixEntries) {
+    if ($licenseMode -eq "perPostgresql") {
+        $majorKey = [string][int]$entry.major
+        $mappingProperty = $licensePerPostgresql.PSObject.Properties[$majorKey]
+
+        if ($null -eq $mappingProperty) {
+            throw "license.perPostgresql has no mapping for eligible PostgreSQL major $majorKey."
+        }
+
+        $resolvedLicenseFiles = @(
+            foreach ($file in $mappingProperty.Value) {
+                if (-not $file.PSObject.Properties.Name.Contains("repositoryPath") -or
+                    -not $file.PSObject.Properties.Name.Contains("upstreamPath") -or
+                    [string]::IsNullOrWhiteSpace([string]$file.repositoryPath) -or
+                    [string]::IsNullOrWhiteSpace([string]$file.upstreamPath)) {
+                    throw "Each license.perPostgresql.$majorKey entry must define non-empty 'repositoryPath' and 'upstreamPath'."
+                }
+
+                [ordered]@{
+                    repositoryPath = [string]$file.repositoryPath
+                    upstreamPath = [string]$file.upstreamPath
+                }
+            }
+        )
+    }
+    else {
+        $resolvedLicenseFiles = @($licenseFiles)
+    }
+
+    $entry | Add-Member -NotePropertyName licenseFiles -NotePropertyValue @($resolvedLicenseFiles)
 }
 
 $matrix = @{ include = $matrixEntries } | ConvertTo-Json -Compress -Depth 10
@@ -201,7 +246,8 @@ $outputs = [ordered]@{
     upstream_ref            = $uniformRef
     upstream_version        = $uniformVersion
     verify_upstream_license = $verifyLicense.ToString().ToLowerInvariant()
-    license_files           = ($licenseFiles | ConvertTo-Json -Compress -Depth 5)
+    license_mode            = $licenseMode
+    license_files           = if ($licenseMode -eq "uniform") { $licenseFiles | ConvertTo-Json -Compress -Depth 5 } else { "" }
 }
 
 foreach ($entry in $outputs.GetEnumerator()) {

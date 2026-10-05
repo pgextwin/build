@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "name": "fixture-per-major-license",
+  "upstream": {
+    "repository": "example/fixture",
+    "perPostgresql": {
+      "14": { "ref": "REL14", "version": "14.1" },
+      "16": { "ref": "REL16", "version": "16.1" }
+    }
+  },
+  "postgresql": {
+    "majors": [14, 16]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "perPostgresql": {
+      "14": [
+        {
+          "repositoryPath": "licenses/pg14/COPYRIGHT",
+          "upstreamPath": "COPYRIGHT"
+        },
+        {
+          "repositoryPath": "licenses/pg14/COPYRIGHT.postgresql",
+          "upstreamPath": "COPYRIGHT.postgresql"
+        }
+      ],
+      "16": [
+        {
+          "repositoryPath": "licenses/pg16/COPYRIGHT",
+          "upstreamPath": "COPYRIGHT"
+        },
+        {
+          "repositoryPath": "licenses/pg16/COPYRIGHT.postgresql",
+          "upstreamPath": "COPYRIGHT.postgresql"
+        }
+      ]
+    }
+  }
+}
