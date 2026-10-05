@@ -43,8 +43,9 @@ jobs:
 - Phase 2 共通ビルド基盤: 完了
 - Phase 3 pg_bigm pilot: 完了 — [Phase 3 pilot report](docs/phase3-pg_bigm-pilot.md)
 - Phase 4 第2Extension技術pilot: 完了 — [pg_cron pilot report](docs/phase4-pg_cron-pilot.md)
+- Phase 5 pg_hint_plan 技術pilot: 完了 — [pg_hint_plan pilot report](docs/phase5-pg_hint_plan-pilot.md)
 
-第2pilotでは、background workerを持つExtensionとupstream公式のMSVC/nmakeビルド経路を使い、Reusable Workflowがpg_bigm/CMake固有の実装になっていないことを確認済みです。`pg_bigm` と `pg_cron` は現在 `pgextwin` Organization配下で公開され、いずれもPostgreSQL 14〜18向けWindows x64 Releaseとcatalog登録まで完了しています。次の対象Extensionは `pg_hint_plan` です。
+pg_hint_plan pilotではさらに、PostgreSQLメジャー別upstream release、メジャー別license notice、Flex scanner生成、公式PostgreSQL sourceからのquery-jumble互換object再生成を検証しました。`pg_bigm` と `pg_cron` はPostgreSQL 14〜18向けReleaseとcatalog登録まで完了しています。`pg_hint_plan` はPostgreSQL 14〜18で技術検証完了済みで、正式なOrganization repository作成後にproductizationへ進みます。
 
 ## ライセンス
 
