@@ -10,8 +10,8 @@ This document records the fixed implementation order for the initial pgextwin ex
 | 2 | pg_cron | citusdata/pg_cron | Complete: public repository, PG14–18 functional Release `v1.6.8-windows.1`, and catalog publication. |
 | 3 | pg_hint_plan | ossc-db/pg_hint_plan | Technical pilot complete on PostgreSQL 14–18. Productization is pending creation of `pgextwin/pg_hint_plan`. |
 | 4 | pgAudit | pgaudit/pgaudit | Technical pilot complete on PostgreSQL 14–18. Productization is pending creation of `pgextwin/pgaudit`. |
-| 5 | set_user | pgaudit/set_user | Next technical pilot. Windows PG16+ linkage conflict in upstream 4.2.0 has been identified and will be handled by an extension-specific compatibility patch. |
-| 6 | pg_repack | reorg/pg_repack | Planned after the security wave. Includes extension/server-side and client-tool packaging concerns. |
+| 5 | set_user | pgaudit/set_user | Technical pilot complete on PostgreSQL 14–18. Productization is pending creation of `pgextwin/set_user`. |
+| 6 | pg_repack | reorg/pg_repack | Next technical pilot. Includes extension/server-side and client-tool packaging concerns. |
 | 7 | pg_ivm | sraoss/pg_ivm | Planned after pg_repack. |
 | 8 | pg_qualstats | powa-team/pg_qualstats | Planned after pg_ivm; also treated as a Windows-release revival candidate. |
 
