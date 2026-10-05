@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "fixture-per-major",
+  "upstream": {
+    "repository": "example/fixture",
+    "perPostgresql": {
+      "14": {
+        "ref": "REL14_1_4_4",
+        "version": "1.4.4"
+      },
+      "16": {
+        "ref": "REL16_1_6_2",
+        "version": "1.6.2"
+      }
+    }
+  },
+  "postgresql": {
+    "majors": [14, 16]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  }
+}
