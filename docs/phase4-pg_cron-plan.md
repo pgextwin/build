@@ -1,5 +1,7 @@
 # Phase 4 second-extension plan: pg_cron
 
+> Status: technical pilot complete. See [Phase 4 pilot completion](phase4-pg_cron-pilot.md) for validated results, the PostgreSQL 14/15 compatibility finding, and final CI artifacts.
+
 ## Decision
 
 Use **pg_cron** as the second pgextwin extension pilot.
