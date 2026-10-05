@@ -23,10 +23,35 @@ foreach ($required in @("name", "upstream", "postgresql")) {
     }
 }
 
-foreach ($required in @("repository", "ref", "version")) {
-    if (-not $extension.upstream.PSObject.Properties.Name.Contains($required)) {
-        throw "Extension config upstream section is missing '$required'."
+if (-not $extension.upstream.PSObject.Properties.Name.Contains("repository") -or
+    [string]::IsNullOrWhiteSpace([string]$extension.upstream.repository)) {
+    throw "Extension config upstream section is missing 'repository'."
+}
+
+$hasUniformRef = $extension.upstream.PSObject.Properties.Name.Contains("ref")
+$hasUniformVersion = $extension.upstream.PSObject.Properties.Name.Contains("version")
+$hasPerPostgresql = $extension.upstream.PSObject.Properties.Name.Contains("perPostgresql")
+
+if ($hasPerPostgresql) {
+    if ($hasUniformRef -or $hasUniformVersion) {
+        throw "upstream must use either uniform 'ref'/'version' or 'perPostgresql', not both."
     }
+
+    if ($null -eq $extension.upstream.perPostgresql -or
+        $extension.upstream.perPostgresql.PSObject.Properties.Count -eq 0) {
+        throw "upstream.perPostgresql must contain at least one PostgreSQL-major mapping."
+    }
+
+    $upstreamMode = "perPostgresql"
+}
+else {
+    if (-not $hasUniformRef -or -not $hasUniformVersion -or
+        [string]::IsNullOrWhiteSpace([string]$extension.upstream.ref) -or
+        [string]::IsNullOrWhiteSpace([string]$extension.upstream.version)) {
+        throw "upstream must define both 'ref' and 'version' when 'perPostgresql' is not used."
+    }
+
+    $upstreamMode = "uniform"
 }
 
 $allowedMajors = @()
@@ -69,6 +94,47 @@ if ($supported.Count -eq 0) {
     throw "No maintained PostgreSQL versions are eligible for extension '$($extension.name)'."
 }
 
+$matrixEntries = @(
+    foreach ($entry in $supported) {
+        $majorKey = [string][int]$entry.major
+
+        if ($upstreamMode -eq "uniform") {
+            $upstreamRef = [string]$extension.upstream.ref
+            $upstreamVersion = [string]$extension.upstream.version
+        }
+        else {
+            $mappingProperty = $extension.upstream.perPostgresql.PSObject.Properties[$majorKey]
+
+            if ($null -eq $mappingProperty) {
+                throw "upstream.perPostgresql has no mapping for eligible PostgreSQL major $majorKey."
+            }
+
+            $mapping = $mappingProperty.Value
+
+            if (-not $mapping.PSObject.Properties.Name.Contains("ref") -or
+                -not $mapping.PSObject.Properties.Name.Contains("version") -or
+                [string]::IsNullOrWhiteSpace([string]$mapping.ref) -or
+                [string]::IsNullOrWhiteSpace([string]$mapping.version)) {
+                throw "upstream.perPostgresql.$majorKey must define non-empty 'ref' and 'version'."
+            }
+
+            $upstreamRef = [string]$mapping.ref
+            $upstreamVersion = [string]$mapping.version
+        }
+
+        $resolved = [ordered]@{}
+
+        foreach ($property in $entry.PSObject.Properties) {
+            $resolved[$property.Name] = $property.Value
+        }
+
+        $resolved["upstreamRef"] = $upstreamRef
+        $resolved["upstreamVersion"] = $upstreamVersion
+
+        [PSCustomObject]$resolved
+    }
+)
+
 $verifyLicense = $true
 $licensePath = "LICENSE"
 
@@ -83,14 +149,23 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
     }
 }
 
-$matrix = @{ include = $supported } | ConvertTo-Json -Compress -Depth 8
+$matrix = @{ include = $matrixEntries } | ConvertTo-Json -Compress -Depth 10
+
+$uniformRef = ""
+$uniformVersion = ""
+
+if ($upstreamMode -eq "uniform") {
+    $uniformRef = [string]$extension.upstream.ref
+    $uniformVersion = [string]$extension.upstream.version
+}
 
 $outputs = [ordered]@{
     matrix                  = $matrix
     extension_name          = [string]$extension.name
     upstream_repository     = [string]$extension.upstream.repository
-    upstream_ref            = [string]$extension.upstream.ref
-    upstream_version        = [string]$extension.upstream.version
+    upstream_mode           = $upstreamMode
+    upstream_ref            = $uniformRef
+    upstream_version        = $uniformVersion
     verify_upstream_license = $verifyLicense.ToString().ToLowerInvariant()
     upstream_license_path   = $licensePath
 }
@@ -100,5 +175,6 @@ foreach ($entry in $outputs.GetEnumerator()) {
 }
 
 Write-Host "Extension: $($extension.name)"
-Write-Host "Upstream: $($extension.upstream.repository)@$($extension.upstream.ref)"
+Write-Host "Upstream repository: $($extension.upstream.repository)"
+Write-Host "Upstream mode: $upstreamMode"
 Write-Host "Build matrix: $matrix"
