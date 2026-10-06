@@ -28,6 +28,10 @@ jobs:
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
+      - name: Validate PostgreSQL lifecycle metadata
+        shell: pwsh
+        run: ./tests/test-postgresql-metadata.ps1
+
       - name: Test matrix resolver
         shell: pwsh
         run: ./tests/test-resolve-matrix.ps1
