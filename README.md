@@ -15,6 +15,7 @@ The shared workflow is responsible for:
 - checking out the pinned upstream extension source,
 - verifying the upstream license when configured,
 - invoking extension-specific build/install/test/package hooks,
+- adding and validating shared `PACKAGE-INFO.json` source/build metadata before the final ZIP is trusted,
 - generating and verifying release-only GitHub Artifact Attestations for final ZIPs,
 - uploading per-PostgreSQL-major artifacts,
 - generating SHA-256 checksums,
@@ -65,7 +66,7 @@ jobs:
 
 Both build reusable workflows check out co-located scripts and metadata from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. Pinning all three workflows to one build commit therefore fixes the workflow definitions, scripts, metadata, and release implementation to the same revision.
 
-See [Artifact Attestations and build provenance](docs/artifact-attestations.md), [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
+See [Package metadata contract](docs/package-metadata.md), [Artifact Attestations and build provenance](docs/artifact-attestations.md), [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
 
 ## PostgreSQL lifecycle
 
@@ -96,8 +97,8 @@ The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-f
 PostgreSQL 19 remains outside the production matrix until the documented GA/Windows/upstream gates are satisfied. Remaining work is intentionally separated into later milestones:
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
-2. SBOM and broader supply-chain provenance work beyond Step 6
-3. broader package metadata / catalog improvements
+2. SBOM and SBOM Attestation built on the Step 7 package identity
+3. catalog / website provenance visibility beyond ZIP-internal package metadata
 4. website improvements beyond lifecycle visibility
 5. upstream update automation
 6. second extension wave
