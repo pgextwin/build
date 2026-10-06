@@ -35,6 +35,8 @@ if (-not (Test-Path "$pgRoot\lib\postgres.lib")) {
 
 "PGROOT=$pgRoot" >> $env:GITHUB_ENV
 "PGPORT=$TestPort" >> $env:GITHUB_ENV
+"$pgRoot\bin" >> $env:GITHUB_PATH
 
 Write-Host "PGROOT=$pgRoot"
 Write-Host "PGPORT=$TestPort"
+Write-Host "Added PostgreSQL bin directory to subsequent-step PATH: $pgRoot\bin"
