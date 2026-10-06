@@ -23,22 +23,33 @@ Extension-specific source adaptation and functional tests remain in each extensi
 
 ## Reusable workflow
 
-Caller repositories use:
+Caller repositories pin the reusable workflow to an approved full commit SHA. Ordinary builds and release builds are separate caller jobs so that only the release path receives write permission.
 
 ```yaml
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
-    uses: pgextwin/build/.github/workflows/build-extension.yml@main
+    if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+    permissions:
+      contents: read
+    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
+    with:
+      extension_config_path: config/extension.json
+
+  release:
+    if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
+    permissions:
+      contents: write
+    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
 ```
 
-`contents: write` is required only so the reusable workflow can publish or update GitHub Releases from `release/*` branches. Build and test jobs in the reusable workflow run with read-only contents permission.
+Inside the reusable workflow, co-located build scripts and metadata are checked out from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. The caller SHA therefore pins the workflow definition, scripts, and metadata to the same revision without a separate mutable `build_ref`.
 
-See [Hook contract](docs/hook-contract.md) and [Architecture](docs/architecture.md).
+See [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
 
 ## PostgreSQL lifecycle
 
@@ -64,12 +75,12 @@ See [PostgreSQL lifecycle policy](docs/postgresql-lifecycle.md) for the complete
 
 ## Next platform work
 
-The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), and the **PostgreSQL 19 readiness / compatibility audit (Step 4) are complete**. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md).
+The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), the **PostgreSQL 19 readiness / compatibility audit (Step 4)**, and the **GitHub Actions trust baseline (Step 5)** are complete. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) and [GitHub Actions trust policy](docs/github-actions-security.md).
 
-PostgreSQL 19 is still pre-GA at the Step 4 checkpoint and is **not** part of the production matrix. Remaining work is intentionally separated into later milestones:
+PostgreSQL 19 remains outside the production matrix until the documented GA/Windows/upstream gates are satisfied. Remaining work is intentionally separated into later milestones:
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
-2. supply-chain hardening
+2. Artifact Attestation and broader supply-chain provenance work
 3. broader package metadata / catalog improvements
 4. website improvements beyond lifecycle visibility
 5. upstream update automation
