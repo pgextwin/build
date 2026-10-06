@@ -119,9 +119,9 @@ For dump/restore or PostgreSQL major upgrades, preserve/recreate IMMV metadata u
 | Public Release published | PASS |
 | Catalog entry published | PASS |
 
-## Next roadmap item
+## Historical next roadmap item
 
-The fixed initial roadmap now proceeds to **pg_qualstats**.
+At Phase 9 completion, the fixed initial roadmap proceeded to **pg_qualstats**. That final extension was subsequently completed and published; the initial eight-extension roadmap is now complete.
 
 The pg_qualstats pilot uses upstream `2.1.4`. Upstream already includes explicit Windows export fixes and a Windows-safe replacement for a non-exported PostgreSQL data symbol. The first pgextwin gate is PostgreSQL 17/18, with real predicate-statistics collection rather than only DLL loading.
 
@@ -137,4 +137,4 @@ PG14/15では旧Windows exportモデルに合わせた明示DEFを利用し、PG
 
 Release `v1.16-windows.1` はPG14〜18向け5 ZIPとSHA-256一覧を公開済みで、pgextwin catalogにも登録済みです。
 
-次は固定ロードマップ最後の pg_qualstats へ進みます。
+当時は固定ロードマップ最後の pg_qualstats へ進みました。pg_qualstatsもその後公開・catalog登録まで完了し、現在は初期8 Extensionロードマップ全体が完了しています。
