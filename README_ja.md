@@ -44,8 +44,11 @@ jobs:
 - Phase 3 pg_bigm pilot: 完了 — [Phase 3 pilot report](docs/phase3-pg_bigm-pilot.md)
 - Phase 4 第2Extension技術pilot: 完了 — [pg_cron pilot report](docs/phase4-pg_cron-pilot.md)
 - Phase 5 pg_hint_plan 技術pilot: 完了 — [pg_hint_plan pilot report](docs/phase5-pg_hint_plan-pilot.md)
+- Phase 6 pgAudit 技術pilot: 完了 — [pgAudit pilot report](docs/phase6-pgaudit-pilot.md)
+- Phase 7 set_user 技術pilot: 完了 — [set_user pilot report](docs/phase7-set_user-pilot.md)
+- Phase 8 pg_repack 技術pilot: `pgextwin/pg_repack` で進行中
 
-pg_hint_plan pilotではさらに、PostgreSQLメジャー別upstream release、メジャー別license notice、Flex scanner生成、公式PostgreSQL sourceからのquery-jumble互換object再生成を検証しました。`pg_bigm` と `pg_cron` はPostgreSQL 14〜18向けReleaseとcatalog登録まで完了しています。`pg_hint_plan` はPostgreSQL 14〜18で技術検証完了済みで、正式なOrganization repository作成後にproductizationへ進みます。
+pg_hint_plan pilotではさらに、PostgreSQLメジャー別upstream release、メジャー別license notice、Flex scanner生成、公式PostgreSQL sourceからのquery-jumble互換object再生成を検証しました。`pg_bigm`、`pg_cron`、`pg_hint_plan`、`pgaudit`、`set_user` はPostgreSQL 14〜18向けReleaseとcatalog登録まで完了しています。現在のロードマップ対象はpg_repackで、server側Extension DLLだけでなく `pg_repack.exe` clientもWindows向けpackageに含めて検証します。
 
 ## ライセンス
 
