@@ -38,48 +38,39 @@ The Step 5 baseline is:
 
 ## Reusable workflow self-pin contract
 
-Extension repositories call:
+Extension repositories pin both shared reusable workflows to the same approved build commit SHA:
 
 ```yaml
 uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
+uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
 ```
 
-The reusable workflow does **not** independently select `pgextwin/build@main` and does not require a duplicated `build_ref` input.
-
-Instead, each job that needs co-located build scripts and metadata checks out:
+The read-only build workflow does **not** independently select `pgextwin/build@main` and does not require a duplicated `build_ref` input. Jobs that need co-located build scripts and metadata check out:
 
 ```yaml
 repository: ${{ job.workflow_repository }}
 ref: ${{ job.workflow_sha }}
 ```
 
-On GitHub.com, `job.workflow_repository` identifies the repository containing the reusable workflow and `job.workflow_sha` is the commit SHA of the workflow file defining the current job. Therefore one caller SHA pin determines all three trust inputs:
+On GitHub.com, `job.workflow_repository` identifies the repository containing the reusable workflow and `job.workflow_sha` is the commit SHA of the workflow file defining the current job. The caller SHA therefore pins the build workflow definition, build scripts, and metadata to exactly one revision. The release workflow is pinned to that same build repository commit.
 
-1. the reusable workflow definition,
-2. the build scripts,
-3. the PostgreSQL/build metadata.
-
-This is intentionally stronger than a duplicated `uses` + `build_ref` input because the two values cannot drift apart.
+This is intentionally stronger than a duplicated `uses` + `build_ref` input because the workflow/source values cannot drift apart.
 
 ## Caller permission model
 
-The initial extension caller workflow has two mutually exclusive reusable-workflow jobs.
+The build and publication trust boundaries are separate reusable workflows.
 
-| Trigger/path | Caller `contents` permission | Release path |
-| --- | --- | --- |
-| `pull_request` | `read` | No |
-| push to `main` | `read` | No |
-| `workflow_dispatch` on a non-`release/*` ref | `read` | No |
-| push to `release/*` | `write` | Yes |
-| `workflow_dispatch` on a `release/*` ref | `write` | Yes |
+| Trigger/path | Build job | Release job | Release possible? |
+| --- | --- | --- | --- |
+| `pull_request` | `contents: read` | skipped | No |
+| push to `main` | `contents: read` | skipped | No |
+| `workflow_dispatch` on a non-`release/*` ref | `contents: read` | skipped | No |
+| push to `release/*` | `contents: read` | `contents: write` | Yes |
+| `workflow_dispatch` on a `release/*` ref | `contents: read` | `contents: write` | Yes |
 
-The reusable workflow also declares permissions per job:
+`build-extension.yml` contains matrix resolution plus build/test/package jobs and is read-only throughout. `release-extension.yml` runs only on `release/*`, downloads the artifacts produced earlier in the same workflow run, creates `SHA256SUMS.txt` and bilingual notes, and publishes or updates the GitHub Release with `contents: write`.
 
-- matrix resolution: `contents: read`
-- build/test/package: `contents: read`
-- GitHub Release publication: `contents: write`
-
-A reusable workflow cannot elevate the permissions granted by its caller. The release caller must therefore explicitly grant `contents: write`, while ordinary PR/main builds pass only `contents: read`.
+A reusable workflow cannot elevate permissions granted by its caller. Separating release publication avoids placing a write-scoped job inside the reusable workflow invoked by ordinary PR/main builds.
 
 Do not introduce `pull_request_target` for extension builds. Pull-request code must not execute with a write token.
 
@@ -92,11 +83,11 @@ Use this sequence:
 1. change `pgextwin/build` on a branch,
 2. run and review the build repository CI,
 3. merge the build change and record the resulting `main` commit SHA,
-4. update each intended extension caller's reusable-workflow `uses:` reference to that exact SHA,
+4. update both `build-extension.yml@SHA` and `release-extension.yml@SHA` in each intended extension caller to that exact SHA,
 5. run the extension Windows CI,
 6. merge the caller update only after the new shared revision passes.
 
-Because the reusable workflow self-checkout uses `job.workflow_sha`, no second build revision field needs to be updated.
+Because the build reusable workflow self-checkout uses `job.workflow_sha`, no second build revision field needs to be updated.
 
 ## Dependency updates
 
