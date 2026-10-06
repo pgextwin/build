@@ -21,7 +21,7 @@
 
 ## Reusable Workflow
 
-呼び出し側は、承認済みのfull commit SHAへReusable Workflowをpinします。通常buildとRelease buildをcaller jobとして分け、write権限はRelease pathだけに渡します。
+呼び出し側は、build用・release用の両Reusable Workflowを、同じ承認済み `pgextwin/build` full commit SHAへpinします。build jobは常にread-onlyとし、`release/*` のときだけ別のrelease jobへwrite権限を渡します。
 
 ```yaml
 permissions:
@@ -29,7 +29,6 @@ permissions:
 
 jobs:
   windows:
-    if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
     permissions:
       contents: read
     uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
@@ -38,14 +37,16 @@ jobs:
 
   release:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
+    needs: windows
     permissions:
       contents: write
-    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
+    uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
     with:
-      extension_config_path: config/extension.json
+      extension_name: ${{ needs.windows.outputs.extension_name }}
+      upstream_repository: ${{ needs.windows.outputs.upstream_repository }}
 ```
 
-Reusable Workflow内部では、同居するbuild scriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。これによりcallerの1つのSHA pinだけで、workflow定義・script・metadataを必ず同一revisionへ固定でき、別のmutableな `build_ref` は不要です。
+`build-extension.yml` 内では、同居するbuild scriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。callerのbuild SHAだけでworkflow定義・script・metadataを同一revisionへ固定でき、別のmutableな `build_ref` は不要です。
 
 詳細は [GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
 

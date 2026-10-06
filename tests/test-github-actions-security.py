@@ -57,6 +57,17 @@ if build_text.count("ref: ${{ job.workflow_sha }}") < 2:
 if re.search(r"repository:\s*pgextwin/build[\s\S]{0,200}?ref:\s*(?:main|refs/heads/main)\b", build_text):
     errors.append("build-extension.yml: mutable pgextwin/build main checkout is forbidden")
 
+if re.search(r"^\s*contents:\s*write\s*$", build_text, re.MULTILINE):
+    errors.append("build-extension.yml: build reusable workflow must remain read-only")
+
+release_workflow = WORKFLOW_DIR / "release-extension.yml"
+if not release_workflow.exists():
+    errors.append("release-extension.yml: dedicated release reusable workflow is required")
+else:
+    release_text = release_workflow.read_text(encoding="utf-8")
+    if not re.search(r"^\s*contents:\s*write\s*$", release_text, re.MULTILINE):
+        errors.append("release-extension.yml: release job must explicitly request contents: write")
+
 if errors:
     print("GitHub Actions trust policy validation failed:", file=sys.stderr)
     for error in errors:
