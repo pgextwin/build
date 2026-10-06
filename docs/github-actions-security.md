@@ -7,7 +7,7 @@ This document defines the pgextwin GitHub Actions trust baseline established in 
 The policy covers:
 
 - immutable full-SHA references for remote GitHub Actions,
-- immutable full-SHA references from extension repositories to the shared reusable workflows,
+- immutable full-SHA references from extension repositories to shared reusable workflows,
 - identical revision selection for reusable workflow definitions and co-located build scripts/metadata,
 - least-privilege `GITHUB_TOKEN` permissions,
 - release-only OIDC and Artifact Attestation permissions,
@@ -42,49 +42,48 @@ GitHub Actions Dependabot remains enabled for this repository.
 
 ## Reusable workflow self-pin contract
 
-Extension repositories pin both shared reusable workflows to the same approved build commit SHA:
+Extension repositories pin all three shared workflows to the same approved build commit SHA:
 
 ```yaml
 uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
+uses: pgextwin/build/.github/workflows/build-extension-attested.yml@<same-40-character-build-commit-sha>
 uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
 ```
 
-Jobs that need co-located build scripts and metadata check out:
+Both build workflows check out their co-located scripts and metadata using:
 
 ```yaml
 repository: ${{ job.workflow_repository }}
 ref: ${{ job.workflow_sha }}
 ```
 
-On GitHub.com, `job.workflow_repository` identifies the repository containing the reusable workflow and `job.workflow_sha` identifies the commit of that workflow definition. The caller SHA therefore fixes the workflow definition, scripts, and metadata to one revision.
+The caller SHA therefore fixes the workflow definition, scripts, and metadata to one immutable revision. Mutable `@main` references are forbidden.
 
-Mutable `@main` references are forbidden.
+## Why normal and attested builds are separate workflows
+
+GitHub reusable-workflow token permissions are monotonic: the called workflow can keep or reduce permissions passed by the caller, but it cannot elevate them. Artifact Attestation also requires the caller and the called workflow to have the necessary attestation/OIDC permissions.
+
+A single reusable workflow that statically requests release-only write scopes cannot also be safely called from a caller granting only `contents: read`; GitHub validates the nested permission contract before build jobs start. Therefore Step 6 uses two build reusable workflows with separate permission contracts:
+
+- `build-extension.yml`: normal PR/main/non-release build; read-only.
+- `build-extension-attested.yml`: release build; build/test/package plus provenance generation and verification.
+- `release-extension.yml`: publication only; `contents: write`.
+
+This separation preserves the PR trust boundary without granting dormant OIDC or attestation write scopes to ordinary builds.
 
 ## Caller permission model
 
-The extension caller is split into three trust boundaries.
+| Path | contents | id-token | attestations | artifact-metadata | Purpose |
+| --- | --- | --- | --- | --- | --- |
+| PR normal build | read | none | none | none | Build/test/package only |
+| main normal build | read | none | none | none | Build/test/package only |
+| non-release workflow_dispatch | read | none | none | none | Build/test/package only |
+| release build | read | write | write | write | Build/test/package, attest and verify final ZIP |
+| release publish | write | none | none | none | Download unchanged ZIPs, create checksums/notes, publish Release |
 
-| Path | Shared build | Provenance | Publication |
-| --- | --- | --- | --- |
-| pull request | `contents: read` | disabled | skipped |
-| push to `main` | `contents: read` | disabled | skipped |
-| non-release `workflow_dispatch` | `contents: read` | disabled | skipped |
-| `release/*` build | `contents: read` + attestation permissions | enabled | not in this job |
-| `release/*` publish | not in this job | no OIDC/attestation permission | `contents: write` |
+The current `actions/attest` contract requires `artifact-metadata: write` in addition to `id-token: write` and `attestations: write`. It is therefore granted only to the release build path.
 
-The release build path grants exactly:
-
-```yaml
-permissions:
-  contents: read
-  id-token: write
-  attestations: write
-  artifact-metadata: write
-```
-
-`id-token: write` is used only to obtain the short-lived signing identity required by Sigstore-backed GitHub Artifact Attestations. `attestations: write` persists the attestation, and the current `actions/attest` contract uses `artifact-metadata: write` to create the artifact storage record.
-
-The called reusable build job declares the same permissions because GitHub requires the caller and called workflow to permit reusable-workflow attestation. A reusable workflow cannot elevate permissions beyond the caller, so PR/main/non-release callers that grant only `contents: read` remain read-only.
+`id-token: write` is used to mint the short-lived OIDC identity used to obtain the Sigstore signing certificate. `attestations: write` persists the attestation. `artifact-metadata: write` permits the artifact storage record used by the current action implementation.
 
 The release publication workflow keeps only:
 
@@ -93,25 +92,21 @@ permissions:
   contents: write
 ```
 
-It does not receive `id-token: write`, `attestations: write`, or `artifact-metadata: write`.
-
 Do not introduce `pull_request_target`. Fork or pull-request code must never execute with release write or OIDC permissions.
 
 ## Artifact Attestation contract
 
-`build-extension.yml` exposes the boolean `attest_provenance` input. Its default is `false`.
-
-When enabled by the release build caller, the matrix job performs:
+`build-extension-attested.yml` performs, per PostgreSQL-major matrix job:
 
 1. build,
 2. install,
 3. functional smoke test,
 4. final ZIP packaging,
 5. `actions/attest` SLSA build provenance generation for `dist/*.zip`,
-6. `gh attestation verify` constrained to the caller repository and `pgextwin/build/.github/workflows/build-extension.yml`,
+6. `gh attestation verify` constrained to the caller repository and `pgextwin/build/.github/workflows/build-extension-attested.yml`,
 7. upload of the unchanged ZIP.
 
-The publication job later downloads the same ZIP bytes, creates `SHA256SUMS.txt`, and publishes the assets without repackaging.
+The publication job later downloads those ZIP bytes, creates `SHA256SUMS.txt`, and publishes the assets without repackaging them.
 
 See [Artifact Attestations and build provenance](artifact-attestations.md).
 
@@ -122,7 +117,7 @@ Use this sequence:
 1. change `pgextwin/build` on a branch,
 2. run and review the build repository CI,
 3. merge and record the resulting `main` commit SHA,
-4. update both reusable-workflow references in each extension caller to that exact SHA,
+4. update all three reusable-workflow references in each extension caller to that exact SHA,
 5. run extension Windows CI,
 6. merge only after the new shared revision passes.
 
@@ -135,9 +130,10 @@ Use this sequence:
 - `permissions: write-all`,
 - `pull_request_target`,
 - mutable `pgextwin/build@main` source checkout,
-- missing or unsafe `attest_provenance` defaults,
+- OIDC/attestation permissions or `actions/attest` in the normal build workflow,
+- missing release-build attestation permissions,
 - an unapproved `actions/attest` pin,
-- missing attestation/verification steps,
+- incorrect package → attest → verify → upload ordering,
 - removal of `SHA256SUMS.txt`,
 - and OIDC/attestation permissions in the release publication workflow.
 
