@@ -172,9 +172,9 @@ All forms preserve backward compatibility with the existing pg_bigm and pg_cron 
 | Per-major ZIP artifacts produced | PASS |
 | Public Release intentionally not produced by probe | PASS |
 
-## Remaining productization work
+## Historical productization follow-up
 
-The technical pilot is complete. Productization now requires:
+The technical pilot was complete at this point. At the time of this report, productization still required:
 
 1. create public repository `pgextwin/pg_hint_plan`,
 2. copy the validated implementation into that repository,
@@ -184,7 +184,7 @@ The technical pilot is complete. Productization now requires:
 6. add the verified Release to `pgextwin/catalog`,
 7. verify it is rendered by the website.
 
-Repository creation is the next GitHub administrative boundary and should be performed in Work mode.
+All seven productization steps above were subsequently completed. `pgextwin/pg_hint_plan` now has a public PostgreSQL 14–18 Release and a catalog entry; the initial eight-extension roadmap is complete.
 
 ---
 
@@ -198,4 +198,4 @@ PG14〜16では標準Windows import libraryから利用できないPostgreSQL co
 
 最終runではPG14〜16についてhint tableを有効化する経路まで実行し、`EnableQueryId()` / `JumbleQuery()` を含む互換経路がruntimeでも動作することを確認しました。
 
-次の境界は正式な `pgextwin/pg_hint_plan` repositoryの作成です。
+この時点での次の境界は正式な `pgextwin/pg_hint_plan` repositoryの作成でした。その後、repository作成・PG14〜18 Release公開・catalog登録まで完了し、現在は初期8 Extensionロードマップ全体が完了しています。
