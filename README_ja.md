@@ -38,6 +38,14 @@ jobs:
 
 詳細は [Hook contract](docs/hook-contract.md) と [Architecture](docs/architecture.md) を参照してください。
 
+## PostgreSQL Lifecycle
+
+PostgreSQLのLifecycle filterはこのrepositoryで一元管理します。通常の新規build対象になるのは、PostgreSQLコミュニティのサポート期間内で、Extension manifestが許可し、必要なupstream ref/versionが存在するmajorだけです。公式EOL日はその日を含めて有効とし、翌UTC日から通常のbuild matrixから除外します。
+
+2026-10-06時点でPostgreSQL 14は **2026-11-12** までサポート対象です。その日までは通常build対象のままとし、**2026-11-13** から新規build matrixから除外します。EOL後も既存Git tag、GitHub Release、asset、checksumは保持します。
+
+詳細なルールと決定論的な境界テスト仕様は [PostgreSQL lifecycle policy](docs/postgresql-lifecycle.md) を参照してください。
+
 ## 現在の位置づけ
 
 - Phase 2 共通ビルド基盤: 完了
@@ -54,15 +62,16 @@ jobs:
 
 ## 次のplatform作業
 
-初期Extensionロードマップはここで完了です。以下は後続の独立したplatform milestoneとして扱い、**このclosure stepでは実装しません**。
+初期Extensionロードマップは完了済みで、PostgreSQL lifecycle / PG14 EOLの**build基盤側Foundationも完了**しました。後続のplatform作業は別milestoneとして扱います。
 
-1. PostgreSQL lifecycle / PG14 EOL
-2. PostgreSQL 19 readiness
-3. supply-chain hardening
-4. package metadata / catalog improvements
-5. website improvements
-6. upstream update automation
-7. second extension wave
+1. CatalogでCurrent maintenanceとHistorical availabilityを区別するLifecycle表現
+2. PG14 EOL表示を含むWebsiteのLifecycle表現
+3. 明示的なmilestone決定後のPostgreSQL 19 experimental/readiness
+4. supply-chain hardening
+5. より広いpackage metadata / catalog改善
+6. Lifecycle表示以外のwebsite改善
+7. upstream update automation
+8. second extension wave
 
 ## ライセンス
 
