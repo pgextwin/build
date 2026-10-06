@@ -42,7 +42,7 @@ def run_case(document, expected_success: bool, label: str) -> None:
                 "--expected-version",
                 "1.2",
                 "--expected-tool-version",
-                "1.54.0",
+                "1.54.1",
             ],
             text=True,
             capture_output=True,
@@ -62,7 +62,7 @@ base = {
     "name": "pg_bigm-v1.2-20250903-pg18-windows-x64",
     "documentNamespace": "https://anchore.com/syft/file/fixture-1234",
     "creationInfo": {
-        "creators": ["Organization: Anchore, Inc", "Tool: syft-1.54.0"],
+        "creators": ["Organization: Anchore, Inc", "Tool: syft-1.54.1"],
         "created": "2026-10-07T00:00:00Z",
     },
     "packages": [

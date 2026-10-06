@@ -7,8 +7,8 @@ FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 USES_LINE = re.compile(r"^\s*uses:\s*([^\s#]+)(?:\s+#\s*(.*))?\s*$")
 VERSION_COMMENT = re.compile(r"\bv\d+(?:\.\d+){0,2}\b")
 ATTEST_PIN = "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2"
-SYFT_VERSION = "1.54.0"
-SYFT_WINDOWS_AMD64_SHA256 = "77f4b472779058e819eec9a054753a5071a996aaa40db31a290f8b256748593f"
+SYFT_VERSION = "1.54.1"
+SYFT_WINDOWS_AMD64_SHA256 = "8b56e8285e295e0bbed26eeea9b16ed51c493be97ccdf42dae6326c84fe8e19f"
 SPDX_PREDICATE = "https://spdx.dev/Document/v2.3"
 
 errors = []
