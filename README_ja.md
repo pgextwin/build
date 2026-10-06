@@ -13,6 +13,7 @@
 - 固定されたupstreamソースのcheckout
 - 設定された場合のupstream LICENSE照合
 - Extension固有のbuild/install/test/package hook呼び出し
+- Release buildでの最終ZIPに対するGitHub Artifact Attestation生成・検証
 - PostgreSQLメジャーバージョン別artifactのアップロード
 - SHA-256チェックサム生成
 - `release/*` ブランチからのGitHub Release公開
@@ -21,7 +22,7 @@
 
 ## Reusable Workflow
 
-呼び出し側は、build用・release用の両Reusable Workflowを、同じ承認済み `pgextwin/build` full commit SHAへpinします。build jobは常にread-onlyとし、`release/*` のときだけ別のrelease jobへwrite権限を渡します。
+caller repositoryは、build用・release用Reusable Workflowを同じ承認済み `pgextwin/build` full commit SHAへpinします。PR / main / non-release dispatchはread-onlyの通常build、`release/*` はattestation権限を持つrelease build、その後に `contents: write` だけを持つrelease publishへ分離します。
 
 ```yaml
 permissions:
@@ -29,26 +30,41 @@ permissions:
 
 jobs:
   windows:
+    if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
     permissions:
       contents: read
     uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
 
+  release_build:
+    if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    uses: pgextwin/build/.github/workflows/build-extension.yml@<same-40-character-build-commit-sha>
+    with:
+      extension_config_path: config/extension.json
+      attest_provenance: true
+
   release:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
-    needs: windows
+    needs: release_build
     permissions:
       contents: write
     uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
     with:
-      extension_name: ${{ needs.windows.outputs.extension_name }}
-      upstream_repository: ${{ needs.windows.outputs.upstream_repository }}
+      extension_name: ${{ needs.release_build.outputs.extension_name }}
+      upstream_repository: ${{ needs.release_build.outputs.upstream_repository }}
 ```
 
-`build-extension.yml` 内では、同居するbuild scriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。callerのbuild SHAだけでworkflow定義・script・metadataを同一revisionへ固定でき、別のmutableな `build_ref` は不要です。
+`attest_provenance` のdefaultは `false` です。release buildだけが最終 `dist/*.zip` をattestし、`gh attestation verify` で検証してから、変更していない同一ZIPをpublication用artifactとしてアップロードします。release publish workflowにはOIDC / attestation write権限を渡しません。
 
-詳細は [GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
+`build-extension.yml` 内では、同居するbuild scriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。callerのbuild SHAだけでworkflow定義・script・metadataを同一revisionへ固定できます。
+
+詳細は [Artifact Attestations / build provenance](docs/artifact-attestations.md)、[GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
 
 ## PostgreSQL Lifecycle
 
@@ -74,12 +90,12 @@ PostgreSQLのLifecycle filterはこのrepositoryで一元管理します。通�
 
 ## 次のplatform作業
 
-初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）**、**GitHub Actions Trust Baseline（Step 5）まで完了**しました。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) と [GitHub Actions trust policy](docs/github-actions-security.md) を参照してください。
+初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）**、**GitHub Actions Trust Baseline（Step 5）まで完了**し、**Artifact Attestation / Release Build Provenance（Step 6）**をこの変更で導入します。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) と [GitHub Actions trust policy](docs/github-actions-security.md) を参照してください。
 
 PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たすまではproduction matrixへ追加しません。後続作業は別milestoneとして扱います。
 
 1. 文書化したGA / Windows配布 / upstream gateを満たした後のPostgreSQL 19正式オンボーディング
-2. Artifact Attestationと、より広いsupply-chain provenance強化
+2. Step 6以降のSBOMなど、より広いsupply-chain provenance強化
 3. より広いpackage metadata / catalog改善
 4. Lifecycle表示以外のwebsite改善
 5. upstream update automation

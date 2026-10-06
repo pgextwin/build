@@ -1,18 +1,19 @@
 # GitHub Actions trust and permission policy
 
-This document defines the Step 5 trust baseline for pgextwin GitHub Actions.
+This document defines the pgextwin GitHub Actions trust baseline established in Step 5 and the Artifact Attestation permission boundary added in Step 6.
 
 ## Scope
 
-The baseline covers the GitHub Actions trust chain only:
+The policy covers:
 
-- immutable references for remote GitHub Actions,
-- immutable references from extension repositories to the shared reusable workflow,
-- identical revision selection for the reusable workflow and the co-located build scripts/metadata,
+- immutable full-SHA references for remote GitHub Actions,
+- immutable full-SHA references from extension repositories to the shared reusable workflows,
+- identical revision selection for reusable workflow definitions and co-located build scripts/metadata,
 - least-privilege `GITHUB_TOKEN` permissions,
-- and a small regression guard.
+- release-only OIDC and Artifact Attestation permissions,
+- and regression guards for those trust boundaries.
 
-Artifact Attestation, SBOM generation, broader package dependency locking, PACKAGE-INFO/provenance expansion, upstream source commit recording, and organization-level SHA enforcement are separate work.
+SBOM generation, PACKAGE-INFO v2, broader dependency locking, upstream source commit expansion, compiler/toolchain provenance, Chocolatey provenance, Catalog/Website attestation visibility, and PostgreSQL 19 production onboarding remain separate work.
 
 ## Remote Action pin policy
 
@@ -26,15 +27,18 @@ uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
 The SHA must be resolved from the action's official GitHub repository. Do not copy a SHA from a fork or third-party mirror.
 
-The Step 5 baseline is:
+The current baseline is:
 
-| Action | Full commit SHA | Version represented by the major tag |
+| Action | Full commit SHA | Version |
 | --- | --- | --- |
 | `actions/checkout` | `3d3c42e5aac5ba805825da76410c181273ba90b1` | `v7.0.1` |
 | `actions/setup-python` | `ece7cb06caefa5fff74198d8649806c4678c61a1` | `v6.3.0` |
 | `actions/setup-node` | `249970729cb0ef3589644e2896645e5dc5ba9c38` | `v6.5.0` |
 | `actions/upload-artifact` | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | `v7.0.1` |
 | `actions/download-artifact` | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | `v8.0.1` |
+| `actions/attest` | `1e69f48acb82d1966a394da916b4c1698aa569d6` | `v4.2.2` |
+
+GitHub Actions Dependabot remains enabled for this repository.
 
 ## Reusable workflow self-pin contract
 
@@ -45,77 +49,112 @@ uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-c
 uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
 ```
 
-The read-only build workflow does **not** independently select `pgextwin/build@main` and does not require a duplicated `build_ref` input. Jobs that need co-located build scripts and metadata check out:
+Jobs that need co-located build scripts and metadata check out:
 
 ```yaml
 repository: ${{ job.workflow_repository }}
 ref: ${{ job.workflow_sha }}
 ```
 
-On GitHub.com, `job.workflow_repository` identifies the repository containing the reusable workflow and `job.workflow_sha` is the commit SHA of the workflow file defining the current job. The caller SHA therefore pins the build workflow definition, build scripts, and metadata to exactly one revision. The release workflow is pinned to that same build repository commit.
+On GitHub.com, `job.workflow_repository` identifies the repository containing the reusable workflow and `job.workflow_sha` identifies the commit of that workflow definition. The caller SHA therefore fixes the workflow definition, scripts, and metadata to one revision.
 
-This is intentionally stronger than a duplicated `uses` + `build_ref` input because the workflow/source values cannot drift apart.
+Mutable `@main` references are forbidden.
 
 ## Caller permission model
 
-The build and publication trust boundaries are separate reusable workflows.
+The extension caller is split into three trust boundaries.
 
-| Trigger/path | Build job | Release job | Release possible? |
+| Path | Shared build | Provenance | Publication |
 | --- | --- | --- | --- |
-| `pull_request` | `contents: read` | skipped | No |
-| push to `main` | `contents: read` | skipped | No |
-| `workflow_dispatch` on a non-`release/*` ref | `contents: read` | skipped | No |
-| push to `release/*` | `contents: read` | `contents: write` | Yes |
-| `workflow_dispatch` on a `release/*` ref | `contents: read` | `contents: write` | Yes |
+| pull request | `contents: read` | disabled | skipped |
+| push to `main` | `contents: read` | disabled | skipped |
+| non-release `workflow_dispatch` | `contents: read` | disabled | skipped |
+| `release/*` build | `contents: read` + attestation permissions | enabled | not in this job |
+| `release/*` publish | not in this job | no OIDC/attestation permission | `contents: write` |
 
-`build-extension.yml` contains matrix resolution plus build/test/package jobs and is read-only throughout. `release-extension.yml` runs only on `release/*`, downloads the artifacts produced earlier in the same workflow run, creates `SHA256SUMS.txt` and bilingual notes, and publishes or updates the GitHub Release with `contents: write`.
+The release build path grants exactly:
 
-A reusable workflow cannot elevate permissions granted by its caller. Separating release publication avoids placing a write-scoped job inside the reusable workflow invoked by ordinary PR/main builds.
+```yaml
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+```
 
-Do not introduce `pull_request_target` for extension builds. Pull-request code must not execute with a write token.
+`id-token: write` is used only to obtain the short-lived signing identity required by Sigstore-backed GitHub Artifact Attestations. `attestations: write` persists the attestation, and the current `actions/attest` contract uses `artifact-metadata: write` to create the artifact storage record.
+
+The called reusable build job declares the same permissions because GitHub requires the caller and called workflow to permit reusable-workflow attestation. A reusable workflow cannot elevate permissions beyond the caller, so PR/main/non-release callers that grant only `contents: read` remain read-only.
+
+The release publication workflow keeps only:
+
+```yaml
+permissions:
+  contents: write
+```
+
+It does not receive `id-token: write`, `attestations: write`, or `artifact-metadata: write`.
+
+Do not introduce `pull_request_target`. Fork or pull-request code must never execute with release write or OIDC permissions.
+
+## Artifact Attestation contract
+
+`build-extension.yml` exposes the boolean `attest_provenance` input. Its default is `false`.
+
+When enabled by the release build caller, the matrix job performs:
+
+1. build,
+2. install,
+3. functional smoke test,
+4. final ZIP packaging,
+5. `actions/attest` SLSA build provenance generation for `dist/*.zip`,
+6. `gh attestation verify` constrained to the caller repository and `pgextwin/build/.github/workflows/build-extension.yml`,
+7. upload of the unchanged ZIP.
+
+The publication job later downloads the same ZIP bytes, creates `SHA256SUMS.txt`, and publishes the assets without repackaging.
+
+See [Artifact Attestations and build provenance](artifact-attestations.md).
 
 ## Updating the shared build revision
-
-The shared build SHA is an explicit dependency of each extension repository.
 
 Use this sequence:
 
 1. change `pgextwin/build` on a branch,
 2. run and review the build repository CI,
-3. merge the build change and record the resulting `main` commit SHA,
-4. update both `build-extension.yml@SHA` and `release-extension.yml@SHA` in each intended extension caller to that exact SHA,
-5. run the extension Windows CI,
-6. merge the caller update only after the new shared revision passes.
-
-Because the build reusable workflow self-checkout uses `job.workflow_sha`, no second build revision field needs to be updated.
-
-## Dependency updates
-
-Dependabot `github-actions` version updates are enabled only where GitHub-owned Actions are directly referenced. Dependabot understands full-SHA GitHub Action references and same-line version comments.
-
-For the internal `pgextwin/build` reusable-workflow pin, the baseline remains a reviewed manual update contract. Dependabot can update reusable workflow Git references, but following the latest arbitrary build commit is not treated as an automatic trust decision.
+3. merge and record the resulting `main` commit SHA,
+4. update both reusable-workflow references in each extension caller to that exact SHA,
+5. run extension Windows CI,
+6. merge only after the new shared revision passes.
 
 ## Regression guard
 
-`tests/test-github-actions-security.py` validates the build repository's tracked workflow files. It rejects:
+`tests/test-github-actions-security.py` rejects:
 
 - remote `uses:` references that are not full 40-character SHAs,
 - GitHub-owned action SHA pins without a same-line version comment,
 - `permissions: write-all`,
-- and a mutable `pgextwin/build@main` source checkout.
+- `pull_request_target`,
+- mutable `pgextwin/build@main` source checkout,
+- missing or unsafe `attest_provenance` defaults,
+- an unapproved `actions/attest` pin,
+- missing attestation/verification steps,
+- removal of `SHA256SUMS.txt`,
+- and OIDC/attestation permissions in the release publication workflow.
 
-It also requires the reusable workflow's shared-source checkout to use `job.workflow_repository` and `job.workflow_sha`.
+Organization-level **Require actions to be pinned to a full-length commit SHA** remains enabled.
 
 ## Boundary with later supply-chain steps
 
-This Step intentionally does not add:
+Step 6 intentionally does not add:
 
-- `actions/attest`,
-- `attestations: write`,
-- `id-token: write`,
-- SBOM/provenance attestation,
-- broad Python/package lockfiles or hash pinning,
-- PACKAGE-INFO v2/provenance metadata,
+- SPDX,
+- CycloneDX,
+- Syft,
+- SBOM attestations,
+- PACKAGE-INFO v2,
+- expanded upstream source commit SHA recording,
+- compiler/toolchain provenance fields,
+- Python dependency locking,
+- Chocolatey package provenance,
+- Catalog/Website attestation visibility,
 - or PostgreSQL 19 production support.
-
-Organization-level **Require actions to be pinned to a full-length commit SHA** should be enabled only after all repositories intended to run under that policy have been verified compatible.
