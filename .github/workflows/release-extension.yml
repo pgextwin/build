@@ -46,7 +46,7 @@ jobs:
 
           ## English
 
-          These are **unofficial Windows x64 binaries** of [${extension}](https://github.com/${upstream_repo}), built from pinned upstream source references defined by this repository's manifest. The exact upstream ref used for each PostgreSQL package is recorded in its \`PACKAGE-INFO.txt\`.
+          These are **unofficial Windows x64 binaries** of [${extension}](https://github.com/${upstream_repo}), built from pinned upstream source references defined by this repository's manifest. \`PACKAGE-INFO.txt\` is the human-readable package summary, while \`PACKAGE-INFO.json\` is the machine-readable source/build identity.
 
           Every ZIP is compiled and functionally smoke-tested on GitHub Actions against the PostgreSQL major version in its filename. The build matrix includes only PostgreSQL versions that are both allowed by this extension's manifest and still under PostgreSQL community maintenance.
 
@@ -57,6 +57,15 @@ jobs:
           - [Upstream repository](https://github.com/${upstream_repo})
 
           For extension behavior, SQL APIs, configuration, limitations, and licensing, the upstream project remains authoritative.
+
+          ### Package metadata and verification
+
+          - \`PACKAGE-INFO.txt\`: human-readable compatibility summary and extension-specific notes inside each ZIP.
+          - \`PACKAGE-INFO.json\`: machine-readable package, upstream, packaging-repository, shared-build, PostgreSQL, toolchain, runner, and workflow-run identity inside each ZIP.
+          - \`SHA256SUMS.txt\`: external SHA-256 digest list for downloaded Release ZIPs.
+          - GitHub Artifact Attestation: externally verifiable build provenance bound to the final ZIP digest.
+
+          \`PACKAGE-INFO.json\` does not contain the ZIP's own SHA-256 or an Attestation ID/URL. Those values are intentionally external so the final ZIP can be attested without a digest cycle.
 
           ### File verification
 
@@ -78,7 +87,7 @@ jobs:
 
           ## 日本語
 
-          [${extension}](https://github.com/${upstream_repo}) の **非公式 Windows x64 バイナリ**です。このrepositoryのmanifestで固定したupstreamソースからビルドしています。PostgreSQLメジャーごとに使用した正確なupstream refは各packageの \`PACKAGE-INFO.txt\` に記録されます。
+          [${extension}](https://github.com/${upstream_repo}) の **非公式 Windows x64 バイナリ**です。このrepositoryのmanifestで固定したupstreamソースからビルドしています。\`PACKAGE-INFO.txt\` は人間向けpackage summary、\`PACKAGE-INFO.json\` は機械可読なsource/build identityです。
 
           各ZIPは、ファイル名に記載されたPostgreSQLメジャーバージョンに対してGitHub Actions上でコンパイルし、Extension固有の機能スモークテストまで実施しています。対象は、そのExtensionのmanifestで許可され、かつPostgreSQLコミュニティのメンテナンス期間内にあるバージョンのみです。
 
@@ -89,6 +98,15 @@ jobs:
           - [Upstream repository / 公式リポジトリ](https://github.com/${upstream_repo})
 
           Extension本体の機能仕様、SQL API、設定、制限事項、ライセンスについてはupstreamプロジェクトを正規の情報源としてください。
+
+          ### Package metadataと検証
+
+          - \`PACKAGE-INFO.txt\`: ZIP内部の人間向け互換性summary・Extension固有注意事項。
+          - \`PACKAGE-INFO.json\`: ZIP内部の機械可読なpackage / upstream / packaging repository / shared build / PostgreSQL / toolchain / runner / workflow run identity。
+          - \`SHA256SUMS.txt\`: Release ZIPをダウンロード後に照合する外部SHA-256 digest一覧。
+          - GitHub Artifact Attestation: final ZIP digestに紐付く外部検証可能なbuild provenance。
+
+          \`PACKAGE-INFO.json\` にはZIP自身のSHA-256やAttestation ID/URLを入れません。final ZIPを変更せずAttestation対象にできるよう、これらは意図的に外部へ分離しています。
 
           ### ファイル検証
 
