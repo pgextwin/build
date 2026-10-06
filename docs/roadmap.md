@@ -12,8 +12,8 @@ This document records the fixed implementation order for the initial pgextwin ex
 | 4 | pgAudit | pgaudit/pgaudit | Complete: public repository, PostgreSQL 14–18 Release `v18.0-windows.1`, and catalog publication. |
 | 5 | set_user | pgaudit/set_user | Complete: public repository, PostgreSQL 14–18 Release `v4.2.0-windows.1`, and catalog publication. |
 | 6 | pg_repack | reorg/pg_repack | Complete: public repository, PostgreSQL 14–18 functional Release `v1.5.3-windows.1`, and catalog publication. |
-| 7 | pg_ivm | sraoss/pg_ivm | In progress: upstream `v1.16` Windows pilot on PostgreSQL 17/18 using its Meson/MSVC path; expand to PostgreSQL 14–16 after the first gate passes. |
-| 8 | pg_qualstats | powa-team/pg_qualstats | Planned after pg_ivm; also treated as a Windows-release revival candidate. |
+| 7 | pg_ivm | sraoss/pg_ivm | Complete: public repository, PostgreSQL 14–18 functional Release `v1.16-windows.1`, and catalog publication. |
+| 8 | pg_qualstats | powa-team/pg_qualstats | In progress: upstream `2.1.4` Windows pilot on PostgreSQL 17/18 with real predicate-statistics validation; expand to PostgreSQL 14–16 after the first gate passes. |
 
 The order is intentional and should not be reshuffled without an explicit roadmap decision.
 
@@ -66,6 +66,12 @@ The Windows technical pilot is complete on PostgreSQL 14–18. PostgreSQL 17/18 
 pg_repack is complete on PostgreSQL 14–18. The package contains both the server extension DLL and the `pg_repack.exe` client. When EDB's normal Windows installation does not provide PostgreSQL's internal frontend support archives, the build resolves the exact installed PostgreSQL minor and rebuilds only `libpgport` and `libpgcommon` from the matching official PostgreSQL source with the PostgreSQL Meson/MSVC path.
 
 The PostgreSQL 18 build also applies the module-magic compatibility direction later adopted upstream. Functional CI requires a real table repack and verifies both row preservation and a relation filenode change. See [Phase 8 pg_repack report](phase8-pg_repack-pilot.md).
+
+## pg_ivm infrastructure result
+
+pg_ivm is complete on PostgreSQL 14–18. Upstream v1.16 provides an MSVC-aware Meson build path. pgextwin adds an explicit, audited DLL export definition for the SQL-callable surface and V1 metadata, plus narrowly scoped PostgreSQL 14 compatibility for backend data symbols that are not linkable through the ordinary Windows import library.
+
+Functional CI starts PostgreSQL with pg_ivm preloaded, creates a real IMMV, and verifies immediate INSERT, UPDATE, and DELETE propagation. See [Phase 9 pg_ivm report](phase9-pg_ivm-pilot.md).
 
 ## Quality gate for every extension
 
