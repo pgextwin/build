@@ -41,6 +41,7 @@ extension-specific package
   -> common PACKAGE-INFO.json generation
   -> final ZIP rebuild
   -> schema validation
+  -> external SPDX 2.3 SBOM generation/validation
   -> upload-artifact
 ```
 
@@ -51,8 +52,10 @@ extension-specific package
   -> common PACKAGE-INFO.json generation
   -> final ZIP rebuild
   -> schema validation
-  -> GitHub Artifact Attestation
-  -> gh attestation verify
+  -> external SPDX 2.3 SBOM generation/validation
+  -> SLSA Build Provenance Attestation
+  -> SPDX SBOM Attestation
+  -> verify both attestations
   -> upload-artifact
 ```
 
@@ -79,9 +82,11 @@ These mechanisms have different roles:
 | `PACKAGE-INFO.txt` | Human-readable package summary and extension-specific operational notes |
 | `PACKAGE-INFO.json` | Machine-readable source/build/package identity |
 | `SHA256SUMS.txt` | Downloaded release-file digest verification |
-| GitHub Artifact Attestation | Externally verifiable build provenance for the final ZIP digest |
+| Build Provenance Attestation | Externally verifiable workflow/build provenance for the final ZIP digest |
+| SPDX 2.3 SBOM | External materials/components representation generated from the final ZIP |
+| SBOM Attestation | Signed binding between the final ZIP digest and its SPDX 2.3 SBOM |
 
-SBOM generation is intentionally outside Step 7. A later SBOM milestone may use the package identity from `PACKAGE-INFO.json`, but Step 7 does not generate SPDX, CycloneDX, Syft output, dependency inventories, DLL dependency graphs, or SBOM attestations.
+Step 8 consumes the finalized package identity without changing `PACKAGE-INFO.json` afterward. The SBOM remains outside the ZIP, avoiding a digest cycle. See [Software Bill of Materials (SBOM)](sbom.md).
 
 Historical ZIPs are immutable release artifacts. Packages created before Step 7 may therefore contain only `PACKAGE-INFO.txt`; they are not rebuilt solely to add JSON metadata.
 
@@ -104,6 +109,6 @@ JSONにはupstreamのexact commit、packaging repositoryの実checkout commit、
 
 現在時刻のtimestamp、final ZIP自身のSHA-256、Attestation ID/URLはZIP内部へ書きません。ZIP自身のdigestは `SHA256SUMS.txt`、build provenanceはGitHub Artifact Attestationが担当します。
 
-Step 7ではSBOMを生成しません。SPDX、CycloneDX、Syft、dependency inventory、DLL dependency graph、SBOM Attestationは後続Stepの対象です。
+Step 8ではStep 7でfinalizeしたZIPを変更せず、そのZIPから外部のSPDX 2.3 SBOMを生成し、別のSBOM Attestationとしてfinal ZIP digestへ結び付けます。SBOM generator identityはSBOM document・workflow・SBOM文書側に置き、`PACKAGE-INFO.json` をSBOM生成後に書き換えません。詳細は [SBOM contract](sbom.md) を参照してください。
 
 既存Releaseはhistorical artifactとして変更しません。そのためStep 7以前のZIPには `PACKAGE-INFO.json` が存在しない場合があります。
