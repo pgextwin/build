@@ -103,7 +103,7 @@ else:
     if "gh attestation verify" not in attested_text:
         errors.append("build-extension-attested.yml: provenance must be verified with GitHub CLI")
 
-    signer = "pgextwin/build/.github/workflows/build-extension-attested.yml"
+    signer = "PGEXTWIN_SIGNER_WORKFLOW: ${{ job.workflow_repository }}/.github/workflows/build-extension-attested.yml"
     if signer not in attested_text:
         errors.append("build-extension-attested.yml: verification must constrain the attested signer workflow")
 
