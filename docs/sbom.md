@@ -8,17 +8,17 @@ This document defines the pgextwin Step 8 SBOM contract for Windows ZIP packages
 
 pgextwin uses **SPDX 2.3 JSON** as its canonical SBOM format.
 
-The generator is **Anchore Syft 1.54.0**. The workflow invokes the Syft CLI directly and explicitly requests `spdx-json@2.3`; it does not rely on a moving default SPDX version.
+The generator is **Anchore Syft 1.54.1**. The workflow invokes the Syft CLI directly and explicitly requests `spdx-json@2.3`; it does not rely on a moving default SPDX version.
 
 Syft is installed on the Windows build runner from the exact official release asset:
 
-`syft_1.54.0_windows_amd64.zip`
+`syft_1.54.1_windows_amd64.zip`
 
 The archive version and SHA-256 are fixed in `scripts/install-syft.ps1`. The expected archive SHA-256 is:
 
-`77f4b472779058e819eec9a054753a5071a996aaa40db31a290f8b256748593f`
+`8b56e8285e295e0bbed26eeea9b16ed51c493be97ccdf42dae6326c84fe8e19f`
 
-The installer downloads only that exact release asset, validates the archive SHA-256 before extraction, and verifies the resulting executable reports version 1.54.0. It does not use a floating `latest` URL, `curl | sh`, or a mutable action tag.
+The installer downloads only that exact release asset, validates the archive SHA-256 before extraction, and verifies the resulting executable reports version 1.54.1. It does not use a floating `latest` URL, `curl | sh`, or a mutable action tag.
 
 The official `anchore/sbom-action/download-syft` path was evaluated. For the Windows path it downloads the requested release asset, but it does not independently verify the release archive checksum. pgextwin therefore uses the smaller direct, version-and-digest-pinned download path instead of adding that Action to the workflow.
 
@@ -75,7 +75,7 @@ The validator requires:
 - `dataLicense == "CC0-1.0"`;
 - `SPDXID == "SPDXRef-DOCUMENT"`;
 - a non-empty absolute document namespace;
-- creation information containing exactly `Tool: syft-1.54.0`;
+- creation information containing exactly `Tool: syft-1.54.1`;
 - a root/source package named after the final ZIP basename;
 - the expected extension version and `Organization: pgextwin` supplier;
 - an SPDX document-to-source-package `DESCRIBES` relation (represented by Syft as an `SPDXRef-DOCUMENT` relationship, while the validator also accepts the equivalent `documentDescribes` property);
@@ -157,10 +157,10 @@ The release build also requests the verified SBOM attestation as JSON and checks
 
 ## 日本語
 
-pgextwin Step 8では、Windows ZIPに対する正規SBOM形式を **SPDX 2.3 JSON** とします。生成器は **Anchore Syft 1.54.0** です。
+pgextwin Step 8では、Windows ZIPに対する正規SBOM形式を **SPDX 2.3 JSON** とします。生成器は **Anchore Syft 1.54.1** です。
 
-`scripts/install-syft.ps1` はSyft 1.54.0の公式Windows x64 release assetだけを取得し、固定したSHA-256
-`77f4b472779058e819eec9a054753a5071a996aaa40db31a290f8b256748593f`
+`scripts/install-syft.ps1` はSyft 1.54.1の公式Windows x64 release assetだけを取得し、固定したSHA-256
+`8b56e8285e295e0bbed26eeea9b16ed51c493be97ccdf42dae6326c84fe8e19f`
 を照合してから展開します。`latest` URL、`curl | sh`、floating Action tagは使用しません。公式 `anchore/sbom-action/download-syft` も評価しましたが、Windows download path自体はrelease archive checksumを独立検証しないため、pgextwinではより小さな「exact version + exact asset digest」方式を採用します。
 
 SBOMは `PACKAGE-INFO.json` finalization後の **final ZIPそのもの** をSyftでscanして生成します。runner全体、Visual Studio、Git、Python、Chocolatey、PostgreSQL installation directory全体はscan対象ではありません。
@@ -169,7 +169,7 @@ SBOMはZIP外部の `<ZIP basename>.spdx.json` とします。SBOMをZIPへ戻�
 
 Syft source identityは、name=final ZIP basename、version=manifest/matrixのupstream version、supplier=`pgextwin` とします。SPDX上では `Organization: pgextwin` となります。これはupstream作者を名乗るものではなく、pgextwin Windows packageの配布者を表します。upstream repository/ref/version/exact commitは引き続き `PACKAGE-INFO.json` が正規情報です。
 
-`scripts/validate-sbom.py` は、SPDX 2.3、dataLicense、document SPDXID/namespace、Syft 1.54.0 creator、final ZIPに対応するroot/source package、version、supplier、documentからsource packageへの `DESCRIBES` 関係（Syft実出力では `SPDXRef-DOCUMENT` relationship）、そしてsource packageのSHA-256と実際のfinal ZIP SHA-256の一致を検証します。Native C Extensionではnpm/NuGetのようなmanifestがないことがあるため、「検出packageが2個以上」のような条件を成功条件にはしません。
+`scripts/validate-sbom.py` は、SPDX 2.3、dataLicense、document SPDXID/namespace、Syft 1.54.1 creator、final ZIPに対応するroot/source package、version、supplier、documentからsource packageへの `DESCRIBES` 関係（Syft実出力では `SPDXRef-DOCUMENT` relationship）、そしてsource packageのSHA-256と実際のfinal ZIP SHA-256の一致を検証します。Native C Extensionではnpm/NuGetのようなmanifestがないことがあるため、「検出packageが2個以上」のような条件を成功条件にはしません。
 
 PostgreSQL serverはruntime/compatibility要件ですが、通常のExtension ZIPにPostgreSQL installationそのものは同梱しません。そのため、単にPostgreSQL 18.6でbuild/testしたことを理由にPostgreSQLを「SBOM内に含まれるcomponent」として追加しません。互換性・tested minor・build environmentは `PACKAGE-INFO.json` に記録します。
 

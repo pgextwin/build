@@ -7,8 +7,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # Supply-chain pin for the exact official Anchore Syft Windows release asset.
-$SyftVersion = "1.54.0"
-$SyftArchiveSha256 = "77f4b472779058e819eec9a054753a5071a996aaa40db31a290f8b256748593f"
+$SyftVersion = "1.54.1"
+$SyftArchiveSha256 = "8b56e8285e295e0bbed26eeea9b16ed51c493be97ccdf42dae6326c84fe8e19f"
 $ArchiveName = "syft_${SyftVersion}_windows_amd64.zip"
 $DownloadUrl = "https://github.com/anchore/syft/releases/download/v${SyftVersion}/${ArchiveName}"
 

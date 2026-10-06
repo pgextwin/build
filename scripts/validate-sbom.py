@@ -49,7 +49,7 @@ def main() -> None:
     parser.add_argument("--zip", required=True)
     parser.add_argument("--expected-extension", required=True)
     parser.add_argument("--expected-version", required=True)
-    parser.add_argument("--expected-tool-version", default="1.54.0")
+    parser.add_argument("--expected-tool-version", default="1.54.1")
     args = parser.parse_args()
 
     sbom_path = Path(args.sbom)

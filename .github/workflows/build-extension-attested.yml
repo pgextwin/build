@@ -197,7 +197,7 @@ jobs:
             --zip "${{ steps.sbom.outputs.zip_path }}" `
             --expected-extension "${{ needs.matrix.outputs.extension_name }}" `
             --expected-version "${{ matrix.upstreamVersion }}" `
-            --expected-tool-version "1.54.0"
+            --expected-tool-version "1.54.1"
           if ($LASTEXITCODE -ne 0) { throw "SPDX SBOM validation failed." }
 
       - name: Generate build provenance attestation
