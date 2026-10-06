@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
 
           cd dist
-          mapfile -t release_assets < <(printf '%s\\n' ./*.zip ./*.spdx.json | LC_ALL=C sort)
+          mapfile -t release_assets < <(printf '%s\n' ./*.zip ./*.spdx.json | LC_ALL=C sort)
           sha256sum "${release_assets[@]}" > SHA256SUMS.txt
           cd ..
 
