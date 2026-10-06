@@ -13,7 +13,7 @@ This document records the fixed implementation order for the initial pgextwin ex
 | 5 | set_user | pgaudit/set_user | Complete: public repository, PostgreSQL 14–18 Release `v4.2.0-windows.1`, and catalog publication. |
 | 6 | pg_repack | reorg/pg_repack | Complete: public repository, PostgreSQL 14–18 functional Release `v1.5.3-windows.1`, and catalog publication. |
 | 7 | pg_ivm | sraoss/pg_ivm | Complete: public repository, PostgreSQL 14–18 functional Release `v1.16-windows.1`, and catalog publication. |
-| 8 | pg_qualstats | powa-team/pg_qualstats | In progress: upstream `2.1.4` Windows pilot on PostgreSQL 17/18 with real predicate-statistics validation; expand to PostgreSQL 14–16 after the first gate passes. |
+| 8 | pg_qualstats | powa-team/pg_qualstats | Complete: public repository, PostgreSQL 14–18 functional Release `v2.1.4-windows.1`, and catalog publication. |
 
 The order is intentional and should not be reshuffled without an explicit roadmap decision.
 
@@ -72,6 +72,16 @@ The PostgreSQL 18 build also applies the module-magic compatibility direction la
 pg_ivm is complete on PostgreSQL 14–18. Upstream v1.16 provides an MSVC-aware Meson build path. pgextwin adds an explicit, audited DLL export definition for the SQL-callable surface and V1 metadata, plus narrowly scoped PostgreSQL 14 compatibility for backend data symbols that are not linkable through the ordinary Windows import library.
 
 Functional CI starts PostgreSQL with pg_ivm preloaded, creates a real IMMV, and verifies immediate INSERT, UPDATE, and DELETE propagation. See [Phase 9 pg_ivm report](phase9-pg_ivm-pilot.md).
+
+## pg_qualstats infrastructure result
+
+pg_qualstats is complete on PostgreSQL 14–18. pgextwin builds upstream 2.1.4 with MSVC x64 and applies one disposable-source compatibility rewrite because MSVC rejects the upstream preprocessor conditional embedded inside the compatibility `ShmemInitHash(...)` macro argument list. The rewrite preserves the same hash flags without maintaining a forked source tree.
+
+The Windows DLL export surface is generated from `Pg_magic_func`, `_PG_init`, every upstream `PG_FUNCTION_INFO_V1(...)` declaration, and each matching `pg_finfo_*` symbol, then verified with `dumpbin`.
+
+Functional CI preloads pg_qualstats, creates the extension, runs real predicates against a probe table, and verifies both `pg_qualstats` rows and `pg_qualstats_pretty` output. PostgreSQL 14–18 all passed the release matrix before publication. See [Phase 10 pg_qualstats report](phase10-pg_qualstats-pilot.md).
+
+The initial eight-extension roadmap is now complete. Any extension added after pg_qualstats should be treated as a new roadmap decision rather than implicitly extending this fixed initial order.
 
 ## Quality gate for every extension
 
