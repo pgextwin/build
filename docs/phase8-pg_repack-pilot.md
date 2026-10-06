@@ -112,9 +112,9 @@ Release `v1.5.3-windows.1` contains:
 | Public Release published | PASS |
 | Catalog entry published | PASS |
 
-## Next roadmap item
+## Historical next roadmap item
 
-The fixed roadmap now proceeds to **pg_ivm**.
+At Phase 8 completion, the fixed roadmap proceeded to **pg_ivm**. That work was subsequently completed and published; the initial eight-extension roadmap is now complete.
 
 The initial pg_ivm pilot uses upstream `v1.16`, which declares PostgreSQL 13–18 compatibility and already contains an MSVC-aware Meson build path. The first gate is PostgreSQL 17/18, including preload, `CREATE EXTENSION`, IMMV creation, and immediate propagation of INSERT/UPDATE/DELETE changes.
 
@@ -130,4 +130,4 @@ PostgreSQL 18のmodule-magic差分と、EDB Windows配布に含まれない場�
 
 Release `v1.5.3-windows.1` はPG14〜18向け5 ZIPとSHA-256一覧を公開済みで、pgextwin catalogにも登録済みです。
 
-次は固定ロードマップ順で pg_ivm へ進みます。
+当時は固定ロードマップ順で次に pg_ivm へ進みました。pg_ivmと後続のpg_qualstatsもその後公開・catalog登録まで完了し、現在は初期8 Extensionロードマップ全体が完了しています。
