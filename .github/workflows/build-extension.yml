@@ -8,11 +8,6 @@ on:
         required: false
         type: string
         default: config/extension.json
-      attest_provenance:
-        description: Generate and verify GitHub Artifact Attestation for final ZIP packages
-        required: false
-        type: boolean
-        default: false
     outputs:
       extension_name:
         description: Extension name resolved from the caller manifest
@@ -56,9 +51,8 @@ jobs:
             -ExtensionConfigPath "${{ inputs.extension_config_path }}" `
             -PostgreSqlConfigPath ".pgextwin-build/metadata/postgresql.json"
 
-  build_normal:
+  build:
     name: PostgreSQL ${{ matrix.major }} / Windows x64
-    if: ${{ !inputs.attest_provenance }}
     needs: matrix
     runs-on: windows-latest
     permissions:
@@ -155,142 +149,6 @@ jobs:
             -UpstreamVersion "${{ matrix.upstreamVersion }}" `
             -PostgreSqlMajor ([int]"${{ matrix.major }}") `
             -PostgreSqlMinor "${{ matrix.minor }}"
-
-      - name: Upload package artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ needs.matrix.outputs.extension_name }}-pg${{ matrix.major }}-windows-x64
-          path: dist/*.zip
-          if-no-files-found: error
-
-  build_attested:
-    name: PostgreSQL ${{ matrix.major }} / Windows x64
-    if: ${{ inputs.attest_provenance }}
-    needs: matrix
-    runs-on: windows-latest
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
-
-    steps:
-      - name: Check out extension packaging repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Check out pgextwin build infrastructure
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .pgextwin-build
-
-      - name: Check out pinned upstream source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ needs.matrix.outputs.upstream_repository }}
-          ref: ${{ matrix.upstreamRef }}
-          path: upstream
-
-      - name: Verify upstream license files match packaging repository
-        if: needs.matrix.outputs.verify_upstream_license == 'true'
-        shell: pwsh
-        env:
-          PGEXTWIN_LICENSE_FILES: ${{ toJSON(matrix.licenseFiles) }}
-        run: |
-          $licenseFiles = $env:PGEXTWIN_LICENSE_FILES | ConvertFrom-Json
-
-          foreach ($licenseFile in @($licenseFiles)) {
-            $repositoryPath = [string]$licenseFile.repositoryPath
-            $upstreamPath = Join-Path "upstream" ([string]$licenseFile.upstreamPath)
-
-            if (-not (Test-Path $repositoryPath)) {
-              throw "Configured packaging-repository license file was not found: $repositoryPath"
-            }
-
-            if (-not (Test-Path $upstreamPath)) {
-              throw "Configured upstream license file was not found: $upstreamPath"
-            }
-
-            $repositoryHash = (Get-FileHash $repositoryPath -Algorithm SHA256).Hash
-            $upstreamHash = (Get-FileHash $upstreamPath -Algorithm SHA256).Hash
-
-            if ($repositoryHash -ne $upstreamHash) {
-              throw "License file '$repositoryPath' differs from upstream '$($licenseFile.upstreamPath)'."
-            }
-          }
-
-      - name: Install PostgreSQL ${{ matrix.major }}
-        shell: pwsh
-        run: |
-          & ".pgextwin-build/scripts/install-postgresql.ps1" `
-            -Major ([int]"${{ matrix.major }}") `
-            -ChocolateyPackage "${{ matrix.chocolateyPackage }}" `
-            -ChocolateyVersion "${{ matrix.chocolateyVersion }}" `
-            -TestPort ([int]"${{ matrix.testPort }}")
-
-      - name: Build extension
-        shell: pwsh
-        run: |
-          & ".\\windows\\ci\\build.ps1" `
-            -PgRoot $env:PGROOT `
-            -UpstreamDir (Join-Path $PWD "upstream")
-
-      - name: Install extension into test PostgreSQL
-        shell: pwsh
-        run: |
-          & ".\\windows\\ci\\install.ps1" `
-            -PgRoot $env:PGROOT `
-            -UpstreamDir (Join-Path $PWD "upstream")
-
-      - name: Functional smoke test
-        shell: pwsh
-        run: |
-          & ".\\windows\\ci\\smoke-test.ps1" `
-            -PgRoot $env:PGROOT `
-            -PgPort ([int]$env:PGPORT) `
-            -PostgreSqlMajor ([int]"${{ matrix.major }}")
-
-      - name: Package Windows binary
-        shell: pwsh
-        run: |
-          & ".\\windows\\ci\\package.ps1" `
-            -UpstreamDir (Join-Path $PWD "upstream") `
-            -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" `
-            -UpstreamRef "${{ matrix.upstreamRef }}" `
-            -UpstreamVersion "${{ matrix.upstreamVersion }}" `
-            -PostgreSqlMajor ([int]"${{ matrix.major }}") `
-            -PostgreSqlMinor "${{ matrix.minor }}"
-
-      - name: Generate build provenance attestation
-        if: ${{ inputs.attest_provenance }}
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: dist/*.zip
-
-      - name: Verify build provenance attestation
-        if: ${{ inputs.attest_provenance }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PGEXTWIN_SIGNER_WORKFLOW: ${{ job.workflow_repository }}/.github/workflows/build-extension.yml
-        run: |
-          $zipFiles = @(Get-ChildItem -Path "dist" -Filter "*.zip" -File)
-          if ($zipFiles.Count -ne 1) {
-            throw "Expected exactly one final ZIP for attestation verification, found $($zipFiles.Count)."
-          }
-
-          gh attestation verify $zipFiles[0].FullName `
-            --repo $env:GITHUB_REPOSITORY `
-            --signer-workflow $env:PGEXTWIN_SIGNER_WORKFLOW
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "GitHub Artifact Attestation verification failed."
-          }
 
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
