@@ -40,6 +40,14 @@ jobs:
 
 See [Hook contract](docs/hook-contract.md) and [Architecture](docs/architecture.md).
 
+## PostgreSQL lifecycle
+
+PostgreSQL lifecycle filtering is centralized in this repository. A major is included in a new normal build only while it is still community-supported, allowed by the extension manifest, and backed by the required upstream ref/version. The official EOL date is inclusive; the major leaves the normal matrix on the following UTC calendar day.
+
+As of 2026-10-06, PostgreSQL 14 is supported through **2026-11-12**. It remains in normal build matrices through that date and is excluded beginning **2026-11-13**. Existing Git tags, GitHub Releases, assets, and checksums are retained after EOL.
+
+See [PostgreSQL lifecycle policy](docs/postgresql-lifecycle.md) for the complete policy and deterministic boundary-test contract.
+
 ## Status
 
 - Phase 2 shared build foundation: complete
@@ -56,15 +64,16 @@ See [Hook contract](docs/hook-contract.md) and [Architecture](docs/architecture.
 
 ## Next platform work
 
-The initial extension roadmap is closed. Later work is intentionally tracked as separate platform milestones and is **not implemented by this closure step**:
+The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL **build-foundation readiness is complete** in this repository. Follow-up platform work remains separate:
 
-1. PostgreSQL lifecycle / PG14 EOL
-2. PostgreSQL 19 readiness
-3. supply-chain hardening
-4. package metadata / catalog improvements
-5. website improvements
-6. upstream update automation
-7. second extension wave
+1. Catalog lifecycle representation: distinguish current maintenance from historical asset availability
+2. Website lifecycle representation, including PG14 EOL visibility
+3. PostgreSQL 19 experimental/readiness work after an explicit milestone decision
+4. supply-chain hardening
+5. broader package metadata / catalog improvements
+6. website improvements beyond lifecycle visibility
+7. upstream update automation
+8. second extension wave
 
 ## License
 

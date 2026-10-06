@@ -11,7 +11,10 @@ $postgresFixture = Join-Path $PSScriptRoot "fixtures/postgresql.json"
 function Invoke-ResolverFixture {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$ExtensionFixture
+        [string]$ExtensionFixture,
+
+        [Parameter(Mandatory = $false)]
+        [string]$EffectiveDate = "2026-10-06"
     )
 
     $outputFile = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-output-" + [Guid]::NewGuid().ToString("N") + ".txt")
@@ -19,7 +22,10 @@ function Invoke-ResolverFixture {
     try {
         $env:GITHUB_OUTPUT = $outputFile
 
-        & $resolver -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/$ExtensionFixture") -PostgreSqlConfigPath $postgresFixture
+        & $resolver `
+            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/$ExtensionFixture") `
+            -PostgreSqlConfigPath $postgresFixture `
+            -EffectiveDate $EffectiveDate
 
         $values = @{}
 
@@ -166,7 +172,10 @@ try {
     $env:GITHUB_OUTPUT = $missingOutput
 
     try {
-        & $resolver -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-per-major-missing.json") -PostgreSqlConfigPath $postgresFixture
+        & $resolver `
+            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-per-major-missing.json") `
+            -PostgreSqlConfigPath $postgresFixture `
+            -EffectiveDate "2026-10-06"
     }
     catch {
         if ($_.Exception.Message -like "*no mapping for eligible PostgreSQL major 16*") {
@@ -183,6 +192,94 @@ finally {
 
 if (-not $missingFailed) {
     throw "Expected resolver to reject a missing per-PostgreSQL upstream mapping."
+}
+
+
+$lifecycleBefore = Invoke-ResolverFixture -ExtensionFixture "extension-lifecycle-mixed.json" -EffectiveDate "2026-11-11"
+$lifecycleBeforeMajors = @(($lifecycleBefore["matrix"] | ConvertFrom-Json).include | ForEach-Object { [int]$_.major })
+
+if ($lifecycleBeforeMajors.Count -ne 2 -or
+    $lifecycleBeforeMajors[0] -ne 14 -or
+    $lifecycleBeforeMajors[1] -ne 16) {
+    throw "EOL-1 day: expected PostgreSQL majors 14 and 16, got: $($lifecycleBeforeMajors -join ', ')"
+}
+
+if ($lifecycleBeforeMajors -contains 13) {
+    throw "Already-EOL PostgreSQL 13 must not be included in the matrix."
+}
+
+$lifecycleOn = Invoke-ResolverFixture -ExtensionFixture "extension-lifecycle-mixed.json" -EffectiveDate "2026-11-12"
+$lifecycleOnMajors = @(($lifecycleOn["matrix"] | ConvertFrom-Json).include | ForEach-Object { [int]$_.major })
+
+if ($lifecycleOnMajors.Count -ne 2 -or
+    $lifecycleOnMajors[0] -ne 14 -or
+    $lifecycleOnMajors[1] -ne 16) {
+    throw "EOL day: expected PostgreSQL majors 14 and 16, got: $($lifecycleOnMajors -join ', ')"
+}
+
+$lifecycleAfter = Invoke-ResolverFixture -ExtensionFixture "extension-lifecycle-mixed.json" -EffectiveDate "2026-11-13"
+$lifecycleAfterMajors = @(($lifecycleAfter["matrix"] | ConvertFrom-Json).include | ForEach-Object { [int]$_.major })
+
+if ($lifecycleAfterMajors.Count -ne 1 -or $lifecycleAfterMajors[0] -ne 16) {
+    throw "EOL+1 day: expected only PostgreSQL 16, got: $($lifecycleAfterMajors -join ', ')"
+}
+
+$allEolOutput = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-output-" + [Guid]::NewGuid().ToString("N") + ".txt")
+$allEolFailed = $false
+
+try {
+    $env:GITHUB_OUTPUT = $allEolOutput
+
+    try {
+        & $resolver `
+            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-eol-only.json") `
+            -PostgreSqlConfigPath $postgresFixture `
+            -EffectiveDate "2026-11-13"
+    }
+    catch {
+        if ($_.Exception.Message -like "*No maintained PostgreSQL versions are eligible*") {
+            $allEolFailed = $true
+        }
+        else {
+            throw
+        }
+    }
+}
+finally {
+    Remove-Item $allEolOutput -Force -ErrorAction SilentlyContinue
+}
+
+if (-not $allEolFailed) {
+    throw "Expected resolver to fail when every manifest-allowed PostgreSQL major is past EOL."
+}
+
+$invalidDateOutput = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-output-" + [Guid]::NewGuid().ToString("N") + ".txt")
+$invalidDateFailed = $false
+
+try {
+    $env:GITHUB_OUTPUT = $invalidDateOutput
+
+    try {
+        & $resolver `
+            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-range.json") `
+            -PostgreSqlConfigPath $postgresFixture `
+            -EffectiveDate "2026/11/12"
+    }
+    catch {
+        if ($_.Exception.Message -like "*yyyy-MM-dd*") {
+            $invalidDateFailed = $true
+        }
+        else {
+            throw
+        }
+    }
+}
+finally {
+    Remove-Item $invalidDateOutput -Force -ErrorAction SilentlyContinue
+}
+
+if (-not $invalidDateFailed) {
+    throw "Expected resolver to reject an EffectiveDate outside yyyy-MM-dd format."
 }
 
 Write-Host "resolve-matrix.ps1 self-tests passed."
