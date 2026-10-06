@@ -93,11 +93,15 @@ The initial eight-extension roadmap remains closed.
 
 **Step 4 — PostgreSQL 19 readiness / compatibility audit: complete.** The resolver/schema/workflow have no PostgreSQL 18 ceiling, synthetic fixtures prove PostgreSQL 19 and temporary six-major resolution without changing production metadata, Windows distribution prerequisites and all eight upstreams have been audited, and the production onboarding gate is documented in [PostgreSQL 19 readiness](postgresql-19-readiness.md).
 
+**Step 5 — GitHub Actions trust baseline: complete.** External Actions and internal reusable workflows use immutable full commit SHAs, shared build source self-pins through `job.workflow_repository` / `job.workflow_sha`, normal builds are read-only, release publication is separately write-scoped, and the organization requires full-SHA action references.
+
+**Step 6 — Artifact Attestation / release build provenance: complete.** Release builds use a dedicated attested reusable workflow to generate and verify GitHub Artifact Attestations for final Windows ZIPs before those unchanged bytes are passed to the release publication workflow. Normal PR/main builds remain read-only. See [Artifact Attestations and build provenance](artifact-attestations.md).
+
 The following remain separate future milestones:
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
-2. supply-chain hardening
-3. broader package metadata / catalog improvements
+2. SBOM and broader supply-chain provenance work beyond Step 6
+3. PACKAGE-INFO v2 and broader package metadata / catalog improvements
 4. website improvements beyond lifecycle visibility
 5. upstream update automation
 6. second extension wave
