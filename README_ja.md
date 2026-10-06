@@ -62,16 +62,16 @@ PostgreSQLのLifecycle filterはこのrepositoryで一元管理します。通�
 
 ## 次のplatform作業
 
-初期Extensionロードマップは完了済みで、PostgreSQL lifecycle / PG14 EOLの**build基盤側Foundationも完了**しました。後続のplatform作業は別milestoneとして扱います。
+初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）まで完了**しました。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) を参照してください。
 
-1. CatalogでCurrent maintenanceとHistorical availabilityを区別するLifecycle表現
-2. PG14 EOL表示を含むWebsiteのLifecycle表現
-3. 明示的なmilestone決定後のPostgreSQL 19 experimental/readiness
-4. supply-chain hardening
-5. より広いpackage metadata / catalog改善
-6. Lifecycle表示以外のwebsite改善
-7. upstream update automation
-8. second extension wave
+Step 4時点のPostgreSQL 19はまだGA前であり、production matrixには追加していません。後続作業は別milestoneとして扱います。
+
+1. 文書化したGA / Windows配布 / upstream gateを満たした後のPostgreSQL 19正式オンボーディング
+2. supply-chain hardening
+3. より広いpackage metadata / catalog改善
+4. Lifecycle表示以外のwebsite改善
+5. upstream update automation
+6. second extension wave
 
 ## ライセンス
 
