@@ -4,7 +4,10 @@ param(
     [string]$ExtensionConfigPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$PostgreSqlConfigPath
+    [string]$PostgreSqlConfigPath,
+
+    [Parameter(Mandatory = $false)]
+    [string]$EffectiveDate
 )
 
 Set-StrictMode -Version Latest
@@ -75,7 +78,22 @@ else {
     $allowedMajors = @($min..$max)
 }
 
-$today = [DateTime]::UtcNow.Date
+if ([string]::IsNullOrWhiteSpace($EffectiveDate)) {
+    $currentDate = [DateTime]::UtcNow.Date
+}
+else {
+    try {
+        $currentDate = [DateTime]::ParseExact(
+            $EffectiveDate,
+            "yyyy-MM-dd",
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::None
+        ).Date
+    }
+    catch {
+        throw "EffectiveDate must be a valid calendar date in yyyy-MM-dd format."
+    }
+}
 
 $supported = @(
     $postgres.postgresql | Where-Object {
@@ -86,7 +104,7 @@ $supported = @(
             [Globalization.CultureInfo]::InvariantCulture
         ).Date
 
-        $allowedMajors -contains $major -and $eol -ge $today
+        $allowedMajors -contains $major -and $eol -ge $currentDate
     }
 )
 
@@ -257,4 +275,5 @@ foreach ($entry in $outputs.GetEnumerator()) {
 Write-Host "Extension: $($extension.name)"
 Write-Host "Upstream repository: $($extension.upstream.repository)"
 Write-Host "Upstream mode: $upstreamMode"
+Write-Host "Lifecycle effective date: $($currentDate.ToString('yyyy-MM-dd'))"
 Write-Host "Build matrix: $matrix"
