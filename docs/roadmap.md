@@ -8,10 +8,10 @@ This document records the fixed implementation order for the initial pgextwin ex
 |---:|---|---|---|
 | 1 | pg_bigm | pgbigm/pg_bigm | Complete: public repository, PG14–18 Release, catalog publication, and post-transfer CI verified. |
 | 2 | pg_cron | citusdata/pg_cron | Complete: public repository, PG14–18 functional Release `v1.6.8-windows.1`, and catalog publication. |
-| 3 | pg_hint_plan | ossc-db/pg_hint_plan | Technical pilot complete on PostgreSQL 14–18. Productization is pending creation of `pgextwin/pg_hint_plan`. |
-| 4 | pgAudit | pgaudit/pgaudit | Technical pilot complete on PostgreSQL 14–18. Productization is pending creation of `pgextwin/pgaudit`. |
-| 5 | set_user | pgaudit/set_user | Technical pilot complete on PostgreSQL 14–18. Productization is pending creation of `pgextwin/set_user`. |
-| 6 | pg_repack | reorg/pg_repack | Next technical pilot. Includes extension/server-side and client-tool packaging concerns. |
+| 3 | pg_hint_plan | ossc-db/pg_hint_plan | Complete: public repository, PostgreSQL 14–18 Release `v1.8.0-windows.1`, and catalog publication. |
+| 4 | pgAudit | pgaudit/pgaudit | Complete: public repository, PostgreSQL 14–18 Release `v18.0-windows.1`, and catalog publication. |
+| 5 | set_user | pgaudit/set_user | Complete: public repository, PostgreSQL 14–18 Release `v4.2.0-windows.1`, and catalog publication. |
+| 6 | pg_repack | reorg/pg_repack | In progress: Stage 1 Windows pilot on PostgreSQL 17/18, including both extension DLL and `pg_repack.exe`; expand to PostgreSQL 14–16 after Stage 1 passes. |
 | 7 | pg_ivm | sraoss/pg_ivm | Planned after pg_repack. |
 | 8 | pg_qualstats | powa-team/pg_qualstats | Planned after pg_ivm; also treated as a Windows-release revival candidate. |
 
