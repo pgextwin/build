@@ -166,10 +166,50 @@ jobs:
           python ".pgextwin-build/scripts/validate-package-metadata.py" --schema ".pgextwin-build/schema/package-info.schema.json" --zip $zipFiles[0].FullName
           if ($LASTEXITCODE -ne 0) { throw "Final PACKAGE-INFO.json schema validation failed." }
 
+      - name: Install checksum-pinned Syft
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/install-syft.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Syft installation failed." }
+
+      - name: Generate SPDX 2.3 SBOM
+        id: sbom
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/generate-sbom.ps1" `
+            -SyftPath (Join-Path $PWD ".pgextwin-tools\syft\syft.exe") `
+            -ExtensionName "${{ needs.matrix.outputs.extension_name }}" `
+            -ExtensionVersion "${{ matrix.upstreamVersion }}"
+          if ($LASTEXITCODE -ne 0) { throw "SBOM generation failed." }
+
+          $zipFiles = @(Get-ChildItem -Path "dist" -Filter "*.zip" -File)
+          $sbomFiles = @(Get-ChildItem -Path "dist" -Filter "*.spdx.json" -File)
+          if ($zipFiles.Count -ne 1) { throw "Expected exactly one final ZIP after SBOM generation, found $($zipFiles.Count)." }
+          if ($sbomFiles.Count -ne 1) { throw "Expected exactly one SPDX JSON after SBOM generation, found $($sbomFiles.Count)." }
+          "zip_path=dist/$($zipFiles[0].Name)" >> $env:GITHUB_OUTPUT
+          "sbom_path=dist/$($sbomFiles[0].Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Validate SPDX 2.3 SBOM
+        shell: pwsh
+        run: |
+          python ".pgextwin-build/scripts/validate-sbom.py" `
+            --sbom "${{ steps.sbom.outputs.sbom_path }}" `
+            --zip "${{ steps.sbom.outputs.zip_path }}" `
+            --expected-extension "${{ needs.matrix.outputs.extension_name }}" `
+            --expected-version "${{ matrix.upstreamVersion }}" `
+            --expected-tool-version "1.54.0"
+          if ($LASTEXITCODE -ne 0) { throw "SPDX SBOM validation failed." }
+
       - name: Generate build provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: dist/*.zip
+          subject-path: ${{ steps.sbom.outputs.zip_path }}
+
+      - name: Generate SBOM attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.sbom.outputs.zip_path }}
+          sbom-path: ${{ steps.sbom.outputs.sbom_path }}
 
       - name: Verify build provenance attestation
         shell: pwsh
@@ -177,22 +217,46 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PGEXTWIN_SIGNER_WORKFLOW: ${{ job.workflow_repository }}/.github/workflows/build-extension-attested.yml
         run: |
-          $zipFiles = @(Get-ChildItem -Path "dist" -Filter "*.zip" -File)
-          if ($zipFiles.Count -ne 1) {
-            throw "Expected exactly one final ZIP for attestation verification, found $($zipFiles.Count)."
-          }
-
-          gh attestation verify $zipFiles[0].FullName `
+          gh attestation verify "${{ steps.sbom.outputs.zip_path }}" `
             --repo $env:GITHUB_REPOSITORY `
             --signer-workflow $env:PGEXTWIN_SIGNER_WORKFLOW
 
           if ($LASTEXITCODE -ne 0) {
-            throw "GitHub Artifact Attestation verification failed."
+            throw "GitHub build provenance attestation verification failed."
+          }
+
+      - name: Verify SBOM attestation and predicate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PGEXTWIN_SIGNER_WORKFLOW: ${{ job.workflow_repository }}/.github/workflows/build-extension-attested.yml
+        run: |
+          $verificationJson = & gh attestation verify "${{ steps.sbom.outputs.zip_path }}" `
+            --repo $env:GITHUB_REPOSITORY `
+            --signer-workflow $env:PGEXTWIN_SIGNER_WORKFLOW `
+            --predicate-type "https://spdx.dev/Document/v2.3" `
+            --format json
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub SPDX SBOM attestation verification failed."
+          }
+
+          $verificationPath = Join-Path $env:RUNNER_TEMP "pgextwin-sbom-attestation.json"
+          $verificationJson | Set-Content -Path $verificationPath -Encoding utf8
+
+          python ".pgextwin-build/scripts/verify-sbom-attestation.py" `
+            --verification-json $verificationPath `
+            --sbom "${{ steps.sbom.outputs.sbom_path }}" `
+            --zip "${{ steps.sbom.outputs.zip_path }}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Verified SBOM attestation predicate does not match the generated SPDX JSON."
           }
 
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ needs.matrix.outputs.extension_name }}-pg${{ matrix.major }}-windows-x64
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.spdx.json
           if-no-files-found: error

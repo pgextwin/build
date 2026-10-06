@@ -7,6 +7,9 @@ FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 USES_LINE = re.compile(r"^\s*uses:\s*([^\s#]+)(?:\s+#\s*(.*))?\s*$")
 VERSION_COMMENT = re.compile(r"\bv\d+(?:\.\d+){0,2}\b")
 ATTEST_PIN = "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2"
+SYFT_VERSION = "1.54.0"
+SYFT_WINDOWS_AMD64_SHA256 = "77f4b472779058e819eec9a054753a5071a996aaa40db31a290f8b256748593f"
+SPDX_PREDICATE = "https://spdx.dev/Document/v2.3"
 
 errors = []
 
@@ -94,39 +97,72 @@ else:
         if permission not in attested_text:
             errors.append(f"build-extension-attested.yml: missing required permission {permission}")
 
-    if ATTEST_PIN not in attested_text:
-        errors.append("build-extension-attested.yml: actions/attest v4.2.2 must use the approved full SHA pin")
+    if attested_text.count(ATTEST_PIN) != 2:
+        errors.append(
+            "build-extension-attested.yml: exactly two actions/attest v4.2.2 steps "
+            "(build provenance + SBOM) must use the approved full SHA pin"
+        )
 
-    if "subject-path: dist/*.zip" not in attested_text:
-        errors.append("build-extension-attested.yml: final dist ZIP must be the provenance subject")
+    subject = "subject-path: ${{ steps.sbom.outputs.zip_path }}"
+    if attested_text.count(subject) != 2:
+        errors.append(
+            "build-extension-attested.yml: both attestations must use the final ZIP as subject"
+        )
 
-    if "gh attestation verify" not in attested_text:
-        errors.append("build-extension-attested.yml: provenance must be verified with GitHub CLI")
+    if "sbom-path: ${{ steps.sbom.outputs.sbom_path }}" not in attested_text:
+        errors.append("build-extension-attested.yml: SBOM attestation must use the generated SPDX JSON")
+
+    if "Generate build provenance attestation" not in attested_text:
+        errors.append("build-extension-attested.yml: SLSA build provenance attestation must be preserved")
+    if "Generate SBOM attestation" not in attested_text:
+        errors.append("build-extension-attested.yml: SPDX SBOM attestation is required")
+    if "Verify build provenance attestation" not in attested_text:
+        errors.append("build-extension-attested.yml: build provenance verification is required")
+    if "Verify SBOM attestation and predicate" not in attested_text:
+        errors.append("build-extension-attested.yml: SBOM attestation verification is required")
+    if f'--predicate-type "{SPDX_PREDICATE}"' not in attested_text:
+        errors.append("build-extension-attested.yml: SBOM verification must select SPDX 2.3 predicate type")
+    if "--format json" not in attested_text or "scripts/verify-sbom-attestation.py" not in attested_text:
+        errors.append(
+            "build-extension-attested.yml: verified SBOM predicate must be compared semantically with generated JSON"
+        )
 
     signer = "PGEXTWIN_SIGNER_WORKFLOW: ${{ job.workflow_repository }}/.github/workflows/build-extension-attested.yml"
-    if signer not in attested_text:
-        errors.append("build-extension-attested.yml: verification must constrain the attested signer workflow")
+    if attested_text.count(signer) < 2:
+        errors.append(
+            "build-extension-attested.yml: both verification steps must constrain the signer workflow"
+        )
 
     order = [
         attested_text.find("- name: Package Windows binary"),
         attested_text.find("- name: Finalize and validate package metadata"),
+        attested_text.find("- name: Install checksum-pinned Syft"),
+        attested_text.find("- name: Generate SPDX 2.3 SBOM"),
+        attested_text.find("- name: Validate SPDX 2.3 SBOM"),
         attested_text.find("- name: Generate build provenance attestation"),
+        attested_text.find("- name: Generate SBOM attestation"),
         attested_text.find("- name: Verify build provenance attestation"),
+        attested_text.find("- name: Verify SBOM attestation and predicate"),
         attested_text.find("- name: Upload package artifact"),
     ]
     if any(index < 0 for index in order) or order != sorted(order):
         errors.append(
-            "build-extension-attested.yml: required order is package -> metadata finalization -> attest -> verify -> upload"
+            "build-extension-attested.yml: required order is package -> metadata -> "
+            "Syft -> SBOM -> validate -> provenance attestation -> SBOM attestation -> "
+            "both verifications -> upload"
         )
 
 normal_order = [
     normal_text.find("- name: Package Windows binary"),
     normal_text.find("- name: Finalize and validate package metadata"),
+    normal_text.find("- name: Install checksum-pinned Syft"),
+    normal_text.find("- name: Generate SPDX 2.3 SBOM"),
+    normal_text.find("- name: Validate SPDX 2.3 SBOM"),
     normal_text.find("- name: Upload package artifact"),
 ]
 if any(index < 0 for index in normal_order) or normal_order != sorted(normal_order):
     errors.append(
-        "build-extension.yml: required order is package -> metadata finalization -> upload"
+        "build-extension.yml: required order is package -> metadata -> Syft -> SBOM -> validate -> upload"
     )
 
 for workflow_name, workflow_text in (
@@ -134,10 +170,17 @@ for workflow_name, workflow_text in (
     ("build-extension-attested.yml", attested_text),
 ):
     if workflow_text:
-        if "scripts/finalize-package.ps1" not in workflow_text:
-            errors.append(f"{workflow_name}: common package metadata finalizer is required")
-        if "scripts/validate-package-metadata.py" not in workflow_text:
-            errors.append(f"{workflow_name}: final ZIP metadata schema validation is required")
+        for required in (
+            "scripts/finalize-package.ps1",
+            "scripts/validate-package-metadata.py",
+            "scripts/install-syft.ps1",
+            "scripts/generate-sbom.ps1",
+            "scripts/validate-sbom.py",
+            'dist/*.spdx.json',
+            f'--expected-tool-version "{SYFT_VERSION}"',
+        ):
+            if required not in workflow_text:
+                errors.append(f"{workflow_name}: missing required Step 8 contract: {required}")
 
 for step in (
     "Install PostgreSQL ${{ matrix.major }}",
@@ -151,6 +194,31 @@ for step in (
         errors.append(f"build-extension.yml: missing shared build step {step}")
     if attested_text and step not in attested_text:
         errors.append(f"build-extension-attested.yml: missing shared build step {step}")
+
+installer = Path("scripts/install-syft.ps1").read_text(encoding="utf-8")
+for required in (
+    f'$SyftVersion = "{SYFT_VERSION}"',
+    f'$SyftArchiveSha256 = "{SYFT_WINDOWS_AMD64_SHA256}"',
+    "https://github.com/anchore/syft/releases/download/v${SyftVersion}/${ArchiveName}",
+    "Get-FileHash",
+):
+    if required not in installer:
+        errors.append(f"install-syft.ps1: missing pinned Syft trust control: {required}")
+
+installer_lower = installer.lower()
+for forbidden in ("releases/latest", "curl |", "irm ", "iex "):
+    if forbidden in installer_lower:
+        errors.append(f"install-syft.ps1: floating or pipe-to-shell install pattern is forbidden: {forbidden}")
+
+generator = Path("scripts/generate-sbom.ps1").read_text(encoding="utf-8")
+for required in (
+    'spdx-json@2.3=$sbomPath',
+    '--source-name $zip.BaseName',
+    '--source-version $ExtensionVersion',
+    '--source-supplier "pgextwin"',
+):
+    if required not in generator:
+        errors.append(f"generate-sbom.ps1: missing canonical source/SBOM setting: {required}")
 
 release_workflow = WORKFLOW_DIR / "release-extension.yml"
 if not release_workflow.exists():
@@ -167,12 +235,18 @@ else:
                 f"release-extension.yml: publication workflow must not request attestation permission {forbidden}"
             )
 
-    if "sha256sum ./*.zip > SHA256SUMS.txt" not in release_text:
+    if "printf '%s\\n' ./*.zip ./*.spdx.json | LC_ALL=C sort" not in release_text:
+        errors.append(
+            "release-extension.yml: checksum input must include ZIP and SPDX JSON in stable sorted order"
+        )
+    if 'sha256sum "${release_assets[@]}" > SHA256SUMS.txt' not in release_text:
         errors.append("release-extension.yml: SHA256SUMS.txt generation must be preserved")
-
+    if release_text.count("dist/*.spdx.json") != 2:
+        errors.append("release-extension.yml: create/update publication paths must both include SPDX JSON assets")
     if "gh attestation verify <zip-file>" not in release_text:
         errors.append("release-extension.yml: future release notes must document provenance verification")
-
+    if SPDX_PREDICATE not in release_text:
+        errors.append("release-extension.yml: future release notes must document SPDX SBOM attestation verification")
     if "pgextwin/build/.github/workflows/build-extension-attested.yml" not in release_text:
         errors.append("release-extension.yml: release notes must identify the attested signer workflow")
 

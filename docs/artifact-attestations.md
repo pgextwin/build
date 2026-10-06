@@ -6,7 +6,7 @@ This document defines the pgextwin Step 6 build-provenance contract for Windows 
 
 For release builds, each PostgreSQL-major matrix job creates its final Windows x64 ZIP under `dist/*.zip`. After build, install, functional smoke test, and packaging succeed, `actions/attest` generates a GitHub Artifact Attestation for that ZIP.
 
-The attestation uses the default SLSA build provenance predicate. SBOM attestations and custom predicates are outside Step 6.
+The Step 6 attestation uses the default SLSA build provenance predicate. Step 8 adds a second, separate SPDX 2.3 SBOM Attestation over the same final ZIP subject; it does not replace build provenance. See [Software Bill of Materials (SBOM)](sbom.md).
 
 The order is intentionally:
 
@@ -14,11 +14,12 @@ The order is intentionally:
 2. install,
 3. functional smoke test,
 4. package final ZIP,
-5. generate provenance attestation,
-6. verify the attestation with GitHub CLI,
-7. upload the unchanged ZIP as a GitHub Actions artifact,
-8. download the same bytes in the publication job,
-9. publish the ZIP as a GitHub Release asset.
+5. generate and validate the external SPDX 2.3 SBOM from the final ZIP,
+6. generate the SLSA build provenance attestation,
+7. generate the SPDX 2.3 SBOM Attestation over the same final ZIP,
+8. verify both attestations with GitHub CLI and compare the verified SBOM predicate with the generated JSON,
+9. upload the unchanged ZIP and external SBOM as GitHub Actions artifacts,
+10. publish those same files as future GitHub Release assets.
 
 The ZIP is not modified after attestation. `SHA256SUMS.txt` is created later by reading the ZIP bytes; the publication job does not repackage the ZIP.
 
@@ -81,7 +82,7 @@ gh attestation verify pg_bigm-<version>-pg16-windows-x64.zip \
   --signer-workflow pgextwin/build/.github/workflows/build-extension-attested.yml
 ```
 
-The release build workflow runs the same verification immediately after generating each attestation and before uploading the ZIP to the workflow artifact container.
+The release build workflow runs the same build-provenance verification and a second SPDX-specific verification using `--predicate-type https://spdx.dev/Document/v2.3`. It also checks that the verified SBOM predicate is semantically identical to the generated standalone SPDX JSON before uploading the ZIP and SBOM to the workflow artifact container.
 
 ## Historical releases
 
@@ -91,13 +92,12 @@ For historical releases, continue to use their published `SHA256SUMS.txt` and pa
 
 ## Scope boundary
 
-Step 6 covers only SLSA build provenance for the final ZIP.
+Step 6 itself covered only SLSA build provenance for the final ZIP. Step 7 added PACKAGE-INFO v2, and Step 8 adds SPDX 2.3 SBOM generation plus SBOM Attestation while preserving the Step 6 provenance statement.
 
-It does not add:
+Even after Step 8, this attestation layer does not add:
 
-- SPDX or CycloneDX SBOMs,
-- SBOM attestations,
-- PACKAGE-INFO v2,
+- vulnerability scanning or a CVE gate,
+- dependency or license policy enforcement,
 - upstream source commit SHA expansion,
 - compiler/toolchain provenance fields inside the package,
 - Python dependency locking,

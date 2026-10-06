@@ -163,9 +163,42 @@ jobs:
           python ".pgextwin-build/scripts/validate-package-metadata.py" --schema ".pgextwin-build/schema/package-info.schema.json" --zip $zipFiles[0].FullName
           if ($LASTEXITCODE -ne 0) { throw "Final PACKAGE-INFO.json schema validation failed." }
 
+      - name: Install checksum-pinned Syft
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/install-syft.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Syft installation failed." }
+
+      - name: Generate SPDX 2.3 SBOM
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/generate-sbom.ps1" `
+            -SyftPath (Join-Path $PWD ".pgextwin-tools\syft\syft.exe") `
+            -ExtensionName "${{ needs.matrix.outputs.extension_name }}" `
+            -ExtensionVersion "${{ matrix.upstreamVersion }}"
+          if ($LASTEXITCODE -ne 0) { throw "SBOM generation failed." }
+
+      - name: Validate SPDX 2.3 SBOM
+        shell: pwsh
+        run: |
+          $zipFiles = @(Get-ChildItem -Path "dist" -Filter "*.zip" -File)
+          $sbomFiles = @(Get-ChildItem -Path "dist" -Filter "*.spdx.json" -File)
+          if ($zipFiles.Count -ne 1) { throw "Expected exactly one final ZIP for SBOM validation, found $($zipFiles.Count)." }
+          if ($sbomFiles.Count -ne 1) { throw "Expected exactly one SPDX JSON for SBOM validation, found $($sbomFiles.Count)." }
+
+          python ".pgextwin-build/scripts/validate-sbom.py" `
+            --sbom $sbomFiles[0].FullName `
+            --zip $zipFiles[0].FullName `
+            --expected-extension "${{ needs.matrix.outputs.extension_name }}" `
+            --expected-version "${{ matrix.upstreamVersion }}" `
+            --expected-tool-version "1.54.0"
+          if ($LASTEXITCODE -ne 0) { throw "SPDX SBOM validation failed." }
+
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ needs.matrix.outputs.extension_name }}-pg${{ matrix.major }}-windows-x64
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.spdx.json
           if-no-files-found: error
