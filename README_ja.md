@@ -22,7 +22,7 @@
 
 ## Reusable Workflow
 
-caller repositoryは、build用・release用Reusable Workflowを同じ承認済み `pgextwin/build` full commit SHAへpinします。PR / main / non-release dispatchはread-onlyの通常build、`release/*` はattestation権限を持つrelease build、その後に `contents: write` だけを持つrelease publishへ分離します。
+caller repositoryは、3つの共通Reusable Workflowをすべて同じ承認済み `pgextwin/build` full commit SHAへpinします。GitHubではcalled reusable workflowがcallerから渡された権限を昇格できず、要求権限はjob実行前に検証されます。そのため、通常buildとAttestation付きrelease buildは別Reusable Workflowへ分離しています。
 
 ```yaml
 permissions:
@@ -44,10 +44,9 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    uses: pgextwin/build/.github/workflows/build-extension.yml@<same-40-character-build-commit-sha>
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@<same-40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
-      attest_provenance: true
 
   release:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
@@ -60,9 +59,9 @@ jobs:
       upstream_repository: ${{ needs.release_build.outputs.upstream_repository }}
 ```
 
-`attest_provenance` のdefaultは `false` です。release buildだけが最終 `dist/*.zip` をattestし、`gh attestation verify` で検証してから、変更していない同一ZIPをpublication用artifactとしてアップロードします。release publish workflowにはOIDC / attestation write権限を渡しません。
+`build-extension.yml` は厳密なread-onlyで、OIDC / Attestation権限を持ちません。`build-extension-attested.yml` は同じbuild / install / smoke test / packageを行った後、最終 `dist/*.zip` をattestし、`gh attestation verify` で検証してから、変更していないZIPをアップロードします。`release-extension.yml` はそのZIPをdownloadし、`SHA256SUMS.txt` を作成して `contents: write` だけでRelease公開します。
 
-`build-extension.yml` 内では、同居するbuild scriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。callerのbuild SHAだけでworkflow定義・script・metadataを同一revisionへ固定できます。
+両build workflowは、同居するscriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。3つのworkflowを同じbuild commitへpinすることで、workflow定義・script・metadata・release実装を同一revisionへ固定します。
 
 詳細は [Artifact Attestations / build provenance](docs/artifact-attestations.md)、[GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
 
@@ -90,7 +89,7 @@ PostgreSQLのLifecycle filterはこのrepositoryで一元管理します。通�
 
 ## 次のplatform作業
 
-初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）**、**GitHub Actions Trust Baseline（Step 5）まで完了**し、**Artifact Attestation / Release Build Provenance（Step 6）**をこの変更で導入します。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) と [GitHub Actions trust policy](docs/github-actions-security.md) を参照してください。
+初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）**、**GitHub Actions Trust Baseline（Step 5）**と**Artifact Attestation / Release Build Provenance（Step 6）**まで完了しました。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) と [GitHub Actions trust policy](docs/github-actions-security.md) を参照してください。
 
 PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たすまではproduction matrixへ追加しません。後続作業は別milestoneとして扱います。
 
