@@ -11,8 +11,8 @@ This document records the fixed implementation order for the initial pgextwin ex
 | 3 | pg_hint_plan | ossc-db/pg_hint_plan | Complete: public repository, PostgreSQL 14–18 Release `v1.8.0-windows.1`, and catalog publication. |
 | 4 | pgAudit | pgaudit/pgaudit | Complete: public repository, PostgreSQL 14–18 Release `v18.0-windows.1`, and catalog publication. |
 | 5 | set_user | pgaudit/set_user | Complete: public repository, PostgreSQL 14–18 Release `v4.2.0-windows.1`, and catalog publication. |
-| 6 | pg_repack | reorg/pg_repack | In progress: Stage 1 Windows pilot on PostgreSQL 17/18, including both extension DLL and `pg_repack.exe`; expand to PostgreSQL 14–16 after Stage 1 passes. |
-| 7 | pg_ivm | sraoss/pg_ivm | Planned after pg_repack. |
+| 6 | pg_repack | reorg/pg_repack | Complete: public repository, PostgreSQL 14–18 functional Release `v1.5.3-windows.1`, and catalog publication. |
+| 7 | pg_ivm | sraoss/pg_ivm | In progress: upstream `v1.16` Windows pilot on PostgreSQL 17/18 using its Meson/MSVC path; expand to PostgreSQL 14–16 after the first gate passes. |
 | 8 | pg_qualstats | powa-team/pg_qualstats | Planned after pg_ivm; also treated as a Windows-release revival candidate. |
 
 The order is intentional and should not be reshuffled without an explicit roadmap decision.
@@ -60,6 +60,12 @@ The `upstream.perPostgresql` manifest mode provides one ref/version mapping for 
 The shared license contract also supports multiple exact upstream license-file comparisons. This is required for pg_hint_plan because redistribution needs both its primary `COPYRIGHT` terms and the PostgreSQL-derived-code notice in `COPYRIGHT.postgresql`.
 
 The Windows technical pilot is complete on PostgreSQL 14–18. PostgreSQL 17/18 use the upstream scanner source generated with win_flex. PostgreSQL 14–16 rebuild the required query-jumble object from the exact official PostgreSQL source release after SHA-256 verification, avoiding opaque precompiled compatibility objects. The final smoke test validates preload, `CREATE EXTENSION`, real `SeqScan(...)` and `IndexScan(...)` hint behavior, and the PG14–16 hint-table/query-id compatibility path. See [Phase 5 pg_hint_plan pilot report](phase5-pg_hint_plan-pilot.md).
+
+## pg_repack infrastructure result
+
+pg_repack is complete on PostgreSQL 14–18. The package contains both the server extension DLL and the `pg_repack.exe` client. When EDB's normal Windows installation does not provide PostgreSQL's internal frontend support archives, the build resolves the exact installed PostgreSQL minor and rebuilds only `libpgport` and `libpgcommon` from the matching official PostgreSQL source with the PostgreSQL Meson/MSVC path.
+
+The PostgreSQL 18 build also applies the module-magic compatibility direction later adopted upstream. Functional CI requires a real table repack and verifies both row preservation and a relation filenode change. See [Phase 8 pg_repack report](phase8-pg_repack-pilot.md).
 
 ## Quality gate for every extension
 
