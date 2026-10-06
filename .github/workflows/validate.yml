@@ -31,6 +31,13 @@ jobs:
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
+      - name: Validate package metadata schema
+        run: python tests/test-package-metadata-schema.py
+
+      - name: Test package metadata finalizer
+        shell: pwsh
+        run: ./tests/test-package-metadata-finalizer.ps1
+
       - name: Validate PostgreSQL lifecycle and readiness metadata
         shell: pwsh
         run: |
