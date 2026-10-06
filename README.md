@@ -22,9 +22,9 @@ The shared workflow is responsible for:
 
 Extension-specific source adaptation and functional tests remain in each extension repository.
 
-## Reusable workflow
+## Reusable workflows
 
-Caller repositories pin both shared workflows to the same approved `pgextwin/build` full commit SHA. Normal PR/main/non-release builds remain read-only. Release branches use a separate attested build job, followed by a publication job with only `contents: write`.
+Caller repositories pin all three shared workflows to the same approved `pgextwin/build` full commit SHA. GitHub does not allow a called reusable workflow to elevate permissions above the caller, and its requested permissions are validated before jobs run. Therefore normal and attested builds use separate reusable workflow files rather than putting release-only write permissions into the normal build workflow.
 
 ```yaml
 permissions:
@@ -46,10 +46,9 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    uses: pgextwin/build/.github/workflows/build-extension.yml@<same-40-character-build-commit-sha>
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@<same-40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
-      attest_provenance: true
 
   release:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
@@ -62,9 +61,9 @@ jobs:
       upstream_repository: ${{ needs.release_build.outputs.upstream_repository }}
 ```
 
-`attest_provenance` defaults to `false`. The release build attests each final `dist/*.zip`, verifies it with `gh attestation verify`, and only then uploads the unchanged ZIP for publication. The release publication workflow does not receive OIDC or attestation write permissions.
+`build-extension.yml` is strictly read-only and has no OIDC or attestation capability. `build-extension-attested.yml` performs the same build/install/smoke-test/package sequence, then attests each final `dist/*.zip`, verifies it with `gh attestation verify`, and uploads the unchanged ZIP. `release-extension.yml` only downloads those ZIPs, creates `SHA256SUMS.txt`, and publishes the Release with `contents: write`.
 
-Inside `build-extension.yml`, co-located build scripts and metadata are checked out from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. The caller's build SHA therefore fixes the workflow definition, scripts, and metadata to the same revision without a mutable `build_ref`.
+Both build reusable workflows check out co-located scripts and metadata from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. Pinning all three workflows to one build commit therefore fixes the workflow definitions, scripts, metadata, and release implementation to the same revision.
 
 See [Artifact Attestations and build provenance](docs/artifact-attestations.md), [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
 
@@ -92,7 +91,7 @@ See [PostgreSQL lifecycle policy](docs/postgresql-lifecycle.md) for the complete
 
 ## Next platform work
 
-The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), the **PostgreSQL 19 readiness / compatibility audit (Step 4)**, and the **GitHub Actions trust baseline (Step 5)** are complete, and **Artifact Attestation / Release Build Provenance (Step 6)** is being established here. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) and [GitHub Actions trust policy](docs/github-actions-security.md).
+The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), the **PostgreSQL 19 readiness / compatibility audit (Step 4)**, and the **GitHub Actions trust baseline (Step 5)** and **Artifact Attestation / Release Build Provenance (Step 6)** are complete. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) and [GitHub Actions trust policy](docs/github-actions-security.md).
 
 PostgreSQL 19 remains outside the production matrix until the documented GA/Windows/upstream gates are satisfied. Remaining work is intentionally separated into later milestones:
 
