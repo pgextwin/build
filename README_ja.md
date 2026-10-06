@@ -46,9 +46,23 @@ jobs:
 - Phase 5 pg_hint_plan 技術pilot: 完了 — [pg_hint_plan pilot report](docs/phase5-pg_hint_plan-pilot.md)
 - Phase 6 pgAudit 技術pilot: 完了 — [pgAudit pilot report](docs/phase6-pgaudit-pilot.md)
 - Phase 7 set_user 技術pilot: 完了 — [set_user pilot report](docs/phase7-set_user-pilot.md)
-- Phase 8 pg_repack 技術pilot: `pgextwin/pg_repack` で進行中
+- Phase 8 pg_repack 技術pilot・正式公開: 完了 — [pg_repack pilot report](docs/phase8-pg_repack-pilot.md)
+- Phase 9 pg_ivm 技術pilot・正式公開: 完了 — [pg_ivm pilot report](docs/phase9-pg_ivm-pilot.md)
+- Phase 10 pg_qualstats 技術pilot・正式公開: 完了 — [pg_qualstats pilot report](docs/phase10-pg_qualstats-pilot.md)
 
-pg_hint_plan pilotではさらに、PostgreSQLメジャー別upstream release、メジャー別license notice、Flex scanner生成、公式PostgreSQL sourceからのquery-jumble互換object再生成を検証しました。`pg_bigm`、`pg_cron`、`pg_hint_plan`、`pgaudit`、`set_user` はPostgreSQL 14〜18向けReleaseとcatalog登録まで完了しています。現在のロードマップ対象はpg_repackで、server側Extension DLLだけでなく `pg_repack.exe` clientもWindows向けpackageに含めて検証します。
+**Initial extension roadmap: 完了。** 初期8 Extensionである `pg_bigm`、`pg_cron`、`pg_hint_plan`、`pgaudit`、`set_user`、`pg_repack`、`pg_ivm`、`pg_qualstats` は、すべてPostgreSQL 14〜18向けWindows x64 Release公開とcatalog登録まで完了しています。既存pilot reportとの互換性を保つため、Phase番号は履歴として維持します。詳細は [Extension roadmap](docs/roadmap.md) を参照してください。
+
+## 次のplatform作業
+
+初期Extensionロードマップはここで完了です。以下は後続の独立したplatform milestoneとして扱い、**このclosure stepでは実装しません**。
+
+1. PostgreSQL lifecycle / PG14 EOL
+2. PostgreSQL 19 readiness
+3. supply-chain hardening
+4. package metadata / catalog improvements
+5. website improvements
+6. upstream update automation
+7. second extension wave
 
 ## ライセンス
 
