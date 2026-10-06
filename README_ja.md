@@ -21,22 +21,33 @@
 
 ## Reusable Workflow
 
-呼び出し側は次のように利用します。
+呼び出し側は、承認済みのfull commit SHAへReusable Workflowをpinします。通常buildとRelease buildをcaller jobとして分け、write権限はRelease pathだけに渡します。
 
 ```yaml
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
-    uses: pgextwin/build/.github/workflows/build-extension.yml@main
+    if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+    permissions:
+      contents: read
+    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
+    with:
+      extension_config_path: config/extension.json
+
+  release:
+    if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
+    permissions:
+      contents: write
+    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
 ```
 
-`contents: write` は、`release/*` ブランチからGitHub Releaseを作成・更新するために必要です。Reusable Workflow内の通常のビルド・テストジョブはread-only権限で実行します。
+Reusable Workflow内部では、同居するbuild scriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。これによりcallerの1つのSHA pinだけで、workflow定義・script・metadataを必ず同一revisionへ固定でき、別のmutableな `build_ref` は不要です。
 
-詳細は [Hook contract](docs/hook-contract.md) と [Architecture](docs/architecture.md) を参照してください。
+詳細は [GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
 
 ## PostgreSQL Lifecycle
 
@@ -62,12 +73,12 @@ PostgreSQLのLifecycle filterはこのrepositoryで一元管理します。通�
 
 ## 次のplatform作業
 
-初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）まで完了**しました。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) を参照してください。
+初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）**、**GitHub Actions Trust Baseline（Step 5）まで完了**しました。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) と [GitHub Actions trust policy](docs/github-actions-security.md) を参照してください。
 
-Step 4時点のPostgreSQL 19はまだGA前であり、production matrixには追加していません。後続作業は別milestoneとして扱います。
+PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たすまではproduction matrixへ追加しません。後続作業は別milestoneとして扱います。
 
 1. 文書化したGA / Windows配布 / upstream gateを満たした後のPostgreSQL 19正式オンボーディング
-2. supply-chain hardening
+2. Artifact Attestationと、より広いsupply-chain provenance強化
 3. より広いpackage metadata / catalog改善
 4. Lifecycle表示以外のwebsite改善
 5. upstream update automation
