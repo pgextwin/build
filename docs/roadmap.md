@@ -85,15 +85,20 @@ The initial eight-extension roadmap is now complete. Any extension added after p
 
 ## Next platform work
 
-This initial roadmap milestone is closed. The following areas are planned for later, separate decisions; none is implemented as part of the initial-roadmap closure:
+The initial eight-extension roadmap remains closed.
 
-1. PostgreSQL lifecycle / PG14 EOL
-2. PostgreSQL 19 readiness
-3. supply-chain hardening
-4. package metadata / catalog improvements
-5. website improvements
-6. upstream update automation
-7. second extension wave
+**PostgreSQL lifecycle / PG14 EOL build foundation: complete.** The shared resolver now has a deterministic effective-date test seam, the EOL date is explicitly inclusive, lifecycle metadata is validated in CI, and the historical-release retention policy is documented. PostgreSQL 14 remains a normal build target through 2026-11-12 and leaves new normal matrices beginning 2026-11-13.
+
+The following remain separate future milestones and are not completed by this foundation work:
+
+1. Catalog lifecycle representation, including a maintained/current concept distinct from asset availability
+2. Website lifecycle representation and explicit PG14 EOL visibility
+3. PostgreSQL 19 readiness / experimental build planning
+4. supply-chain hardening
+5. broader package metadata / catalog improvements
+6. website improvements beyond lifecycle visibility
+7. upstream update automation
+8. second extension wave
 
 ## Quality gate for every extension
 
