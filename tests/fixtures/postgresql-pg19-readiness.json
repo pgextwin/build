@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "postgresql": [
+    {
+      "major": 14,
+      "minor": "14.99",
+      "chocolateyPackage": "fixture-postgresql14",
+      "chocolateyVersion": "14.99.0",
+      "eol": "2099-12-31",
+      "testPort": 55414
+    },
+    {
+      "major": 15,
+      "minor": "15.99",
+      "chocolateyPackage": "fixture-postgresql15",
+      "chocolateyVersion": "15.99.0",
+      "eol": "2099-12-31",
+      "testPort": 55415
+    },
+    {
+      "major": 16,
+      "minor": "16.99",
+      "chocolateyPackage": "fixture-postgresql16",
+      "chocolateyVersion": "16.99.0",
+      "eol": "2099-12-31",
+      "testPort": 55416
+    },
+    {
+      "major": 17,
+      "minor": "17.99",
+      "chocolateyPackage": "fixture-postgresql17",
+      "chocolateyVersion": "17.99.0",
+      "eol": "2099-12-31",
+      "testPort": 55417
+    },
+    {
+      "major": 18,
+      "minor": "18.99",
+      "chocolateyPackage": "fixture-postgresql18",
+      "chocolateyVersion": "18.99.0",
+      "eol": "2099-12-31",
+      "testPort": 55418
+    },
+    {
+      "major": 19,
+      "minor": "19.99",
+      "chocolateyPackage": "fixture-postgresql19",
+      "chocolateyVersion": "19.99.0",
+      "eol": "2099-12-31",
+      "testPort": 55419
+    }
+  ]
+}

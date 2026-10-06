@@ -87,18 +87,20 @@ The initial eight-extension roadmap is now complete. Any extension added after p
 
 The initial eight-extension roadmap remains closed.
 
-**PostgreSQL lifecycle / PG14 EOL build foundation: complete.** The shared resolver now has a deterministic effective-date test seam, the EOL date is explicitly inclusive, lifecycle metadata is validated in CI, and the historical-release retention policy is documented. PostgreSQL 14 remains a normal build target through 2026-11-12 and leaves new normal matrices beginning 2026-11-13.
+**Step 2 — PostgreSQL lifecycle / PG14 EOL build foundation: complete.** The shared resolver has a deterministic effective-date test seam, the EOL date is explicitly inclusive, lifecycle metadata is validated in CI, and the historical-release retention policy is documented. PostgreSQL 14 remains a normal build target through 2026-11-12 and leaves new normal matrices beginning 2026-11-13.
 
-The following remain separate future milestones and are not completed by this foundation work:
+**Step 3 — lifecycle visibility: complete.** Catalog and website responsibility is separated between historical binary availability and current maintenance state.
 
-1. Catalog lifecycle representation, including a maintained/current concept distinct from asset availability
-2. Website lifecycle representation and explicit PG14 EOL visibility
-3. PostgreSQL 19 readiness / experimental build planning
-4. supply-chain hardening
-5. broader package metadata / catalog improvements
-6. website improvements beyond lifecycle visibility
-7. upstream update automation
-8. second extension wave
+**Step 4 — PostgreSQL 19 readiness / compatibility audit: complete.** The resolver/schema/workflow have no PostgreSQL 18 ceiling, synthetic fixtures prove PostgreSQL 19 and temporary six-major resolution without changing production metadata, Windows distribution prerequisites and all eight upstreams have been audited, and the production onboarding gate is documented in [PostgreSQL 19 readiness](postgresql-19-readiness.md).
+
+The following remain separate future milestones:
+
+1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
+2. supply-chain hardening
+3. broader package metadata / catalog improvements
+4. website improvements beyond lifecycle visibility
+5. upstream update automation
+6. second extension wave
 
 ## Quality gate for every extension
 

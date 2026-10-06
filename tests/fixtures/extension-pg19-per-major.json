@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "fixture-pg19-per-major",
+  "upstream": {
+    "repository": "example/fixture-pg19-per-major",
+    "perPostgresql": {
+      "18": {
+        "ref": "REL18_FIXTURE",
+        "version": "18-fixture"
+      },
+      "19": {
+        "ref": "REL19_FIXTURE",
+        "version": "19-fixture"
+      }
+    }
+  },
+  "postgresql": {
+    "majors": [18, 19]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  }
+}

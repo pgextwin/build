@@ -14,9 +14,13 @@ function Invoke-ResolverFixture {
         [string]$ExtensionFixture,
 
         [Parameter(Mandatory = $false)]
-        [string]$EffectiveDate = "2026-10-06"
+        [string]$EffectiveDate = "2026-10-06",
+
+        [Parameter(Mandatory = $false)]
+        [string]$PostgreSqlFixture = "postgresql.json"
     )
 
+    $selectedPostgresFixture = Join-Path $PSScriptRoot "fixtures/$PostgreSqlFixture"
     $outputFile = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-output-" + [Guid]::NewGuid().ToString("N") + ".txt")
 
     try {
@@ -24,7 +28,7 @@ function Invoke-ResolverFixture {
 
         & $resolver `
             -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/$ExtensionFixture") `
-            -PostgreSqlConfigPath $postgresFixture `
+            -PostgreSqlConfigPath $selectedPostgresFixture `
             -EffectiveDate $EffectiveDate
 
         $values = @{}
@@ -163,6 +167,39 @@ if ($pg14.upstreamRef -ne "REL14_1_4_4" -or $pg14.upstreamVersion -ne "1.4.4") {
 
 if ($pg16.upstreamRef -ne "REL16_1_6_2" -or $pg16.upstreamVersion -ne "1.6.2") {
     throw "Unexpected PostgreSQL 16 per-major upstream metadata."
+}
+
+# PostgreSQL 19 readiness is tested only with synthetic fixture metadata.
+# This deliberately does not add PostgreSQL 19 to production metadata/postgresql.json.
+$pg19Range = Invoke-ResolverFixture `
+    -ExtensionFixture "extension-pg19-range.json" `
+    -PostgreSqlFixture "postgresql-pg19-readiness.json"
+
+$pg19RangeMatrix = $pg19Range["matrix"] | ConvertFrom-Json
+$pg19RangeMajors = @($pg19RangeMatrix.include | ForEach-Object { [int]$_.major })
+
+if ($pg19RangeMajors.Count -ne 6 -or
+    $pg19RangeMajors[0] -ne 14 -or
+    $pg19RangeMajors[-1] -ne 19) {
+    throw "Expected synthetic six-major PostgreSQL 14-19 matrix, got: $($pg19RangeMajors -join ', ')"
+}
+
+$pg19PerMajor = Invoke-ResolverFixture `
+    -ExtensionFixture "extension-pg19-per-major.json" `
+    -PostgreSqlFixture "postgresql-pg19-readiness.json"
+
+$pg19PerMajorMatrix = $pg19PerMajor["matrix"] | ConvertFrom-Json
+$pg19PerMajorMajors = @($pg19PerMajorMatrix.include | ForEach-Object { [int]$_.major })
+
+if ($pg19PerMajorMajors.Count -ne 2 -or
+    $pg19PerMajorMajors[0] -ne 18 -or
+    $pg19PerMajorMajors[1] -ne 19) {
+    throw "Expected synthetic explicit PostgreSQL majors 18 and 19, got: $($pg19PerMajorMajors -join ', ')"
+}
+
+$pg19Entry = @($pg19PerMajorMatrix.include | Where-Object { [int]$_.major -eq 19 })[0]
+if ($pg19Entry.upstreamRef -ne "REL19_FIXTURE" -or $pg19Entry.upstreamVersion -ne "19-fixture") {
+    throw "Synthetic PostgreSQL 19 per-major upstream metadata was not resolved correctly."
 }
 
 $missingOutput = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-output-" + [Guid]::NewGuid().ToString("N") + ".txt")
