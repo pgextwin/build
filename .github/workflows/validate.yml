@@ -34,6 +34,9 @@ jobs:
       - name: Validate package metadata schema
         run: python tests/test-package-metadata-schema.py
 
+      - name: Validate SBOM contract
+        run: python tests/test-sbom-validation.py
+
       - name: Test package metadata finalizer
         shell: pwsh
         run: ./tests/test-package-metadata-finalizer.ps1
