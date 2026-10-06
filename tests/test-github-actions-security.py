@@ -109,14 +109,35 @@ else:
 
     order = [
         attested_text.find("- name: Package Windows binary"),
+        attested_text.find("- name: Finalize and validate package metadata"),
         attested_text.find("- name: Generate build provenance attestation"),
         attested_text.find("- name: Verify build provenance attestation"),
         attested_text.find("- name: Upload package artifact"),
     ]
     if any(index < 0 for index in order) or order != sorted(order):
         errors.append(
-            "build-extension-attested.yml: required order is package -> attest -> verify -> upload"
+            "build-extension-attested.yml: required order is package -> metadata finalization -> attest -> verify -> upload"
         )
+
+normal_order = [
+    normal_text.find("- name: Package Windows binary"),
+    normal_text.find("- name: Finalize and validate package metadata"),
+    normal_text.find("- name: Upload package artifact"),
+]
+if any(index < 0 for index in normal_order) or normal_order != sorted(normal_order):
+    errors.append(
+        "build-extension.yml: required order is package -> metadata finalization -> upload"
+    )
+
+for workflow_name, workflow_text in (
+    ("build-extension.yml", normal_text),
+    ("build-extension-attested.yml", attested_text),
+):
+    if workflow_text:
+        if "scripts/finalize-package.ps1" not in workflow_text:
+            errors.append(f"{workflow_name}: common package metadata finalizer is required")
+        if "scripts/validate-package-metadata.py" not in workflow_text:
+            errors.append(f"{workflow_name}: final ZIP metadata schema validation is required")
 
 for step in (
     "Install PostgreSQL ${{ matrix.major }}",

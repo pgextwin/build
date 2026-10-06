@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "buildMode": "normal",
+  "package": {
+    "name": "pg_bigm",
+    "platform": "windows",
+    "architecture": "x64"
+  },
+  "upstream": {
+    "repository": "pgbigm/pg_bigm",
+    "ref": "v1.2-20250903",
+    "version": "1.2",
+    "commit": "1111111111111111111111111111111111111111"
+  },
+  "source": {
+    "packagingRepository": "pgextwin/pg_bigm",
+    "packagingCommit": "2222222222222222222222222222222222222222"
+  },
+  "buildInfrastructure": {
+    "repository": "pgextwin/build",
+    "commit": "3333333333333333333333333333333333333333",
+    "workflow": ".github/workflows/build-extension.yml"
+  },
+  "postgresql": {
+    "major": 18,
+    "testedVersion": "18.6",
+    "installation": {
+      "packageManager": "chocolatey",
+      "package": "postgresql18",
+      "packageVersion": "18.6.5"
+    }
+  },
+  "toolchain": {
+    "compiler": "MSVC",
+    "compilerVersion": "19.44.35221.0"
+  },
+  "workflowRun": {
+    "id": 1234567890,
+    "attempt": 1,
+    "url": "https://github.com/pgextwin/pg_bigm/actions/runs/1234567890",
+    "event": "push",
+    "ref": "refs/heads/main"
+  },
+  "runner": {
+    "os": "Windows",
+    "architecture": "X64",
+    "requestedLabel": "windows-latest",
+    "imageOS": "win25",
+    "imageVersion": "20261001.1"
+  }
+}

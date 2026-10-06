@@ -153,6 +153,19 @@ jobs:
             -PostgreSqlMajor ([int]"${{ matrix.major }}") `
             -PostgreSqlMinor "${{ matrix.minor }}"
 
+      - name: Finalize and validate package metadata
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/finalize-package.ps1" -ExtensionName "${{ needs.matrix.outputs.extension_name }}" -UpstreamDir (Join-Path $PWD "upstream") -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" -UpstreamRef "${{ matrix.upstreamRef }}" -UpstreamVersion "${{ matrix.upstreamVersion }}" -PostgreSqlMajor ([int]"${{ matrix.major }}") -PostgreSqlTestedVersion "${{ matrix.minor }}" -ChocolateyPackage "${{ matrix.chocolateyPackage }}" -ChocolateyPackageVersion "${{ matrix.chocolateyVersion }}" -PackagingRepository "${{ github.repository }}" -BuildRepository "${{ job.workflow_repository }}" -BuildCommit "${{ job.workflow_sha }}" -ReusableWorkflow ".github/workflows/build-extension-attested.yml" -BuildMode "release-attested" -WorkflowRunId ([long]"${{ github.run_id }}") -WorkflowRunAttempt ([int]"${{ github.run_attempt }}") -WorkflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" -WorkflowEvent "${{ github.event_name }}" -WorkflowRef "${{ github.ref }}"
+
+          python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install the package metadata schema validator." }
+
+          $zipFiles = @(Get-ChildItem -Path "dist" -Filter "*.zip" -File)
+          if ($zipFiles.Count -ne 1) { throw "Expected exactly one final ZIP for metadata validation, found $($zipFiles.Count)." }
+          python ".pgextwin-build/scripts/validate-package-metadata.py" --schema ".pgextwin-build/schema/package-info.schema.json" --zip $zipFiles[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Final PACKAGE-INFO.json schema validation failed." }
+
       - name: Generate build provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
