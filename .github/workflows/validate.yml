@@ -28,9 +28,11 @@ jobs:
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
-      - name: Validate PostgreSQL lifecycle metadata
+      - name: Validate PostgreSQL lifecycle and readiness metadata
         shell: pwsh
-        run: ./tests/test-postgresql-metadata.ps1
+        run: |
+          ./tests/test-postgresql-metadata.ps1
+          ./tests/test-postgresql-metadata.ps1 -PostgreSqlConfigPath ./tests/fixtures/postgresql-pg19-readiness.json
 
       - name: Test matrix resolver
         shell: pwsh
