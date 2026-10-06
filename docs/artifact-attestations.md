@@ -35,21 +35,21 @@ A checksum alone does not establish build identity. An attestation does not repl
 
 The caller repository is the extension packaging repository, for example `pgextwin/pg_bigm`.
 
-The signer workflow is the reusable workflow:
+The provenance signer workflow is:
 
-`pgextwin/build/.github/workflows/build-extension.yml`
+`pgextwin/build/.github/workflows/build-extension-attested.yml`
 
-Caller repositories pin that reusable workflow by full 40-character `pgextwin/build` commit SHA. Inside the reusable workflow, co-located scripts and metadata are checked out using `job.workflow_repository` and `job.workflow_sha`, so the workflow definition and shared build implementation are fixed to the same revision.
+Normal builds use the separate read-only `build-extension.yml`. Release publication uses `release-extension.yml`. Caller repositories pin all three workflows to the same full 40-character `pgextwin/build` commit SHA.
+
+Inside both build workflows, co-located scripts and metadata are checked out using `job.workflow_repository` and `job.workflow_sha`, so the workflow definition and shared build implementation are fixed to the same revision.
 
 GitHub stores the attestation with the repository that initiated the caller workflow. When verifying an artifact produced through the cross-repository reusable workflow, verify both the caller repository and the reusable signer workflow identity.
 
 ## Permission boundary
 
-Artifact Attestation is opt-in through the boolean reusable-workflow input `attest_provenance`, whose default is `false`.
+Normal pull-request, `main`, and non-release manual builds call `build-extension.yml` with only `contents: read`. They do not grant or request `id-token: write`, `attestations: write`, or `artifact-metadata: write`.
 
-Normal pull-request, `main`, and non-release manual builds call the reusable workflow with only `contents: read`. They do not grant `id-token: write`, `attestations: write`, or `artifact-metadata: write`.
-
-Only the release build path grants:
+Only the release build path calls `build-extension-attested.yml` and grants:
 
 ```yaml
 permissions:
@@ -59,7 +59,7 @@ permissions:
   artifact-metadata: write
 ```
 
-The reusable build job declares the same attestation permissions because GitHub requires both caller and called reusable workflow to permit the operation. Reusable workflows cannot elevate permissions beyond those granted by the caller, so normal builds remain read-only.
+The attested reusable workflow declares the same permissions because GitHub requires the caller and called reusable workflow to permit Artifact Attestation. Keeping that permission-bearing workflow separate is necessary because reusable workflows cannot elevate permissions passed by their caller and GitHub validates the nested permission contract before build jobs start.
 
 The separate release publication job keeps only `contents: write`. It does not receive OIDC or attestation write permissions.
 
@@ -70,7 +70,7 @@ After downloading a ZIP from a Step 6-or-later Release, first verify its SHA-256
 ```bash
 gh attestation verify <zip-file> \
   --repo pgextwin/<extension> \
-  --signer-workflow pgextwin/build/.github/workflows/build-extension.yml
+  --signer-workflow pgextwin/build/.github/workflows/build-extension-attested.yml
 ```
 
 For example:
@@ -78,7 +78,7 @@ For example:
 ```bash
 gh attestation verify pg_bigm-<version>-pg16-windows-x64.zip \
   --repo pgextwin/pg_bigm \
-  --signer-workflow pgextwin/build/.github/workflows/build-extension.yml
+  --signer-workflow pgextwin/build/.github/workflows/build-extension-attested.yml
 ```
 
 The release build workflow runs the same verification immediately after generating each attestation and before uploading the ZIP to the workflow artifact container.
