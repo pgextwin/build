@@ -36,7 +36,7 @@ $requiredProperties = @(
     "testPort"
 )
 
-$seenMajors = [Collections.Generic.HashSet[int]]::new()
+$seenMajors = [System.Collections.Generic.HashSet[int]]::new()
 $previousMajor = $null
 
 foreach ($entry in $entries) {
