@@ -64,16 +64,16 @@ See [PostgreSQL lifecycle policy](docs/postgresql-lifecycle.md) for the complete
 
 ## Next platform work
 
-The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL **build-foundation readiness is complete** in this repository. Follow-up platform work remains separate:
+The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), and the **PostgreSQL 19 readiness / compatibility audit (Step 4) are complete**. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md).
 
-1. Catalog lifecycle representation: distinguish current maintenance from historical asset availability
-2. Website lifecycle representation, including PG14 EOL visibility
-3. PostgreSQL 19 experimental/readiness work after an explicit milestone decision
-4. supply-chain hardening
-5. broader package metadata / catalog improvements
-6. website improvements beyond lifecycle visibility
-7. upstream update automation
-8. second extension wave
+PostgreSQL 19 is still pre-GA at the Step 4 checkpoint and is **not** part of the production matrix. Remaining work is intentionally separated into later milestones:
+
+1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
+2. supply-chain hardening
+3. broader package metadata / catalog improvements
+4. website improvements beyond lifecycle visibility
+5. upstream update automation
+6. second extension wave
 
 ## License
 
