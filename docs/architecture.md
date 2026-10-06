@@ -26,6 +26,14 @@ extension repository
 
 PostgreSQL lifecycle metadata and CI mechanics are common across extensions and should be maintained once. Build commands, exported symbols, preload requirements, files to install, and functional tests differ substantially by extension and remain local.
 
+## PostgreSQL lifecycle resolution
+
+`metadata/postgresql.json` is the shared lifecycle source for supported PostgreSQL majors and their EOL dates. `scripts/resolve-matrix.ps1` intersects that metadata with the caller's extension manifest.
+
+Normal runs use the current UTC calendar date. Tests may inject an explicit `-EffectiveDate yyyy-MM-dd` so EOL boundaries are deterministic. The final support date is inclusive: a major remains eligible when `EOL >= effective date` and is excluded beginning the next day.
+
+Lifecycle filtering governs **new normal builds** only. Existing tags, Releases, assets, and checksums remain historical distribution records after a PostgreSQL major reaches EOL. See [PostgreSQL lifecycle policy](postgresql-lifecycle.md).
+
 ## Release gate
 
 A release is eligible only after every PostgreSQL major in the resolved matrix completes the extension-specific build, install, functional test, and packaging hooks.
