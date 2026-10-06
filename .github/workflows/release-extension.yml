@@ -69,7 +69,7 @@ jobs:
           \`\`\`bash
           gh attestation verify <zip-file> \\
             --repo ${GITHUB_REPOSITORY} \\
-            --signer-workflow pgextwin/build/.github/workflows/build-extension.yml
+            --signer-workflow pgextwin/build/.github/workflows/build-extension-attested.yml
           \`\`\`
 
           This applies to releases built after Artifact Attestation was introduced; historical releases are not retroactively attested.
@@ -101,7 +101,7 @@ jobs:
           \`\`\`bash
           gh attestation verify <zip-file> \\
             --repo ${GITHUB_REPOSITORY} \\
-            --signer-workflow pgextwin/build/.github/workflows/build-extension.yml
+            --signer-workflow pgextwin/build/.github/workflows/build-extension-attested.yml
           \`\`\`
 
           Artifact Attestation導入前の既存Releaseへはretroactive attestationを追加していません。
