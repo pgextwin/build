@@ -83,6 +83,18 @@ Functional CI preloads pg_qualstats, creates the extension, runs real predicates
 
 The initial eight-extension roadmap is now complete. Any extension added after pg_qualstats should be treated as a new roadmap decision rather than implicitly extending this fixed initial order.
 
+## Next platform work
+
+This initial roadmap milestone is closed. The following areas are planned for later, separate decisions; none is implemented as part of the initial-roadmap closure:
+
+1. PostgreSQL lifecycle / PG14 EOL
+2. PostgreSQL 19 readiness
+3. supply-chain hardening
+4. package metadata / catalog improvements
+5. website improvements
+6. upstream update automation
+7. second extension wave
+
 ## Quality gate for every extension
 
 A pgextwin release should normally require:
