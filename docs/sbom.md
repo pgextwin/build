@@ -78,7 +78,7 @@ The validator requires:
 - creation information containing exactly `Tool: syft-1.54.0`;
 - a root/source package named after the final ZIP basename;
 - the expected extension version and `Organization: pgextwin` supplier;
-- `documentDescribes` pointing at that source package;
+- an SPDX document-to-source-package `DESCRIBES` relation (represented by Syft as an `SPDXRef-DOCUMENT` relationship, while the validator also accepts the equivalent `documentDescribes` property);
 - a SHA-256 checksum on the source package that equals the actual final ZIP digest;
 - consistency between expected extension/version and the embedded `PACKAGE-INFO.json`.
 
@@ -169,7 +169,7 @@ SBOMはZIP外部の `<ZIP basename>.spdx.json` とします。SBOMをZIPへ戻�
 
 Syft source identityは、name=final ZIP basename、version=manifest/matrixのupstream version、supplier=`pgextwin` とします。SPDX上では `Organization: pgextwin` となります。これはupstream作者を名乗るものではなく、pgextwin Windows packageの配布者を表します。upstream repository/ref/version/exact commitは引き続き `PACKAGE-INFO.json` が正規情報です。
 
-`scripts/validate-sbom.py` は、SPDX 2.3、dataLicense、document SPDXID/namespace、Syft 1.54.0 creator、final ZIPに対応するroot/source package、version、supplier、`documentDescribes`、そしてsource packageのSHA-256と実際のfinal ZIP SHA-256の一致を検証します。Native C Extensionではnpm/NuGetのようなmanifestがないことがあるため、「検出packageが2個以上」のような条件を成功条件にはしません。
+`scripts/validate-sbom.py` は、SPDX 2.3、dataLicense、document SPDXID/namespace、Syft 1.54.0 creator、final ZIPに対応するroot/source package、version、supplier、documentからsource packageへの `DESCRIBES` 関係（Syft実出力では `SPDXRef-DOCUMENT` relationship）、そしてsource packageのSHA-256と実際のfinal ZIP SHA-256の一致を検証します。Native C Extensionではnpm/NuGetのようなmanifestがないことがあるため、「検出packageが2個以上」のような条件を成功条件にはしません。
 
 PostgreSQL serverはruntime/compatibility要件ですが、通常のExtension ZIPにPostgreSQL installationそのものは同梱しません。そのため、単にPostgreSQL 18.6でbuild/testしたことを理由にPostgreSQLを「SBOM内に含まれるcomponent」として追加しません。互換性・tested minor・build environmentは `PACKAGE-INFO.json` に記録します。
 

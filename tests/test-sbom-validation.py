@@ -79,8 +79,13 @@ base = {
             "copyrightText": "NOASSERTION",
         }
     ],
-    "documentDescribes": ["SPDXRef-DocumentRoot-File-pg-bigm"],
-    "relationships": [],
+    "relationships": [
+        {
+            "spdxElementId": "SPDXRef-DOCUMENT",
+            "relatedSpdxElement": "SPDXRef-DocumentRoot-File-pg-bigm",
+            "relationshipType": "DESCRIBES",
+        }
+    ],
 }
 
 run_case(json.loads(json.dumps(base)), True, "valid SPDX 2.3 fixture")

@@ -143,8 +143,22 @@ def main() -> None:
         fail("source package SPDXID is missing or malformed")
 
     described = document.get("documentDescribes")
-    if not isinstance(described, list) or source_spdx_id not in described:
-        fail("documentDescribes does not identify the final ZIP source package")
+    relationships = document.get("relationships") or []
+    describes_via_relationship = any(
+        relationship.get("spdxElementId") == "SPDXRef-DOCUMENT"
+        and relationship.get("relationshipType") == "DESCRIBES"
+        and relationship.get("relatedSpdxElement") == source_spdx_id
+        for relationship in relationships
+        if isinstance(relationship, dict)
+    )
+    describes_via_property = (
+        isinstance(described, list) and source_spdx_id in described
+    )
+    if not (describes_via_property or describes_via_relationship):
+        fail(
+            "SPDX document does not DESCRIBE the final ZIP source package "
+            "via documentDescribes or an SPDXRef-DOCUMENT DESCRIBES relationship"
+        )
 
     expected_zip_sha256 = sha256_file(zip_path)
     checksums = source_package.get("checksums") or []
