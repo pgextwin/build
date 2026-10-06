@@ -46,8 +46,11 @@ See [Hook contract](docs/hook-contract.md) and [Architecture](docs/architecture.
 - Phase 3 pg_bigm pilot: complete — see [Phase 3 pilot report](docs/phase3-pg_bigm-pilot.md)
 - Phase 4 second-extension technical pilot: complete — see [pg_cron pilot report](docs/phase4-pg_cron-pilot.md)
 - Phase 5 pg_hint_plan technical pilot: complete — see [pg_hint_plan pilot report](docs/phase5-pg_hint_plan-pilot.md)
+- Phase 6 pgAudit technical pilot: complete — see [pgAudit pilot report](docs/phase6-pgaudit-pilot.md)
+- Phase 7 set_user technical pilot: complete — see [set_user pilot report](docs/phase7-set_user-pilot.md)
+- Phase 8 pg_repack technical pilot: in progress in `pgextwin/pg_repack`
 
-The pg_hint_plan pilot further validated PostgreSQL-major-specific upstream releases, PostgreSQL-major-specific license notices, Flex-generated scanner code, and exact-version PostgreSQL query-jumble compatibility objects on Windows. `pg_bigm` and `pg_cron` are public with verified PostgreSQL 14–18 Releases and catalog entries. `pg_hint_plan` is technically validated and awaits creation of its permanent Organization repository for productization.
+The pg_hint_plan pilot further validated PostgreSQL-major-specific upstream releases, PostgreSQL-major-specific license notices, Flex-generated scanner code, and exact-version PostgreSQL query-jumble compatibility objects on Windows. `pg_bigm`, `pg_cron`, `pg_hint_plan`, `pgaudit`, and `set_user` are public with verified PostgreSQL 14–18 Releases and catalog entries. The current roadmap target is pg_repack, whose Windows packaging must cover both the server extension DLL and the `pg_repack.exe` client.
 
 ## License
 
