@@ -13,6 +13,7 @@
 - 固定されたupstreamソースのcheckout
 - 設定された場合のupstream LICENSE照合
 - Extension固有のbuild/install/test/package hook呼び出し
+- final ZIPを信頼対象にする前の共通 `PACKAGE-INFO.json` source/build metadata生成・検証
 - Release buildでの最終ZIPに対するGitHub Artifact Attestation生成・検証
 - PostgreSQLメジャーバージョン別artifactのアップロード
 - SHA-256チェックサム生成
@@ -63,7 +64,7 @@ jobs:
 
 両build workflowは、同居するscriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。3つのworkflowを同じbuild commitへpinすることで、workflow定義・script・metadata・release実装を同一revisionへ固定します。
 
-詳細は [Artifact Attestations / build provenance](docs/artifact-attestations.md)、[GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
+詳細は [Package metadata contract](docs/package-metadata.md)、[Artifact Attestations / build provenance](docs/artifact-attestations.md)、[GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
 
 ## PostgreSQL Lifecycle
 
@@ -94,8 +95,8 @@ PostgreSQLのLifecycle filterはこのrepositoryで一元管理します。通�
 PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たすまではproduction matrixへ追加しません。後続作業は別milestoneとして扱います。
 
 1. 文書化したGA / Windows配布 / upstream gateを満たした後のPostgreSQL 19正式オンボーディング
-2. Step 6以降のSBOMなど、より広いsupply-chain provenance強化
-3. より広いpackage metadata / catalog改善
+2. Step 7のpackage identityを基礎にしたSBOM / SBOM Attestation
+3. ZIP内部metadataを越えたCatalog / Website provenance表示
 4. Lifecycle表示以外のwebsite改善
 5. upstream update automation
 6. second extension wave
