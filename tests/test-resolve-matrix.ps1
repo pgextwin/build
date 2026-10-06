@@ -172,7 +172,10 @@ try {
     $env:GITHUB_OUTPUT = $missingOutput
 
     try {
-        & $resolver -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-per-major-missing.json") -PostgreSqlConfigPath $postgresFixture
+        & $resolver `
+            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-per-major-missing.json") `
+            -PostgreSqlConfigPath $postgresFixture `
+            -EffectiveDate "2026-10-06"
     }
     catch {
         if ($_.Exception.Message -like "*no mapping for eligible PostgreSQL major 16*") {
@@ -228,9 +231,9 @@ try {
     $env:GITHUB_OUTPUT = $allEolOutput
 
     try {
-        & $resolver \`
-            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-eol-only.json") \`
-            -PostgreSqlConfigPath $postgresFixture \`
+        & $resolver `
+            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-eol-only.json") `
+            -PostgreSqlConfigPath $postgresFixture `
             -EffectiveDate "2026-11-13"
     }
     catch {
@@ -257,9 +260,9 @@ try {
     $env:GITHUB_OUTPUT = $invalidDateOutput
 
     try {
-        & $resolver \`
-            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-range.json") \`
-            -PostgreSqlConfigPath $postgresFixture \`
+        & $resolver `
+            -ExtensionConfigPath (Join-Path $PSScriptRoot "fixtures/extension-range.json") `
+            -PostgreSqlConfigPath $postgresFixture `
             -EffectiveDate "2026/11/12"
     }
     catch {
