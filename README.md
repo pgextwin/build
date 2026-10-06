@@ -23,7 +23,7 @@ Extension-specific source adaptation and functional tests remain in each extensi
 
 ## Reusable workflow
 
-Caller repositories pin the reusable workflow to an approved full commit SHA. Ordinary builds and release builds are separate caller jobs so that only the release path receives write permission.
+Caller repositories pin both shared workflows to the same approved `pgextwin/build` full commit SHA. The build job is always read-only; only the separate release job receives write permission on `release/*`.
 
 ```yaml
 permissions:
@@ -31,7 +31,6 @@ permissions:
 
 jobs:
   windows:
-    if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
     permissions:
       contents: read
     uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
@@ -40,14 +39,16 @@ jobs:
 
   release:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
+    needs: windows
     permissions:
       contents: write
-    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
+    uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
     with:
-      extension_config_path: config/extension.json
+      extension_name: ${{ needs.windows.outputs.extension_name }}
+      upstream_repository: ${{ needs.windows.outputs.upstream_repository }}
 ```
 
-Inside the reusable workflow, co-located build scripts and metadata are checked out from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. The caller SHA therefore pins the workflow definition, scripts, and metadata to the same revision without a separate mutable `build_ref`.
+Inside `build-extension.yml`, co-located build scripts and metadata are checked out from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. The caller's build SHA therefore fixes the workflow definition, scripts, and metadata to the same revision without a separate mutable `build_ref`.
 
 See [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
 
