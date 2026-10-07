@@ -9,6 +9,9 @@ ignore: []
 exclude: []
 vex-documents: []
 vex-add: []
+# Grype otherwise injects built-in ignore rules for indirect Linux kernel-header matches.
+# Step 10 is intentionally unfiltered, so match them instead of suppressing them.
+match-upstream-kernel-headers: true
 include-matcher-suppressions: false
 timestamp: true
 
