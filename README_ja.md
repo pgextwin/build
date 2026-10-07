@@ -12,6 +12,7 @@
 - Windows版PostgreSQLの導入
 - 固定されたupstreamソースのcheckout
 - 設定された場合のupstream LICENSE照合
+- 各Extensionのmachine-readableなTest Contract v2をコンパイル前に検証
 - Extension固有のbuild/install/test/package hook呼び出し
 - final ZIPを信頼対象にする前の共通 `PACKAGE-INFO.json` source/build metadata生成・検証
 - final ZIPからのSPDX 2.3 JSON SBOM生成とartifact identity検証
@@ -38,6 +39,7 @@ jobs:
     uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
+      test_contract_path: config/test-contract.json
 
   release_build:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
@@ -49,6 +51,7 @@ jobs:
     uses: pgextwin/build/.github/workflows/build-extension-attested.yml@<same-40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
+      test_contract_path: config/test-contract.json
 
   release:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
@@ -65,7 +68,7 @@ jobs:
 
 両build workflowは、同居するscriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。3つのworkflowを同じbuild commitへpinすることで、workflow定義・script・metadata・release実装を同一revisionへ固定します。
 
-詳細は [Package metadata contract](docs/package-metadata.md)、[SBOM contract](docs/sbom.md)、[Artifact Attestations / build provenance](docs/artifact-attestations.md)、[GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
+詳細は [Test Contract v2](docs/test-contract-v2.md)、[Package metadata contract](docs/package-metadata.md)、[SBOM contract](docs/sbom.md)、[Artifact Attestations / build provenance](docs/artifact-attestations.md)、[GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
 
 ## PostgreSQL Lifecycle
 
@@ -91,12 +94,12 @@ PostgreSQLのLifecycle filterはこのrepositoryで一元管理します。通�
 
 ## 次のplatform作業
 
-初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）**、**GitHub Actions Trust Baseline（Step 5）**、**Artifact Attestation / Release Build Provenance（Step 6）**、**PACKAGE-INFO v2（Step 7）**、**SBOM Generation & SBOM Attestation（Step 8）**まで完了しました。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) と [GitHub Actions trust policy](docs/github-actions-security.md) を参照してください。
+初期Extensionロードマップは完了済みです。PostgreSQL lifecycle / PG14 EOLのbuild基盤（Step 2）、Catalog / WebsiteのLifecycle表示（Step 3）、**PostgreSQL 19 Readiness / Compatibility Audit（Step 4）**、**GitHub Actions Trust Baseline（Step 5）**、**Artifact Attestation / Release Build Provenance（Step 6）**、**PACKAGE-INFO v2（Step 7）**、**SBOM Generation & SBOM Attestation（Step 8）**、**Test Contract v2 / Runtime Capability & Functional Validation Contract（Step 9）**まで完了しました。詳細は [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) と [GitHub Actions trust policy](docs/github-actions-security.md) を参照してください。
 
 PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たすまではproduction matrixへ追加しません。後続作業は別milestoneとして扱います。
 
 1. 文書化したGA / Windows配布 / upstream gateを満たした後のPostgreSQL 19正式オンボーディング
-2. Step 8 SBOMを基礎にしたvulnerability / dependency / license policy
+2. Step 8 SBOMとStep 9 test-quality contractを基礎にしたvulnerability / dependency / license policy
 3. ZIP内部metadataを越えたCatalog / Website provenance表示
 4. Python dependency lockingとより広いbuild-tool provenance
 5. 記録済みChocolatey identityを越えたPostgreSQL package provenance
