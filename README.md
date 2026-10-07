@@ -14,6 +14,7 @@ The shared workflow is responsible for:
 - installing the matching Windows PostgreSQL distribution,
 - checking out the pinned upstream extension source,
 - verifying the upstream license when configured,
+- validating each extension's machine-readable Test Contract v2 before compilation,
 - invoking extension-specific build/install/test/package hooks,
 - adding and validating shared `PACKAGE-INFO.json` source/build metadata before the final ZIP is trusted,
 - generating SPDX 2.3 JSON SBOMs from final ZIPs and validating their artifact identity,
@@ -40,6 +41,7 @@ jobs:
     uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
+      test_contract_path: config/test-contract.json
 
   release_build:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
@@ -67,7 +69,7 @@ jobs:
 
 Both build reusable workflows check out co-located scripts and metadata from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. Pinning all three workflows to one build commit therefore fixes the workflow definitions, scripts, metadata, and release implementation to the same revision.
 
-See [Package metadata contract](docs/package-metadata.md), [SBOM contract](docs/sbom.md), [Artifact Attestations and build provenance](docs/artifact-attestations.md), [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
+See [Test Contract v2](docs/test-contract-v2.md), [Package metadata contract](docs/package-metadata.md), [SBOM contract](docs/sbom.md), [Artifact Attestations and build provenance](docs/artifact-attestations.md), [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
 
 ## PostgreSQL lifecycle
 
@@ -93,12 +95,12 @@ See [PostgreSQL lifecycle policy](docs/postgresql-lifecycle.md) for the complete
 
 ## Next platform work
 
-The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), the **PostgreSQL 19 readiness / compatibility audit (Step 4)**, **GitHub Actions trust baseline (Step 5)**, **Artifact Attestation / Release Build Provenance (Step 6)**, **PACKAGE-INFO v2 (Step 7)**, and **SBOM Generation & SBOM Attestation (Step 8)** are complete. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) and [GitHub Actions trust policy](docs/github-actions-security.md).
+The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), the **PostgreSQL 19 readiness / compatibility audit (Step 4)**, **GitHub Actions trust baseline (Step 5)**, **Artifact Attestation / Release Build Provenance (Step 6)**, **PACKAGE-INFO v2 (Step 7)**, and **SBOM Generation & SBOM Attestation (Step 8)**, and **Test Contract v2 / Runtime Capability & Functional Validation Contract (Step 9)** are complete. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) and [GitHub Actions trust policy](docs/github-actions-security.md).
 
 PostgreSQL 19 remains outside the production matrix until the documented GA/Windows/upstream gates are satisfied. Remaining work is intentionally separated into later milestones:
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
-2. vulnerability/dependency/license policy work built on the Step 8 SBOM foundation
+2. vulnerability/dependency/license policy work built on the Step 8 SBOM foundation and Step 9 test-quality contract
 3. catalog / website provenance visibility beyond ZIP-internal package metadata
 4. Python dependency locking and broader build-tool provenance
 5. PostgreSQL package provenance beyond recorded Chocolatey identity
