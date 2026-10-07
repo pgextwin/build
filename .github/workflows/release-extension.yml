@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
 
           cd dist
-          mapfile -t release_assets < <(printf '%s\n' ./*.zip ./*.spdx.json | LC_ALL=C sort)
+          mapfile -t release_assets < <(printf '%s\n' ./*.zip ./*.spdx.json ./*.vulnerabilities.json | LC_ALL=C sort)
           sha256sum "${release_assets[@]}" > SHA256SUMS.txt
           cd ..
 
@@ -95,7 +95,7 @@ jobs:
             --predicate-type https://spdx.dev/Document/v2.3
           \`\`\`
 
-          The standalone \`*.spdx.json\` file is also published for inspection and offline tooling. Historical releases are not modified to add SBOMs or attestations retroactively.
+          The standalone \`*.spdx.json\` file is also published for inspection and offline tooling. A vulnerability report with zero matches means only that no known vulnerability matched packages represented in that SBOM and the scan-time database; it does not prove the binary is vulnerability-free. Historical releases are not modified retroactively.
 
           ---
 
@@ -149,7 +149,7 @@ jobs:
             --predicate-type https://spdx.dev/Document/v2.3
           \`\`\`
 
-          \`*.spdx.json\` は人間による確認やoffline tool利用向けにも独立assetとして公開します。既存のhistorical ReleaseへSBOMやAttestationをretroactiveに追加しません。
+          \`*.spdx.json\` は人間による確認やoffline tool利用向けにも独立assetとして公開します。vulnerability reportが0件でも「SBOMに表現されたpackageとscan時点DBに既知脆弱性matchがなかった」という意味に限定され、バイナリの安全性証明ではありません。既存のhistorical Releaseは変更しません。
           EOF
 
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
@@ -170,6 +170,7 @@ jobs:
             gh release upload "$RELEASE_TAG" \
               dist/*.zip \
               dist/*.spdx.json \
+              dist/*.vulnerabilities.json \
               dist/SHA256SUMS.txt \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
