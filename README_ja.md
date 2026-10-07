@@ -26,7 +26,7 @@
 
 ## Reusable Workflow
 
-caller repositoryは、3つの共通Reusable Workflowをすべて同じ承認済み `pgextwin/build` full commit SHAへpinします。GitHubではcalled reusable workflowがcallerから渡された権限を昇格できず、要求権限はjob実行前に検証されます。そのため、通常buildとAttestation付きrelease buildは別Reusable Workflowへ分離しています。
+caller repositoryは、共通build/release Reusable Workflowを同じ承認済み `pgextwin/build` full commit SHAへpinします。Step 13のupdate watcherも同じ承認済みrevisionへpinします。GitHubではcalled reusable workflowがcallerから渡された権限を昇格できず、要求権限はjob実行前に検証されます。そのため、通常buildとAttestation付きrelease buildは別Reusable Workflowへ分離しています。
 
 ```yaml
 permissions:
@@ -104,7 +104,16 @@ PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たす
 3. 現行metadataを越えたCatalog / Website provenance・security visibility
 4. Python dependency lockingとより広いbuild-tool provenance
 5. 記録済みChocolatey identityを越えたPostgreSQL package provenance
-6. upstream update automationとsecond extension wave
+6. second extension wave
+
+
+## Update Detection Automation
+
+**Step 13 — Update Detection Automation / Upstream & PostgreSQL Change Watch: 完了。** 初期8 Extensionはstable-onlyの `config/update-watch.json` contractを持ち、full-SHAへpinした共通watcherを時刻分散したdaily scheduleで呼び出します。watcherはGitHub Release/tag metadataだけを照会し、検出とIssue reconciliationを分離します。query/parse failureは `indeterminate` として失敗し、pg_hint_plan / pgAuditはPostgreSQL major別seriesを独立比較します。candidate sourceのcheckout・実行は行いません。
+
+`pgextwin/build` 自身もPostgreSQL公式Versioning Policy / Beta Informationだけを正規情報源として、maintained minor・lifecycle drift・新major GAを監視します。PostgreSQL 19 Beta/RCはinformationalに留め、production onboardingは引き続き [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) のgateに従います。両watcherは `contents: read` + `issues: write` のIssue-only automationであり、branch/PR作成、source ref更新、candidate build、Release公開、Catalog/Website変更は行いません。
+
+contract、dedup marker、dry-run、schedule、failure semantics、manual validation gateは [Update detection automation](docs/update-automation.md) を参照してください。
 
 ## ライセンス
 

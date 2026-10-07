@@ -298,6 +298,61 @@ else:
     if "pgextwin/build/.github/workflows/build-extension-attested.yml" not in release_text:
         errors.append("release-extension.yml: release notes must identify the attested signer workflow")
 
+
+# Step 13 update-watch workflows are the only non-release workflows allowed to write Issues.
+extension_watch = WORKFLOW_DIR / "check-extension-updates.yml"
+postgres_watch = WORKFLOW_DIR / "postgresql-update-watch.yml"
+
+for watch_path in (extension_watch, postgres_watch):
+    if not watch_path.exists():
+        errors.append(f"{watch_path.name}: Step 13 watcher workflow is required")
+        continue
+    watch_text = watch_path.read_text(encoding="utf-8")
+    for required in ("contents: read", "issues: write"):
+        if required not in watch_text:
+            errors.append(f"{watch_path.name}: missing required least-privilege scope {required}")
+    for forbidden in (
+        "contents: write",
+        "pull-requests: write",
+        "actions: write",
+        "id-token: write",
+        "attestations: write",
+        "security-events: write",
+    ):
+        if forbidden in watch_text:
+            errors.append(f"{watch_path.name}: forbidden permission {forbidden}")
+
+if extension_watch.exists():
+    update_text = extension_watch.read_text(encoding="utf-8")
+    for required in (
+        "workflow_call:",
+        "repository: ${{ job.workflow_repository }}",
+        "ref: ${{ job.workflow_sha }}",
+        "scripts/check-upstream-update.py",
+        "scripts/reconcile-update-issue.py",
+    ):
+        if required not in update_text:
+            errors.append(f"check-extension-updates.yml: missing immutable watcher control {required}")
+    for forbidden in ("git clone", "git checkout", "windows/ci/", "build-extension.yml@"):
+        if forbidden in update_text:
+            errors.append(f"check-extension-updates.yml: candidate source execution/build is forbidden: {forbidden}")
+
+if postgres_watch.exists():
+    postgres_text = postgres_watch.read_text(encoding="utf-8")
+    for required in (
+        "schedule:",
+        "workflow_dispatch:",
+        "scripts/check-postgresql-updates.py",
+        "scripts/reconcile-update-issue.py",
+    ):
+        if required not in postgres_text:
+            errors.append(f"postgresql-update-watch.yml: missing required control {required}")
+
+for build_name in ("build-extension.yml", "build-extension-attested.yml", "release-extension.yml"):
+    build_text = (WORKFLOW_DIR / build_name).read_text(encoding="utf-8")
+    if "issues: write" in build_text:
+        errors.append(f"{build_name}: issues: write must remain isolated from build/release workflows")
+
 if errors:
     print("GitHub Actions trust policy validation failed:", file=sys.stderr)
     for error in errors:

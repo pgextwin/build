@@ -28,6 +28,9 @@ jobs:
       - name: Validate GitHub Actions trust policy
         run: python tests/test-github-actions-security.py
 
+      - name: Validate update watch fixtures
+        run: python tests/test-update-watch.py
+
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
