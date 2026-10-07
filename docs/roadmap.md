@@ -103,11 +103,13 @@ The initial eight-extension roadmap remains closed.
 
 **Step 9 — Test Contract v2 / runtime capability and functional validation contract: complete.** Each initial extension declares a machine-readable `config/test-contract.json`; the canonical schema and semantic validator live in `pgextwin/build`, and both normal and attested reusable workflows validate the contract before Windows compilation. Existing extension-owned functional smoke tests remain authoritative implementations. See [Test Contract v2](test-contract-v2.md).
 
+**Step 10 — Vulnerability / Dependency Policy Baseline: complete.** Validated SPDX 2.3 SBOMs are scanned by checksum-pinned Grype 0.120.1 in report-only mode. Scanner/DB/report/identity failures are operational gates; vulnerability findings of every severity are recorded without a severity hard gate. Native C/C++ and pg_repack static-link coverage limitations are explicit. See [Vulnerability policy baseline](vulnerability-policy.md).
+
 The following remain separate future milestones:
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
-2. vulnerability / dependency / license policy built on the Step 8 SBOM and Step 9 test-quality contract
-3. catalog / website provenance and capability visibility beyond current lifecycle metadata
+2. hard vulnerability gating, VEX / exception management, GitHub Dependency Submission / Dependency Review, SARIF / Security-tab integration, license policy, and PostgreSQL runtime vulnerability policy
+3. catalog / website provenance, capability, and security visibility beyond current metadata
 4. Python dependency locking and broader build-tool provenance
 5. PostgreSQL package provenance beyond recorded Chocolatey identity
 6. upstream update automation
@@ -125,8 +127,9 @@ A pgextwin release should normally require:
 6. a validated Test Contract v2 with at least one stable extension-specific functional scenario,
 7. the extension-owned smoke test proving the declared current functional guarantees,
 8. per-major ZIP packaging,
-9. SHA-256 checksums,
-10. English/Japanese documentation,
-11. no public Release until the complete supported matrix passes.
+9. a validated SPDX 2.3 SBOM and report-only vulnerability scan whose scanner/DB/report contract succeeds,
+10. SHA-256 checksums covering published ZIP/SBOM/vulnerability-report assets,
+11. English/Japanese documentation,
+12. no public Release until the complete supported matrix passes.
 
 The common workflow must remain extension-generic. Extension-specific build or compatibility logic belongs in that extension repository's windows/ci hooks.

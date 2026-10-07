@@ -10,6 +10,8 @@ ATTEST_PIN = "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2"
 SYFT_VERSION = "1.54.1"
 SYFT_WINDOWS_AMD64_SHA256 = "8b56e8285e295e0bbed26eeea9b16ed51c493be97ccdf42dae6326c84fe8e19f"
 SPDX_PREDICATE = "https://spdx.dev/Document/v2.3"
+GRYPE_VERSION = "0.120.1"
+GRYPE_WINDOWS_AMD64_SHA256 = "32e3c811f31822d17592908bafdc6288aaaca3d52583c479167a8dc8399ed65d"
 
 errors = []
 
@@ -139,6 +141,9 @@ else:
         attested_text.find("- name: Install checksum-pinned Syft"),
         attested_text.find("- name: Generate SPDX 2.3 SBOM"),
         attested_text.find("- name: Validate SPDX 2.3 SBOM"),
+        attested_text.find("- name: Install checksum-pinned Grype"),
+        attested_text.find("- name: Scan validated SPDX SBOM for known vulnerabilities"),
+        attested_text.find("- name: Validate and summarize vulnerability report"),
         attested_text.find("- name: Generate build provenance attestation"),
         attested_text.find("- name: Generate SBOM attestation"),
         attested_text.find("- name: Verify build provenance attestation"),
@@ -148,8 +153,8 @@ else:
     if any(index < 0 for index in order) or order != sorted(order):
         errors.append(
             "build-extension-attested.yml: required order is package -> metadata -> "
-            "Syft -> SBOM -> validate -> provenance attestation -> SBOM attestation -> "
-            "both verifications -> upload"
+            "Syft -> SBOM -> validate -> Grype -> vulnerability report validation -> "
+            "provenance attestation -> SBOM attestation -> both verifications -> upload"
         )
 
 normal_order = [
@@ -158,11 +163,14 @@ normal_order = [
     normal_text.find("- name: Install checksum-pinned Syft"),
     normal_text.find("- name: Generate SPDX 2.3 SBOM"),
     normal_text.find("- name: Validate SPDX 2.3 SBOM"),
+    normal_text.find("- name: Install checksum-pinned Grype"),
+    normal_text.find("- name: Scan validated SPDX SBOM for known vulnerabilities"),
+    normal_text.find("- name: Validate and summarize vulnerability report"),
     normal_text.find("- name: Upload package artifact"),
 ]
 if any(index < 0 for index in normal_order) or normal_order != sorted(normal_order):
     errors.append(
-        "build-extension.yml: required order is package -> metadata -> Syft -> SBOM -> validate -> upload"
+        "build-extension.yml: required order is package -> metadata -> Syft -> SBOM -> validate -> Grype -> vulnerability report validation -> upload"
     )
 
 for workflow_name, workflow_text in (
@@ -178,6 +186,11 @@ for workflow_name, workflow_text in (
             "scripts/validate-sbom.py",
             'dist/*.spdx.json',
             f'--expected-tool-version "{SYFT_VERSION}"',
+            "scripts/install-grype.ps1",
+            "scripts/scan-vulnerabilities.ps1",
+            "scripts/validate-vulnerability-report.py",
+            "dist/*.vulnerabilities.json",
+            f'--expected-scanner-version "{GRYPE_VERSION}"',
         ):
             if required not in workflow_text:
                 errors.append(f"{workflow_name}: missing required Step 8 contract: {required}")
@@ -210,6 +223,39 @@ for forbidden in ("releases/latest", "curl |", "irm ", "iex "):
     if forbidden in installer_lower:
         errors.append(f"install-syft.ps1: floating or pipe-to-shell install pattern is forbidden: {forbidden}")
 
+
+grype_installer = Path("scripts/install-grype.ps1").read_text(encoding="utf-8")
+for required in (
+    '$Version = "0.120.1"',
+    '$AssetName = "grype_0.120.1_windows_amd64.zip"',
+    f'$ExpectedSha256 = "{GRYPE_WINDOWS_AMD64_SHA256}"',
+    "https://github.com/anchore/grype/releases/download/v$Version/$AssetName",
+    "Get-FileHash",
+):
+    if required not in grype_installer:
+        errors.append(f"install-grype.ps1: missing pinned Grype trust control: {required}")
+
+grype_installer_lower = grype_installer.lower()
+for forbidden in ("releases/latest", "curl |", "irm ", "iex "):
+    if forbidden in grype_installer_lower:
+        errors.append(f"install-grype.ps1: floating or pipe-to-shell install pattern is forbidden: {forbidden}")
+
+grype_config = Path("config/grype-report-only.yaml").read_text(encoding="utf-8")
+for required in (
+    "only-fixed: false",
+    "only-notfixed: false",
+    'ignore-wontfix: ""',
+    'fail-on-severity: ""',
+    "ignore: []",
+    "exclude: []",
+    "vex-documents: []",
+    "vex-add: []",
+    "validate-age: true",
+    "require-update-check: true",
+):
+    if required not in grype_config:
+        errors.append(f"grype-report-only.yaml: missing report-only control: {required}")
+
 generator = Path("scripts/generate-sbom.ps1").read_text(encoding="utf-8")
 for required in (
     'spdx-json@2.3=$sbomPath',
@@ -235,14 +281,16 @@ else:
                 f"release-extension.yml: publication workflow must not request attestation permission {forbidden}"
             )
 
-    if "printf '%s\\n' ./*.zip ./*.spdx.json | LC_ALL=C sort" not in release_text:
+    if "printf '%s\\n' ./*.zip ./*.spdx.json ./*.vulnerabilities.json | LC_ALL=C sort" not in release_text:
         errors.append(
-            "release-extension.yml: checksum input must include ZIP and SPDX JSON in stable sorted order"
+            "release-extension.yml: checksum input must include ZIP, SPDX JSON, and vulnerability JSON in stable sorted order"
         )
     if 'sha256sum "${release_assets[@]}" > SHA256SUMS.txt' not in release_text:
         errors.append("release-extension.yml: SHA256SUMS.txt generation must be preserved")
     if release_text.count("dist/*.spdx.json") != 2:
         errors.append("release-extension.yml: create/update publication paths must both include SPDX JSON assets")
+    if release_text.count("dist/*.vulnerabilities.json") != 2:
+        errors.append("release-extension.yml: create/update publication paths must both include vulnerability JSON assets")
     if "gh attestation verify <zip-file>" not in release_text:
         errors.append("release-extension.yml: future release notes must document provenance verification")
     if SPDX_PREDICATE not in release_text:
