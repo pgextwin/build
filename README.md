@@ -28,7 +28,7 @@ Extension-specific source adaptation and functional tests remain in each extensi
 
 ## Reusable workflows
 
-Caller repositories pin all three shared workflows to the same approved `pgextwin/build` full commit SHA. GitHub does not allow a called reusable workflow to elevate permissions above the caller, and its requested permissions are validated before jobs run. Therefore normal and attested builds use separate reusable workflow files rather than putting release-only write permissions into the normal build workflow.
+Caller repositories pin the shared build/release workflows to the same approved `pgextwin/build` full commit SHA. The Step 13 update watcher is pinned to that same approved revision. GitHub does not allow a called reusable workflow to elevate permissions above the caller, and its requested permissions are validated before jobs run. Therefore normal and attested builds use separate reusable workflow files rather than putting release-only write permissions into the normal build workflow.
 
 ```yaml
 permissions:
@@ -106,7 +106,16 @@ PostgreSQL 19 remains outside the production matrix until the documented GA/Wind
 3. catalog / website provenance and security visibility beyond current metadata
 4. Python dependency locking and broader build-tool provenance
 5. PostgreSQL package provenance beyond recorded Chocolatey identity
-6. upstream update automation and the second extension wave
+6. second extension wave
+
+
+## Update detection automation
+
+**Step 13 — Update Detection Automation / Upstream & PostgreSQL Change Watch: complete.** The initial eight extension repositories now declare a stable-only `config/update-watch.json` contract and call the full-SHA-pinned reusable watcher on a staggered daily schedule. The watcher queries GitHub Release/tag metadata only, separates detection from Issue reconciliation, treats query/parse failures as indeterminate failures, supports per-PostgreSQL series for pg_hint_plan and pgAudit, and never checks out or executes candidate source.
+
+`pgextwin/build` also watches PostgreSQL's official Versioning Policy and Beta Information for maintained-minor/lifecycle drift and new-major GA. PostgreSQL 19 Beta/RC state is informational only; production onboarding remains gated by [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md). Both watcher families are Issue-only automation with `contents: read` + `issues: write`; they do not create branches/PRs, change source refs, build candidates, publish Releases, or change Catalog/Website data.
+
+See [Update detection automation](docs/update-automation.md) for the contract, deduplication markers, dry-run behavior, schedules, failure semantics, and manual validation gate.
 
 ## License
 
