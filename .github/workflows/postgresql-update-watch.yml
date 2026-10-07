@@ -44,12 +44,12 @@ jobs:
       - name: Reconcile automation-owned Issue
         if: steps.detect.outcome == 'success'
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           args=()
-          if [ "\${{ github.event_name }}" = "workflow_dispatch" ] && [ "\${{ inputs.dry_run }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
             args+=(--dry-run)
           fi
           python scripts/reconcile-update-issue.py \
