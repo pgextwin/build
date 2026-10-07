@@ -1,0 +1,79 @@
+name: PostgreSQL update watch
+
+on:
+  schedule:
+    # GitHub Actions cron is UTC. Daily is sufficient for PostgreSQL release/lifecycle changes.
+    - cron: "29 5 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Detect and summarize without creating, updating, or closing Issues
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out build repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Detect official PostgreSQL release and lifecycle changes
+        id: detect
+        continue-on-error: true
+        run: >-
+          python scripts/check-postgresql-updates.py
+          --metadata metadata/postgresql.json
+          --output "$RUNNER_TEMP/update-result.json"
+          --watcher-repository "$GITHUB_REPOSITORY"
+          --watcher-sha "$GITHUB_SHA"
+
+      - name: Reconcile automation-owned Issue
+        if: steps.detect.outcome == 'success'
+        env:
+          GH_TOKEN: \${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "\${{ github.event_name }}" = "workflow_dispatch" ] && [ "\${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python scripts/reconcile-update-issue.py \
+            --result "$RUNNER_TEMP/update-result.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/reconcile-result.json" \
+            "\${args[@]}"
+
+      - name: Write Actions summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -f "$RUNNER_TEMP/reconcile-result.json" ]; then
+            args+=(--reconcile "$RUNNER_TEMP/reconcile-result.json")
+          fi
+          python scripts/write-update-watch-summary.py \
+            --result "$RUNNER_TEMP/update-result.json" \
+            "\${args[@]}" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on indeterminate official state
+        if: steps.detect.outcome != 'success'
+        run: |
+          echo "PostgreSQL official metadata detection was indeterminate. Refusing to report up-to-date or mutate Issues." >&2
+          exit 1
