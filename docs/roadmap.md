@@ -105,6 +105,13 @@ The initial eight-extension roadmap remains closed.
 
 **Step 10 — Vulnerability / Dependency Policy Baseline: complete.** Validated SPDX 2.3 SBOMs are scanned by checksum-pinned Grype 0.120.1 in report-only mode. Scanner/DB/report/identity failures are operational gates; vulnerability findings of every severity are recorded without a severity hard gate. Native C/C++ and pg_repack static-link coverage limitations are explicit. See [Vulnerability policy baseline](vulnerability-policy.md).
 
+
+**Step 11 — Catalog Schema v2 / Distribution Metadata Contract: complete.** Catalog v2 exposes release identity, per-PostgreSQL direct-download metadata, SHA-256, runtime requirements, Test Contract-derived capabilities, immutable capability provenance, and supply-chain evidence availability as the machine-readable distribution contract.
+
+**Step 12 — Website v2 / Discovery, Direct Download, Capabilities & Provenance UX: complete.** The public Website consumes Catalog v2 for extension discovery, PostgreSQL-major filtering, direct ZIP downloads, checksums, prerequisites, tested capabilities, and provenance/security evidence without becoming a second metadata authority.
+
+**Step 13 — Update Detection Automation / Upstream & PostgreSQL Change Watch: complete.** Initial-eight upstream changes and PostgreSQL official release/lifecycle changes are detected by scheduled, dry-run-capable Issue-only automation. The canonical watcher contract and detector/reconciler implementation live in pgextwin/build, per-PostgreSQL release series are isolated, failures are never converted to "up-to-date", and PostgreSQL 19 Beta/RC cannot trigger production onboarding. See [Update detection automation](update-automation.md).
+
 The following remain separate future milestones:
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
@@ -112,8 +119,7 @@ The following remain separate future milestones:
 3. catalog / website provenance, capability, and security visibility beyond current metadata
 4. Python dependency locking and broader build-tool provenance
 5. PostgreSQL package provenance beyond recorded Chocolatey identity
-6. upstream update automation
-7. second extension wave
+6. second extension wave
 
 ## Quality gate for every extension
 
