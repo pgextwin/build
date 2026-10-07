@@ -33,14 +33,12 @@ try {
         throw "Grype archive did not contain the expected executable: $grypeExe"
     }
 
-    $versionJson = (& $grypeExe version -o json | Out-String)
+    $versionOutput = (& $grypeExe --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
         throw "Installed Grype executable failed version inspection."
     }
-
-    $versionInfo = $versionJson | ConvertFrom-Json
-    if ([string]$versionInfo.version -ne $Version) {
-        throw "Installed Grype version mismatch. Expected $Version, found '$($versionInfo.version)'."
+    if ($versionOutput -notmatch ('(?<![0-9])' + [regex]::Escape($Version) + '(?![0-9])')) {
+        throw "Installed Grype reported an unexpected version: '$versionOutput'"
     }
 
     Write-Host "Grype installation verified."
