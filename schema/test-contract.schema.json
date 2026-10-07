@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pgextwin/build/schema/test-contract.schema.json",
+  "title": "pgextwin Test Contract v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "extension",
+    "smokeTest",
+    "runtimeRequirements",
+    "testSetup",
+    "coverage",
+    "functionalScenarios"
+  ],
+  "properties": {
+    "contractVersion": { "const": 2 },
+    "extension": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "smokeTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["script"],
+      "properties": {
+        "script": { "$ref": "#/$defs/repositoryRelativePath" }
+      }
+    },
+    "runtimeRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "extensionCreation",
+        "preload",
+        "backgroundWorker",
+        "clientExecutable"
+      ],
+      "properties": {
+        "extensionCreation": {
+          "enum": ["required", "optional", "not-required", "unknown"]
+        },
+        "preload": {
+          "enum": ["none", "shared", "session", "either", "optional", "unknown"]
+        },
+        "backgroundWorker": { "type": "boolean" },
+        "clientExecutable": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "packagePaths"],
+          "properties": {
+            "required": { "type": "boolean" },
+            "packagePaths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/repositoryRelativePath" }
+            }
+          }
+        }
+      }
+    },
+    "testSetup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preload", "backgroundWorker", "settings"],
+      "properties": {
+        "preload": {
+          "enum": ["none", "shared", "session"]
+        },
+        "backgroundWorker": { "type": "boolean" },
+        "settings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "value"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]+$"
+              },
+              "value": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "createExtension",
+        "backgroundWorker",
+        "clientExecutable",
+        "serverLogAssertions",
+        "upgrade"
+      ],
+      "properties": {
+        "createExtension": { "$ref": "#/$defs/coverageStatus" },
+        "backgroundWorker": { "$ref": "#/$defs/coverageStatus" },
+        "clientExecutable": { "$ref": "#/$defs/coverageStatus" },
+        "serverLogAssertions": { "$ref": "#/$defs/coverageStatus" },
+        "upgrade": { "$ref": "#/$defs/coverageStatus" }
+      }
+    },
+    "functionalScenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "evidence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "sql-result",
+                "query-plan",
+                "server-log",
+                "background-worker-side-effect",
+                "client-executable",
+                "physical-storage",
+                "logical-decoding",
+                "extension-upgrade",
+                "backup-restore"
+              ]
+            }
+          },
+          "postgresqlMajors": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 99
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "coverageStatus": {
+      "enum": ["covered", "not-covered", "not-applicable"]
+    },
+    "repositoryRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[A-Za-z0-9._/-]+$"
+    }
+  }
+}
