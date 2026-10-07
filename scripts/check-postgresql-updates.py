@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse, json, os, re, sys
+from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -27,13 +28,22 @@ def fetch_text(url: str) -> str:
         with urlopen(Request(url,headers={"User-Agent":"pgextwin-update-watch/1"}),timeout=30) as r: return r.read().decode("utf-8")
     except (HTTPError,URLError,TimeoutError,OSError) as exc: raise WatchError(f"official PostgreSQL query failed: {exc}") from exc
 
+def normalize_official_date(value: str) -> str:
+    value = value.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return value
+    try:
+        return datetime.strptime(value, "%B %d, %Y").date().isoformat()
+    except ValueError as exc:
+        raise WatchError(f"unrecognized official PostgreSQL lifecycle date: {value}") from exc
+
 def parse_versioning(html: str) -> dict[int,dict]:
     p=TableParser(); p.feed(html); result={}
     for row in p.rows:
         if len(row)<5 or not re.fullmatch(r"\d+",row[0]): continue
-        major=int(row[0]); current=row[1]; eol=row[-1]
+        if row[2].strip().lower() != "yes": continue
+        major=int(row[0]); current=row[1]; eol=normalize_official_date(row[-1])
         if not re.fullmatch(rf"{major}\.\d+",current): continue
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}",eol): continue
         result[major]={"major":major,"currentMinor":current,"eol":eol}
     if not result: raise WatchError("could not parse supported PostgreSQL versions from official Versioning Policy")
     return result

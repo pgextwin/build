@@ -36,10 +36,10 @@ def main():
     caught={**res,"status":"up-to-date","updates":[]};assert_eq(decide_issue_action(caught,[auto],marker)["action"],"close","caught up")
     human={"number":2,"state":"OPEN","body":"manual issue"};assert_eq(decide_issue_action(caught,[human],marker)["action"],"none","human untouched")
     version=(FIX/"postgresql-versioning.html").read_text();beta=(FIX/"postgresql-beta.html").read_text();md={"postgresql":[{"major":14,"minor":"14.24","eol":"2026-11-12"},{"major":15,"minor":"15.19","eol":"2027-11-11"},{"major":16,"minor":"16.15","eol":"2028-11-09"},{"major":17,"minor":"17.11","eol":"2029-11-08"},{"major":18,"minor":"18.6","eol":"2030-11-14"}]}
-    r=pg.detect_postgresql(md,version,beta,"t","b","s");assert_eq(r["status"],"up-to-date","same pg minor");assert_eq(r["prerelease"],{"major":19,"label":"Beta4"},"beta info")
+    r=pg.detect_postgresql(md,version,beta,"t","b","s");assert_eq(r["status"],"up-to-date","same pg minor");assert_eq(r["prerelease"],{"major":19,"label":"Beta4"},"beta info");assert 13 not in pg.parse_versioning(version)
     newer=version.replace("18.6","18.7");r=pg.detect_postgresql(md,newer,beta,"t","b","s");assert_eq(r["status"],"update-available","new minor")
-    eol=version.replace("2030-11-14","2030-11-21");r=pg.detect_postgresql(md,eol,beta,"t","b","s");assert_eq(r["status"],"update-available","eol drift")
+    eol=version.replace("November 14, 2030","November 21, 2030");r=pg.detect_postgresql(md,eol,beta,"t","b","s");assert_eq(r["status"],"update-available","eol drift")
     rc=beta.replace("Beta 4","RC 1");r=pg.detect_postgresql(md,version,rc,"t","b","s");assert_eq(r["status"],"up-to-date","rc no onboarding")
-    ga=version.replace("<tr><td>18",'<tr><td>19</td><td>19.0</td><td>Yes</td><td>2026-10-29</td><td>2031-11-13</td></tr><tr><td>18');r=pg.detect_postgresql(md,ga,beta,"t","b","s");assert_eq(r["status"],"update-available","pg19 ga");assert_eq(r["newMajors"][0]["major"],19,"pg19 new major")
+    ga=version.replace("<tr><td>18",'<tr><td>19</td><td>19.0</td><td>Yes</td><td>October 29, 2026</td><td>November 13, 2031</td></tr><tr><td>18');r=pg.detect_postgresql(md,ga,beta,"t","b","s");assert_eq(r["status"],"update-available","pg19 ga");assert_eq(r["newMajors"][0]["major"],19,"pg19 new major")
     print("Update watch fixture tests passed.")
 if __name__=="__main__":main()
