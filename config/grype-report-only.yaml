@@ -4,7 +4,9 @@ check-for-app-update: false
 only-fixed: false
 only-notfixed: false
 ignore-wontfix: ""
+fail-on-severity: ""
 ignore: []
+exclude: []
 vex-documents: []
 vex-add: []
 include-matcher-suppressions: false
