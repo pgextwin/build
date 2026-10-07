@@ -32,8 +32,8 @@ jobs:
       - name: Check out pinned pgextwin build watcher
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: \${{ job.workflow_repository }}
-          ref: \${{ job.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
 
       - name: Set up Python
@@ -47,32 +47,32 @@ jobs:
       - name: Validate update watch contract
         run: >-
           python .pgextwin-build/scripts/validate-update-watch.py
-          --extension-config "\${{ inputs.extension_config_path }}"
-          --watch-config "\${{ inputs.update_watch_path }}"
+          --extension-config "${{ inputs.extension_config_path }}"
+          --watch-config "${{ inputs.update_watch_path }}"
           --schema .pgextwin-build/schema/update-watch.schema.json
 
       - name: Detect stable upstream candidate
         id: detect
         continue-on-error: true
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: >-
           python .pgextwin-build/scripts/check-upstream-update.py
-          --extension-config "\${{ inputs.extension_config_path }}"
-          --watch-config "\${{ inputs.update_watch_path }}"
+          --extension-config "${{ inputs.extension_config_path }}"
+          --watch-config "${{ inputs.update_watch_path }}"
           --output "$RUNNER_TEMP/update-result.json"
-          --watcher-repository "\${{ job.workflow_repository }}"
-          --watcher-sha "\${{ job.workflow_sha }}"
+          --watcher-repository "${{ job.workflow_repository }}"
+          --watcher-sha "${{ job.workflow_sha }}"
 
       - name: Reconcile automation-owned Issue
         if: steps.detect.outcome == 'success'
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           args=()
-          if [ "\${{ inputs.dry_run }}" = "true" ]; then
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
             args+=(--dry-run)
           fi
           python .pgextwin-build/scripts/reconcile-update-issue.py \
