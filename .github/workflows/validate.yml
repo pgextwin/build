@@ -31,6 +31,9 @@ jobs:
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
+      - name: Validate Test Contract v2 schema and semantics
+        run: python tests/test-test-contract.py
+
       - name: Validate package metadata schema
         run: python tests/test-package-metadata-schema.py
 
