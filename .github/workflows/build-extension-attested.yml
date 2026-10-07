@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: config/extension.json
+      test_contract_path:
+        description: Path to the Test Contract v2 document in the caller repository
+        required: false
+        type: string
+        default: config/test-contract.json
     outputs:
       extension_name:
         description: Extension name resolved from the caller manifest
@@ -42,6 +47,21 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
+
+      - name: Set up Python for Test Contract validation
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Validate Test Contract v2
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+          python ".pgextwin-build/scripts/validate-test-contract.py" \
+            --schema ".pgextwin-build/schema/test-contract.schema.json" \
+            --contract "${{ inputs.test_contract_path }}" \
+            --extension-config "${{ inputs.extension_config_path }}" \
+            --repository-root "."
 
       - name: Resolve maintained PostgreSQL versions
         id: meta
