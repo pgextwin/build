@@ -53,6 +53,7 @@ jobs:
     uses: pgextwin/build/.github/workflows/build-extension-attested.yml@<same-40-character-build-commit-sha>
     with:
       extension_config_path: config/extension.json
+      test_contract_path: config/test-contract.json
 
   release:
     if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
@@ -95,7 +96,7 @@ See [PostgreSQL lifecycle policy](docs/postgresql-lifecycle.md) for the complete
 
 ## Next platform work
 
-The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), the **PostgreSQL 19 readiness / compatibility audit (Step 4)**, **GitHub Actions trust baseline (Step 5)**, **Artifact Attestation / Release Build Provenance (Step 6)**, **PACKAGE-INFO v2 (Step 7)**, and **SBOM Generation & SBOM Attestation (Step 8)**, and **Test Contract v2 / Runtime Capability & Functional Validation Contract (Step 9)** are complete. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) and [GitHub Actions trust policy](docs/github-actions-security.md).
+The initial extension roadmap is closed. PostgreSQL lifecycle / PG14 EOL build-foundation readiness (Step 2), catalog and website lifecycle visibility (Step 3), the **PostgreSQL 19 readiness / compatibility audit (Step 4)**, **GitHub Actions trust baseline (Step 5)**, **Artifact Attestation / Release Build Provenance (Step 6)**, **PACKAGE-INFO v2 (Step 7)**, **SBOM Generation & SBOM Attestation (Step 8)**, and **Test Contract v2 / Runtime Capability & Functional Validation Contract (Step 9)** are complete. See [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) and [GitHub Actions trust policy](docs/github-actions-security.md).
 
 PostgreSQL 19 remains outside the production matrix until the documented GA/Windows/upstream gates are satisfied. Remaining work is intentionally separated into later milestones:
 
