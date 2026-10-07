@@ -220,6 +220,34 @@ jobs:
             --expected-tool-version "1.54.1"
           if ($LASTEXITCODE -ne 0) { throw "SPDX SBOM validation failed." }
 
+      - name: Install checksum-pinned Grype
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/install-grype.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Grype installation failed." }
+
+      - name: Scan validated SPDX SBOM for known vulnerabilities
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/scan-vulnerabilities.ps1" `
+            -GrypePath ".pgextwin-tools\grype\grype.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Vulnerability scan failed operationally." }
+
+      - name: Validate and summarize vulnerability report
+        shell: pwsh
+        run: |
+          $reportFiles = @(Get-ChildItem -Path "dist" -Filter "*.vulnerabilities.json" -File)
+          if ($reportFiles.Count -ne 1) { throw "Expected exactly one vulnerability JSON for validation, found $($reportFiles.Count)." }
+
+          python ".pgextwin-build/scripts/validate-vulnerability-report.py" `
+            --report $reportFiles[0].FullName `
+            --sbom "${{ steps.sbom.outputs.sbom_path }}" `
+            --zip "${{ steps.sbom.outputs.zip_path }}" `
+            --expected-extension "${{ needs.matrix.outputs.extension_name }}" `
+            --expected-scanner-version "0.120.1" `
+            --postgresql-major "${{ matrix.major }}" `
+            --summary-file $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) { throw "Vulnerability report validation failed." }
       - name: Generate build provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -279,4 +307,5 @@ jobs:
           path: |
             dist/*.zip
             dist/*.spdx.json
+            dist/*.vulnerabilities.json
           if-no-files-found: error
