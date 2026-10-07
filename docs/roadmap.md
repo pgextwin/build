@@ -97,14 +97,21 @@ The initial eight-extension roadmap remains closed.
 
 **Step 6 — Artifact Attestation / release build provenance: complete.** Release builds use a dedicated attested reusable workflow to generate and verify GitHub Artifact Attestations for final Windows ZIPs before those unchanged bytes are passed to the release publication workflow. Normal PR/main builds remain read-only. See [Artifact Attestations and build provenance](artifact-attestations.md).
 
+**Step 7 — PACKAGE-INFO v2 / reproducibility metadata: complete.** Final ZIPs contain validated machine-readable source, build, PostgreSQL, toolchain, packaging-repository, shared-build, and workflow-run identity without creating a digest cycle.
+
+**Step 8 — SBOM Generation & SBOM Attestation: complete.** Final ZIPs produce validated SPDX 2.3 JSON SBOM assets; release builds bind the final ZIP digest to both build provenance and SBOM attestations while preserving the unchanged ZIP bytes.
+
+**Step 9 — Test Contract v2 / runtime capability and functional validation contract: complete.** Each initial extension declares a machine-readable `config/test-contract.json`; the canonical schema and semantic validator live in `pgextwin/build`, and both normal and attested reusable workflows validate the contract before Windows compilation. Existing extension-owned functional smoke tests remain authoritative implementations. See [Test Contract v2](test-contract-v2.md).
+
 The following remain separate future milestones:
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
-2. SBOM and broader supply-chain provenance work beyond Step 6
-3. PACKAGE-INFO v2 and broader package metadata / catalog improvements
-4. website improvements beyond lifecycle visibility
-5. upstream update automation
-6. second extension wave
+2. vulnerability / dependency / license policy built on the Step 8 SBOM and Step 9 test-quality contract
+3. catalog / website provenance and capability visibility beyond current lifecycle metadata
+4. Python dependency locking and broader build-tool provenance
+5. PostgreSQL package provenance beyond recorded Chocolatey identity
+6. upstream update automation
+7. second extension wave
 
 ## Quality gate for every extension
 
@@ -115,10 +122,11 @@ A pgextwin release should normally require:
 3. Windows x64 build,
 4. extension installation into the target PostgreSQL,
 5. CREATE EXTENSION where applicable,
-6. at least one extension-specific functional scenario,
-7. per-major ZIP packaging,
-8. SHA-256 checksums,
-9. English/Japanese documentation,
-10. no public Release until the complete supported matrix passes.
+6. a validated Test Contract v2 with at least one stable extension-specific functional scenario,
+7. the extension-owned smoke test proving the declared current functional guarantees,
+8. per-major ZIP packaging,
+9. SHA-256 checksums,
+10. English/Japanese documentation,
+11. no public Release until the complete supported matrix passes.
 
 The common workflow must remain extension-generic. Extension-specific build or compatibility logic belongs in that extension repository's windows/ci hooks.
