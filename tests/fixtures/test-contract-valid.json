@@ -1,0 +1,41 @@
+{
+  "contractVersion": 2,
+  "extension": "fixture_extension",
+  "smokeTest": {
+    "script": "windows/ci/smoke-test.ps1"
+  },
+  "runtimeRequirements": {
+    "extensionCreation": "required",
+    "preload": "none",
+    "backgroundWorker": false,
+    "clientExecutable": {
+      "required": true,
+      "packagePaths": [
+        "bin/fixture-client.exe"
+      ]
+    }
+  },
+  "testSetup": {
+    "preload": "none",
+    "backgroundWorker": false,
+    "settings": []
+  },
+  "coverage": {
+    "createExtension": "covered",
+    "backgroundWorker": "not-applicable",
+    "clientExecutable": "covered",
+    "serverLogAssertions": "not-applicable",
+    "upgrade": "not-covered"
+  },
+  "functionalScenarios": [
+    {
+      "id": "table-rewrite-preserves-data",
+      "description": "Runs the packaged client and verifies data preservation and a physical relation change.",
+      "evidence": [
+        "client-executable",
+        "sql-result",
+        "physical-storage"
+      ]
+    }
+  ]
+}
