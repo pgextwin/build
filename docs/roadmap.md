@@ -114,6 +114,9 @@ The initial eight-extension roadmap remains closed.
 
 The following remain separate future milestones:
 
+**Step 14 — Windows Extension Landscape Registry: independent source of truth.** The candidate and alternative-Windows-binary registry lives in [pgextwin/catalog/landscape](https://github.com/pgextwin/catalog/tree/main/landscape), and the public [Windows Extension Landscape on Pages](https://pgextwin.github.io/website/#landscape-heading) presents implemented, candidate and not-planned records. The distribution Catalog v2 remains only for published pgextwin binaries; `not-planned` does not imply no Windows binaries exist. Landscape evidence and acquisition routes carry a reviewed date and can become stale. Preliminary priorities are **not** a Wave 2 Top 3 decision. Step 15 is a separate evidence-based Wave 2 selection decision and must not implement or release binaries in this step.
+
+
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
 2. hard vulnerability gating, VEX / exception management, GitHub Dependency Submission / Dependency Review, SARIF / Security-tab integration, license policy, and PostgreSQL runtime vulnerability policy
 3. catalog / website provenance, capability, and security visibility beyond current metadata
