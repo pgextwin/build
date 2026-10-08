@@ -112,9 +112,26 @@ The initial eight-extension roadmap remains closed.
 
 **Step 13 — Update Detection Automation / Upstream & PostgreSQL Change Watch: complete.** Initial-eight upstream changes and PostgreSQL official release/lifecycle changes are detected by scheduled, dry-run-capable Issue-only automation. The canonical watcher contract and detector/reconciler implementation live in pgextwin/build, per-PostgreSQL release series are isolated, failures are never converted to "up-to-date", and PostgreSQL 19 Beta/RC cannot trigger production onboarding. See [Update detection automation](update-automation.md).
 
+
+## Step 15 — Second Wave Selection (COMPLETE, 2026-10-08)
+
+**Canonical decision:** [catalog Landscape registry](https://github.com/pgextwin/catalog/tree/main/landscape/extensions), not a second manually maintained list in this document.
+
+1. **Wave 2 #1 — plpgsql_check** (upstream `v2.10.13`)
+2. **Wave 2 #2 — HypoPG** (upstream `1.4.3`)
+3. **Wave 2 #3 — wal2json** (upstream `wal2json_2_6`; mandatory PG18 compatibility pilot gate)
+
+**Reserve:** pg_partman and pg_stat_monitor. **Research:** orafce. Implemented 8 and not-planned 6 remain unchanged. The candidate count remains six.
+
+**New-extension PG14 policy: B.** Continue initial-eight PG14 binaries and builds under the lifecycle policy through 2026-11-12; newly added Wave 2 extensions start at **PG15–18**. PostgreSQL 19 remains pre-release (Beta 4 as of decision date). After a separately authorized production onboarding, Wave 2 normal matrix becomes PG15–19. Do not modify `metadata/postgresql.json` in Step 15.
+
+**Step 16 next gate:** Wave 2 #1 Windows Technical Pilot while PostgreSQL 19 is Beta, subject to checking PostgreSQL status again before starting. If RC arrives, explicitly reconsider a PG19 RC compatibility probe before starting a lengthy release effort; GA requires separate onboarding decision. No new extension repository, Windows compile, Release, or production PG19 onboarding was performed in Step 15.
+
+See [Second Wave evidence, scoring, licenses and #1 pilot design](second-wave-selection.md).
+
 The following remain separate future milestones:
 
-**Step 14 — Windows Extension Landscape Registry: independent source of truth.** The candidate and alternative-Windows-binary registry lives in [pgextwin/catalog/landscape](https://github.com/pgextwin/catalog/tree/main/landscape), and the public [Windows Extension Landscape on Pages](https://pgextwin.github.io/website/#landscape-heading) presents implemented, candidate and not-planned records. The distribution Catalog v2 remains only for published pgextwin binaries; `not-planned` does not imply no Windows binaries exist. Landscape evidence and acquisition routes carry a reviewed date and can become stale. Preliminary priorities are **not** a Wave 2 Top 3 decision. Step 15 is a separate evidence-based Wave 2 selection decision and must not implement or release binaries in this step.
+**Step 14 — Windows Extension Landscape Registry: independent source of truth.** The candidate and alternative-Windows-binary registry lives in [pgextwin/catalog/landscape](https://github.com/pgextwin/catalog/tree/main/landscape), and the public [Windows Extension Landscape on Pages](https://pgextwin.github.io/website/#landscape-heading) presents implemented, candidate and not-planned records. The distribution Catalog v2 remains only for published pgextwin binaries; `not-planned` does not imply no Windows binaries exist. Landscape evidence and acquisition routes carry a reviewed date and can become stale. Preliminary priorities are **not** a Wave 2 Top 3 decision. Step 15 formalized exactly three ranked Wave 2 records on 2026-10-08. Source of truth is Landscape JSON; this document is a derived summary. No extension binaries were built.
 
 
 1. PostgreSQL 19 production onboarding after the documented GA/Windows/upstream gates are satisfied
