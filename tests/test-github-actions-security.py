@@ -348,6 +348,14 @@ if postgres_watch.exists():
         if required not in postgres_text:
             errors.append(f"postgresql-update-watch.yml: missing required control {required}")
 
+for watch_path in (extension_watch, postgres_watch):
+    if watch_path.exists():
+        watch_text = watch_path.read_text(encoding="utf-8")
+        if "\\${args[@]}" in watch_text:
+            errors.append(f"{watch_path.name}: escaped shell argv expansion is forbidden")
+        if "${args[@]}" not in watch_text:
+            errors.append(f"{watch_path.name}: shell argv array expansion is required")
+
 for build_name in ("build-extension.yml", "build-extension-attested.yml", "release-extension.yml"):
     build_text = (WORKFLOW_DIR / build_name).read_text(encoding="utf-8")
     if "issues: write" in build_text:

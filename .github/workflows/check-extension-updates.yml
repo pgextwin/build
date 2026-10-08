@@ -79,7 +79,7 @@ jobs:
             --result "$RUNNER_TEMP/update-result.json" \
             --repository "$GITHUB_REPOSITORY" \
             --output "$RUNNER_TEMP/reconcile-result.json" \
-            "\${args[@]}"
+            "${args[@]}"
 
       - name: Write Actions summary
         if: always()
@@ -92,7 +92,7 @@ jobs:
           fi
           python .pgextwin-build/scripts/write-update-watch-summary.py \
             --result "$RUNNER_TEMP/update-result.json" \
-            "\${args[@]}" \
+            "${args[@]}" \
             --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Fail on indeterminate upstream state
