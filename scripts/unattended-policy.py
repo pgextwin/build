@@ -79,15 +79,21 @@ def evaluate(policy, fleet):
     pilot = next(x for x in entries if x["repository"] == PILOT)
     require(pilot["mode"] == "BUILD" and pilot["candidateEnabled"] is True,
             "only the existing BUILD pilot may be evaluated")
-    require(all(x["mode"] != "BUILD" and x["candidateEnabled"] is False
-                for x in entries if x["repository"] != PILOT),
-            "unreviewed additional BUILD targets are forbidden")
+    require(all((x["mode"] == "BUILD") == (x["candidateEnabled"] is True)
+                for x in entries),
+            "candidate BUILD mode and explicit opt-in must agree")
     if policy["mode"] == "OBSERVE":
         require(not any(controls[key] for key in AUTOMATIC_CONTROLS),
                 "observe-only mode cannot enable mutating automation")
         return {"schemaVersion": 1, "status": "OBSERVE_ONLY",
                 "repository": PILOT, "automaticPublicationAuthorized": False,
                 "reason": "Manual approval and publishing remain mandatory."}
+    # A BUILD entry is not authorization to publish. Preserve the Step 22
+    # single-repository unattended pilot constraint independently from the
+    # Step 23 nine-repository manual-only candidate queue.
+    require(all(x["mode"] != "BUILD" and x["candidateEnabled"] is False
+                for x in entries if x["repository"] != PILOT),
+            "unattended mode forbids non-pilot BUILD targets")
     require(all(controls.values()),
             "unattended mode requires every defense-in-depth control")
     # Never issue an authorization token. Only independently validated

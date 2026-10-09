@@ -6,6 +6,10 @@ Shared CI/CD infrastructure for **pgextwin**, a community project that builds an
 
 This repository contains reusable GitHub Actions workflows, PostgreSQL build metadata, and the hook contract used by extension packaging repositories such as `pgextwin/pg_bigm`.
 
+## Step 23: nine-extension manual candidate queue
+
+The nine extension repositories can share stable-only daily upstream monitoring and SHA-pinned **draft** candidate PRs, with explicit Windows CI. Candidate review/merge and every formal release remain operator-controlled; unattended publication remains in OBSERVE/DENY. The eight older extensions still have the legacy manually initiated `release/*` publication path, while `plpgsql_check` uses the stronger main promotion gate; do not treat them as equivalent formal release mechanisms. The full gated rollout order, safety checklist, and read-only fleet queue are in [Step 23 manual queue operations](docs/step23-manual-queue.md).
+
 ## Scope
 
 The shared workflow is responsible for:

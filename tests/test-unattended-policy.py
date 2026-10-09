@@ -27,6 +27,16 @@ class TestUnattendedPolicy(unittest.TestCase):
         self.assertEqual(result["status"], "OBSERVE_ONLY")
         self.assertFalse(result["automaticPublicationAuthorized"])
 
+    def test_nine_build_candidates_do_not_authorize_unattended_release(self):
+        p, f = self.fixtures()
+        self.assertEqual(len([x for x in f["entries"] if x["mode"] == "BUILD"]), 9)
+        self.assertEqual(module.evaluate(p, f)["status"], "OBSERVE_ONLY")
+        p["mode"] = "UNATTENDED"
+        for key in p["controls"]:
+            p["controls"][key] = True
+        with self.assertRaises(module.PolicyDenied):
+            module.evaluate(p, f)
+
     def test_observe_mode_cannot_merge_or_publish(self):
         for flag in module.AUTOMATIC_CONTROLS:
             with self.subTest(flag=flag):
@@ -63,6 +73,11 @@ class TestUnattendedPolicy(unittest.TestCase):
     def test_even_full_static_policy_never_authorizes_release(self):
         p, f = self.fixtures()
         p["mode"] = "UNATTENDED"
+        # Static-only future single-pilot fixture, not live nine-BUILD fleet.
+        for entry in f["entries"]:
+            if entry["repository"] != module.PILOT:
+                entry["mode"] = "WATCH"
+                entry["candidateEnabled"] = False
         for key in p["controls"]:
             p["controls"][key] = True
         result = module.evaluate(p, f)
@@ -75,8 +90,7 @@ class TestUnattendedPolicy(unittest.TestCase):
         with self.assertRaises(module.PolicyDenied):
             module.evaluate(p, f)
         p, f = self.fixtures()
-        f["entries"][0]["mode"] = "BUILD"
-        f["entries"][0]["candidateEnabled"] = True
+        f["entries"][0]["candidateEnabled"] = False
         with self.assertRaises(module.PolicyDenied):
             module.evaluate(p, f)
 

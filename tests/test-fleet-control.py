@@ -12,6 +12,7 @@ c=importlib.util.module_from_spec(s);s.loader.exec_module(c)
 policy=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
 items=c.validate(policy)
 assert len(items)==9
+assert all(item["mode"]=="BUILD" and item["candidateEnabled"] and item["releasePolicy"]=="manual-only" for item in items.values()), "Step 23 nine extension manual-only BUILD contract"
 assert set(items)=={"pgextwin/"+n for n in ["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack","pg_ivm","pg_qualstats","plpgsql_check"]}
 local={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow":"windows.yml"}
 ext={"name":"plpgsql_check","upstream":{"repository":"okbob/plpgsql_check"}}
@@ -34,7 +35,7 @@ for mode in ("WATCH","OFF"):
 for bad in [
     lambda d:d["entries"].append(d["entries"][0]),
     lambda d:d["entries"][0].update(releasePolicy="automatic"),
-    lambda d:d["entries"][0].update(candidateEnabled=True),
+    lambda d:d["entries"][0].update(candidateEnabled=False),
     lambda d:d.update(scheduleUtc="0 9 * * *"),
     lambda d:d["entries"][0].update(strategy="nonsense"),
 ]:
