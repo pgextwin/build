@@ -2,7 +2,9 @@
 import importlib.util
 from pathlib import Path
 import json
+import sys
 r=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(r/"scripts"))
 spec=importlib.util.spec_from_file_location("fleet_status",r/"scripts/fleet-status.py")
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 assert m.compact_run(None) is None
