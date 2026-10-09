@@ -30,6 +30,14 @@ def expect_fail(f):
     raise AssertionError("expected fail-closed WatchError")
 
 def main():
+    for mode in ("WATCH", "OFF"):
+        record=c.suppressed(EXT,mode)
+        assert record["status"]=="centrally-suppressed"
+        assert record["mode"]==mode and record["updates"]==[]
+        assert record["releasePolicy"]=="manual-only"
+        assert record["repository"]=="test/ext"
+    expect_fail(lambda:c.suppressed(EXT,"BUILD"))
+    expect_fail(lambda:c.suppressed(EXT,"UNKNOWN"))
     p=c.plan(EXT,WATCH,POLICY,fixture)
     assert p["status"]=="candidate" and p["updates"][0]["commit"]==SHA and p["updates"][0]["version"]=="2.10.14"
     assert len(p["candidateId"])==20 and p["branch"].startswith("auto-candidate/")

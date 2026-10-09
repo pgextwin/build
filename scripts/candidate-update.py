@@ -231,6 +231,23 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
     print("Windows CI dispatched for " + branch)
 
 
+def suppressed(extension, mode):
+    """Emit an auditable central-policy decision without contacting upstream."""
+    from datetime import datetime, timezone
+    if mode not in {"WATCH", "OFF"}:
+        raise WatchError("only WATCH/OFF may suppress candidate planning")
+    return {
+        "schemaVersion": 1,
+        "extension": extension["name"],
+        "repository": extension["upstream"]["repository"],
+        "detectedAt": datetime.now(timezone.utc).isoformat(),
+        "releasePolicy": "manual-only",
+        "status": "centrally-suppressed",
+        "mode": mode,
+        "updates": [],
+    }
+
+
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="action", required=True)
@@ -241,9 +258,17 @@ def main():
     b = sub.add_parser("propose")
     for key in ("record", "extension", "repository", "watch", "policy"):
         b.add_argument("--" + key, required=True)
+    d = sub.add_parser("record-suppressed")
+    d.add_argument("--extension", required=True)
+    d.add_argument("--mode", required=True, choices=["WATCH", "OFF"])
+    d.add_argument("--output", required=True)
     args = p.parse_args()
     try:
-        if args.action == "plan":
+        if args.action == "record-suppressed":
+            record = suppressed(read(args.extension), args.mode)
+            Path(args.output).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+            print(json.dumps(record))
+        elif args.action == "plan":
             record = plan(read(args.extension), read(args.watch), read(args.policy),
                           lifecycle=read(args.lifecycle) if args.lifecycle else None)
             Path(args.output).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
