@@ -17,4 +17,11 @@ output=m.render(state)
 assert "| test | WATCH | failure |" in output
 assert "| FAILED | "+"1"*40+" |" in output
 assert "Latest run failures" in output
-print("Step 20 fleet status fixtures passed")
+state["extensions"][0]["repository"]="pgextwin/test"
+state["extensions"][0]["candidatePrUrl"]="https://github.com/pgextwin/test/pull/123"
+output=m.render(state)
+assert "[Review candidate PR](https://github.com/pgextwin/test/pull/123)" in output
+assert "No item in this report authorizes merging" in output
+state["extensions"][0]["candidatePrUrl"]="https://example.invalid/malicious"
+assert "INDETERMINATE (unexpected PR URL)" in m.render(state)
+print("Step 23 nine-extension manual queue status fixtures passed")
