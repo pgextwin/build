@@ -33,17 +33,19 @@ def policy_valid(policy):
 
 
 def api(url):
-    item = github_get_json(url, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
-    if not isinstance(item, dict):
-        raise WatchError("upstream response must be an object")
-    return item
+    # Releases/tags endpoints return arrays; Git ref/tag endpoints return objects.
+    # The caller validates each endpoint's expected shape. Fail closed on mismatch.
+    return github_get_json(url, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
 
 
 def peel_tag(repository, tag, fetch=api):
     if not re.fullmatch(r"[A-Za-z0-9._/-]{1,128}", tag) or tag.startswith("-") or ".." in tag:
         raise WatchError("invalid upstream tag")
     prefix = "https://api.github.com/repos/" + repository
-    target = fetch(prefix + "/git/ref/tags/" + quote(tag, safe="/")).get("object")
+    ref_object = fetch(prefix + "/git/ref/tags/" + quote(tag, safe="/"))
+    if not isinstance(ref_object, dict):
+        raise WatchError("Git tag reference must be an object")
+    target = ref_object.get("object")
     for i in range(5):
         if not isinstance(target, dict) or target.get("type") not in {"commit", "tag"}:
             raise WatchError("unsupported or missing Git tag object")
@@ -53,6 +55,8 @@ def peel_tag(repository, tag, fetch=api):
         if target["type"] == "commit":
             return sha.lower()
         tag_object = fetch(prefix + "/git/tags/" + sha)
+        if not isinstance(tag_object, dict):
+            raise WatchError("annotated tag response must be an object")
         if i == 0 and tag_object.get("tag") != tag:
             raise WatchError("annotated tag name does not match")
         target = tag_object.get("object")
