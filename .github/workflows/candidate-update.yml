@@ -64,8 +64,17 @@ jobs:
           --policy "${{ inputs.candidate_policy_path }}"
           --lifecycle .pgextwin-build/metadata/postgresql.json
           --output "$RUNNER_TEMP/candidate-plan.json"
+      - name: Record centrally suppressed candidate decision
+        if: steps.fleet.outputs.allowed == 'false'
+        env:
+          FLEET_MODE: ${{ steps.fleet.outputs.mode }}
+        run: >-
+          python .pgextwin-build/scripts/candidate-update.py record-suppressed
+          --extension "${{ inputs.extension_config_path }}"
+          --mode "$FLEET_MODE"
+          --output "$RUNNER_TEMP/candidate-plan.json"
       - name: Upload machine-readable candidate decision
-        if: steps.fleet.outputs.allowed == 'true'
+        if: steps.fleet.outputs.allowed == 'false' || steps.detect.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-decision
