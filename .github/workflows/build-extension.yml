@@ -100,6 +100,25 @@ jobs:
           ref: ${{ matrix.upstreamRef }}
           path: upstream
 
+      - name: Verify pinned upstream commit (when declared)
+        shell: bash
+        env:
+          EXPECTED_UPSTREAM_COMMIT: ${{ matrix.upstreamCommit }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXPECTED_UPSTREAM_COMMIT" ]; then
+            echo "Legacy manifest without a commit pin; no SHA assertion."
+            exit 0
+          fi
+          if [[ ! "$EXPECTED_UPSTREAM_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::Invalid upstream commit pin"; exit 1
+          fi
+          actual="$(git -C upstream rev-parse HEAD)"
+          if [ "${actual,,}" != "${EXPECTED_UPSTREAM_COMMIT,,}" ]; then
+            echo "::error::Pinned upstream tag moved or checkout commit differs"; exit 1
+          fi
+          echo "Verified pinned upstream commit $actual"
+
       - name: Verify upstream license files match packaging repository
         if: needs.matrix.outputs.verify_upstream_license == 'true'
         shell: pwsh
