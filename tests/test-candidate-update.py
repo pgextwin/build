@@ -82,6 +82,49 @@ def exercise_proposer_safety():
                                          str(root/"watch.json"),str(root/"policy.json")))
 
 
+
+def exercise_new_candidate_positive():
+    """Mock the complete new-branch -> draft-PR -> Windows dispatch path; no live PR."""
+    record=c.plan(EXT,WATCH,POLICY,fixture)
+    marker="<!-- "+c.MARKER_PREFIX+":"+record["candidateId"]+" -->"
+    central=json.loads((ROOT/"metadata/automation-fleet.json").read_text(encoding="utf-8"))
+    response={"encoding":"base64","content":base64.b64encode(json.dumps(central).encode()).decode()}
+    with tempfile.TemporaryDirectory() as temp:
+        root=Path(temp)
+        manifest=root/"extension.json"
+        manifest.write_text(json.dumps(EXT),encoding="utf-8")
+        (root/"watch.json").write_text(json.dumps(WATCH),encoding="utf-8")
+        (root/"policy.json").write_text(json.dumps(POLICY),encoding="utf-8")
+        commands=[]
+        def execute(*args):
+            commands.append(args)
+            if args[:2]==("git","ls-remote"): return ""
+            if args[:3]==("gh","pr","list"): return "[]"
+            if args[:3]==("gh","pr","create"): return "https://example.invalid/draft/1"
+            if args[:3]==("gh","run","list"): return "[]"
+            if args[:3]==("gh","workflow","run"): return ""
+            if args[0]=="git": return ""
+            raise AssertionError("unexpected operation "+repr(args))
+        with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
+                                    "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token",
+                                    "RUNNER_TEMP":temp}), \
+             patch.object(update_watch_lib,"github_get_json",lambda url,token:response), \
+             patch.object(c,"execute",execute), \
+             patch.object(c,"peel_tag",lambda *args,**kwargs:SHA):
+            assert c.propose(record,str(manifest),"pgextwin/plpgsql_check",
+                             str(root/"watch.json"),str(root/"policy.json")) is None
+        updated=json.loads(manifest.read_text(encoding="utf-8"))
+        assert updated["upstream"]["commit"]==SHA and updated["upstream"]["ref"]=="v2.10.14"
+        assert sum(x[:2]==("git","push") for x in commands)==1
+        assert sum(x[:3]==("gh","pr","create") for x in commands)==1
+        assert sum(x[:3]==("gh","workflow","run") for x in commands)==1
+        created=[x for x in commands if x[:3]==("gh","pr","create")][0]
+        assert "--draft" in created and "--base" in created
+        commit=[x for x in commands if x[:2]==("git","commit")][0]
+        assert marker in " ".join(commit)
+        assert not any(x[:2]==("gh","release") for x in commands)
+
+
 def main():
     for mode in ("WATCH", "OFF"):
         record=c.suppressed(EXT,mode)
@@ -123,6 +166,7 @@ def main():
     assert len(q["updates"])==1 and q["updates"][0]["major"]==15
     assert c.apply(series,q)["upstream"]["perPostgresql"]["16"]["ref"]=="REL16_1_0_0"
     exercise_proposer_safety()
+    exercise_new_candidate_positive()
     print("Step 19/20 candidate and proposer-safety fixture tests passed")
 
 if __name__=="__main__":main()
