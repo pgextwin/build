@@ -40,8 +40,9 @@ def api(path):
 def download(run, artifact, destination):
     command("gh", "run", "download", str(run), "--repo", REPO,
             "--name", artifact, "--dir", str(destination))
-    path = destination / (artifact + ".json")
-    require(path.is_file(), "missing " + artifact + " JSON")
+    files = list(destination.rglob("*.json"))
+    require(len(files) == 1, "missing/ambiguous " + artifact + " JSON")
+    path = files[0]
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 def verified_review(pr):
