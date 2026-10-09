@@ -10,7 +10,7 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 assert m.compact_run(None) is None
 a=m.compact_run({"id":2,"html_url":"https://github.com/pgextwin/build/actions/runs/2","status":"completed","conclusion":"failure","head_branch":"auto-candidate/123"})
 assert a["conclusion"]=="failure" and a["branch"]=="auto-candidate/123"
-state={"generatedAt":"2026-10-09T00:00:00Z","extensions":[{"extension":"test",
+state={"generatedAt":"2026-10-09T00:00:00Z","extensions":[{"extension":"test","repository":"pgextwin/test",
 "mode":"WATCH","lastWatch":{"conclusion":"failure"},"detectedCandidate":None,
 "lastCandidateStatus":"FAILED","lastSuccessfulCandidate":{"packagingCommit":"1"*40}}]}
 output=m.render(state)
