@@ -37,6 +37,9 @@ jobs:
       - name: Validate Step 21 verified promotion denial fixtures
         run: python tests/test-promotion-gate.py
 
+      - name: Validate Step 21 create-only formal publisher denial fixtures
+        run: python tests/test-publish-release.py
+
       - name: Validate Step 20 fleet policy fixtures
         run: python tests/test-fleet-control.py
 
