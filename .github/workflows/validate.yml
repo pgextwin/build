@@ -40,6 +40,11 @@ jobs:
       - name: Validate Step 21 create-only formal publisher denial fixtures
         run: python tests/test-publish-release.py
 
+      - name: Validate Step 22 unattended publication safety contract
+        run: |
+          python tests/test-unattended-policy.py
+          python scripts/unattended-policy.py --policy metadata/unattended-publication.json --fleet metadata/automation-fleet.json
+
       - name: Validate Step 20 fleet policy fixtures
         run: python tests/test-fleet-control.py
 
