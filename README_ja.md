@@ -6,6 +6,10 @@
 
 このリポジトリでは、各拡張機能リポジトリから利用するReusable Workflow、PostgreSQL対応バージョン情報、共通hook仕様を管理します。
 
+## Step 23: 9 Extensionの手動キュー
+
+9つのExtensionで毎日09:00 JSTの上流更新検出、commit SHA固定の候補draft PR、Windows CIを共通運用する計画です。候補PRの確認・マージと正式Releaseの判断は人が行い、完全無人公開は引き続き OBSERVE/DENY のままです。旧8拡張の `release/*` 公開経路と `plpgsql_check` のmain承認ゲートは同一ではありません。切替順序、受入条件、手動キューの操作手順は [Step 23 manual queue operations](docs/step23-manual-queue.md) を参照してください。
+
 ## 共通基盤が担当する処理
 
 - メンテナンス対象PostgreSQLバージョンの解決
