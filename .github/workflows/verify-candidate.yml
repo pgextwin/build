@@ -1,0 +1,76 @@
+name: Verify read-only Windows candidate matrix
+
+on:
+  workflow_call:
+    inputs:
+      matrix_result:
+        required: true
+        type: string
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: \${{ job.workflow_repository }}
+          ref: \${{ job.workflow_sha }}
+          path: .pgextwin-build
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Verify actual per-major artifact contents
+        id: audit
+        continue-on-error: true
+        env:
+          GH_TOKEN: \${{ github.token }}
+          MATRIX_RESULT: \${{ inputs.matrix_result }}
+        run: >-
+          python .pgextwin-build/scripts/verify-candidate.py
+          --extension config/extension.json
+          --lifecycle .pgextwin-build/metadata/postgresql.json
+          --repo "$GITHUB_REPOSITORY"
+          --branch "$GITHUB_REF_NAME"
+          --sha "$GITHUB_SHA"
+          --run-id "$GITHUB_RUN_ID"
+          --matrix-result "$MATRIX_RESULT"
+          --output "$RUNNER_TEMP/candidate-audit.json"
+      - name: Add candidate audit summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Candidate audit" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$RUNNER_TEMP/candidate-audit.json" ]; then
+            cat "$RUNNER_TEMP/candidate-audit.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload candidate audit record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-audit
+          path: \${{ runner.temp }}/candidate-audit.json
+          if-no-files-found: error
+      - name: Comment only on uniquely automation-owned PR
+        if: always()
+        env:
+          GH_TOKEN: \${{ github.token }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.util,json,os
+          from pathlib import Path
+          file=Path(".pgextwin-build/scripts/verify-candidate.py")
+          spec=importlib.util.spec_from_file_location("verifier",file)
+          v=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(v)
+          report=json.loads((Path(os.environ["RUNNER_TEMP"])/"candidate-audit.json").read_text())
+          v.comment(report,os.environ["GITHUB_REPOSITORY"],Path(os.environ["RUNNER_TEMP"])/"candidate-comment.md")
+          PY
+      - name: Reject failed matrix or incomplete evidence
+        if: always() && steps.audit.outcome != 'success'
+        run: exit 1
