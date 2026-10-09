@@ -156,34 +156,20 @@ jobs:
 
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
 
-      - name: Publish or update Release
+      - name: Publish only a never-before-used Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$RELEASE_TAG" \
-              --notes-file release-notes.md
-
-            gh release upload "$RELEASE_TAG" \
-              dist/*.zip \
-              dist/*.spdx.json \
-              dist/*.vulnerabilities.json \
-              dist/SHA256SUMS.txt \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-          else
-            gh release create "$RELEASE_TAG" \
-              dist/*.zip \
-              dist/*.spdx.json \
-              dist/*.vulnerabilities.json \
-              dist/SHA256SUMS.txt \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "$RELEASE_TAG" \
-              --notes-file release-notes.md
-          fi
+          # A preflight is necessary but not sufficient: create must never clobber,
+          # edit, or upload over an existing Release in a competing run.
+          gh release create "$RELEASE_TAG" \
+            dist/*.zip \
+            dist/*.spdx.json \
+            dist/*.vulnerabilities.json \
+            dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes-file release-notes.md

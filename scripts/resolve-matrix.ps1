@@ -119,6 +119,7 @@ $matrixEntries = @(
         if ($upstreamMode -eq "uniform") {
             $upstreamRef = [string]$extension.upstream.ref
             $upstreamVersion = [string]$extension.upstream.version
+            $upstreamCommit = if ($extension.upstream.PSObject.Properties.Name.Contains("commit")) { [string]$extension.upstream.commit } else { "" }
         }
         else {
             $mappingProperty = $extension.upstream.perPostgresql.PSObject.Properties[$majorKey]
@@ -138,6 +139,7 @@ $matrixEntries = @(
 
             $upstreamRef = [string]$mapping.ref
             $upstreamVersion = [string]$mapping.version
+            $upstreamCommit = if ($mapping.PSObject.Properties.Name.Contains("commit")) { [string]$mapping.commit } else { "" }
         }
 
         $resolved = [ordered]@{}
@@ -148,6 +150,7 @@ $matrixEntries = @(
 
         $resolved["upstreamRef"] = $upstreamRef
         $resolved["upstreamVersion"] = $upstreamVersion
+        $resolved["upstreamCommit"] = $upstreamCommit
 
         [PSCustomObject]$resolved
     }

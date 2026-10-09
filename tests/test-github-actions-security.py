@@ -287,10 +287,15 @@ else:
         )
     if 'sha256sum "${release_assets[@]}" > SHA256SUMS.txt' not in release_text:
         errors.append("release-extension.yml: SHA256SUMS.txt generation must be preserved")
-    if release_text.count("dist/*.spdx.json") != 2:
-        errors.append("release-extension.yml: create/update publication paths must both include SPDX JSON assets")
-    if release_text.count("dist/*.vulnerabilities.json") != 2:
-        errors.append("release-extension.yml: create/update publication paths must both include vulnerability JSON assets")
+    if release_text.count("dist/*.spdx.json") != 1:
+        errors.append("release-extension.yml: create-only publication must include SPDX JSON assets")
+    if release_text.count("dist/*.vulnerabilities.json") != 1:
+        errors.append("release-extension.yml: create-only publication must include vulnerability JSON assets")
+    for forbidden in ("gh release edit", "gh release upload", "--clobber"):
+        if forbidden in release_text:
+            errors.append("release-extension.yml: existing release mutation is forbidden: " + forbidden)
+    if release_text.count("gh release create") != 1:
+        errors.append("release-extension.yml: exactly one create-only publication path required")
     if "gh attestation verify <zip-file>" not in release_text:
         errors.append("release-extension.yml: future release notes must document provenance verification")
     if SPDX_PREDICATE not in release_text:

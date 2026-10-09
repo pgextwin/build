@@ -1,0 +1,90 @@
+name: Prepare SHA-pinned upstream Windows candidates
+
+on:
+  workflow_call:
+    inputs:
+      extension_config_path:
+        type: string
+        required: false
+        default: config/extension.json
+      update_watch_path:
+        type: string
+        required: false
+        default: config/update-watch.json
+      candidate_policy_path:
+        type: string
+        required: false
+        default: config/candidate-build.json
+      dry_run:
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: candidate-proposer-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      candidate: ${{ steps.detect.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Detect and resolve immutable stable upstream commit
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python .pgextwin-build/scripts/candidate-update.py plan
+          --extension "${{ inputs.extension_config_path }}"
+          --watch "${{ inputs.update_watch_path }}"
+          --policy "${{ inputs.candidate_policy_path }}"
+          --output "$RUNNER_TEMP/candidate-plan.json"
+      - name: Upload machine-readable candidate decision
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-decision
+          path: ${{ runner.temp }}/candidate-plan.json
+          if-no-files-found: error
+
+  propose:
+    needs: plan
+    if: needs.plan.outputs.candidate == 'true' && !inputs.dry_run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-decision
+          path: ${{ runner.temp }}
+      - name: Recheck tag, create/reuse owned PR, dispatch normal Windows CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python .pgextwin-build/scripts/candidate-update.py propose
+          --record "$RUNNER_TEMP/candidate-plan.json"
+          --extension "${{ inputs.extension_config_path }}"
+          --repository "$GITHUB_REPOSITORY"
