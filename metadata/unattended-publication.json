@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "mode": "OBSERVE",
+  "defaultAction": "DENY",
+  "scheduleUtc": "0 0 * * *",
+  "pilotRepository": "pgextwin/plpgsql_check",
+  "requiredMajorVersions": [
+    15,
+    16,
+    17,
+    18
+  ],
+  "controls": {
+    "automaticCandidateMerge": false,
+    "automaticFormalRelease": false,
+    "automaticCatalogMerge": false,
+    "automaticWebsiteVerification": true,
+    "requireDedicatedMergeApp": true,
+    "requireFreshCandidateAudit": true,
+    "requirePinnedUpstreamCommit": true,
+    "requireBuildProvenance": true,
+    "requireSbomAttestation": true,
+    "requireBlockingVulnerabilityPolicy": true,
+    "requireImmutableTags": true,
+    "quarantineOnAmbiguity": true
+  },
+  "notes": "OBSERVE is deliberate: never grant automatic publication until independent code-level checks, scoped App identity, and GitHub ruleset acceptance are validated."
+}
