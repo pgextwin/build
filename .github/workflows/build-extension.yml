@@ -97,7 +97,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.matrix.outputs.upstream_repository }}
-          ref: ${{ matrix.upstreamCommit || matrix.upstreamRef }}
+          ref: ${{ matrix.upstreamRef }}
           path: upstream
 
       - name: Verify upstream license files match packaging repository
@@ -246,34 +246,6 @@ jobs:
             --postgresql-major "${{ matrix.major }}" `
             --summary-file $env:GITHUB_STEP_SUMMARY
           if ($LASTEXITCODE -ne 0) { throw "Vulnerability report validation failed." }
-      - name: Generate SHA-256 checksums for candidate artifacts
-        shell: pwsh
-        run: |
-          $files = @(Get-ChildItem -Path dist -File | Where-Object {
-            $_.Name -match '\.(zip|spdx\.json|vulnerabilities\.json)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ needs.matrix.outputs.extension_name }}-pg${{ matrix.major }}-windows-x64
-          path: |
-            dist/*.zip
-            dist/*.spdx.json
-            dist/*.vulnerabilities.json
-            dist/SHA256SUMS.txt
-          if-no-files-found: error
-
-          } | Sort-Object Name)
-          if ($files.Count -ne 3) {
-            throw "Expected ZIP, SPDX JSON and Grype JSON before checksums; found $($files.Count)."
-          }
-          $lines = @($files | ForEach-Object {
-            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($_.Name)"
-          })
-          [System.IO.File]::WriteAllLines(
-            (Join-Path $PWD 'dist/SHA256SUMS.txt'), [string[]]$lines,
-            [System.Text.UTF8Encoding]::new($false))
-          Write-Host "Generated per-major candidate SHA256SUMS.txt"
-
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -282,5 +254,4 @@ jobs:
             dist/*.zip
             dist/*.spdx.json
             dist/*.vulnerabilities.json
-            dist/SHA256SUMS.txt
           if-no-files-found: error
