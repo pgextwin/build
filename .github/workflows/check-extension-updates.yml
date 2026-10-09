@@ -41,10 +41,23 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Check live central fleet policy before watch
+        id: fleet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python .pgextwin-build/scripts/fleet-control.py
+          --extension "${{ inputs.extension_config_path }}"
+          --watch "${{ inputs.update_watch_path }}"
+          --repository "$GITHUB_REPOSITORY"
+          --action watch
+
       - name: Install schema validator
+        if: steps.fleet.outputs.allowed == 'true'
         run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
 
       - name: Validate update watch contract
+        if: steps.fleet.outputs.allowed == 'true'
         run: >-
           python .pgextwin-build/scripts/validate-update-watch.py
           --extension-config "${{ inputs.extension_config_path }}"
@@ -52,6 +65,7 @@ jobs:
           --schema .pgextwin-build/schema/update-watch.schema.json
 
       - name: Detect stable upstream candidate
+        if: steps.fleet.outputs.allowed == 'true'
         id: detect
         continue-on-error: true
         env:
@@ -64,8 +78,20 @@ jobs:
           --watcher-repository "${{ job.workflow_repository }}"
           --watcher-sha "${{ job.workflow_sha }}"
 
+      - name: Recheck central authorization immediately before Issue reconciliation
+        if: steps.detect.outcome == 'success' && steps.fleet.outputs.allowed == 'true'
+        id: recheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python .pgextwin-build/scripts/fleet-control.py
+          --extension "${{ inputs.extension_config_path }}"
+          --watch "${{ inputs.update_watch_path }}"
+          --repository "$GITHUB_REPOSITORY"
+          --action watch
+
       - name: Reconcile automation-owned Issue
-        if: steps.detect.outcome == 'success'
+        if: steps.detect.outcome == 'success' && steps.recheck.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -81,8 +107,14 @@ jobs:
             --output "$RUNNER_TEMP/reconcile-result.json" \
             "${args[@]}"
 
+      - name: Explain centrally disabled watch
+        if: steps.fleet.outputs.mode == 'OFF' || steps.recheck.outputs.mode == 'OFF'
+        shell: bash
+        run: |
+          echo "Central fleet policy is OFF: no upstream check or Issue mutation." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Write Actions summary
-        if: always()
+        if: always() && steps.detect.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -96,7 +128,7 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Fail on indeterminate upstream state
-        if: steps.detect.outcome != 'success'
+        if: steps.fleet.outputs.allowed == 'true' && steps.detect.outcome != 'success'
         run: |
           echo "Upstream detection was indeterminate. Refusing to report up-to-date or mutate Issues." >&2
           exit 1

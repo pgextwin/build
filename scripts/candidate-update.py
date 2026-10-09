@@ -63,7 +63,7 @@ def peel_tag(repository, tag, fetch=api):
     raise WatchError("annotated tag nesting too deep")
 
 
-def plan(extension, watch, policy, fetch=api):
+def plan(extension, watch, policy, fetch=api, lifecycle=None):
     policy_valid(policy)
     validate_watch_semantics(extension, watch)
     result = {"schemaVersion": 1, "extension": extension["name"], "repository": watch["repository"],
@@ -76,7 +76,23 @@ def plan(extension, watch, policy, fetch=api):
         return result
     if observation["status"] != "update-available" or not observation["updates"]:
         raise WatchError("indeterminate candidate detection")
+    eligible = None
+    if lifecycle is not None:
+        from datetime import date
+        allowed = extension.get("postgresql", {}).get("majors")
+        if allowed is None:
+            allowed = range(int(extension["postgresql"]["minMajor"]), int(extension["postgresql"]["maxMajor"]) + 1)
+        allowed = {int(x) for x in allowed}
+        if lifecycle.get("schemaVersion") != 1 or not isinstance(lifecycle.get("postgresql"), list):
+            raise WatchError("invalid PostgreSQL lifecycle metadata")
+        eligible = {int(x["major"]) for x in lifecycle["postgresql"]
+                    if int(x["major"]) in allowed and date.fromisoformat(x["eol"]) >= date.today()}
+        if not eligible:
+            raise WatchError("no maintained PostgreSQL major eligible for candidate CI")
     for one in observation["updates"]:
+        major = one.get("postgresqlMajor")
+        if eligible is not None and major is not None and int(major) not in eligible:
+            continue
         c = one["candidate"]
         old = one["current"]
         if natural_key(c["version"]) <= natural_key(str(old["version"])):
@@ -88,6 +104,8 @@ def plan(extension, watch, policy, fetch=api):
             "commit": peel_tag(watch["repository"], c["ref"], fetch),
             "notes": c.get("url", ""),
         })
+    if not result["updates"]:
+        return result
     stable = json.dumps(sorted([(x["major"], x["ref"], x["commit"]) for x in result["updates"]],
                                key=lambda x: str(x[0])), separators=(",", ":"))
     digest = hashlib.sha256((watch["repository"] + "\n" + stable).encode()).hexdigest()[:20]
@@ -95,7 +113,7 @@ def plan(extension, watch, policy, fetch=api):
     return result
 
 
-def apply(extension, record):
+def apply(extension, record, pin_remaining=False, fetch=api):
     if record.get("status") != "candidate" or extension["name"] != record["extension"]:
         raise WatchError("candidate manifest identity mismatch")
     modified = copy.deepcopy(extension)
@@ -111,6 +129,15 @@ def apply(extension, record):
         if natural_key(update["version"]) <= natural_key(update["oldVersion"]):
             raise WatchError("candidate cannot downgrade")
         target.update({"ref": update["ref"], "version": update["version"], "commit": update["commit"]})
+    if pin_remaining and per_major:
+        for major, target in modified["upstream"]["perPostgresql"].items():
+            if not isinstance(target, dict) or not target.get("ref"):
+                raise WatchError("missing series ref")
+            pinned = peel_tag(record["repository"], target["ref"], fetch)
+            existing = target.get("commit")
+            if existing and existing.lower() != pinned:
+                raise WatchError("existing PostgreSQL series tag moved")
+            target["commit"] = pinned
     return modified
 
 
@@ -121,15 +148,24 @@ def execute(*args):
     return r.stdout.strip()
 
 
-def propose(record, manifest_path, repository):
+def propose(record, manifest_path, repository, watch_path, policy_path):
     if record.get("status") != "candidate" or repository != os.environ.get("GITHUB_REPOSITORY"):
         raise WatchError("untrusted candidate caller")
     if os.environ.get("GITHUB_REF") != "refs/heads/main" or not os.environ.get("GH_TOKEN"):
         raise WatchError("proposer requires trusted main and GH_TOKEN")
     config = read(manifest_path)
+    # Enforce the live central authority again immediately before any mutation.
+    import importlib.util
+    fleet_path = Path(__file__).with_name("fleet-control.py")
+    spec = importlib.util.spec_from_file_location("fleet_control", fleet_path)
+    fleet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fleet)
+    allowed, mode = fleet.decide(fleet.get_live(), repository, config, read(watch_path), "candidate", read(policy_path))
+    if not allowed:
+        raise WatchError("candidate proposal denied by live central policy: " + mode)
     if config["upstream"]["repository"] != record["repository"]:
         raise WatchError("upstream repository changed")
-    changed = apply(config, record)
+    changed = apply(config, record, pin_remaining=True)
     for update in record["updates"]:
         if peel_tag(record["repository"], update["ref"]) != update["commit"]:
             raise WatchError("upstream tag moved after plan")
@@ -199,22 +235,24 @@ def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="action", required=True)
     a = sub.add_parser("plan")
+    a.add_argument("--lifecycle")
     for key in ("extension", "watch", "policy", "output"):
         a.add_argument("--" + key, required=True)
     b = sub.add_parser("propose")
-    for key in ("record", "extension", "repository"):
+    for key in ("record", "extension", "repository", "watch", "policy"):
         b.add_argument("--" + key, required=True)
     args = p.parse_args()
     try:
         if args.action == "plan":
-            record = plan(read(args.extension), read(args.watch), read(args.policy))
+            record = plan(read(args.extension), read(args.watch), read(args.policy),
+                          lifecycle=read(args.lifecycle) if args.lifecycle else None)
             Path(args.output).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             if os.environ.get("GITHUB_OUTPUT"):
                 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
                     f.write("candidate=" + str(record["status"] == "candidate").lower() + "\n")
             print(json.dumps(record))
         else:
-            propose(read(args.record), args.extension, args.repository)
+            propose(read(args.record), args.extension, args.repository, args.watch, args.policy)
         return 0
     except (WatchError, OSError, ValueError, KeyError, TypeError) as err:
         print("Candidate automation failed CLOSED: " + str(err), file=sys.stderr)

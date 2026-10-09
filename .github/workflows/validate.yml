@@ -34,6 +34,12 @@ jobs:
       - name: Validate Step 19 candidate update fixtures
         run: python tests/test-candidate-update.py
 
+      - name: Validate Step 20 fleet policy fixtures
+        run: python tests/test-fleet-control.py
+
+      - name: Validate Step 20 candidate artifact fixtures
+        run: python tests/test-verify-candidate.py
+
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 

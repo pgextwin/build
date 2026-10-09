@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "scheduleUtc": "0 0 * * *",
+  "releasePolicy": "manual-only",
+  "entries": [
+    {
+      "repository": "pgextwin/pg_bigm",
+      "mode": "WATCH",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/pg_cron",
+      "mode": "WATCH",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/pg_hint_plan",
+      "mode": "WATCH",
+      "strategy": "github-releases-per-postgresql",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/pgaudit",
+      "mode": "WATCH",
+      "strategy": "github-releases-per-postgresql",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/set_user",
+      "mode": "WATCH",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/pg_repack",
+      "mode": "WATCH",
+      "strategy": "github-tags",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/pg_ivm",
+      "mode": "WATCH",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/pg_qualstats",
+      "mode": "WATCH",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+    },
+    {
+      "repository": "pgextwin/plpgsql_check",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "manual-only",
+      "reason": ""
+    }
+  ]
+}

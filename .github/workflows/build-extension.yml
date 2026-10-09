@@ -97,8 +97,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.matrix.outputs.upstream_repository }}
-          ref: ${{ matrix.upstreamRef }}
+          ref: ${{ matrix.upstreamCommit != '' && matrix.upstreamCommit || matrix.upstreamRef }}
           path: upstream
+
+      - name: Verify immutable pinned upstream commit
+        if: matrix.upstreamCommit != ''
+        shell: pwsh
+        run: |
+          $actual = (& git -C upstream rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($actual -ne "${{ matrix.upstreamCommit }}") {
+            throw "Upstream SHA mismatch: expected ${{ matrix.upstreamCommit }}, got $actual"
+          }
 
       - name: Verify upstream license files match packaging repository
         if: needs.matrix.outputs.verify_upstream_license == 'true'
