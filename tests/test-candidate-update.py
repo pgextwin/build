@@ -1,5 +1,11 @@
 from __future__ import annotations
+import base64
 import copy
+import json
+import os
+import tempfile
+from unittest.mock import patch
+import update_watch_lib
 import importlib.util
 from pathlib import Path
 import sys
@@ -28,6 +34,53 @@ def expect_fail(f):
     try: f()
     except WatchError: return
     raise AssertionError("expected fail-closed WatchError")
+
+def exercise_proposer_safety():
+    """Simulate existing branches/PRs and GitHub API failures; never make network writes."""
+    record=c.plan(EXT,WATCH,POLICY,fixture)
+    marker="<!-- "+c.MARKER_PREFIX+":"+record["candidateId"]+" -->"
+    central=json.loads((ROOT/"metadata/automation-fleet.json").read_text(encoding="utf-8"))
+    response={"encoding":"base64","content":base64.b64encode(json.dumps(central).encode()).decode()}
+    with tempfile.TemporaryDirectory() as temp:
+        root=Path(temp)
+        (root/"extension.json").write_text(json.dumps(EXT))
+        (root/"watch.json").write_text(json.dumps(WATCH))
+        (root/"policy.json").write_text(json.dumps(POLICY))
+        scenarios=[
+            ("duplicate", [{"number":1,"body":marker,"state":"OPEN","url":"https://example/1"},
+                           {"number":2,"body":marker,"state":"OPEN","url":"https://example/2"}], [], True),
+            ("human", [{"number":1,"body":"not owned","state":"OPEN","url":"https://example/1"}], [], True),
+            ("prior-run", [{"number":1,"body":marker,"state":"OPEN","url":"https://example/1"}],
+                          [{"databaseId":100,"event":"workflow_dispatch","status":"completed","conclusion":"success"}], False),
+            ("closed", [{"number":1,"body":marker,"state":"CLOSED","url":"https://example/1"}], [], False),
+        ]
+        for name,prs,runs,must_fail in scenarios:
+            calls=[]
+            def execute(*args):
+                calls.append(args)
+                if args[:2]==("git","ls-remote"): return "ab refs/heads/"+record["branch"]
+                if args[:2]==("git","fetch"): return ""
+                if args[:2]==("git","log"): return "candidate branch\n"+marker
+                if args[:2]==("git","show"): return json.dumps(c.apply(EXT,record))
+                if args[:3]==("gh","pr","list"): return json.dumps(prs)
+                if args[:3]==("gh","run","list"): return json.dumps(runs)
+                raise AssertionError("unexpected or mutating command: "+repr(args))
+            with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
+                                      "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \\
+                 patch.object(update_watch_lib,"github_get_json",lambda url,token:response), \\
+                 patch.object(c,"execute",execute),patch.object(c,"peel_tag",lambda *args,**kwargs:SHA):
+                task=lambda:c.propose(record,str(root/"extension.json"),"pgextwin/plpgsql_check",
+                                      str(root/"watch.json"),str(root/"policy.json"))
+                if must_fail: expect_fail(task)
+                else: assert task() is None
+            assert not any(x[:3]==("gh","workflow","run") for x in calls),name
+        with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
+                                    "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \\
+             patch.object(update_watch_lib,"github_get_json",
+                          lambda url,token: (_ for _ in ()).throw(WatchError("API outage"))):
+            expect_fail(lambda:c.propose(record,str(root/"extension.json"),"pgextwin/plpgsql_check",
+                                         str(root/"watch.json"),str(root/"policy.json")))
+
 
 def main():
     for mode in ("WATCH", "OFF"):
@@ -69,6 +122,7 @@ def main():
     q=c.plan(series,watch,POLICY,series_fixture)
     assert len(q["updates"])==1 and q["updates"][0]["major"]==15
     assert c.apply(series,q)["upstream"]["perPostgresql"]["16"]["ref"]=="REL16_1_0_0"
-    print("Step 19 candidate fixture tests passed")
+    exercise_proposer_safety()
+    print("Step 19/20 candidate and proposer-safety fixture tests passed")
 
 if __name__=="__main__":main()
