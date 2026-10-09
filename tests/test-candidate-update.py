@@ -5,12 +5,12 @@ import json
 import os
 import tempfile
 from unittest.mock import patch
-import update_watch_lib
 import importlib.util
 from pathlib import Path
 import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/"scripts"))
+import update_watch_lib
 from update_watch_lib import WatchError
 spec = importlib.util.spec_from_file_location("candidate_update", ROOT/"scripts/candidate-update.py")
 c = importlib.util.module_from_spec(spec)
@@ -66,8 +66,8 @@ def exercise_proposer_safety():
                 if args[:3]==("gh","run","list"): return json.dumps(runs)
                 raise AssertionError("unexpected or mutating command: "+repr(args))
             with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
-                                      "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \\
-                 patch.object(update_watch_lib,"github_get_json",lambda url,token:response), \\
+                                      "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \
+                 patch.object(update_watch_lib,"github_get_json",lambda url,token:response), \
                  patch.object(c,"execute",execute),patch.object(c,"peel_tag",lambda *args,**kwargs:SHA):
                 task=lambda:c.propose(record,str(root/"extension.json"),"pgextwin/plpgsql_check",
                                       str(root/"watch.json"),str(root/"policy.json"))
@@ -75,7 +75,7 @@ def exercise_proposer_safety():
                 else: assert task() is None
             assert not any(x[:3]==("gh","workflow","run") for x in calls),name
         with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
-                                    "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \\
+                                    "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \
              patch.object(update_watch_lib,"github_get_json",
                           lambda url,token: (_ for _ in ()).throw(WatchError("API outage"))):
             expect_fail(lambda:c.propose(record,str(root/"extension.json"),"pgextwin/plpgsql_check",
