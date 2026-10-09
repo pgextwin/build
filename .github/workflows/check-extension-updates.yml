@@ -110,7 +110,8 @@ jobs:
       - name: Explain centrally disabled watch
         if: steps.fleet.outputs.mode == 'OFF' || steps.recheck.outputs.mode == 'OFF'
         shell: bash
-        run: echo "Central fleet policy is OFF: no upstream check or Issue mutation." >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Central fleet policy is OFF: no upstream check or Issue mutation." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write Actions summary
         if: always() && steps.detect.outcome != 'skipped'
