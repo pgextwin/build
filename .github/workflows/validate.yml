@@ -34,6 +34,9 @@ jobs:
       - name: Validate Step 19 candidate update fixtures
         run: python tests/test-candidate-update.py
 
+      - name: Validate Step 21 verified promotion denial fixtures
+        run: python tests/test-promotion-gate.py
+
       - name: Validate Step 20 fleet policy fixtures
         run: python tests/test-fleet-control.py
 
