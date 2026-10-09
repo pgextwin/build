@@ -301,4 +301,5 @@ jobs:
             dist/*.zip
             dist/*.spdx.json
             dist/*.vulnerabilities.json
+            dist/SHA256SUMS.txt
           if-no-files-found: error
