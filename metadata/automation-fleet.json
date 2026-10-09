@@ -5,75 +5,75 @@
   "entries": [
     {
       "repository": "pgextwin/pg_bigm",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/pg_cron",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/pg_hint_plan",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-releases-per-postgresql",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/pgaudit",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-releases-per-postgresql",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/set_user",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/pg_repack",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-tags",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/pg_ivm",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/pg_qualstats",
-      "mode": "WATCH",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Pending Step 20 candidate pilot and Windows artifact verification"
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     },
     {
       "repository": "pgextwin/plpgsql_check",
@@ -82,7 +82,7 @@
       "scheduleUtc": "0 0 * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": ""
+      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
     }
   ]
 }
