@@ -122,16 +122,28 @@ def render(state):
     lines=["# pgextwin Fleet Automation Status","",
         "Generated "+state["generatedAt"]+"; centralized mode is live policy, GitHub runs are observed state.",
         "Status is **not** a claim of strict 09:00 execution. Unknown/stale data is not success.","",
-        "| Extension | Mode | Last watch | Latest candidate | Candidate CI | Last verified SHA |",
-        "| --- | --- | --- | --- | --- | --- |"]
+        "## Manual candidate queue (not release approval)","",
+        "A draft PR link means **manual inspection is required**, even if its latest CI is green.",
+        "Never infer that a candidate is release-ready without checking the matching SHA, run, artifacts, audit and source diff.","",
+        "| Extension | Mode | Last watch | Update Issue | Candidate PR (manual queue) | Candidate CI | Last verified SHA |",
+        "| --- | --- | --- | --- | --- | --- | --- |"]
     for s in state["extensions"]:
         w=s["lastWatch"]
         watch=(w.get("conclusion") or w.get("status")) if w else "NOT_RUN"
         candidate=(s["detectedCandidate"] or {}).get("title") or "—"
+        candidate_pr=s.get("candidatePrUrl")
+        expected="https://github.com/"+s["repository"]+"/pull/"
+        if candidate_pr and candidate_pr.startswith(expected) and candidate_pr[len(expected):].isdigit():
+            queue="[Review candidate PR]("+candidate_pr+")"
+        elif candidate_pr:
+            queue="INDETERMINATE (unexpected PR URL)"
+        else:
+            queue="—"
         success=(s["lastSuccessfulCandidate"] or {}).get("packagingCommit") or "—"
         lines.append("| "+s["extension"]+" | "+s["mode"]+" | "+watch+" | "+candidate.replace("|","/")[:70]+
-                     " | "+s["lastCandidateStatus"]+" | "+success+" |")
+                     " | "+queue+" | "+s["lastCandidateStatus"]+" | "+success+" |")
     lines.extend(["","Latest run failures and missing artifacts remain visible even if an older candidate passed.",
+                  "No item in this report authorizes merging a PR or publishing binaries.",
                   "Machine-readable state is attached to this Actions run. This status job never publishes binaries."])
     return "\n".join(lines)+"\n"
 
