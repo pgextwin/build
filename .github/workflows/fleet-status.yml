@@ -1,6 +1,13 @@
 name: Aggregate fleet automation status
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - metadata/automation-fleet.json
+      - scripts/fleet-status.py
+      - .github/workflows/fleet-status.yml
   schedule:
     # An observation window after 00:00 UTC; not a guarantee watches have completed.
     - cron: "45 0 * * *"
