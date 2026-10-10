@@ -1,0 +1,16 @@
+name: Windows CI/CD (pilot)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    uses: pgextwin/build/.github/workflows/build-extension.yml@26be1eed57d8945e5e0a970d432074c530679b8f
+    with:
+      extension_config_path: config/extension.json
+      test_contract_path: config/test-contract.json

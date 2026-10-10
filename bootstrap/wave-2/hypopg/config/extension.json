@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "name": "hypopg",
+  "upstream": {
+    "repository": "HypoPG/hypopg",
+    "ref": "1.4.3",
+    "version": "1.4.3",
+    "commit": "21d5461ad1868434cc47d9aa656d7afc2b24c464"
+  },
+  "postgresql": {
+    "majors": [
+      15,
+      16,
+      17,
+      18
+    ]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  }
+}

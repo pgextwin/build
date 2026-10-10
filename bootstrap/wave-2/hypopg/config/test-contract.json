@@ -1,0 +1,38 @@
+{
+  "contractVersion": 2,
+  "extension": "hypopg",
+  "smokeTest": {
+    "script": "windows/ci/smoke-test.ps1"
+  },
+  "runtimeRequirements": {
+    "extensionCreation": "required",
+    "preload": "optional",
+    "backgroundWorker": false,
+    "clientExecutable": {
+      "required": false,
+      "packagePaths": []
+    }
+  },
+  "testSetup": {
+    "preload": "none",
+    "backgroundWorker": false,
+    "settings": []
+  },
+  "coverage": {
+    "createExtension": "covered",
+    "backgroundWorker": "not-applicable",
+    "clientExecutable": "not-applicable",
+    "serverLogAssertions": "not-covered",
+    "upgrade": "not-covered"
+  },
+  "functionalScenarios": [
+    {
+      "id": "hypothetical-index-changes-plan",
+      "description": "Create a hypothetical index in the same backend, verify EXPLAIN changes from Seq Scan to Index Scan with no physical index, and verify reset restores the baseline.",
+      "evidence": [
+        "sql-result",
+        "query-plan"
+      ]
+    }
+  ]
+}
