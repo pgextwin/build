@@ -89,5 +89,21 @@ class Promotion(unittest.TestCase):
         with self.assertRaises(g.Denied):
             g.verify(*f)
 
+
+    def test_postgresql14_supported_with_matching_full_matrix(self):
+        f = fixtures()
+        f[2]["postgresql"]["majors"] = [14,15,16,17,18]
+        sample = dict(f[6]["majors"][0])
+        sample["major"] = 14
+        f[6]["majors"].insert(0, sample)
+        f[4]["requiredMajors"] = [14,15,16,17,18]
+        self.assertEqual(g.verify(*f)["majors"], [14,15,16,17,18])
+
+    def test_postgresql14_eol_excludes_major_without_failing_release(self):
+        f = fixtures()
+        f[2]["postgresql"]["majors"] = [14,15,16,17,18]
+        f[3]["postgresql"][0]["eol"] = "2000-01-01"
+        self.assertEqual(g.verify(*f)["majors"], [15,16,17,18])
+
 if __name__ == "__main__":
     unittest.main()

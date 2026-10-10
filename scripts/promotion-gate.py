@@ -102,7 +102,7 @@ def verify(policy, local, ext, lifecycle, approval, decision, audit, candidate_p
     require(m and m.group(1) == ext["upstream"]["version"], "tag and manifest version mismatch")
     require(SHA.fullmatch(ext["upstream"].get("commit", "")) is not None, "upstream SHA not pinned")
     majors = maintained(ext, lifecycle)
-    require(majors == [15, 16, 17, 18], "PG-major completeness/lifecycle gate failed")
+    require(bool(majors) and all(m in (14, 15, 16, 17, 18) for m in majors), "PG-major completeness/lifecycle gate failed")
     branch = candidate_pr["head"]["ref"]
     bm = BRANCH.fullmatch(branch)
     require(bm is not None, "candidate branch not automation-owned")

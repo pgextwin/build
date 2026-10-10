@@ -60,7 +60,11 @@ def check_assets(folder, ext, receipt, commit, run_id, verify_signatures=True):
           and ext["upstream"]["version"] == receipt["version"]
           and ext["upstream"]["commit"] == receipt["upstreamCommit"]
           and ext["upstream"]["ref"] == receipt["upstreamRef"]
-          and receipt["majors"] == [15,16,17,18], "promotion receipt/source mismatch")
+          and isinstance(receipt.get("majors"), list)
+          and receipt["majors"] == sorted(set(receipt["majors"]))
+          and bool(receipt["majors"])
+          and all(m in (14,15,16,17,18) for m in receipt["majors"]),
+          "promotion receipt/source mismatch")
     required = set()
     for m in receipt["majors"]:
         stem = ext["name"]+"-v"+receipt["version"]+"-pg"+str(m)+"-windows-x64"
