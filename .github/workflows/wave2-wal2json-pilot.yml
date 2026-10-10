@@ -1,0 +1,73 @@
+name: Isolated wal2json Windows technical pilot (no release)
+on:
+  pull_request:
+    paths:
+      - "bootstrap/wave-2/wal2json/**"
+      - ".github/workflows/wave2-wal2json-pilot.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows_pilot:
+    name: PostgreSQL ${{ matrix.major }} / Windows x64 / wal2json
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { major: 15, minor: "15.19", chocolateyPackage: postgresql15, chocolateyVersion: "15.19.0" }
+          - { major: 16, minor: "16.15", chocolateyPackage: postgresql16, chocolateyVersion: "16.15.5" }
+          - { major: 17, minor: "17.11", chocolateyPackage: postgresql17, chocolateyVersion: "17.11.4" }
+          - { major: 18, minor: "18.6", chocolateyPackage: postgresql18, chocolateyVersion: "18.6.5" }
+    steps:
+      - name: Checkout shared build repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout SHA-pinned upstream source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: eulerto/wal2json
+          ref: 75629c2e1e81a12350cc9d63782fc53252185d8d
+          path: upstream
+      - name: Check license and source SHA
+        shell: pwsh
+        run: |
+          $actual = (& git -C upstream rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($actual -cne "75629c2e1e81a12350cc9d63782fc53252185d8d") { throw "Unexpected upstream source identity" }
+          if ((Get-FileHash "upstream/LICENSE" -Algorithm SHA256).Hash -ne (Get-FileHash "bootstrap/wave-2/wal2json/LICENSE" -Algorithm SHA256).Hash) { throw "Upstream license mismatch" }
+      - name: Setup Python for the contract validator
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.13"
+      - name: Validate Test Contract v2
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install jsonschema" }
+          python "scripts/validate-test-contract.py" --schema "schema/test-contract.schema.json" --contract "bootstrap/wave-2/wal2json/config/test-contract.json" --extension-config "bootstrap/wave-2/wal2json/config/extension.json" --repository-root "bootstrap/wave-2/wal2json"
+          if ($LASTEXITCODE -ne 0) { throw "Test Contract v2 failed" }
+      - name: Install target PostgreSQL
+        shell: pwsh
+        run: |
+          & ".\scripts\install-postgresql.ps1" -Major ([int]"${{ matrix.major }}") -ChocolateyPackage "${{ matrix.chocolateyPackage }}" -ChocolateyVersion "${{ matrix.chocolateyVersion }}" -TestPort 55432
+      - name: Compile pinned upstream DLL
+        shell: pwsh
+        run: |
+          & ".\bootstrap\wave-2\wal2json\windows\ci\build.ps1" -PgRoot $env:PGROOT -UpstreamDir (Join-Path $PWD "upstream")
+      - name: Install binary into PostgreSQL
+        shell: pwsh
+        run: |
+          & ".\bootstrap\wave-2\wal2json\windows\ci\install.ps1" -PgRoot $env:PGROOT -UpstreamDir (Join-Path $PWD "upstream")
+      - name: Run real PostgreSQL functional test
+        shell: pwsh
+        run: |
+          & ".\bootstrap\wave-2\wal2json\windows\ci\smoke-test.ps1" -PgRoot $env:PGROOT -PgPort ([int]$env:PGPORT) -PostgreSqlMajor ([int]"${{ matrix.major }}")
+      - name: Package unpublished pilot ZIP
+        shell: pwsh
+        run: |
+          & ".\bootstrap\wave-2\wal2json\windows\ci\package.ps1" -UpstreamDir (Join-Path $PWD "upstream") -UpstreamRepository "eulerto/wal2json" -UpstreamRef "wal2json_2_6" -UpstreamVersion "2.6" -PostgreSqlMajor ([int]"${{ matrix.major }}") -PostgreSqlMinor "${{ matrix.minor }}"
+      - name: Upload engineering-only test artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wal2json-pilot-pg${{ matrix.major }}
+          path: dist/*.zip
+          if-no-files-found: error
