@@ -21,9 +21,9 @@ jobs:
           - { major: 18, minor: "18.6", chocolateyPackage: postgresql18, chocolateyVersion: "18.6.5" }
     steps:
       - name: Checkout shared build repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Checkout SHA-pinned upstream source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: HypoPG/hypopg
           ref: 21d5461ad1868434cc47d9aa656d7afc2b24c464
@@ -35,7 +35,7 @@ jobs:
           if ($actual -cne "21d5461ad1868434cc47d9aa656d7afc2b24c464") { throw "Unexpected upstream source identity" }
           if ((Get-FileHash "upstream/LICENSE" -Algorithm SHA256).Hash -ne (Get-FileHash "bootstrap/wave-2/hypopg/LICENSE" -Algorithm SHA256).Hash) { throw "Upstream license mismatch" }
       - name: Setup Python for the contract validator
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
       - name: Validate Test Contract v2
@@ -66,7 +66,7 @@ jobs:
         run: |
           & ".\bootstrap\wave-2\hypopg\windows\ci\package.ps1" -UpstreamDir (Join-Path $PWD "upstream") -UpstreamRepository "HypoPG/hypopg" -UpstreamRef "1.4.3" -UpstreamVersion "1.4.3" -PostgreSqlMajor ([int]"${{ matrix.major }}") -PostgreSqlMinor "${{ matrix.minor }}"
       - name: Upload engineering-only test artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hypopg-pilot-pg${{ matrix.major }}
           path: dist/*.zip
