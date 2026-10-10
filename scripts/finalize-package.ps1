@@ -230,7 +230,13 @@ if ($BuildCheckoutCommit -ne $BuildCommit) {
     throw "Checked-out pgextwin/build commit '$BuildCheckoutCommit' does not match job.workflow_sha '$BuildCommit'."
 }
 
-$compilerVersionValue = Resolve-MsvcCompilerVersion -Override $CompilerVersion
+# SQL-only distributions have no native DLL and must not pretend that MSVC
+# compiled their extension code. Detect package payload, not extension name.
+$nativeDlls = @(Get-ChildItem -Path (Join-Path $stage.FullName "lib") -Filter "*.dll" -Recurse -File -ErrorAction SilentlyContinue)
+$compilerKind = if ($nativeDlls.Count -gt 0) { "MSVC" } else { "not-applicable" }
+$compilerVersionValue = if ($compilerKind -eq "MSVC") {
+    Resolve-MsvcCompilerVersion -Override $CompilerVersion
+} else { $null }
 
 $runnerOsValue = if ([string]::IsNullOrWhiteSpace($RunnerOs)) { "Windows" } else { $RunnerOs }
 $runnerArchitectureValue = if ([string]::IsNullOrWhiteSpace($RunnerArchitecture)) { "X64" } else { $RunnerArchitecture }
@@ -270,7 +276,7 @@ $metadata = [ordered]@{
         }
     }
     toolchain = [ordered]@{
-        compiler = "MSVC"
+        compiler = $compilerKind
         compilerVersion = $compilerVersionValue
     }
     workflowRun = [ordered]@{
