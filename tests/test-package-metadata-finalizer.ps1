@@ -28,6 +28,10 @@ Compiler:            MSVC
 "@ | Set-Content -Path (Join-Path $stage "PACKAGE-INFO.txt") -Encoding utf8
 
     "payload" | Set-Content -Path (Join-Path $stage "demo.txt") -Encoding utf8
+    # The original fixture represents an MSVC-built native distribution.
+    # Give it a DLL payload so compiler attribution remains applicable.
+    New-Item -ItemType Directory -Force -Path (Join-Path $stage "lib") | Out-Null
+    "mock-DLL" | Set-Content -Path (Join-Path $stage "lib/demo_ext.dll") -Encoding ascii
     $zipPath = Join-Path $dist "demo_ext-v1.0-pg18-windows-x64.zip"
     Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath -CompressionLevel Optimal
 
