@@ -170,7 +170,7 @@
       ],
       "properties": {
         "compiler": {
-          "const": "MSVC"
+          "enum": ["MSVC", "not-applicable"]
         },
         "compilerVersion": {
           "type": [
