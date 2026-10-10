@@ -16,11 +16,23 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-& choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres"
-$code = $LASTEXITCODE
-
-if (@(0, 1641, 3010) -notcontains $code) {
-    throw "Chocolatey failed with exit code $code."
+# Bounded retry for transient Chocolatey community feed failures.
+# The final status and PostgreSQL server installation remain hard gates.
+$successCodes = @(0, 1641, 3010)
+$maxAttempts = 3
+$code = -1
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    Write-Host "Installing $ChocolateyPackage version $ChocolateyVersion (attempt $attempt/$maxAttempts)."
+    & choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres"
+    $code = $LASTEXITCODE
+    if ($successCodes -contains $code) { break }
+    if ($attempt -lt $maxAttempts) {
+        Write-Warning "Chocolatey exited with $code; retrying after a bounded cooldown."
+        Start-Sleep -Seconds (10 * $attempt)
+    }
+}
+if ($successCodes -notcontains $code) {
+    throw "Chocolatey failed after $maxAttempts attempts with exit code $code."
 }
 
 $pgRoot = Join-Path $env:ProgramFiles "PostgreSQL\$Major"
