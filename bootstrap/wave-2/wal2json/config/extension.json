@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "name": "wal2json",
+  "upstream": {
+    "repository": "eulerto/wal2json",
+    "ref": "wal2json_2_6",
+    "version": "2.6",
+    "commit": "75629c2e1e81a12350cc9d63782fc53252185d8d"
+  },
+  "postgresql": {
+    "majors": [
+      15,
+      16,
+      17,
+      18
+    ]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  }
+}

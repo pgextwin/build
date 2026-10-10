@@ -1,0 +1,51 @@
+{
+  "contractVersion": 2,
+  "extension": "wal2json",
+  "smokeTest": {
+    "script": "windows/ci/smoke-test.ps1"
+  },
+  "runtimeRequirements": {
+    "extensionCreation": "not-required",
+    "preload": "none",
+    "backgroundWorker": false,
+    "clientExecutable": {
+      "required": false,
+      "packagePaths": []
+    }
+  },
+  "testSetup": {
+    "preload": "none",
+    "backgroundWorker": false,
+    "settings": [
+      {
+        "name": "wal_level",
+        "value": "logical"
+      },
+      {
+        "name": "max_replication_slots",
+        "value": "4"
+      },
+      {
+        "name": "output_plugin_libraries",
+        "value": "pgoutput, test_decoding, wal2json"
+      }
+    ]
+  },
+  "coverage": {
+    "createExtension": "not-applicable",
+    "backgroundWorker": "not-applicable",
+    "clientExecutable": "not-applicable",
+    "serverLogAssertions": "not-covered",
+    "upgrade": "not-applicable"
+  },
+  "functionalScenarios": [
+    {
+      "id": "logical-dml-json",
+      "description": "Start a logical slot with wal2json format-version 1, commit INSERT, UPDATE and DELETE, decode JSON, assert all three change kinds, and clean up the slot.",
+      "evidence": [
+        "sql-result",
+        "logical-decoding"
+      ]
+    }
+  ]
+}
