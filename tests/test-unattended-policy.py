@@ -27,9 +27,9 @@ class TestUnattendedPolicy(unittest.TestCase):
         self.assertEqual(result["status"], "OBSERVE_ONLY")
         self.assertFalse(result["automaticPublicationAuthorized"])
 
-    def test_nine_build_candidates_do_not_authorize_unattended_release(self):
+    def test_fourteen_build_candidates_do_not_authorize_unattended_release(self):
         p, f = self.fixtures()
-        self.assertEqual(len([x for x in f["entries"] if x["mode"] == "BUILD"]), 9)
+        self.assertEqual(len([x for x in f["entries"] if x["mode"] == "BUILD"]), 14)
         self.assertEqual(module.evaluate(p, f)["status"], "OBSERVE_ONLY")
         p["mode"] = "UNATTENDED"
         for key in p["controls"]:
