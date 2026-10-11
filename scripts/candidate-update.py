@@ -72,9 +72,36 @@ def plan(extension, watch, policy, fetch=api, lifecycle=None):
     if not policy["enabled"]:
         return result
     observation = detect_extension_update(extension, watch, fetch, result["detectedAt"], "pgextwin/build", "step19")
+    # A legacy manifest without full SHA pins may never get an upstream
+    # version bump. Generate a candidate that pins the *current* stable tag
+    # exactly, without changing its ref/version or silently publishing it.
+    # Only the automation-owned candidate PR may apply this pinned baseline.
+    baseline = False
     if observation["status"] == "up-to-date":
-        return result
-    if observation["status"] != "update-available" or not observation["updates"]:
+        series = extension.get("upstream", {}).get("perPostgresql")
+        if series is not None:
+            missing = [(int(m), value) for m,value in series.items()
+                       if not value.get("commit")]
+        else:
+            value = extension["upstream"]
+            missing = [(None,value)] if not value.get("commit") else []
+        if not missing:
+            return result
+        for major, value in missing:
+            pattern = (watch["perPostgresql"][str(major)]["tagPattern"]
+                       if major is not None else watch["stableTagPattern"])
+            if not re.fullmatch(pattern, value["ref"], flags=0):
+                raise WatchError("unpinned baseline ref is not a stable release tag")
+        observations = [{
+            "postgresqlMajor": m,
+            "current": {"ref": value["ref"], "version": value["version"]},
+            "candidate": {"ref": value["ref"], "version": value["version"],
+                          "url": "https://github.com/" + watch["repository"] + "/tree/" + value["ref"]}
+        } for m,value in missing]
+        baseline = True
+    elif observation["status"] == "update-available" and observation["updates"]:
+        observations = observation["updates"]
+    else:
         raise WatchError("indeterminate candidate detection")
     eligible = None
     if lifecycle is not None:
@@ -89,13 +116,16 @@ def plan(extension, watch, policy, fetch=api, lifecycle=None):
                     if int(x["major"]) in allowed and date.fromisoformat(x["eol"]) >= date.today()}
         if not eligible:
             raise WatchError("no maintained PostgreSQL major eligible for candidate CI")
-    for one in observation["updates"]:
+    for one in observations:
         major = one.get("postgresqlMajor")
         if eligible is not None and major is not None and int(major) not in eligible:
             continue
         c = one["candidate"]
         old = one["current"]
-        if natural_key(c["version"]) <= natural_key(str(old["version"])):
+        if baseline:
+            if c["ref"] != old["ref"] or str(c["version"]) != str(old["version"]):
+                raise WatchError("baseline pin cannot change upstream ref/version")
+        elif natural_key(c["version"]) <= natural_key(str(old["version"])):
             raise WatchError("downgrade or same-version switch is forbidden")
         result["updates"].append({
             "major": one.get("postgresqlMajor"),
@@ -103,6 +133,7 @@ def plan(extension, watch, policy, fetch=api, lifecycle=None):
             "ref": c["ref"], "version": str(c["version"]),
             "commit": peel_tag(watch["repository"], c["ref"], fetch),
             "notes": c.get("url", ""),
+            "pinOnly": baseline,
         })
     if not result["updates"]:
         return result
@@ -126,7 +157,10 @@ def apply(extension, record, pin_remaining=False, fetch=api):
             raise WatchError("unsupported PostgreSQL series")
         if target["ref"] != update["oldRef"] or str(target["version"]) != update["oldVersion"]:
             raise WatchError("configured version changed since plan")
-        if natural_key(update["version"]) <= natural_key(update["oldVersion"]):
+        if update.get("pinOnly") is True:
+            if target.get("commit") or update["ref"] != update["oldRef"] or str(update["version"]) != update["oldVersion"]:
+                raise WatchError("baseline may only add a missing SHA to exactly the current stable ref")
+        elif natural_key(update["version"]) <= natural_key(update["oldVersion"]):
             raise WatchError("candidate cannot downgrade")
         target.update({"ref": update["ref"], "version": update["version"], "commit": update["commit"]})
     if pin_remaining and per_major:

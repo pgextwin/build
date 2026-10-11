@@ -149,7 +149,7 @@ def main():
     disabled=copy.deepcopy(POLICY);disabled["enabled"]=False
     assert c.plan(EXT,WATCH,disabled,fixture)["status"]=="disabled"
     old=copy.deepcopy(EXT);old["upstream"]["version"]="2.10.15";old["upstream"]["ref"]="v2.10.15"
-    assert c.plan(old,WATCH,POLICY,fixture)["status"]=="no-op"
+    expect_fail(lambda:c.plan(old,WATCH,POLICY,fixture))  # Unresolvable current ref cannot be trusted/pinned.
     series=copy.deepcopy(EXT);series["upstream"]={"repository":"test/ext","perPostgresql":{
         "15":{"ref":"REL15_1_0_0","version":"1.0.0"},"16":{"ref":"REL16_1_0_0","version":"1.0.0"}}}
     watch=copy.deepcopy(WATCH);watch.pop("stableTagPattern");watch["strategy"]="github-releases-per-postgresql"
@@ -165,6 +165,47 @@ def main():
     q=c.plan(series,watch,POLICY,series_fixture)
     assert len(q["updates"])==1 and q["updates"][0]["major"]==15
     assert c.apply(series,q)["upstream"]["perPostgresql"]["16"]["ref"]=="REL16_1_0_0"
+    # Source-pinning a stable current release does not change its version.
+    baseline=copy.deepcopy(EXT)
+    baseline["upstream"]["ref"]="v2.10.14"
+    baseline["upstream"]["version"]="2.10.14"
+    baseline_plan=c.plan(baseline,WATCH,POLICY,fixture)
+    assert baseline_plan["status"]=="candidate"
+    assert baseline_plan["updates"][0]["pinOnly"] is True
+    assert baseline_plan["updates"][0]["ref"]=="v2.10.14"
+    assert baseline_plan["updates"][0]["oldRef"]=="v2.10.14"
+    untrusted_ref=copy.deepcopy(baseline)
+    untrusted_ref["upstream"]["ref"]="release/2.10.14"
+    expect_fail(lambda:c.plan(untrusted_ref,WATCH,POLICY,fixture))
+    verified=c.apply(baseline,baseline_plan)
+    assert verified["upstream"]["commit"]==SHA and verified["upstream"]["version"]=="2.10.14"
+    assert c.plan(verified,WATCH,POLICY,fixture)["status"]=="no-op"
+    expect_fail(lambda:c.apply(verified,baseline_plan))
+    tampered=copy.deepcopy(baseline_plan)
+    tampered["updates"][0]["version"]="2.10.15"
+    expect_fail(lambda:c.apply(baseline,tampered))
+    tampered=copy.deepcopy(baseline_plan)
+    tampered["updates"][0]["pinOnly"]=False
+    expect_fail(lambda:c.apply(baseline,tampered))
+    # Per-PG unchanged baseline pins all unpinned currently stable sources.
+    per=copy.deepcopy(series)
+    per["upstream"]["perPostgresql"]["15"]["ref"]="REL15_1_0_1"
+    per["upstream"]["perPostgresql"]["15"]["version"]="1.0.1"
+    per["upstream"]["perPostgresql"]["16"]["ref"]="REL16_1_0_1"
+    per["upstream"]["perPostgresql"]["16"]["version"]="1.0.1"
+    def stable_series_fetch(u):
+        if "/releases?" in u:
+            return [{"tag_name":"REL15_1_0_1","draft":False,"prerelease":False},
+                    {"tag_name":"REL16_1_0_1","draft":False,"prerelease":False}]
+        if "/git/ref/tags/REL15_1_0_1" in u or "/git/ref/tags/REL16_1_0_1" in u:
+            return {"object":{"type":"commit","sha":SHA}}
+        raise WatchError("unexpected baseline URL "+u)
+    baseline_pg=c.plan(per,watch,POLICY,stable_series_fetch)
+    assert baseline_pg["status"]=="candidate"
+    assert len(baseline_pg["updates"])==2
+    assert all(u["pinOnly"] is True for u in baseline_pg["updates"])
+    pinned_pg=c.apply(per,baseline_pg)
+    assert all(v["commit"]==SHA for v in pinned_pg["upstream"]["perPostgresql"].values())
     exercise_proposer_safety()
     exercise_new_candidate_positive()
     print("Step 19/20 candidate and proposer-safety fixture tests passed")
