@@ -1,66 +1,53 @@
-# pgextwin build architecture
+# pgextwin build architecture — current 14-extension operation
 
-## Responsibility split
+## Repository responsibilities and trust boundaries
 
 ```text
-pgextwin/build
-  ├─ PostgreSQL maintenance metadata
-  ├─ matrix resolution
-  ├─ PostgreSQL installation
-  ├─ upstream checkout
-  ├─ license verification
-  ├─ normal read-only build reusable workflow
-  ├─ attested release-build reusable workflow
-  ├─ GitHub Artifact Attestation verification
-  ├─ artifact upload
-  ├─ checksums
-  └─ GitHub Release publication reusable workflow
+pgextwin/build (central shared infrastructure)
+  ├─ metadata/automation-fleet.json            14 BUILD candidates / daily 00:00 UTC
+  ├─ metadata/release-promotion.json            14 operator-only publish entries
+  ├─ metadata/unattended-publication.json       OBSERVE / DENY (no auto release)
+  ├─ PostgreSQL lifecycle and major-matrix resolution
+  ├─ reusable read-only Windows build + Test Contract / PACKAGE-INFO
+  ├─ signed Windows build, SPDX SBOM and Grype report-only validation
+  ├─ fleet-promotion-gate.py                    verify merged candidate and operator
+  ├─ fleet-publish-release.py                   fail-closed create-only Release
+  └─ read-only candidate/fleet monitoring
 
-extension repository
-  ├─ config/extension.json
-  ├─ Windows build adaptation
-  ├─ windows/ci/build.ps1
-  ├─ windows/ci/install.ps1
-  ├─ windows/ci/smoke-test.ps1
-  └─ windows/ci/package.ps1
+each of the 14 extension repositories
+  ├─ config/extension.json, candidate-build.json, release-promotion.json
+  ├─ .github/workflows/update-watch.yml         SHA-pinned stable candidate planner
+  ├─ .github/workflows/windows.yml              PR/main/candidate read-only Windows CI
+  ├─ .github/workflows/promote.yml              MAIN workflow_dispatch + PUBLISH ONLY
+  ├─ windows/ci/build.ps1, install.ps1
+  └─ windows/ci/smoke-test.ps1, package.ps1
+
+pgextwin/catalog / pgextwin/website
+  └─ independently verified signed manual Release → opt-in Catalog PR
+     → Catalog CI/merge → Website publish and public verification
 ```
 
-## Why this boundary
+All **14** extension repositories have `BUILD`, `candidateEnabled=true`, `releasePolicy=manual-only` and a daily 00:00 UTC / 09:00 JST central candidate schedule. This registry enables candidate preparation, **not formal release authorization**. Local `config/candidate-build.json` must also permit candidates. A fresh stable upstream update may generate an immutable-SHA Draft PR; no PR merge or Release follows automatically.
 
-PostgreSQL lifecycle metadata and CI mechanics are common across extensions and should be maintained once. Build commands, exported symbols, preload requirements, files to install, and functional tests differ substantially by extension and remain local.
+Extension-specific Windows adaptation, exported symbols, preload requirements, SQL and runtime tests remain local. Shared scripts provide the common safety contract, packaging and provenance.
 
-The reusable workflows are intentionally split by trust boundary:
+## Normal Windows CI vs formal Release
 
-- `.github/workflows/build-extension.yml` handles PR, main, and non-release manual builds with `contents: read` only.
-- `.github/workflows/build-extension-attested.yml` handles release builds with `contents: read`, `id-token: write`, `attestations: write`, and `artifact-metadata: write`.
-- `.github/workflows/release-extension.yml` publishes the unchanged ZIPs with `contents: write` only.
+- The local **`windows.yml`** is `pull_request`, `main` push or explicit `workflow_dispatch`, uses the full-SHA-pinned reusable `build-extension.yml` and only `contents: read`; it does **not** publish.
+- The local **`promote.yml`** is exclusively `workflow_dispatch` on `main`. Inputs are `candidate_pr`, `candidate_run_id`, `decision_run_id`, `release_tag`, `confirm_release`. A non-bot operator must type **`PUBLISH`**. Central plus local manual-promotion policy, merged identity-pinned candidate, provenance receipts, correct latest SHA and all supported PG Windows jobs must verify before publishing.
+- On authorization, `build-extension-attested.yml` rebuilds supported PG majors with restricted `contents: read`, `id-token: write`, `attestations: write` and `artifact-metadata: write`. ZIP and SPDX attestations must match the original built/validated artifact bytes.
+- The local final publish job calls full-SHA-pinned `fleet-publish-release.py`, compares SHA-256, attestation and candidate receipt, and creates a **new Release identity only**. An existing tag or Release must fail closed; partial Draft recovery is evidence, not a license to overwrite assets.
 
-All three workflows are pinned by extension callers to the same full `pgextwin/build` commit SHA.
+**Important historical distinction:** `release/*` branch pushes are **no longer a publisher trigger** in the current 14 extension callers. The older shared `release-extension.yml` remains for compatibility but does not define current release permission. Never use older `release/*` runbooks as a current operating procedure. Different caller paths may pin **different** approved full 40-character build commits; inspect the exact local workflow refs, rather than assuming all reusable calls use one common ref.
 
-## PostgreSQL lifecycle resolution
+## PostgreSQL lifecycle boundary
 
-`metadata/postgresql.json` is the shared lifecycle source for supported PostgreSQL majors and their EOL dates. `scripts/resolve-matrix.ps1` intersects that metadata with the caller's extension manifest.
+`metadata/postgresql.json` defines support and EOL. The shared `scripts/resolve-matrix.ps1` intersects lifecycle with each extension manifest and upstream refs. Normal runs use UTC calendar dates; tests can supply `-EffectiveDate yyyy-MM-dd`. The EOL date is inclusive: PostgreSQL 14 remains in the new build matrix **through 2026-11-12** and is excluded beginning **2026-11-13 UTC**. Historical tags, releases and ZIPs are never deleted at EOL.
 
-Normal runs use the current UTC calendar date. Tests may inject an explicit `-EffectiveDate yyyy-MM-dd` so EOL boundaries are deterministic. The final support date is inclusive: a major remains eligible when `EOL >= effective date` and is excluded beginning the next day.
+## Candidate acceptance vs publication acceptance
 
-Lifecycle filtering governs **new normal builds** only. Existing tags, Releases, assets, and checksums remain historical distribution records after a PostgreSQL major reaches EOL. See [PostgreSQL lifecycle policy](postgresql-lifecycle.md).
+A green fleet summary means the observer completed; it **does not** prove every upstream has a new candidate, the candidate is verified, or any Release was published. Verify the current decision run's `candidate-decision`, exact-head Windows job successes, `candidate-audit`, merged PR and source SHA independently.
 
-## Build provenance boundary
+The default unattended policy is **`OBSERVE / DENY`**, with `automaticCandidateMerge=false`, `automaticFormalRelease=false`, `automaticCatalogMerge=false`. Catalog ingestion after an operator-published Release is a separate signed-asset-verification path. Its GitHub App proposer feature is intentionally opt-in, and a real public-Release → Catalog PR → Website end-to-end acceptance still requires a genuine subsequent manually approved Release.
 
-Only `release/*` uses the attested build workflow. Each PostgreSQL-major job completes build, install, functional smoke test, and final ZIP packaging before provenance is generated. The final ZIP is the attestation subject.
-
-The workflow then verifies that same ZIP with `gh attestation verify` and only after successful verification uploads it as a GitHub Actions artifact. The publication workflow later downloads the ZIP without repackaging it, reads it to create `SHA256SUMS.txt`, and publishes those same ZIP bytes as GitHub Release assets.
-
-See [Artifact Attestations and build provenance](artifact-attestations.md).
-
-## Release gate
-
-A release is eligible only after every PostgreSQL major in the resolved matrix completes the extension-specific build, install, functional test, packaging, attestation, and in-workflow provenance verification.
-
-`release/*` branches are the publication trigger. Pull requests and normal pushes run the read-only build path only.
-
-## Versioning and immutable dependency contract
-
-Extension callers use full 40-character commit SHAs, not mutable branches or tags, for all `pgextwin/build` reusable workflows. The normal build, attested release build, and release publication references must point to the same approved build commit.
-
-Within each build reusable workflow, co-located scripts and metadata are checked out from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`, so the workflow definition and the shared implementation cannot drift to different revisions.
+See the [14-extension queue and release runbook](step23-manual-queue.md), [PostgreSQL lifecycle](postgresql-lifecycle.md), [Artifact Attestations](artifact-attestations.md), and [fleet readiness tracker](https://github.com/pgextwin/build/issues/61).
