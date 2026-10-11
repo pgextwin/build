@@ -81,9 +81,66 @@ class Publisher(unittest.TestCase):
             with self.assertRaises(pub.Denied):pub.absent("v2.10.14-windows.1")
 
     def test_partial_draft_asset_set_rejected(self):
-        release={"tag_name":"v2.10.14-windows.1","draft":True,"assets":[]}
+        release={"id":919,"tag_name":"v2.10.14-windows.1","draft":True,"assets":[]}
         with patch.object(pub,"get",return_value=release):
             with self.assertRaises(pub.Denied):
-                pub.check_remote("v2.10.14-windows.1",{"x.zip":"f"*64},True)
+                pub.check_remote("v2.10.14-windows.1",{"x.zip":"f"*64},True,919)
+
+    def test_staged_draft_requires_unique_tag_exact_commit_and_id(self):
+        tag="v2.10.14-windows.1"
+        good={"id":919,"tag_name":tag,"draft":True,
+              "target_commitish":self.commit}
+        with patch.object(pub,"get",return_value=[good]):
+            self.assertEqual(pub.staged_release_id(tag,self.commit),919)
+        for cases in ([],[good,good],[{**good,"id":0}],
+                      [{**good,"draft":False}],
+                      [{**good,"target_commitish":"f"*40}],
+                      [{"id":919,"tag_name":"other","draft":True,
+                        "target_commitish":self.commit}]):
+            with self.subTest(cases=cases),patch.object(pub,"get",return_value=cases):
+                with self.assertRaises(pub.Denied):
+                    pub.staged_release_id(tag,self.commit)
+
+    def test_draft_verifies_exact_github_digests_without_tag_lookup(self):
+        tag="v2.10.14-windows.1"
+        expected={"a.zip":"a"*64,"b.spdx.json":"b"*64}
+        data={"id":919,"tag_name":tag,"draft":True,
+              "assets":[{"name":n,"state":"uploaded","digest":"sha256:"+sha}
+                        for n,sha in expected.items()]}
+        paths=[]
+        def get(path):
+            paths.append(path)
+            self.assertEqual(path,"releases/919")
+            return data
+        with patch.object(pub,"get",side_effect=get),patch.object(
+                pub,"run",side_effect=AssertionError("must not download by draft tag")):
+            pub.check_remote(tag,expected,True,919)
+        self.assertEqual(paths,["releases/919"])
+        for altered in (
+            {**data,"id":918},
+            {**data,"draft":False},
+            {**data,"assets":[{**data["assets"][0],"digest":"sha256:"+"c"*64},
+                               data["assets"][1]]},
+            {**data,"assets":[data["assets"][0]]},
+            {**data,"assets":[{**data["assets"][0],"state":"starter"},
+                               data["assets"][1]]}):
+            with self.subTest(altered=altered),patch.object(pub,"get",return_value=altered):
+                with self.assertRaises(pub.Denied):
+                    pub.check_remote(tag,expected,True,919)
+
+    def test_published_release_requires_tag_resolution(self):
+        tag="v2.10.14-windows.1"
+        release={"id":919,"tag_name":tag,"draft":False,"assets":[]}
+        def good(path):
+            if path=="releases/919": return release
+            if path=="releases/tags/"+tag: return release
+            raise AssertionError(path)
+        with patch.object(pub,"get",side_effect=good):
+            pub.check_remote(tag,{},False,919)
+        def missing_tag(path):
+            return release if path=="releases/919" else None
+        with patch.object(pub,"get",side_effect=missing_tag):
+            with self.assertRaises(pub.Denied):
+                pub.check_remote(tag,{},False,919)
 
 if __name__=="__main__":unittest.main()
