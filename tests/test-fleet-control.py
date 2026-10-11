@@ -42,7 +42,7 @@ for repo in staged:
     assert c.decide(policy,repo,ext2,watch2,"candidate",local)==(True,"BUILD")
     changed=json.loads(json.dumps(policy))
     entry=next(x for x in changed["entries"] if x["repository"]==repo)
-    entry["candidateEnabled"]=True
+    entry["candidateEnabled"]=False  # BUILD without opt-in must fail closed
     fails(lambda: c.validate(changed))
 
 for bad in [
