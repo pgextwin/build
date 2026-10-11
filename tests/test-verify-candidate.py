@@ -28,4 +28,23 @@ with tempfile.TemporaryDirectory() as d:
  assert v.audit(root,ext,life,100,"a"*40,"auto-candidate/"+"1"*20,"failed",date(2026,10,9))["status"]=="FAILED"
  (root/"test-pg14-windows-x64"/"output.spdx.json").unlink()
  assert v.audit(root,ext,life,100,"a"*40,"auto-candidate/"+"1"*20,"success",date(2026,10,9))["status"]=="FAILED"
+# Candidate audit comments use the scoped issues REST endpoint instead of
+# GraphQL addComment, which does not accept this workflow's issues:write token.
+with tempfile.TemporaryDirectory() as d:
+ report={"extension":"test","branch":"auto-candidate/"+"1"*20,
+         "runId":100,"status":"VERIFIED","matrixResult":"success",
+         "majors":[{"major":14,"status":"SUCCESS","sourceSha":"b"*40,
+                    "zipSha256":"c"*64}]}
+ calls=[]
+ def fake_gh(*args):
+  calls.append(args)
+  if args[:2]==("pr","list"):
+   return json.dumps([{"number":12,"body":"<!-- pgextwin-candidate:v1:"+"1"*20+" -->"}])
+  return "{}"
+ v.gh=fake_gh
+ v.comment(report,"pgextwin/test",Path(d)/"candidate-comment.md")
+ assert calls[1][0:3]==("api","--method","POST")
+ assert calls[1][3]=="repos/pgextwin/test/issues/12/comments"
+ assert calls[1][4]=="-f" and calls[1][5].startswith("body=<!-- pgextwin-candidate-run:100 -->")
+
 print("Step 20 candidate artifacts fixtures passed")
