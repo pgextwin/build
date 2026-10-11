@@ -23,7 +23,8 @@ class Publisher(unittest.TestCase):
         self.runid=1009
         self.manifest={"name":"plpgsql_check","upstream":
                        {"version":"2.10.14","ref":"v2.10.14","commit":self.source}}
-        self.receipt={"schemaVersion":1,"status":"VERIFIED_APPROVED",
+        self.receipt={"schemaVersion":1,"status":"VERIFIED_MANUAL_DISPATCH",
+                      "authorizationMode":"manual-dispatch","operator":"ShutenOishi",
                       "repository":pub.REPO,"trustedCommit":self.commit,
                       "extension":"plpgsql_check","version":"2.10.14",
                       "upstreamCommit":self.source,"upstreamRef":"v2.10.14",
