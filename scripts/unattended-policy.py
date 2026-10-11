@@ -73,14 +73,19 @@ def evaluate(policy, fleet):
     staged_repos = {"pgextwin/" + n for n in (
         "hypopg", "wal2json", "pg_partman", "pg_stat_monitor", "orafce")}
     require(type(entries) is list and len(entries) == 14,
-            "expected nine original BUILD candidates and five staged OFF extensions")
+            "expected exactly fourteen manual-only fleet entries")
     names = [x.get("repository") for x in entries if type(x) is dict]
     require(len(names) == 14 and len(set(names)) == 14
             and set(names) == old_repos | staged_repos and PILOT in names,
             "fleet repository registry contains duplicates, omissions or unknown members")
-    require(all(x["mode"] == "OFF" and x["candidateEnabled"] is False
+    # A BUILD candidate lane NEVER authorizes automatic formal publication.
+    # Permit the five staged repos to enter BUILD only with explicit local
+    # candidate opt-in. UNATTENDED policy below still denies all extra BUILD
+    # repositories independently.
+    require(all(x["mode"] in {"OFF", "BUILD"}
+                and (x["candidateEnabled"] is True) == (x["mode"] == "BUILD")
                 for x in entries if x["repository"] in staged_repos),
-            "five staged repositories may not activate before manual-only gate acceptance")
+            "five new repos require explicit manual-only candidate policy")
     require(all(x.get("scheduleUtc") == SCHEDULE and
                 x.get("mode") in {"WATCH", "BUILD", "OFF"} and
                 x.get("releasePolicy") == "manual-only" for x in entries),
