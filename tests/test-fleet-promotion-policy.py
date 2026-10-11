@@ -10,7 +10,7 @@ ORIGINAL=["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack",
 STAGED=["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]
 
 class PolicyTests(unittest.TestCase):
-    def test_strict_manual_only_allowlist_before_wave2_cutover(self):
+    def test_nine_repo_manual_only_allowlist_through_candidate_cutover(self):
         p=json.loads((ROOT/"metadata/release-promotion.json").read_text())
         f=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
         self.assertEqual(p["schemaVersion"],1)
@@ -26,8 +26,11 @@ class PolicyTests(unittest.TestCase):
             self.assertIs(e["candidateEnabled"],True)
         for name in STAGED:
             e=entries["pgextwin/"+name]
-            self.assertEqual(e["mode"],"OFF")
-            self.assertIs(e["candidateEnabled"],False)
+            # Later candidate-only fleet activation may set BUILD, but it must
+            # never silently extend the formal Release PUBLISH allowlist.
+            self.assertIn(e["mode"],("OFF","BUILD"))
+            self.assertIs(e["candidateEnabled"],e["mode"] == "BUILD")
+            self.assertEqual(e["releasePolicy"],"manual-only")
             self.assertNotIn("pgextwin/"+name,p["allowedRepositories"])
 
 if __name__=="__main__":
