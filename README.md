@@ -85,7 +85,7 @@ PostgreSQL 19 remains outside the production matrix until the documented GA/Wind
 3. catalog / website provenance and security visibility beyond current metadata
 4. Python dependency locking and broader build-tool provenance
 5. PostgreSQL package provenance beyond recorded Chocolatey identity
-6. second extension wave
+6. independently verified post-manual-Release Catalog App opt-in and first live 14-extension downstream acceptance
 
 
 ## Update detection automation
