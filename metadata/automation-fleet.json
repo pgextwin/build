@@ -83,6 +83,51 @@
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+    },
+    {
+      "repository": "pgextwin/hypopg",
+      "mode": "OFF",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+    },
+    {
+      "repository": "pgextwin/wal2json",
+      "mode": "OFF",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+    },
+    {
+      "repository": "pgextwin/pg_partman",
+      "mode": "OFF",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+    },
+    {
+      "repository": "pgextwin/pg_stat_monitor",
+      "mode": "OFF",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+    },
+    {
+      "repository": "pgextwin/orafce",
+      "mode": "OFF",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": false,
+      "releasePolicy": "manual-only",
+      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
     }
   ]
 }
