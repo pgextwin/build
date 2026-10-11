@@ -54,7 +54,10 @@ def absent(tag):
         check(get(path+quote(tag,safe="")) is None, "existing tag/release forbidden")
 
 def check_assets(folder, ext, receipt, commit, run_id, verify_signatures=True):
-    check(receipt.get("status") == "VERIFIED_APPROVED" and receipt["repository"] == REPO
+    check(receipt.get("status") == "VERIFIED_MANUAL_DISPATCH"
+          and receipt.get("authorizationMode") == "manual-dispatch"
+          and isinstance(receipt.get("operator"),str) and bool(receipt["operator"])
+          and receipt["repository"] == REPO
           and receipt["trustedCommit"] == commit
           and ext["name"] == receipt["extension"]
           and ext["upstream"]["version"] == receipt["version"]
@@ -118,7 +121,9 @@ def main():
               and os.environ.get("GITHUB_EVENT_NAME")=="workflow_dispatch", "untrusted publishing origin")
         receipt=json.loads(Path(a.receipt).read_text())
         ext=json.loads(Path(a.manifest).read_text())
-        check(a.tag==receipt["releaseTag"],"tag does not match approval")
+        check(a.tag==receipt["releaseTag"],"tag does not match authorized dispatch")
+        check(receipt.get("operator")==os.environ.get("GITHUB_ACTOR"),
+              "manual operator identity does not match release authorization")
         commit=os.environ["GITHUB_SHA"]
         folder=Path(a.dist)
         expected=check_assets(folder,ext,receipt,commit,int(os.environ["GITHUB_RUN_ID"]))
@@ -129,8 +134,8 @@ def main():
         notes=Path(a.recovery).with_suffix(".md")
         notes.write_text("# "+ext["name"]+" Windows x64\n\n"
             +"Unofficial binaries built from reviewed upstream SHA "+receipt["upstreamCommit"]
-            +". PG15–18 tested; SPDX SBOM, Grype report, signed provenance, signed SBOM and SHA256SUMS included.\n"
-            +"非公式Windows x64バイナリです。PG15〜18と検証可能な証明を含みます。\n",encoding="utf-8")
+            +". PG14–18 tested (maintained majors only); SPDX SBOM, Grype report, signed provenance, signed SBOM and SHA256SUMS included.\n"
+            +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n",encoding="utf-8")
         def state(s):
             nonlocal stage
             stage=s
