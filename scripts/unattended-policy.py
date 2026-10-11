@@ -67,11 +67,20 @@ def evaluate(policy, fleet):
             fleet.get("releasePolicy") == "manual-only",
             "fleet identity or release safety policy changed")
     entries = fleet.get("entries")
-    require(type(entries) is list and len(entries) == 9,
-            "expected exactly nine existing fleet members")
+    old_repos = {"pgextwin/" + n for n in (
+        "pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user",
+        "pg_repack", "pg_ivm", "pg_qualstats", "plpgsql_check")}
+    staged_repos = {"pgextwin/" + n for n in (
+        "hypopg", "wal2json", "pg_partman", "pg_stat_monitor", "orafce")}
+    require(type(entries) is list and len(entries) == 14,
+            "expected nine original BUILD candidates and five staged OFF extensions")
     names = [x.get("repository") for x in entries if type(x) is dict]
-    require(len(names) == 9 and len(set(names)) == 9 and PILOT in names,
-            "fleet repository registry contains duplicates or omissions")
+    require(len(names) == 14 and len(set(names)) == 14
+            and set(names) == old_repos | staged_repos and PILOT in names,
+            "fleet repository registry contains duplicates, omissions or unknown members")
+    require(all(x["mode"] == "OFF" and x["candidateEnabled"] is False
+                for x in entries if x["repository"] in staged_repos),
+            "five staged repositories may not activate before manual-only gate acceptance")
     require(all(x.get("scheduleUtc") == SCHEDULE and
                 x.get("mode") in {"WATCH", "BUILD", "OFF"} and
                 x.get("releasePolicy") == "manual-only" for x in entries),

@@ -11,9 +11,11 @@ s=importlib.util.spec_from_file_location("fleet_control", ROOT/"scripts/fleet-co
 c=importlib.util.module_from_spec(s);s.loader.exec_module(c)
 policy=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
 items=c.validate(policy)
-assert len(items)==9
-assert all(item["mode"]=="BUILD" and item["candidateEnabled"] and item["releasePolicy"]=="manual-only" for item in items.values()), "Step 23 nine extension manual-only BUILD contract"
-assert set(items)=={"pgextwin/"+n for n in ["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack","pg_ivm","pg_qualstats","plpgsql_check"]}
+original={"pgextwin/"+n for n in ["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack","pg_ivm","pg_qualstats","plpgsql_check"]}
+staged={"pgextwin/"+n for n in ["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]}
+assert len(items)==14 and set(items)==original|staged, "14 repository registry with five SAFE OFF entries"
+assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] and items[r]["releasePolicy"]=="manual-only" for r in original), "preserve initial nine BUILD"
+assert all(items[r]["mode"]=="OFF" and items[r]["candidateEnabled"] is False and items[r]["releasePolicy"]=="manual-only" for r in staged), "deny new candidates until local gates validated"
 local={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow":"windows.yml"}
 ext={"name":"plpgsql_check","upstream":{"repository":"okbob/plpgsql_check"}}
 watch={"repository":"okbob/plpgsql_check","strategy":"github-releases"}
@@ -32,6 +34,17 @@ for mode in ("WATCH","OFF"):
     e["mode"]=mode;e["candidateEnabled"]=False
     assert c.decide(obj,"pgextwin/plpgsql_check",ext,watch,"candidate",local)==(False,mode)
     assert c.decide(obj,"pgextwin/plpgsql_check",ext,watch,"watch")== (mode!="OFF",mode)
+for repo in staged:
+    e=items[repo]
+    ext2={"name":repo.split("/")[-1],"upstream":{"repository":"test/upstream"}}
+    watch2={"repository":"test/upstream","strategy":e["strategy"]}
+    assert c.decide(policy,repo,ext2,watch2,"watch")==(False,"OFF")
+    assert c.decide(policy,repo,ext2,watch2,"candidate",local)==(False,"OFF")
+    changed=json.loads(json.dumps(policy))
+    entry=next(x for x in changed["entries"] if x["repository"]==repo)
+    entry["candidateEnabled"]=True
+    fails(lambda: c.validate(changed))
+
 for bad in [
     lambda d:d["entries"].append(d["entries"][0]),
     lambda d:d["entries"][0].update(releasePolicy="automatic"),
