@@ -46,6 +46,9 @@ jobs:
       - name: Validate 14-extension manual promotion candidate authorization
         run: python tests/test-fleet-promotion-gate.py
 
+      - name: Enforce manual-only nine BUILD allowlist and five fail-closed OFF
+        run: python tests/test-fleet-promotion-policy.py
+
       - name: Validate 14-extension ID-scoped attested publisher denial fixtures
         run: python tests/test-fleet-publish-release.py
 
