@@ -40,6 +40,12 @@ jobs:
       - name: Validate Step 21 create-only formal publisher denial fixtures
         run: python tests/test-publish-release.py
 
+      - name: Validate heterogeneous 14-extension manual Release identities
+        run: python tests/test-fleet-release-identity.py
+
+      - name: Validate 14-extension manual promotion candidate authorization
+        run: python tests/test-fleet-promotion-gate.py
+
       - name: Validate Step 22 unattended publication safety contract
         run: |
           python tests/test-unattended-policy.py
