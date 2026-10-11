@@ -73,13 +73,13 @@ class TestUnattendedPolicy(unittest.TestCase):
     def test_even_full_static_policy_never_authorizes_release(self):
         p, f = self.fixtures()
         p["mode"] = "UNATTENDED"
-        # Static-only future single-pilot fixture. Five new members remain
-        # denied OFF; only existing, non-pilot BUILD members move to WATCH.
+        # Historical static single-pilot denial fixture: five new candidate
+        # lanes are OFF, other non-pilot original lanes are WATCH.
         staged={"pgextwin/"+n for n in (
             "hypopg","wal2json","pg_partman","pg_stat_monitor","orafce")}
         for entry in f["entries"]:
-            if entry["repository"] != module.PILOT and entry["repository"] not in staged:
-                entry["mode"] = "WATCH"
+            if entry["repository"] != module.PILOT:
+                entry["mode"] = "OFF" if entry["repository"] in staged else "WATCH"
                 entry["candidateEnabled"] = False
         for key in p["controls"]:
             p["controls"][key] = True
@@ -87,14 +87,19 @@ class TestUnattendedPolicy(unittest.TestCase):
         self.assertEqual(result["status"], "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED")
         self.assertFalse(result["automaticPublicationAuthorized"])
 
-    def test_five_new_members_must_remain_off_before_manual_gate_acceptance(self):
+    def test_five_new_members_are_strictly_off_or_explicit_build(self):
         for repo in ("hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"):
             with self.subTest(repository=repo):
                 p,f=self.fixtures()
                 item=next(x for x in f["entries"] if x["repository"]=="pgextwin/"+repo)
+                self.assertEqual(item["mode"],"BUILD")
+                self.assertIs(item["candidateEnabled"],True)
                 item["mode"]="WATCH"
                 with self.assertRaises(module.PolicyDenied):
                     module.evaluate(p,f)
+                item["mode"]="OFF"
+                item["candidateEnabled"]=False
+                self.assertEqual(module.evaluate(p,f)["status"],"OBSERVE_ONLY")
 
     def test_fleet_fail_closed_on_duplicate_or_extra_build(self):
         p, f = self.fixtures()
