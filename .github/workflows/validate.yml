@@ -46,6 +46,9 @@ jobs:
       - name: Validate 14-extension manual promotion candidate authorization
         run: python tests/test-fleet-promotion-gate.py
 
+      - name: Validate 14-extension ID-scoped attested publisher denial fixtures
+        run: python tests/test-fleet-publish-release.py
+
       - name: Validate Step 22 unattended publication safety contract
         run: |
           python tests/test-unattended-policy.py
