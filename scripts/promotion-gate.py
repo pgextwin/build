@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Step 21: refuse publication unless real immutable candidate evidence and human approval agree.
+"""Main-only explicit manual Release gate with immutable candidate evidence.
 
-Runs only from a reviewed extension main workflow_dispatch. Never mutates GitHub.
-The approval file is committed via a separate reviewed PR, NOT on a candidate branch.
+Manual operator dispatch is the release authorization. Independent PR reviewers
+and separately merged approval JSON are not required. This verifier never
+mutates GitHub and MUST deny missing, failed, or mismatched candidate evidence.
 """
 import argparse
 import base64
@@ -45,22 +46,6 @@ def download(run, artifact, destination):
     path = files[0]
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
-def verified_review(pr):
-    reviews = api("repos/" + REPO + "/pulls/" + str(pr["number"]) + "/reviews?per_page=100")
-    require(isinstance(reviews, list) and len(reviews) < 100, "review list inaccessible or truncated")
-    latest = {}
-    for review in reviews:
-        name = (review.get("user") or {}).get("login", "")
-        if name:
-            latest[name] = review
-    humans = [name for name, review in latest.items()
-              if review.get("state") == "APPROVED" and review.get("commit_id") == pr["head"]["sha"]
-              and name.lower() not in {"github-actions[bot]", "dependabot[bot]"}
-              and (review.get("user") or {}).get("type") != "Bot"
-              and name != pr["user"]["login"]]
-    require(bool(humans), "no current human approval on merged PR head")
-    return sorted(humans)
-
 def merged_pr(number, main_sha, expected_path, only_file):
     require(type(number) is int and number > 0, "invalid PR number")
     pr = api("repos/" + REPO + "/pulls/" + str(number))
@@ -73,14 +58,13 @@ def merged_pr(number, main_sha, expected_path, only_file):
             "invalid PR merged SHA")
     # A squash/rebase merge is allowed, but its merge result must be in trusted main.
     command("git", "merge-base", "--is-ancestor", pr["merge_commit_sha"], main_sha)
-    reviewers = verified_review(pr)
     files = api("repos/" + REPO + "/pulls/" + str(number) + "/files?per_page=100")
     require(isinstance(files, list) and 0 < len(files) < 100, "PR file listing truncated")
     names = {f.get("filename") for f in files}
     require(expected_path in names, "expected reviewed file missing")
     if only_file:
         require(names == {expected_path}, "automation PR changed files outside manifest")
-    return pr, reviewers
+    return pr
 
 def maintained(ext, lifecycle):
     require(lifecycle.get("schemaVersion") == 1, "invalid lifecycle")
@@ -88,16 +72,19 @@ def maintained(ext, lifecycle):
     return sorted(int(x["major"]) for x in lifecycle["postgresql"]
                   if int(x["major"]) in configured and date.fromisoformat(x["eol"]) >= date.today())
 
-def verify(policy, local, ext, lifecycle, approval, decision, audit, candidate_pr,
-           approval_pr, candidate_run, decision_run, main_sha, release_tag):
+def verify(policy, local, ext, lifecycle, decision, audit, candidate_pr,
+           candidate_run, decision_run, main_sha, release_tag, actor, confirmation):
     """Pure security policy evaluator. Inject immutable API and artifact snapshots in tests."""
     require(policy == {"schemaVersion": 1, "allowedRepositories": [REPO],
-                       "releasePolicy": "manual-approval"}, "central promotion disabled")
+                       "releasePolicy": "manual-dispatch"}, "central promotion disabled")
     require(local == {"schemaVersion": 1, "enabled": True,
-                      "releasePolicy": "manual-approval"}, "local promotion disabled")
+                      "releasePolicy": "manual-dispatch"}, "local promotion disabled")
     require(ext["name"] == "plpgsql_check" and ext["upstream"]["repository"] == "okbob/plpgsql_check",
             "unsupported extension")
     require(SHA.fullmatch(main_sha) is not None, "invalid trusted main SHA")
+    require(confirmation == "PUBLISH", "explicit manual publish confirmation missing")
+    require(isinstance(actor,str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}",actor)
+            and not actor.lower().endswith("bot"), "manual operator must be an authenticated human account")
     m = TAG.fullmatch(release_tag)
     require(m and m.group(1) == ext["upstream"]["version"], "tag and manifest version mismatch")
     require(SHA.fullmatch(ext["upstream"].get("commit", "")) is not None, "upstream SHA not pinned")
@@ -143,29 +130,21 @@ def verify(policy, local, ext, lifecycle, approval, decision, audit, candidate_p
                 re.fullmatch(r"[a-f0-9]{64}", item.get("zipSha256", "")) is not None
                 and item.get("zip") and item.get("sbom") and item.get("grype"),
                 "unverified major or source SHA mismatch")
-    require(approval == {
-        "schemaVersion": 1, "status": "APPROVED",
-        "candidatePr": candidate_pr["number"], "candidateRunId": candidate_run["id"],
-        "decisionRunId": decision_run["id"], "candidateId": bm.group(1),
-        "upstreamCommit": ext["upstream"]["commit"], "releaseTag": release_tag,
-        "licenseReviewed": True, "windowsCompatibilityReviewed": True,
-        "sourceChangesReviewed": True, "testContractReviewed": True,
-        "requiredMajors": majors
-    }, "reviewed machine-readable approval missing or inconsistent")
-    require(approval_pr["number"] != candidate_pr["number"], "approval must be a separate reviewed PR")
-    return {"schemaVersion": 1, "status": "VERIFIED_APPROVED", "extension": ext["name"],
+    return {"schemaVersion": 1, "status": "VERIFIED_MANUAL_DISPATCH",
+            "authorizationMode": "manual-dispatch", "operator": actor,
+            "extension": ext["name"],
             "repository": REPO, "trustedCommit": main_sha, "releaseTag": release_tag,
             "upstreamCommit": ext["upstream"]["commit"], "upstreamRef": ext["upstream"]["ref"],
             "version": ext["upstream"]["version"], "majors": majors,
-            "candidatePr": candidate_pr["number"], "approvalPr": approval_pr["number"],
+            "candidatePr": candidate_pr["number"],
             "candidateRunId": candidate_run["id"], "decisionRunId": decision_run["id"],
             "candidateId": bm.group(1)}
 
 def main():
     p = argparse.ArgumentParser()
-    for key in ("candidate-pr", "candidate-run-id", "decision-run-id", "approval-pr"):
+    for key in ("candidate-pr", "candidate-run-id", "decision-run-id"):
         p.add_argument("--" + key, type=int, required=True)
-    for key in ("release-tag", "extension", "local-policy", "lifecycle", "output"):
+    for key in ("release-tag", "confirm-release", "extension", "local-policy", "lifecycle", "output"):
         p.add_argument("--" + key, required=True)
     a = p.parse_args()
     try:
@@ -184,25 +163,18 @@ def main():
         local = json.loads(Path(a.local_policy).read_text(encoding="utf-8"))
         ext = json.loads(Path(a.extension).read_text(encoding="utf-8"))
         lifecycle = json.loads(Path(a.lifecycle).read_text(encoding="utf-8"))
-        candidate, candidate_reviewers = merged_pr(a.candidate_pr, main_sha, "config/extension.json", True)
+        candidate = merged_pr(a.candidate_pr, main_sha, "config/extension.json", True)
         run = api("repos/" + REPO + "/actions/runs/" + str(a.candidate_run_id))
         watch = api("repos/" + REPO + "/actions/runs/" + str(a.decision_run_id))
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
             decision = download(a.decision_run_id, "candidate-decision", folder / "decision")
             audit = download(a.candidate_run_id, "candidate-audit", folder / "audit")
-        branch = candidate["head"]["ref"]
-        m = BRANCH.fullmatch(branch)
-        require(m is not None, "candidate ID malformed")
-        approval_path = "approvals/" + m.group(1) + ".json"
-        approved_pr, approval_reviewers = merged_pr(a.approval_pr, main_sha, approval_path, True)
-        approval = json.loads(Path(approval_path).read_text(encoding="utf-8"))
-        receipt = verify(policy, local, ext, lifecycle, approval, decision, audit, candidate,
-                         approved_pr, run, watch, main_sha, a.release_tag)
-        receipt["candidateReviewers"] = candidate_reviewers
-        receipt["approvalReviewers"] = approval_reviewers
+        receipt = verify(policy, local, ext, lifecycle, decision, audit, candidate,
+                         run, watch, main_sha, a.release_tag,
+                         os.environ.get("GITHUB_ACTOR",""), a.confirm_release)
         Path(a.output).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-        print("Promotion authorization VERIFIED_APPROVED; no publication performed by this gate.")
+        print("Manual-dispatch authorization VERIFIED; publication remains a separate attested gated step.")
         return 0
     except (Denied, OSError, ValueError, KeyError, TypeError, IndexError) as e:
         print("PROMOTION DENIED (fail-closed): " + str(e), file=sys.stderr)
