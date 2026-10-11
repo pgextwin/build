@@ -1,6 +1,14 @@
 {
   "schemaVersion": 1,
   "allowedRepositories": [
+    "pgextwin/pg_bigm",
+    "pgextwin/pg_cron",
+    "pgextwin/pg_hint_plan",
+    "pgextwin/pgaudit",
+    "pgextwin/set_user",
+    "pgextwin/pg_repack",
+    "pgextwin/pg_ivm",
+    "pgextwin/pg_qualstats",
     "pgextwin/plpgsql_check"
   ],
   "releasePolicy": "manual-dispatch"
