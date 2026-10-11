@@ -86,48 +86,48 @@
     },
     {
       "repository": "pgextwin/hypopg",
-      "mode": "OFF",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
     },
     {
       "repository": "pgextwin/wal2json",
-      "mode": "OFF",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
     },
     {
       "repository": "pgextwin/pg_partman",
-      "mode": "OFF",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
     },
     {
       "repository": "pgextwin/pg_stat_monitor",
-      "mode": "OFF",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
     },
     {
       "repository": "pgextwin/orafce",
-      "mode": "OFF",
+      "mode": "BUILD",
       "strategy": "github-releases",
       "scheduleUtc": "0 0 * * *",
-      "candidateEnabled": false,
+      "candidateEnabled": true,
       "releasePolicy": "manual-only",
-      "reason": "Staged fleet expansion: deny all watch/candidate actions until local CI and strictly manual Promotion are accepted"
+      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
     }
   ]
 }
