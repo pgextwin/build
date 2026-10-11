@@ -47,4 +47,33 @@ with tempfile.TemporaryDirectory() as d:
  assert calls[1][3]=="repos/pgextwin/test/issues/12/comments"
  assert calls[1][4]=="-f" and calls[1][5].startswith("body=<!-- pgextwin-candidate-run:100 -->")
 
+ assert Path(d,"candidate-comment.md").is_file()
+ # Only the known comment-only 403 is nonfatal. It must remain visible and
+ # must never turn a FAILED audit into a VERIFIED artifact.
+ def denied_403(*args):
+  if args[:2]==("pr","list"):
+   return json.dumps([{"number":12,"body":"<!-- pgextwin-candidate:v1:"+"1"*20+" -->"}])
+  raise ValueError("GitHub CLI call failed: gh: Resource not accessible by integration (HTTP 403)")
+ v.gh=denied_403
+ assert v.comment(report,"pgextwin/test",Path(d)/"denied-comment.md")=="REPORT_ONLY_403"
+ assert Path(d,"denied-comment.md").is_file()
+ def denied_401(*args):
+  if args[:2]==("pr","list"):
+   return json.dumps([{"number":12,"body":"<!-- pgextwin-candidate:v1:"+"1"*20+" -->"}])
+  raise ValueError("GitHub CLI call failed: HTTP 401 Unauthorized")
+ v.gh=denied_401
+ try:
+  v.comment(report,"pgextwin/test",Path(d)/"unauthorized.md")
+  raise AssertionError("unexpected successful comment on HTTP 401")
+ except ValueError as e:
+  assert "401" in str(e)
+ # Ownership mismatch/missing marker is always a hard error, even on 403.
+ v.gh=lambda *args: json.dumps([{"number":12,"body":"unrelated PR"}])
+ try:
+  v.comment(report,"pgextwin/test",Path(d)/"unowned.md")
+  raise AssertionError("unowned candidate PR unexpectedly accepted")
+ except ValueError as e:
+  assert "no unique automation-owned" in str(e)
+
+
 print("Step 20 candidate artifacts fixtures passed")
