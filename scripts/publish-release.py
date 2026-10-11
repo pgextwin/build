@@ -97,17 +97,52 @@ def check_assets(folder, ext, receipt, commit, run_id, verify_signatures=True):
     check({p.name for p in folder.iterdir() if p.is_file()} == required, "partial/extra major assets")
     return {name:digest(folder/name) for name in required}
 
-def check_remote(tag, expected, draft):
-    release=get("releases/tags/"+quote(tag,safe=""))
-    check(release and release.get("draft") is draft and release["tag_name"] == tag,
+def staged_release_id(tag, commit):
+    # GitHub's releases/tags/{tag} endpoint can return HTTP 404 for an
+    # authenticated DRAFT even when the tag, draft and assets exist. A newly
+    # reserved tag must resolve to exactly one draft; never infer a release by
+    # display title or treat a tag lookup 404 as evidence of draft absence.
+    releases = get("releases?per_page=100")
+    check(isinstance(releases, list), "cannot enumerate staged Releases")
+    matches = [r for r in releases if r.get("tag_name") == tag]
+    check(len(matches) == 1, "missing or ambiguous freshly staged Release")
+    release = matches[0]
+    check(release.get("draft") is True
+          and release.get("target_commitish") == commit
+          and isinstance(release.get("id"), int)
+          and release["id"] > 0, "staged Release identity does not match this run")
+    return release["id"]
+
+
+def check_remote(tag, expected, draft, release_id):
+    # Use the immutable release ID, not tag lookup, to validate a draft.
+    # A public Release must ALSO resolve by its tag.
+    check(isinstance(release_id, int) and release_id > 0, "invalid staged Release ID")
+    release = get("releases/" + str(release_id))
+    check(release and release.get("id") == release_id
+          and release.get("draft") is draft and release.get("tag_name") == tag,
           "release state mismatch")
-    assets={a["name"]:a for a in release["assets"]}
-    check(set(assets) == set(expected) and all(a["state"] == "uploaded" for a in assets.values()),
+    if not draft:
+        by_tag = get("releases/tags/" + quote(tag, safe=""))
+        check(by_tag and by_tag.get("id") == release_id
+              and by_tag.get("draft") is False,
+              "published Release is not discoverable by its immutable tag")
+    assets = {a["name"]: a for a in release["assets"]}
+    check(set(assets) == set(expected)
+          and all(a.get("state") == "uploaded" for a in assets.values()),
           "partial or unexpected published assets")
-    for name,expected_sha in expected.items():
-        with tempfile.TemporaryDirectory() as d:
-            run("gh","release","download",tag,"--repo",REPO,"--pattern",name,"--dir",d)
-            check(digest(Path(d)/name) == expected_sha, "remote SHA mismatch: " + name)
+    for name, expected_sha in expected.items():
+        a = assets[name]
+        # GitHub reports SHA-256 of the actual uploaded asset, including drafts.
+        # This avoids tag-name download APIs that cannot resolve draft releases.
+        check(a.get("digest") == "sha256:" + expected_sha,
+              "GitHub-hosted asset SHA mismatch: " + name)
+        if not draft:
+            with tempfile.TemporaryDirectory() as d:
+                run("gh","release","download",tag,"--repo",REPO,
+                    "--pattern",name,"--dir",d)
+                check(digest(Path(d)/name) == expected_sha,
+                      "remote SHA mismatch: " + name)
 
 def main():
     p=argparse.ArgumentParser()
@@ -152,12 +187,16 @@ def main():
             "--repo",REPO,"--verify-tag","--draft","--target",commit,
             "--title",a.tag,"--notes-file",str(notes))
         state("DRAFT_STAGED")
-        check_remote(a.tag,expected,True)
+        release_id = staged_release_id(a.tag, commit)
+        check_remote(a.tag, expected, True, release_id)
         state("DRAFT_VERIFIED")
-        # Edits ONLY a new, verified draft produced by this run; never prior published releases.
-        run("gh","release","edit",a.tag,"--repo",REPO,"--draft=false")
+        # Publish exactly the release ID that this run created and verified.
+        # Never resolve a draft by its tag or edit an unrelated Release.
+        run("gh","api","-X","PATCH",
+            "repos/"+REPO+"/releases/"+str(release_id),
+            "-F","draft=false")
         state("PUBLISHED_AUDIT_PENDING")
-        check_remote(a.tag,expected,False)
+        check_remote(a.tag, expected, False, release_id)
         state("PUBLISHED_VERIFIED")
         print("Formal Release verified: "+a.tag)
         return 0
