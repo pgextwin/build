@@ -83,7 +83,7 @@ PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たす
 3. 現行metadataを越えたCatalog / Website provenance・security visibility
 4. Python dependency lockingとより広いbuild-tool provenance
 5. 記録済みChocolatey identityを越えたPostgreSQL package provenance
-6. second extension wave
+6. 14拡張の手動Release後に行うCatalog連携GitHub Appの最小権限設定と初回E2E受入
 
 
 ## 上流更新検出
