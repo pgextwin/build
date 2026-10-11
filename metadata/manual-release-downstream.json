@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "enabled": false,
+  "mode": "POST_MANUAL_RELEASE_ONLY",
+  "releasePolicy": "manual-dispatch",
+  "automaticFormalRelease": false,
+  "automaticCatalogMerge": false,
+  "allowedExtensions": [
+    "plpgsql_check"
+  ],
+  "requiredCatalogWorkflow": "validate.yml",
+  "requirePublishedPublicRelease": true,
+  "requireBuildProvenanceAttestation": true,
+  "requireSbomAttestation": true,
+  "requireExactSHA256": true,
+  "requireExactHeadRequiredChecks": true,
+  "requireDedicatedMergeApp": true,
+  "denyUnknownOrDuplicate": true,
+  "notes": "Default denied. Independent verified Catalog auto-merge may be separately enabled only after an operator published a signed immutable Release. Never enable automatic formal Releases."
+}
