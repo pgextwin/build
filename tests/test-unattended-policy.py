@@ -73,9 +73,12 @@ class TestUnattendedPolicy(unittest.TestCase):
     def test_even_full_static_policy_never_authorizes_release(self):
         p, f = self.fixtures()
         p["mode"] = "UNATTENDED"
-        # Static-only future single-pilot fixture, not live nine-BUILD fleet.
+        # Static-only future single-pilot fixture. Five new members remain
+        # denied OFF; only existing, non-pilot BUILD members move to WATCH.
+        staged={"pgextwin/"+n for n in (
+            "hypopg","wal2json","pg_partman","pg_stat_monitor","orafce")}
         for entry in f["entries"]:
-            if entry["repository"] != module.PILOT:
+            if entry["repository"] != module.PILOT and entry["repository"] not in staged:
                 entry["mode"] = "WATCH"
                 entry["candidateEnabled"] = False
         for key in p["controls"]:
@@ -83,6 +86,15 @@ class TestUnattendedPolicy(unittest.TestCase):
         result = module.evaluate(p, f)
         self.assertEqual(result["status"], "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED")
         self.assertFalse(result["automaticPublicationAuthorized"])
+
+    def test_five_new_members_must_remain_off_before_manual_gate_acceptance(self):
+        for repo in ("hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"):
+            with self.subTest(repository=repo):
+                p,f=self.fixtures()
+                item=next(x for x in f["entries"] if x["repository"]=="pgextwin/"+repo)
+                item["mode"]="WATCH"
+                with self.assertRaises(module.PolicyDenied):
+                    module.evaluate(p,f)
 
     def test_fleet_fail_closed_on_duplicate_or_extra_build(self):
         p, f = self.fixtures()
