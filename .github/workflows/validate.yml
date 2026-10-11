@@ -49,6 +49,9 @@ jobs:
       - name: Validate 14-extension ID-scoped attested publisher denial fixtures
         run: python tests/test-fleet-publish-release.py
 
+      - name: Validate default-denied post-manual Release Catalog policy
+        run: python tests/test-manual-release-downstream.py
+
       - name: Validate Step 22 unattended publication safety contract
         run: |
           python tests/test-unattended-policy.py
