@@ -6,9 +6,13 @@
 
 このリポジトリでは、各拡張機能リポジトリから利用するReusable Workflow、PostgreSQL対応バージョン情報、共通hook仕様を管理します。
 
-## Step 23: 9 Extensionの手動キュー
+## 現在の運用：14拡張の候補キューと手動の検証済みRelease
 
-9つのExtensionで毎日09:00 JSTの上流更新検出、commit SHA固定の候補draft PR、Windows CIを共通運用する計画です。候補PRの確認・マージと正式Releaseの判断は人が行い、完全無人公開は引き続き OBSERVE/DENY のままです。旧8拡張の `release/*` 公開経路と `plpgsql_check` のmain承認ゲートは同一ではありません。切替順序、受入条件、手動キューの操作手順は [Step 23 manual queue operations](docs/step23-manual-queue.md) を参照してください。
+**全14拡張**で、上流の安定版更新検出（UTC 00:00 / JST 09:00）、コミットSHA固定の**Draft候補PR**、Windows CI、機械可読な候補検証を共通化しました。中央 `metadata/automation-fleet.json` は **14件とも `BUILD` / `candidateEnabled=true`** です。候補準備は自動実行できますが、**候補のマージと正式Releaseは別々の明示的な操作**です。
+
+正式公開は全14拡張とも、`release/*` のpush公開ではなく、**main限定の `promote.yml` `workflow_dispatch`** を使用します。マージ済みの正規候補、候補の正確なhead SHAに対応するWindows CI全対象メジャー成功、候補監査、正規の担当者、未使用タグ、`confirm_release=PUBLISH` が必須です。中央 `metadata/release-promotion.json` の手動公開許可リストも14件になりました。不完全なDraft Releaseのタグを再利用したり、独断で再公開したりしません。
+
+無人公開ポリシーは `OBSERVE / DENY` のままです。候補PRの自動マージ、正式Releaseの自動公開、Catalogの自動マージは無効です。Catalogの署名付きRelease取り込みは別途opt-inであり、GitHub App設定や新Releaseからの実運用E2E検証まで完了したことを意味しません。詳しくは[14拡張手動キュー手順](docs/step23-manual-queue.md)、[Architecture](docs/architecture.md)、[運用受入Issue #61](https://github.com/pgextwin/build/issues/61)を参照してください。
 
 ## 共通基盤が担当する処理
 
@@ -24,54 +28,25 @@
 - Release buildでの最終ZIPに対するBuild Provenance / SBOM GitHub Artifact Attestation生成・検証
 - PostgreSQLメジャーバージョン別artifactのアップロード
 - SHA-256チェックサム生成
-- `release/*` ブランチからのGitHub Release公開
+- mainでの検証済み手動 `PUBLISH` に限定した、署名付き新規GitHub Releaseの公開
 
 拡張機能固有のWindows対応、ビルド方法、機能テストは各Extension repository側で管理します。
 
-## Reusable Workflow
+## Reusable Workflowと信頼境界
 
-caller repositoryは、共通build/release Reusable Workflowを同じ承認済み `pgextwin/build` full commit SHAへpinします。Step 13のupdate watcherも同じ承認済みrevisionへpinします。GitHubではcalled reusable workflowがcallerから渡された権限を昇格できず、要求権限はjob実行前に検証されます。そのため、通常buildとAttestation付きrelease buildは別Reusable Workflowへ分離しています。
+各拡張は、共通Workflowとスクリプトを個別に承認された**40文字の固定コミットSHA**で参照します。read-onlyの `windows.yml` は `pgextwin/build/.github/workflows/build-extension.yml` を呼び、PR・main push・明示的な候補CIを実行します。この経路はReleaseを公開しません。
 
-```yaml
-permissions:
-  contents: read
+正式公開は、各拡張の `.github/workflows/promote.yml` を**mainの `workflow_dispatch`** から手動起動し、次の入力を渡す方式です。
 
-jobs:
-  windows:
-    if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
-    permissions:
-      contents: read
-    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
-    with:
-      extension_config_path: config/extension.json
-      test_contract_path: config/test-contract.json
+- `candidate_pr`：既にマージされた不変の上流候補PR
+- `candidate_run_id`：候補の正確なhead SHAで成功したWindows CI
+- `decision_run_id`：`candidate-decision` 成果物がある検出run
+- `release_tag`：過去に使用していない新しいWindows Releaseタグ
+- `confirm_release`：文字列 `PUBLISH`
 
-  release_build:
-    if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@<same-40-character-build-commit-sha>
-    with:
-      extension_config_path: config/extension.json
-      test_contract_path: config/test-contract.json
+認可jobは中央・各拡張のポリシーを照合し、`promotion-receipt` を記録します。その後だけ、署名付きbuildのReusable Workflowで対象PostgreSQLの再ビルド、ZIP・SPDXのAttestation作成・検証を行います。最後にlocal `publish` jobが共通 `fleet-publish-release.py` を呼び、ZIP整合性・SHA-256・署名・未使用Release IDを検証して公開します。部分失敗時は復旧記録を残し、既存タグ・Release・assetを変更しません。
 
-  release:
-    if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
-    needs: release_build
-    permissions:
-      contents: write
-    uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
-    with:
-      extension_name: ${{ needs.release_build.outputs.extension_name }}
-      upstream_repository: ${{ needs.release_build.outputs.upstream_repository }}
-```
-
-`build-extension.yml` は厳密なread-onlyで、OIDC / Attestation権限を持ちません。`build-extension-attested.yml` は同じbuild / install / smoke test / packageを行った後、最終 `dist/*.zip` をattestし、`gh attestation verify` で検証してから、変更していないZIPをアップロードします。`release-extension.yml` はそのZIPをdownloadし、`SHA256SUMS.txt` を作成して `contents: write` だけでRelease公開します。
-
-両build workflowは、同居するscriptとmetadataを `${{ job.workflow_repository }}` の `${{ job.workflow_sha }}` からcheckoutします。3つのworkflowを同じbuild commitへpinすることで、workflow定義・script・metadata・release実装を同一revisionへ固定します。
+`release-extension.yml` は過去との互換性のため共通Build内に残っていますが、**現在の14拡張の正式公開経路ではありません**。過去の `release/*` 手順を現行操作に用いず、拡張ごとに実際にpinされたWorkflowのSHAを確認してください。
 
 詳細は [Test Contract v2](docs/test-contract-v2.md)、[Package metadata contract](docs/package-metadata.md)、[SBOM contract](docs/sbom.md)、[Vulnerability policy baseline](docs/vulnerability-policy.md)、[Artifact Attestations / build provenance](docs/artifact-attestations.md)、[GitHub Actions trust / permission policy](docs/github-actions-security.md)、[Hook contract](docs/hook-contract.md)、[Architecture](docs/architecture.md) を参照してください。
 
@@ -111,13 +86,11 @@ PostgreSQL 19は、文書化したGA / Windows配布 / upstream gateを満たす
 6. second extension wave
 
 
-## Update Detection Automation
+## 上流更新検出
 
-**Step 13 — Update Detection Automation / Upstream & PostgreSQL Change Watch: 完了。** 初期8 Extensionはstable-onlyの `config/update-watch.json` contractを持ち、full-SHAへpinした共通watcherを時刻分散したdaily scheduleで呼び出します。watcherはGitHub Release/tag metadataだけを照会し、検出とIssue reconciliationを分離します。query/parse failureは `indeterminate` として失敗し、pg_hint_plan / pgAuditはPostgreSQL major別seriesを独立比較します。candidate sourceのcheckout・実行は行いません。
+**Step 13** は初期8拡張のIssue型安定版検出を実装した履歴です。現在は**全14拡張**が、検出と独立したSHA固定の候補作成・Windows CI・候補監査を使用します。workflowファイル変更のmain pushではwatcher/plannerのdry-run受入を実行し、本番scheduleは**毎日09:00 JST**です。検出・候補作成から正式Releaseが自動公開されることはありません。
 
-`pgextwin/build` 自身もPostgreSQL公式Versioning Policy / Beta Informationだけを正規情報源として、maintained minor・lifecycle drift・新major GAを監視します。PostgreSQL 19 Beta/RCはinformationalに留め、production onboardingは引き続き [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md) のgateに従います。両watcherは `contents: read` + `issues: write` のIssue-only automationであり、branch/PR作成、source ref更新、candidate build、Release公開、Catalog/Website変更は行いません。
-
-contract、dedup marker、dry-run、schedule、failure semantics、manual validation gateは [Update detection automation](docs/update-automation.md) を参照してください。
+PostgreSQL公式ライフサイクル監視は継続し、検知だけでは成果物を変更しません。現行操作は[14拡張手動キュー](docs/step23-manual-queue.md)、当初のIssue検出仕様は[Step 13設計](docs/update-automation.md)を参照してください。
 
 ## ライセンス
 
