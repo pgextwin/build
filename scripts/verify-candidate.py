@@ -109,8 +109,20 @@ def comment(report,repo,path):
     lines+=["","All major CI jobs must succeed, including Test Contract, metadata, SPDX and Grype steps.",
             "Normal candidate CI has no release attestation and cannot publish Releases."]
     Path(path).write_text("\n".join(lines)+"\n",encoding="utf-8")
-    gh("api","--method","POST","repos/"+repo+"/issues/"+str(prs[0]["number"])+"/comments",
-       "-f","body="+Path(path).read_text(encoding="utf-8"))
+    try:
+        gh("api","--method","POST","repos/"+repo+"/issues/"+str(prs[0]["number"])+"/comments",
+           "-f","body="+Path(path).read_text(encoding="utf-8"))
+    except ValueError as e:
+        # Repository/organization rules can deny GITHUB_TOKEN Issues comments
+        # despite issues: write. This is a presentation-only side effect;
+        # immutable audit artifact and separate reviewed Promotion remain mandatory.
+        if "Resource not accessible by integration (HTTP 403)" not in str(e):
+            raise
+        print("::warning::Candidate PR audit comment not posted (HTTP 403). "
+              "Use candidate-audit artifact and Actions summary; "
+              "do not claim the comment was published.",file=sys.stderr)
+        return "REPORT_ONLY_403"
+    return "COMMENTED"
 
 def main():
     p=argparse.ArgumentParser()
