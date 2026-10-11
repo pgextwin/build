@@ -87,6 +87,11 @@ def plan(extension, watch, policy, fetch=api, lifecycle=None):
             missing = [(None,value)] if not value.get("commit") else []
         if not missing:
             return result
+        for major, value in missing:
+            pattern = (watch["perPostgresql"][str(major)]["tagPattern"]
+                       if major is not None else watch["stableTagPattern"])
+            if not re.fullmatch(pattern, value["ref"], flags=0):
+                raise WatchError("unpinned baseline ref is not a stable release tag")
         observations = [{
             "postgresqlMajor": m,
             "current": {"ref": value["ref"], "version": value["version"]},
