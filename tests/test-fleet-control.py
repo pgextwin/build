@@ -13,9 +13,9 @@ policy=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
 items=c.validate(policy)
 original={"pgextwin/"+n for n in ["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack","pg_ivm","pg_qualstats","plpgsql_check"]}
 staged={"pgextwin/"+n for n in ["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]}
-assert len(items)==14 and set(items)==original|staged, "14 repository registry with five SAFE OFF entries"
+assert len(items)==14 and set(items)==original|staged, "full exact 14 repository registry"
 assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] and items[r]["releasePolicy"]=="manual-only" for r in original), "preserve initial nine BUILD"
-assert all(items[r]["mode"]=="OFF" and items[r]["candidateEnabled"] is False and items[r]["releasePolicy"]=="manual-only" for r in staged), "deny new candidates until local gates validated"
+assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] is True and items[r]["releasePolicy"]=="manual-only" for r in staged), "enable five candidate-only BUILD lanes after local gates validated"
 local={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow":"windows.yml"}
 ext={"name":"plpgsql_check","upstream":{"repository":"okbob/plpgsql_check"}}
 watch={"repository":"okbob/plpgsql_check","strategy":"github-releases"}
@@ -38,8 +38,8 @@ for repo in staged:
     e=items[repo]
     ext2={"name":repo.split("/")[-1],"upstream":{"repository":"test/upstream"}}
     watch2={"repository":"test/upstream","strategy":e["strategy"]}
-    assert c.decide(policy,repo,ext2,watch2,"watch")==(False,"OFF")
-    assert c.decide(policy,repo,ext2,watch2,"candidate",local)==(False,"OFF")
+    assert c.decide(policy,repo,ext2,watch2,"watch")==(True,"BUILD")
+    assert c.decide(policy,repo,ext2,watch2,"candidate",local)==(True,"BUILD")
     changed=json.loads(json.dumps(policy))
     entry=next(x for x in changed["entries"] if x["repository"]==repo)
     entry["candidateEnabled"]=True
