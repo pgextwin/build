@@ -174,6 +174,9 @@ def main():
     assert baseline_plan["updates"][0]["pinOnly"] is True
     assert baseline_plan["updates"][0]["ref"]=="v2.10.14"
     assert baseline_plan["updates"][0]["oldRef"]=="v2.10.14"
+    untrusted_ref=copy.deepcopy(baseline)
+    untrusted_ref["upstream"]["ref"]="release/2.10.14"
+    expect_fail(lambda:c.plan(untrusted_ref,WATCH,POLICY,fixture))
     verified=c.apply(baseline,baseline_plan)
     assert verified["upstream"]["commit"]==SHA and verified["upstream"]["version"]=="2.10.14"
     assert c.plan(verified,WATCH,POLICY,fixture)["status"]=="no-op"
