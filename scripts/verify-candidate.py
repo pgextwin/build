@@ -109,7 +109,8 @@ def comment(report,repo,path):
     lines+=["","All major CI jobs must succeed, including Test Contract, metadata, SPDX and Grype steps.",
             "Normal candidate CI has no release attestation and cannot publish Releases."]
     Path(path).write_text("\n".join(lines)+"\n",encoding="utf-8")
-    gh("pr","comment",str(prs[0]["number"]),"--repo",repo,"--body-file",str(path))
+    gh("api","--method","POST","repos/"+repo+"/issues/"+str(prs[0]["number"])+"/comments",
+       "-f","body="+Path(path).read_text(encoding="utf-8"))
 
 def main():
     p=argparse.ArgumentParser()
