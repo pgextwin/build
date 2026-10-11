@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Protected rollout: only locally ready BUILD extensions may be manual PUBLISH targets."""
+"""14-member operator-only formal Release; automatic publication remains DENY."""
 import json
 from pathlib import Path
 import unittest
@@ -10,28 +10,35 @@ ORIGINAL=["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack",
 STAGED=["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]
 
 class PolicyTests(unittest.TestCase):
-    def test_nine_repo_manual_only_allowlist_through_candidate_cutover(self):
+    def test_exact_fourteen_repository_operator_publish_allowlist(self):
         p=json.loads((ROOT/"metadata/release-promotion.json").read_text())
         f=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
         self.assertEqual(p["schemaVersion"],1)
         self.assertEqual(p["releasePolicy"],"manual-dispatch")
-        self.assertEqual(set(p["allowedRepositories"]),{"pgextwin/"+x for x in ORIGINAL})
+        self.assertEqual(set(p["allowedRepositories"]),{"pgextwin/"+x for x in ORIGINAL+STAGED})
         self.assertEqual(len(p["allowedRepositories"]),len(set(p["allowedRepositories"])))
         self.assertEqual(f["releasePolicy"],"manual-only")
         entries={e["repository"]:e for e in f["entries"]}
         self.assertEqual(len(entries),14)
-        for name in ORIGINAL:
+        self.assertEqual(set(entries),set(p["allowedRepositories"]))
+        for name in ORIGINAL+STAGED:
             e=entries["pgextwin/"+name]
             self.assertEqual(e["mode"],"BUILD")
             self.assertIs(e["candidateEnabled"],True)
-        for name in STAGED:
-            e=entries["pgextwin/"+name]
-            # Later candidate-only fleet activation may set BUILD, but it must
-            # never silently extend the formal Release PUBLISH allowlist.
-            self.assertIn(e["mode"],("OFF","BUILD"))
-            self.assertIs(e["candidateEnabled"],e["mode"] == "BUILD")
             self.assertEqual(e["releasePolicy"],"manual-only")
-            self.assertNotIn("pgextwin/"+name,p["allowedRepositories"])
+
+    def test_operator_publish_allowlist_does_not_authorize_unattended_formal_release(self):
+        unattended=json.loads((ROOT/"metadata/unattended-publication.json").read_text())
+        downstream=json.loads((ROOT/"metadata/manual-release-downstream.json").read_text())
+        self.assertEqual(unattended["mode"],"OBSERVE")
+        self.assertEqual(unattended["defaultAction"],"DENY")
+        self.assertIs(unattended["controls"]["automaticFormalRelease"],False)
+        self.assertIs(unattended["controls"]["automaticCandidateMerge"],False)
+        self.assertIs(unattended["controls"]["automaticCatalogMerge"],False)
+        self.assertIs(downstream["enabled"],False)
+        self.assertEqual(downstream["mode"],"POST_MANUAL_RELEASE_ONLY")
+        self.assertIs(downstream["automaticFormalRelease"],False)
+        self.assertIs(downstream["automaticCatalogMerge"],False)
 
 if __name__=="__main__":
     unittest.main()
