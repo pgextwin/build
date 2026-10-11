@@ -6,9 +6,13 @@ Shared CI/CD infrastructure for **pgextwin**, a community project that builds an
 
 This repository contains reusable GitHub Actions workflows, PostgreSQL build metadata, and the hook contract used by extension packaging repositories such as `pgextwin/pg_bigm`.
 
-## Step 23: nine-extension manual candidate queue
+## Current operation: 14-extension candidate queue and manual verified Releases
 
-The nine extension repositories can share stable-only daily upstream monitoring and SHA-pinned **draft** candidate PRs, with explicit Windows CI. Candidate review/merge and every formal release remain operator-controlled; unattended publication remains in OBSERVE/DENY. The eight older extensions still have the legacy manually initiated `release/*` publication path, while `plpgsql_check` uses the stronger main promotion gate; do not treat them as equivalent formal release mechanisms. The full gated rollout order, safety checklist, and read-only fleet queue are in [Step 23 manual queue operations](docs/step23-manual-queue.md).
+All **14 extension repositories** share stable-only daily upstream detection (00:00 UTC / 09:00 JST), immutable upstream SHA-pinned **draft** candidate PRs, full Windows CI, and machine-readable candidate verification. The central `metadata/automation-fleet.json` registry has **14 BUILD / 14 candidateEnabled** entries. Candidates may be prepared automatically; **merging a candidate and formally publishing it are separate deliberate operator actions**.
+
+All 14 extensions now use **main-only `promote.yml` workflow_dispatch**, not a `release/*` publishing trigger. Formal publication requires a merged and verified candidate, successful exact-head PostgreSQL-major Windows jobs and candidate audit, a trusted non-bot operator, an unused tag, and explicit `confirm_release=PUBLISH`. The central `metadata/release-promotion.json` manual-promotion allowlist has 14 members. A failed or partial Draft Release is not an invitation to reuse an occupied tag or silently retry.
+
+Unattended publication remains `OBSERVE / DENY`: automatic candidate merge, automatic formal Release, and automatic Catalog merge are disabled. The Catalog signed-release proposer is separately opt-in; code availability does **not** mean the GitHub App or real post-Release end-to-end path has been accepted. See [14-extension manual queue runbook](docs/step23-manual-queue.md), [architecture](docs/architecture.md), and [fleet rollout acceptance](https://github.com/pgextwin/build/issues/61).
 
 ## Scope
 
@@ -26,54 +30,25 @@ The shared workflow is responsible for:
 - generating and verifying release-only Build Provenance and SBOM GitHub Artifact Attestations for final ZIPs,
 - uploading per-PostgreSQL-major artifacts,
 - generating SHA-256 checksums,
-- and publishing GitHub Releases from `release/*` branches.
+- and publishing fresh, signed GitHub Releases **only** from a verified main-only manual `PUBLISH` promotion.
 
 Extension-specific source adaptation and functional tests remain in each extension repository.
 
-## Reusable workflows
+## Reusable workflows and trust boundary
 
-Caller repositories pin the shared build/release workflows to the same approved `pgextwin/build` full commit SHA. The Step 13 update watcher is pinned to that same approved revision. GitHub does not allow a called reusable workflow to elevate permissions above the caller, and its requested permissions are validated before jobs run. Therefore normal and attested builds use separate reusable workflow files rather than putting release-only write permissions into the normal build workflow.
+Extension repositories use individually approved **full 40-character commit SHA pins** for common workflows and shared scripts. The read-only `windows.yml` caller invokes `pgextwin/build/.github/workflows/build-extension.yml` for PRs, main pushes, and explicit candidate CI. It never publishes a Release.
 
-```yaml
-permissions:
-  contents: read
+Each extension has a separate local `.github/workflows/promote.yml` triggered **only by `workflow_dispatch` on main**, with these required inputs:
 
-jobs:
-  windows:
-    if: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
-    permissions:
-      contents: read
-    uses: pgextwin/build/.github/workflows/build-extension.yml@<40-character-build-commit-sha>
-    with:
-      extension_config_path: config/extension.json
-      test_contract_path: config/test-contract.json
+- `candidate_pr`: already-merged, immutable upstream candidate PR
+- `candidate_run_id`: successful exact-head candidate Windows CI
+- `decision_run_id`: trusted watch run with candidate-decision artifact
+- `release_tag`: fresh, never-used Windows Release tag
+- `confirm_release`: exactly `PUBLISH`
 
-  release_build:
-    if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@<same-40-character-build-commit-sha>
-    with:
-      extension_config_path: config/extension.json
-      test_contract_path: config/test-contract.json
+The authorization job checks both local and central policy and writes a `promotion-receipt`. Only then does the attested reusable build recompile the supported PG matrix and generate/verify GitHub Build and SPDX attestations. The local guarded `publish` job invokes the shared `fleet-publish-release.py` script to verify immutable ZIP identities, SHA-256, provenance, and create-only Release identity; failures preserve a recovery receipt. Existing public tags and release assets are immutable.
 
-  release:
-    if: ${{ startsWith(github.ref, 'refs/heads/release/') }}
-    needs: release_build
-    permissions:
-      contents: write
-    uses: pgextwin/build/.github/workflows/release-extension.yml@<same-40-character-build-commit-sha>
-    with:
-      extension_name: ${{ needs.release_build.outputs.extension_name }}
-      upstream_repository: ${{ needs.release_build.outputs.upstream_repository }}
-```
-
-`build-extension.yml` is strictly read-only and has no OIDC or attestation capability. `build-extension-attested.yml` performs the same build/install/smoke-test/package sequence, then attests each final `dist/*.zip`, verifies it with `gh attestation verify`, and uploads the unchanged ZIP. `release-extension.yml` only downloads those ZIPs, creates `SHA256SUMS.txt`, and publishes the Release with `contents: write`.
-
-Both build reusable workflows check out co-located scripts and metadata from `${{ job.workflow_repository }}` at `${{ job.workflow_sha }}`. Pinning all three workflows to one build commit therefore fixes the workflow definitions, scripts, metadata, and release implementation to the same revision.
+The reusable `release-extension.yml` remains in this repository for historical compatibility, but **it is not the active publisher path of the 14 current extension callers**. Historical `release/*` examples must not be used as live operator instructions. Always inspect the extension's exact pinned workflow revision instead of assuming every call site uses one identical shared SHA.
 
 See [Test Contract v2](docs/test-contract-v2.md), [Package metadata contract](docs/package-metadata.md), [SBOM contract](docs/sbom.md), [Vulnerability policy baseline](docs/vulnerability-policy.md), [Artifact Attestations and build provenance](docs/artifact-attestations.md), [GitHub Actions trust and permission policy](docs/github-actions-security.md), [Hook contract](docs/hook-contract.md), and [Architecture](docs/architecture.md).
 
@@ -110,16 +85,14 @@ PostgreSQL 19 remains outside the production matrix until the documented GA/Wind
 3. catalog / website provenance and security visibility beyond current metadata
 4. Python dependency locking and broader build-tool provenance
 5. PostgreSQL package provenance beyond recorded Chocolatey identity
-6. second extension wave
+6. independently verified post-manual-Release Catalog App opt-in and first live 14-extension downstream acceptance
 
 
 ## Update detection automation
 
-**Step 13 — Update Detection Automation / Upstream & PostgreSQL Change Watch: complete.** The initial eight extension repositories now declare a stable-only `config/update-watch.json` contract and call the full-SHA-pinned reusable watcher on a staggered daily schedule. The watcher queries GitHub Release/tag metadata only, separates detection from Issue reconciliation, treats query/parse failures as indeterminate failures, supports per-PostgreSQL series for pg_hint_plan and pgAudit, and never checks out or executes candidate source.
+**Step 13** originally established stable-only upstream Issue detection for the initial eight extensions. The current **14-extension** fleet extends it with the separately gated candidate planner: the watcher detects stable upstream metadata, the SHA-pinned planner may propose a **draft** candidate, and full Windows CI plus candidate audit must verify the exact source. Watcher and planner run in dry-run mode on their workflow-file push acceptance path; production schedules remain at **09:00 JST**. No watcher or candidate planner can trigger a formal Release.
 
-`pgextwin/build` also watches PostgreSQL's official Versioning Policy and Beta Information for maintained-minor/lifecycle drift and new-major GA. PostgreSQL 19 Beta/RC state is informational only; production onboarding remains gated by [PostgreSQL 19 readiness](docs/postgresql-19-readiness.md). Both watcher families are Issue-only automation with `contents: read` + `issues: write`; they do not create branches/PRs, change source refs, build candidates, publish Releases, or change Catalog/Website data.
-
-See [Update detection automation](docs/update-automation.md) for the contract, deduplication markers, dry-run behavior, schedules, failure semantics, and manual validation gate.
+The central PostgreSQL lifecycle watch still observes the official Versioning Policy and new-major readiness without altering binaries or Releases. Read [the runbook](docs/step23-manual-queue.md) for the operative queue and [original Step 13 design](docs/update-automation.md) for the historical separation of detection from Issue reconciliation.
 
 ## License
 
