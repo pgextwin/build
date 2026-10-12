@@ -23,7 +23,7 @@ def fixture(mode="manual-dispatch"):
         obj.update(status="VERIFIED_CHAT_PR_AUTHORIZATION",
                    authorizationMode=mode, authorizationPr=34,
                    authorizationCommit=SHA, authorizationHeadSha=HEAD,
-                   authorizationBaseSha=BASE, candidatePr=3,
+                   authorizationBaseSha=BASE, candidateHeadSha="d"*40, candidatePr=3,
                    candidateRunId=31, decisionRunId=32)
     return obj
 
