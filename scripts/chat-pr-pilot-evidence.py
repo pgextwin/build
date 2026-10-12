@@ -7,6 +7,7 @@ not production authorization. On missing or unavailable GitHub evidence, deny.
 """
 from __future__ import annotations
 import base64
+import binascii
 import importlib.util
 import json
 import os
@@ -102,9 +103,9 @@ def effective_branch_rules(branch, protection):
     require(type(reviews) is dict
             and reviews.get("required_approving_review_count") == 0,
             "protected PR-only main without third-party review requirement not proven")
-    require(not reviews.get("bypass_pull_request_allowances", {}).get("users")
-            and not reviews.get("bypass_pull_request_allowances", {}).get("teams")
-            and not reviews.get("bypass_pull_request_allowances", {}).get("apps"),
+    bypass = reviews.get("bypass_pull_request_allowances") or {}
+    require(type(bypass) is dict and not bypass.get("users")
+            and not bypass.get("teams") and not bypass.get("apps"),
             "PR bypass actor exists")
     require((protection.get("enforce_admins") or {}).get("enabled") is True,
             "admin protection bypass must be disabled")
@@ -164,7 +165,7 @@ def inspect_pilot(api, event, *, runtime_repo, runtime_ref, runtime_sha,
     try:
         raw = base64.b64decode("".join(data["content"].split()), validate=True)
         source = raw.decode("utf-8")
-    except (ValueError, UnicodeError) as exc:
+    except (ValueError, UnicodeError, binascii.Error) as exc:
         raise Blocked("invalid committed authorization bytes") from exc
     require(data.get("sha") == auth.git_blob_sha(raw),
             "GitHub contents blob identity mismatch")
@@ -218,6 +219,6 @@ def inspect_pilot(api, event, *, runtime_repo, runtime_ref, runtime_sha,
         "decisionRunId": approved["decisionRunId"],
         "requiredChecks": required,
         "candidateArtifactsAndSignatures": "NOT_YET_VERIFIED",
-        "centralLocalChatMode": "NOT_ENABLED",
+        "centralLocalChatMode": "NOT_VERIFIED",
         "rollback": "retain workflow_dispatch manual-dispatch; no new trigger installed",
     }
