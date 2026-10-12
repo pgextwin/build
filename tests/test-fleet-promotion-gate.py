@@ -128,5 +128,22 @@ class GateTests(unittest.TestCase):
         x["ext"]["upstream"]["perPostgresql"]["14"]["commit"]="1"*40
         with self.assertRaises(gate.Denied):self.check(x)
 
+    def test_inert_chat_mode_requires_explicit_central_and_local_opt_in(self):
+        x=fixture()
+        x["authorization_mode"]="chat-pr-authorization"
+        with self.assertRaises(gate.Denied):
+            self.check(x)  # Existing central/local manual modes forbid PR mode.
+        x["policy"]["releasePolicy"]="chat-pr-authorization"
+        with self.assertRaises(gate.Denied):
+            self.check(x)  # Local policy still manual-only.
+        x["local"]["releasePolicy"]="chat-pr-authorization"
+        receipt=self.check(x)
+        self.assertEqual(receipt["status"],"VERIFIED_CHAT_PR_AUTHORIZATION")
+        self.assertEqual(receipt["authorizationMode"],"chat-pr-authorization")
+        self.assertNotIn("authorizationPr",receipt)  # Only live PR gate may attach it.
+        x["authorization_mode"]="unknown"
+        with self.assertRaises(gate.Denied):
+            self.check(x)
+
 if __name__=="__main__":
     unittest.main()
