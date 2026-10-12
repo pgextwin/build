@@ -75,6 +75,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Release package evidence must name the actual trusted triggering event.
+# The new "push" value is inert until a separately gated extension publisher
+# exists; this finalizer never authorizes an event or publishes a Release.
+if ($BuildMode -eq "release-attested") {
+    if ($WorkflowEvent -notin @("workflow_dispatch", "push")) {
+        throw "Unsupported attested Release triggering event."
+    }
+    if ($WorkflowRef -ne "refs/heads/main") {
+        throw "Attested Release packages require a main-branch workflow ref."
+    }
+}
+
 function Resolve-GitCommit {
     param(
         [Parameter(Mandatory = $true)]
