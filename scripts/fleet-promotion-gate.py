@@ -161,7 +161,7 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
                 and item.get("sbom")==stem+".spdx.json"
                 and item.get("grype")==stem+".vulnerabilities.json",
                 "candidate ZIP, SPDX, Grype or source SHA mismatch")
-    return {
+    receipt = {
         "schemaVersion":1,"status":("VERIFIED_MANUAL_DISPATCH" if authorization_mode=="manual-dispatch"
                                 else "VERIFIED_CHAT_PR_AUTHORIZATION"),
         "authorizationMode":authorization_mode,"operator":actor,
@@ -171,6 +171,9 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
         "candidatePr":pr["number"],"candidateRunId":run["id"],
         "decisionRunId":watch_run["id"],"candidateId":bm.group(1)
     }
+    if authorization_mode == "chat-pr-authorization":
+        receipt["candidateHeadSha"] = pr["head"]["sha"]
+    return receipt
 
 def main():
     p=argparse.ArgumentParser()
