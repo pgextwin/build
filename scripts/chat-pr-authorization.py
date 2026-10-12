@@ -7,6 +7,8 @@ push commit, effective branch rules and exact-head checks itself before calling
 verify_approval(). Never trust these arguments when supplied by a PR.
 """
 from __future__ import annotations
+import hashlib
+import json
 import re
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -46,13 +48,35 @@ def exact_changed_file(files, path):
             and files[0].get("status") == "added")
 
 
-def verify_approval(request, *, repository, event, pr, pr_files, commit,
+def _unique_keys(pairs):
+    value = {}
+    for key, item in pairs:
+        require(key not in value, "duplicate authorization JSON key")
+        value[key] = item
+    return value
+
+
+def git_blob_sha(content):
+    """GitHub's SHA-1 object ID for the committed file, not a self-asserted hash."""
+    require(type(content) is bytes, "authorization blob must be bytes")
+    return hashlib.sha1(b"blob " + str(len(content)).encode("ascii") + b"\\0" + content).hexdigest()
+
+
+def verify_approval(authorization_json, *, repository, event, pr, pr_files, commit,
                     ci, effective_rules, allowed_operators):
     """Validate GitHub API snapshots obtained independently by a trusted runner.
 
     Returns attested *context*, NOT a promotion receipt. Only an independent
     candidate evidence verifier may combine this with a promotion receipt.
     """
+    # Parse the exact committed JSON, rather than trusting an unrelated request
+    # object supplied by a caller. Future live runners must fetch these commit,
+    # PR-file and blob snapshots independently from GitHub, never from PR inputs.
+    require(type(authorization_json) is str, "authorization JSON must be raw UTF-8 text")
+    try:
+        request = json.loads(authorization_json, object_pairs_hook=_unique_keys)
+    except (ValueError, TypeError) as e:
+        raise Denied("invalid authorization JSON: " + str(e)) from e
     require(type(request) is dict and set(request) == FIELDS,
             "authorization request must have exact schema keys")
     require(request["schemaVersion"] == 1 and type(request["schemaVersion"]) is int
@@ -108,6 +132,13 @@ def verify_approval(request, *, repository, event, pr, pr_files, commit,
             "authorization must be a same-repo PR created and merged by allowed human")
     require(exact_changed_file(pr_files, path),
             "authorization PR must add exactly one typed record")
+    # A matching filename alone is not enough: GitHub's trusted PR and squash
+    # commit objects must attest exactly the bytes parsed above. Reject a caller
+    # accidentally mixing the authorization from another commit/PR.
+    blob_sha = git_blob_sha(authorization_json.encode("utf-8"))
+    require(commit["files"][0].get("sha") == blob_sha
+            and pr_files[0].get("sha") == blob_sha,
+            "committed authorization blob differs from the validated JSON")
     require(type(ci) is dict and ci.get("headSha") == pr["head"]["sha"]
             and ci.get("allRequiredChecksPassed") is True
             and type(ci.get("requiredChecks")) is list
