@@ -39,8 +39,8 @@ def fixture():
           "base": {"ref": "main", "repo": {"full_name": REPO}},
           "head": {"ref": "auth-release/" + TAG, "sha": HEAD,
                    "repo": {"full_name": REPO}},
-          "user": {"login": OPERATOR},
-          "merged_by": {"login": OPERATOR}}
+          "user": {"login": OPERATOR, "type": "User"},
+          "merged_by": {"login": OPERATOR, "type": "User"}}
     objects = {
         B + "branches/main": {"protected": True, "commit": {"sha": AFTER}},
         B + "commits/" + AFTER: {
@@ -82,7 +82,7 @@ def fixture():
     }
     event = {"ref": "refs/heads/main", "before": BASE, "after": AFTER,
              "repository": {"full_name": REPO},
-             "sender": {"login": OPERATOR},
+             "sender": {"login": OPERATOR, "type": "User"},
              "created": False, "deleted": False,
              "commits": [{"id": AFTER}]}
     runtime = dict(runtime_repo=REPO, runtime_ref="refs/heads/main",
@@ -128,6 +128,9 @@ class PilotTests(unittest.TestCase):
             lambda o,e,r:r.update(runtime_sha=BASE),
             lambda o,e,r:r.update(runtime_actor="github-actions[bot]"),
             lambda o,e,r:e["sender"].update(login="intruder"),
+            lambda o,e,r:e["sender"].update(type="Bot"),
+            lambda o,e,r:o[B+"pulls/33"]["user"].update(type="Bot"),
+            lambda o,e,r:o[B+"pulls/33"]["merged_by"].update(type="Bot"),
             lambda o,e,r:e.update(before=HEAD),
             lambda o,e,r:o[B+"branches/main"]["commit"].update(sha=HEAD),
             lambda o,e,r:o[B+"commits/"+AFTER]["parents"][0].update(sha=HEAD),
@@ -149,6 +152,16 @@ class PilotTests(unittest.TestCase):
             lambda o,e,r:o[B+"branches/main/protection"]["required_status_checks"]["checks"][0].update(app_id=-1),
             lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"][0].update(head_sha=AFTER),
             lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"][0].update(conclusion="failure"),
+            lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"][0].update(conclusion="skipped"),
+            lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"][0].update(conclusion="cancelled"),
+            lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"][0].update(conclusion="timed_out"),
+            lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"][0].update(status="in_progress"),
+            lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"].append(
+                {"name":"Windows summary", "head_sha":HEAD, "status":"completed",
+                 "conclusion":"failure", "app":{"id":1234}}),
+            lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"].append(
+                {"name":"Windows summary", "head_sha":HEAD, "status":"completed",
+                 "conclusion":"success", "app":{"id":1234}}),
             lambda o,e,r:o[B+"commits/"+HEAD+"/check-runs?per_page=100"].update(total_count=101),
             lambda o,e,r:o[B+"branches/main/protection"]["allow_force_pushes"].update(enabled=True),
         ]
