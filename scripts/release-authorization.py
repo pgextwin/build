@@ -7,6 +7,7 @@ can ONLY be issued by a separate independent live GitHub-PR + candidate gate.
 import re
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
+HUMAN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 TYPES = {
     "manual-dispatch": ("VERIFIED_MANUAL_DISPATCH", "workflow_dispatch"),
     "chat-pr-authorization": ("VERIFIED_CHAT_PR_AUTHORIZATION", "push"),
@@ -32,7 +33,8 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
     status, expected_event = TYPES[mode]
     require(receipt.get("status") == status and event == expected_event,
             "authorization receipt status / execution event mismatch")
-    require(isinstance(actor, str) and actor and not actor.lower().endswith("bot")
+    require(isinstance(actor, str) and HUMAN.fullmatch(actor)
+            and not actor.lower().endswith("bot")
             and receipt.get("operator") == actor
             and receipt.get("repository") == repository
             and isinstance(commit, str) and SHA.fullmatch(commit)
