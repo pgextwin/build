@@ -1,19 +1,24 @@
 # Issue #75 Phase C — plpgsql_check read-only pilot plan
 
-Status: **DRAFT / NO PUBLICATION AUTHORITY** (2026-10-12 JST)  
-Owner: pgextwin/build Issue #75. Depends on Issue #61.  
+Status: **NONPUBLISHING DRY-RUN / NO PUBLICATION AUTHORITY** (2026-10-13 JST)  
+Owner: pgextwin/build Issue #75. Issue #61 is CLOSED (extension Classic UI audit).  
 Phase B shared validators: merged Build PR #77.
 
 ## Provisional choice and non-goals
 
-Use **pgextwin/plpgsql_check** only as a *provisional* pilot because GitHub's
-`GET /branches/main` reports `protected=true` for this one extension, whereas
-the other thirteen extension main branches report `protected=false`.
-The standard Chat GitHub connector receives HTTP 403 for the detailed
-`/branches/main/protection` endpoint; this **does not establish required CI,
-PR-only enforcement, admin/bypass configuration or zero-review policy**.
-Effective protection must be independently proven with appropriately scoped
-read permissions BEFORE any live path. No other extension is changed here.
+Use **pgextwin/plpgsql_check** only as a *provisional* pilot. Issue #61's
+2026-10-12 final UI audit found Classic protections for all thirteen other
+extension mains; its earlier "13 unprotected" snapshot is historical.
+`plpgsql_check/main` is also protected, and the fixed
+`Windows required summary` job exists, but it is **not yet a required
+status check**. `pgextwin/build/main` remains unprotected.
+The standard Chat GitHub connector receives HTTP 403 for detailed
+`/branches/main/protection`. A UI inspection may confirm an administrator's
+configuration, but it is **not** an independently machine-verifiable runtime
+authorization proof. On 403, the pilot collector MUST fail closed.
+A future publishing path requires separately authorized effective-rule
+read evidence (for example a narrowly scoped Administration:read token),
+plus exact-head required aggregate CI. No such permission is added here.
 
 **Nothing in this PR creates a publication authorization, runs a workflow,
 enables a push publisher, changes a local/central opt-in, produces a signed
@@ -34,6 +39,9 @@ the only production publisher.
   merged PR, exact one-file PR diff, committed Git blob, branch protection,
   app-bound **exact-head** required check runs, candidate PR, candidate/decision
   run status, and absence of both Release tag and public Release.
+  A duplicate/ambiguous execution of a required App check (even a previously
+  successful run followed by failure or cancellation) DENIES; the collector
+  will not infer which attempt is authoritative.
 - It delegates committed JSON schema, original/main parent/actor/event/CI
   consistency to the merged Phase B `verify_approval`. All missing, failed,
   skipped, duplicated, unprotected, stale or unreadable evidence **DENIES**.
@@ -47,11 +55,14 @@ the only production publisher.
 
 ## Before a live Phase C publisher could even be considered
 
-1. **Issue #61 / effective rules:** obtain authenticated read-only effective
-   branch rules, required PR/CI checks, zero external approvals, strict
-   exact-head conditions, no force/deletion/admin/bypass. Resolve any 403
-   rather than fabricate a permissive snapshot. PG14 EOL on 2026-11-12
-   requires a stable lifecycle-aware aggregate required check.
+1. **Effective rules (Issue #61 UI acceptance is complete):** obtain
+   independently machine-readable effective branch rules and required PR/CI
+   checks, zero external approvals, strict exact-head conditions, no
+   force/deletion/admin/bypass. Resolve any 403 rather than fabricate a
+   permissive snapshot. The fixed Windows aggregate job is implemented for
+   `plpgsql_check` but must be deliberately required in existing Classic
+   protection after successful CI evidence; PG14 EOL on 2026-11-12 must not
+   leave obsolete per-major required contexts blocking future merges.
 2. **Trust source for the dry-run:** implement a main-only, no-write,
    nonpublishing *test* event that injects GitHub-native event/actor/commit
    facts into this collector. No real `.github/release-authorizations/*.json`
