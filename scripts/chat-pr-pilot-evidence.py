@@ -80,15 +80,21 @@ def required_head_ci(protection, check_runs, sha):
                 and bool(rule["context"]) and type(rule.get("app_id")) is int
                 and rule["app_id"] > 0,
                 "unbound required status context or App identity")
+        # Inspect ALL matching executions. A successful historical attempt must
+        # not mask a later failed, cancelled or skipped run on the same SHA.
+        # Until a trustworthy latest-check-run selector is implemented, any
+        # duplicate required check from the pinned App denies authorization.
         matches = [
             c for c in check_runs["check_runs"]
-            if c.get("name") == rule["context"]
-            and c.get("head_sha") == sha
+            if type(c) is dict
+            and c.get("name") == rule["context"]
             and (c.get("app") or {}).get("id") == rule["app_id"]
-            and c.get("status") == "completed"
-            and c.get("conclusion") == "success"
         ]
-        require(len(matches) == 1, "required exact-head App check missing or ambiguous")
+        require(len(matches) == 1, "required App check missing or ambiguous")
+        require(matches[0].get("head_sha") == sha
+                and matches[0].get("status") == "completed"
+                and matches[0].get("conclusion") == "success",
+                "required App check is not successful on exact head")
         require(rule["context"] not in checked, "duplicate required check")
         checked.append(rule["context"])
     require(check_runs.get("total_count") == len(check_runs["check_runs"]),
@@ -132,6 +138,7 @@ def inspect_pilot(api, event, *, runtime_repo, runtime_ref, runtime_sha,
     require(type(event) is dict and event.get("ref") == runtime_ref
             and event.get("after") == runtime_sha
             and (event.get("sender") or {}).get("login") == runtime_actor
+            and (event.get("sender") or {}).get("type") == "User"
             and (event.get("repository") or {}).get("full_name") == PILOT,
             "event/runtime actor or commit mismatch")
     base = "repos/" + PILOT + "/"
@@ -155,6 +162,9 @@ def inspect_pilot(api, event, *, runtime_repo, runtime_ref, runtime_sha,
     require(type(pr_number) is int and pr_number > 0,
             "untrusted authorization PR identifier")
     pr = api.get(base + "pulls/" + str(pr_number))
+    require((pr.get("user") or {}).get("type") == "User"
+            and (pr.get("merged_by") or {}).get("type") == "User",
+            "PR author and merger must be real GitHub users")
     pr_files = api.get(base + "pulls/" + str(pr_number) + "/files?per_page=100")
     require(type(pr_files) is list and len(pr_files) == 1,
             "authorization PR file list ambiguous")
