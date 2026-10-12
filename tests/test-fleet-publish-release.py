@@ -96,6 +96,7 @@ class FleetPublisherTests(TestCase):
                        authorizationMode="chat-pr-authorization",
                        authorizationPr=35, authorizationCommit=COMMIT,
                        authorizationHeadSha="c"*40, authorizationBaseSha="d"*40,
+                       candidateHeadSha="e"*40,
                        candidatePr=12, candidateRunId=900, decisionRunId=901)
         with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):
             folder=Path(tmp)
