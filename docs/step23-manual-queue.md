@@ -2,6 +2,8 @@
 
 > Current operating procedure (2026-10-12). The original **Step 23 nine-extension** dry-run acceptance is recorded and completed in [build #47](https://github.com/pgextwin/build/issues/47). The continuing **14-extension** platform and downstream E2E work is in [build #61](https://github.com/pgextwin/build/issues/61).
 
+> For the intentionally reduced day-to-day operator workflow, read the [Chat-first minimal publication guide](chat-first-publication.md) first. This runbook preserves detailed verification and recovery procedures.
+
 ## Operating contract
 
 - Central `metadata/automation-fleet.json`: **14/14 BUILD**, `candidateEnabled: true`, `releasePolicy: manual-only`, daily `0 0 * * *` UTC (**09:00 JST**).

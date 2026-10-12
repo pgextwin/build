@@ -12,7 +12,7 @@ All **14 extension repositories** share stable-only daily upstream detection (00
 
 All 14 extensions now use **main-only `promote.yml` workflow_dispatch**, not a `release/*` publishing trigger. Formal publication requires a merged and verified candidate, successful exact-head PostgreSQL-major Windows jobs and candidate audit, a trusted non-bot operator, an unused tag, and explicit `confirm_release=PUBLISH`. The central `metadata/release-promotion.json` manual-promotion allowlist has 14 members. A failed or partial Draft Release is not an invitation to reuse an occupied tag or silently retry.
 
-Unattended publication remains `OBSERVE / DENY`: automatic candidate merge, automatic formal Release, and automatic Catalog merge are disabled. The Catalog signed-release proposer is separately opt-in; code availability does **not** mean the GitHub App or real post-Release end-to-end path has been accepted. See [14-extension manual queue runbook](docs/step23-manual-queue.md), [architecture](docs/architecture.md), and [fleet rollout acceptance](https://github.com/pgextwin/build/issues/61).
+Unattended publication remains `OBSERVE / DENY`: automatic candidate merge, automatic formal Release, and automatic Catalog merge are disabled. The Catalog signed-release proposer is separately opt-in; code availability does **not** mean the GitHub App or real post-Release end-to-end path has been accepted. Start with the reduced [Chat-first minimal publication guide](docs/chat-first-publication.md); for detailed checks, see [14-extension manual queue runbook](docs/step23-manual-queue.md), [architecture](docs/architecture.md), and [fleet rollout acceptance](https://github.com/pgextwin/build/issues/61).
 
 ## Scope
 

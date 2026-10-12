@@ -12,7 +12,7 @@
 
 正式公開は全14拡張とも、`release/*` のpush公開ではなく、**main限定の `promote.yml` `workflow_dispatch`** を使用します。マージ済みの正規候補、候補の正確なhead SHAに対応するWindows CI全対象メジャー成功、候補監査、正規の担当者、未使用タグ、`confirm_release=PUBLISH` が必須です。中央 `metadata/release-promotion.json` の手動公開許可リストも14件になりました。不完全なDraft Releaseのタグを再利用したり、独断で再公開したりしません。
 
-無人公開ポリシーは `OBSERVE / DENY` のままです。候補PRの自動マージ、正式Releaseの自動公開、Catalogの自動マージは無効です。Catalogの署名付きRelease取り込みは別途opt-inであり、GitHub App設定や新Releaseからの実運用E2E検証まで完了したことを意味しません。詳しくは[14拡張手動キュー手順](docs/step23-manual-queue.md)、[Architecture](docs/architecture.md)、[運用受入Issue #61](https://github.com/pgextwin/build/issues/61)を参照してください。
+無人公開ポリシーは `OBSERVE / DENY` のままです。候補PRの自動マージ、正式Releaseの自動公開、Catalogの自動マージは無効です。Catalogの署名付きRelease取り込みは別途opt-inであり、GitHub App設定や新Releaseからの実運用E2E検証まで完了したことを意味しません。通常運用は[ChatGPT主導の最小公開手順](docs/chat-first-publication.md)を先に参照してください。詳細は[14拡張手動キュー手順](docs/step23-manual-queue.md)、[Architecture](docs/architecture.md)、[運用受入Issue #61](https://github.com/pgextwin/build/issues/61)を参照してください。
 
 ## 共通基盤が担当する処理
 
