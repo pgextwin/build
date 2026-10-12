@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline Phase-B authorization PR allow/deny fixtures; never publishes."""
 from copy import deepcopy
+import json
 import importlib.util
 from pathlib import Path
 import unittest
@@ -55,10 +56,24 @@ def fixture():
         allowed_operators={OPERATOR},
     )
 
+def committed_fixture(context):
+    """Construct independently matching PR and commit blob identities for tests."""
+    x = deepcopy(context)
+    raw = json.dumps(x.pop("request"), sort_keys=True, separators=(",", ":"))
+    sha = lib.git_blob_sha(raw.encode("utf-8"))
+    x["pr_files"][0]["sha"] = sha
+    x["commit"]["files"][0]["sha"] = sha
+    return x, raw
+
+
+def verify_fixture(context):
+    x, raw = committed_fixture(context)
+    return lib.verify_approval(raw, **x)
+
 
 class ApprovalTests(unittest.TestCase):
     def test_positive_context_only_no_release(self):
-        result = lib.verify_approval(**fixture())
+        result = verify_fixture(fixture())
         self.assertEqual(result["operator"],OPERATOR)
         self.assertEqual(result["authorizationPr"],33)
         self.assertEqual(result["authorizationCommit"],AFTER)
@@ -125,8 +140,30 @@ class ApprovalTests(unittest.TestCase):
         ]
         self.assert_all_denied(cases)
 
+    def test_committed_blob_identity_and_duplicate_key_denials(self):
+        args, raw = committed_fixture(fixture())
+        self.assertEqual(lib.verify_approval(raw, **args)["authorizationCommit"], AFTER)
+        cases = [
+            (raw.replace('"confirmRelease":"PUBLISH"', '"confirmRelease":"publish"'), args),
+            (raw.replace('"confirmRelease":"PUBLISH"',
+                         '"confirmRelease":"PUBLISH","confirmRelease":"PUBLISH"'), args),
+            (raw + " ", args),
+            ({"confirmRelease": "PUBLISH"}, args),
+        ]
+        for index, (payload, snapshots) in enumerate(cases):
+            with self.subTest(case=index), self.assertRaises(lib.Denied):
+                lib.verify_approval(payload, **snapshots)
+        bad_commit = deepcopy(args)
+        bad_commit["commit"]["files"][0]["sha"] = "f" * 40
+        with self.assertRaises(lib.Denied):
+            lib.verify_approval(raw, **bad_commit)
+        bad_pr = deepcopy(args)
+        bad_pr["pr_files"][0]["sha"] = "f" * 40
+        with self.assertRaises(lib.Denied):
+            lib.verify_approval(raw, **bad_pr)
+
     def test_two_independent_verifier_results_must_bind_exactly(self):
-        approved=lib.verify_approval(**fixture())
+        approved=verify_fixture(fixture())
         candidate={
             "schemaVersion":1,
             "status":"VERIFIED_CHAT_PR_AUTHORIZATION",
@@ -160,7 +197,7 @@ class ApprovalTests(unittest.TestCase):
             context = fixture()
             mutate(context)
             with self.subTest(index=index), self.assertRaises(lib.Denied):
-                lib.verify_approval(**context)
+                verify_fixture(context)
 
 
 if __name__ == "__main__":
