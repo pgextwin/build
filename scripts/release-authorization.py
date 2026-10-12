@@ -54,6 +54,8 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
                 and isinstance(receipt.get("authorizationBaseSha"), str)
                 and SHA.fullmatch(receipt["authorizationBaseSha"])
                 and receipt.get("authorizationBaseSha") != commit
+                and isinstance(receipt.get("candidateHeadSha"), str)
+                and SHA.fullmatch(receipt["candidateHeadSha"])
                 and type(receipt.get("candidatePr")) is int
                 and receipt.get("candidatePr") > 0
                 and type(receipt.get("candidateRunId")) is int
