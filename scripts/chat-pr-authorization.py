@@ -101,6 +101,8 @@ def verify_approval(request, *, repository, event, pr, pr_files, commit,
             and (pr.get("base") or {}).get("repo", {}).get("full_name", repo) == repo
             and (pr.get("head") or {}).get("repo", {}).get("full_name", repo) == repo
             and full_sha((pr.get("head") or {}).get("sha"))
+            and (pr.get("head") or {}).get("ref") == "auth-release/"+tag
+            and type(pr.get("number")) is int and pr.get("number") > 0
             and (pr.get("user") or {}).get("login") == operator
             and (pr.get("merged_by") or {}).get("login") == operator,
             "authorization must be a same-repo PR created and merged by allowed human")
@@ -133,3 +135,42 @@ def verify_approval(request, *, repository, event, pr, pr_files, commit,
         "decisionRunId": request["decisionRunId"],
         "event": "push",
     }
+
+
+def bind_verified_receipt(candidate_receipt, approval):
+    """Bind TWO independent successful validations to one inert typed receipt.
+
+    candidate_receipt: output of fleet-promotion-gate.verify(...,
+        authorization_mode='chat-pr-authorization'), using independently
+        fetched exact-head Windows decision/audit.
+    approval: output of verify_approval() on independently fetched trusted
+        GitHub snapshots. No caller workflow exists in Phase B.
+    """
+    require(type(candidate_receipt) is dict and type(approval) is dict,
+            "two independent verifier results are required")
+    require(candidate_receipt.get("schemaVersion") == 1
+            and candidate_receipt.get("authorizationMode") == "chat-pr-authorization"
+            and candidate_receipt.get("status") == "VERIFIED_CHAT_PR_AUTHORIZATION",
+            "candidate verification must use the new explicit opt-in mode")
+    for field, other in (
+        ("operator", "operator"), ("repository", "repository"),
+        ("releaseTag", "releaseTag"), ("candidatePr", "candidatePr"),
+        ("candidateRunId", "candidateRunId"), ("decisionRunId", "decisionRunId"),
+        ("candidateHeadSha", "candidateHeadSha"),
+    ):
+        require(candidate_receipt.get(field) == approval.get(other),
+                "candidate and GitHub authorization disagree on "+field)
+    require(candidate_receipt.get("trustedCommit") == approval.get("authorizationCommit")
+            and candidate_receipt.get("trustedCommit") != approval.get("packagingMainSha")
+            and full_sha(approval.get("authorizationCommit"))
+            and full_sha(approval.get("authorizationBaseSha"))
+            and approval.get("authorizationBaseSha") == approval.get("packagingMainSha")
+            and positive_int(approval.get("authorizationPr"))
+            and full_sha(approval.get("authorizationHeadSha"))
+            and approval.get("event") == "push",
+            "trusted squash merge context does not match candidate receipt")
+    result = dict(candidate_receipt)
+    for key in ("authorizationPr", "authorizationCommit",
+                "authorizationHeadSha", "authorizationBaseSha"):
+        result[key] = approval[key]
+    return result
