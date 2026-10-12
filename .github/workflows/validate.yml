@@ -46,6 +46,12 @@ jobs:
       - name: Validate 14-extension manual promotion candidate authorization
         run: python tests/test-fleet-promotion-gate.py
 
+      - name: Validate inert Chat PR authorization and hostile merge/event fixtures
+        run: python tests/test-chat-pr-authorization.py
+
+      - name: Validate typed publication receipts and event isolation
+        run: python tests/test-release-authorization.py
+
       - name: Enforce exact 14 BUILD manual-only Release allowlist and fail-closed controls
         run: python tests/test-fleet-promotion-policy.py
 

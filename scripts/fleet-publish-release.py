@@ -26,6 +26,9 @@ ROOT = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("fleet_identity", ROOT / "fleet-release-identity.py")
 ident = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ident)
+_auth_spec = importlib.util.spec_from_file_location("typed_release_auth", ROOT / "release-authorization.py")
+auth = importlib.util.module_from_spec(_auth_spec)
+_auth_spec.loader.exec_module(auth)
 
 class Denied(ValueError): pass
 
@@ -60,12 +63,16 @@ def absent(tag):
     for path in ("releases/tags/","git/ref/tags/"):
         check(get(path+quote(tag,safe="")) is None, "existing tag/release forbidden")
 
-def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatures=True):
+def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatures=True,
+                 workflow_event="workflow_dispatch"):
     # Do not trust the authorization receipt without independently matching all
     # immutable source identities, lifecycle, package metadata and zip digests.
+    try:
+        auth.validate_receipt(receipt, repository=REPO, commit=commit,
+                              actor=receipt.get("operator"), event=workflow_event)
+    except auth.Denied as e:
+        raise Denied("invalid typed authorization: " + str(e)) from e
     check(receipt.get("schemaVersion") == 1
-          and receipt.get("status") == "VERIFIED_MANUAL_DISPATCH"
-          and receipt.get("authorizationMode") == "manual-dispatch"
           and isinstance(receipt.get("operator"), str)
           and bool(receipt["operator"])
           and receipt.get("repository") == REPO
@@ -106,7 +113,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
               and pkg["source"]["packagingRepository"] == REPO
               and pkg["source"]["packagingCommit"] == commit
               and pkg["workflowRun"]["id"] == run_id
-              and pkg["workflowRun"]["event"] == "workflow_dispatch"
+              and pkg["workflowRun"]["event"] == workflow_event
               and pkg["workflowRun"]["ref"] == "refs/heads/main",
               "package identity, source pin, run, or major mismatch")
         check(json.loads(spdx_path.read_text(encoding="utf-8-sig")).get("spdxVersion") == "SPDX-2.3",
@@ -176,17 +183,21 @@ def main():
     try:
         check(REPO in {"pgextwin/" + name for name in ident.UPSTREAMS}
               and os.environ.get("GITHUB_REPOSITORY")==REPO
-              and os.environ.get("GITHUB_REF")=="refs/heads/main"
-              and os.environ.get("GITHUB_EVENT_NAME")=="workflow_dispatch", "untrusted publishing origin")
+              and os.environ.get("GITHUB_REF")=="refs/heads/main", "untrusted publishing origin")
         receipt=json.loads(Path(a.receipt).read_text())
         ext=json.loads(Path(a.manifest).read_text())
-        check(a.tag==receipt["releaseTag"],"tag does not match authorized dispatch")
-        check(receipt.get("operator")==os.environ.get("GITHUB_ACTOR"),
-              "manual operator identity does not match release authorization")
+        check(a.tag==receipt["releaseTag"],"tag does not match authorization receipt")
         commit=os.environ["GITHUB_SHA"]
+        try:
+            auth.validate_receipt(receipt, repository=REPO, commit=commit,
+                                  actor=os.environ.get("GITHUB_ACTOR", ""),
+                                  event=os.environ.get("GITHUB_EVENT_NAME", ""))
+        except auth.Denied as e:
+            raise Denied("untrusted publisher origin: " + str(e)) from e
         folder=Path(a.dist)
         lifecycle=json.loads(Path(a.lifecycle).read_text(encoding="utf-8"))
-        expected=check_assets(folder,ext,receipt,commit,int(os.environ["GITHUB_RUN_ID"]),lifecycle)
+        expected=check_assets(folder,ext,receipt,commit,int(os.environ["GITHUB_RUN_ID"]),lifecycle,
+                              workflow_event=os.environ.get("GITHUB_EVENT_NAME",""))
         absent(a.tag)
         (folder/"SHA256SUMS.txt").write_text("".join(
             value+"  "+name+"\n" for name,value in sorted(expected.items())),encoding="ascii")

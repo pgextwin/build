@@ -56,20 +56,22 @@ def artifact(repo,run_id,name,location):
     return json.loads(found[0].read_text(encoding="utf-8-sig"))
 
 def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle,
-           pr,pr_files,run,watch_run,decision,audit):
+           pr,pr_files,run,watch_run,decision,audit,authorization_mode="manual-dispatch"):
     require(repo == "pgextwin/"+str(ext.get("name")) and repo in {
         "pgextwin/"+name for name in ident.UPSTREAMS}, "unsupported fleet repository")
+    require(authorization_mode in ("manual-dispatch", "chat-pr-authorization"),
+            "unsupported promotion authorization mode")
     require(type(policy) is dict and set(policy)=={
         "schemaVersion","allowedRepositories","releasePolicy"} and
-        policy.get("schemaVersion")==1 and policy.get("releasePolicy")=="manual-dispatch"
+        policy.get("schemaVersion")==1 and policy.get("releasePolicy")==authorization_mode
         and isinstance(policy.get("allowedRepositories"),list)
         and len(set(policy["allowedRepositories"]))==len(policy["allowedRepositories"])
         and repo in policy["allowedRepositories"]
         and all(x in {"pgextwin/"+n for n in ident.UPSTREAMS}
-                for x in policy["allowedRepositories"]), "central manual release not enabled for this repo")
+                for x in policy["allowedRepositories"]), "central explicit release authorization mode not enabled for this repo")
     require(type(local) is dict and local=={
-        "schemaVersion":1,"enabled":True,"releasePolicy":"manual-dispatch"
-    }, "local main-only promotion policy not explicitly enabled")
+        "schemaVersion":1,"enabled":True,"releasePolicy":authorization_mode
+    }, "local main-only authorization mode not explicitly enabled")
     require(fleet.get("releasePolicy")=="manual-only" and fleet.get("scheduleUtc")=="0 0 * * *"
             and isinstance(fleet.get("entries"),list), "central fleet must remain manual-only")
     matches=[e for e in fleet["entries"] if e.get("repository")==repo]
@@ -159,15 +161,19 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
                 and item.get("sbom")==stem+".spdx.json"
                 and item.get("grype")==stem+".vulnerabilities.json",
                 "candidate ZIP, SPDX, Grype or source SHA mismatch")
-    return {
-        "schemaVersion":1,"status":"VERIFIED_MANUAL_DISPATCH",
-        "authorizationMode":"manual-dispatch","operator":actor,
+    receipt = {
+        "schemaVersion":1,"status":("VERIFIED_MANUAL_DISPATCH" if authorization_mode=="manual-dispatch"
+                                else "VERIFIED_CHAT_PR_AUTHORIZATION"),
+        "authorizationMode":authorization_mode,"operator":actor,
         "repository":repo,"extension":ext["name"],"trustedCommit":main_sha,
         "releaseTag":tag,"majors":majors,
         "sources":[sources[m] for m in majors],
         "candidatePr":pr["number"],"candidateRunId":run["id"],
         "decisionRunId":watch_run["id"],"candidateId":bm.group(1)
     }
+    if authorization_mode == "chat-pr-authorization":
+        receipt["candidateHeadSha"] = pr["head"]["sha"]
+    return receipt
 
 def main():
     p=argparse.ArgumentParser()
