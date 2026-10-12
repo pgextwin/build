@@ -29,7 +29,7 @@ def fixture():
         "sources":[p.ident.sources(ext)[n] for n in range(14,19)]}
     return ext,lc,receipt
 
-def make_assets(folder,ext,run=123):
+def make_assets(folder,ext,run=123,workflow_event="workflow_dispatch"):
     for m,s in p.ident.sources(ext).items():
         stem=p.ident.asset_stem(ext,m)
         info={"buildMode":"release-attested","package":{"name":"pgaudit"},
@@ -37,7 +37,7 @@ def make_assets(folder,ext,run=123):
                 "repository":ext["upstream"]["repository"],
                 "ref":s["ref"],"version":s["version"],"commit":s["commit"]},
             "source":{"packagingRepository":REPO,"packagingCommit":COMMIT},
-            "workflowRun":{"id":run,"event":"workflow_dispatch","ref":"refs/heads/main"}}
+            "workflowRun":{"id":run,"event":workflow_event,"ref":"refs/heads/main"}}
         with ZipFile(folder/(stem+".zip"),"w") as z:
             z.writestr("PACKAGE-INFO.json",json.dumps(info))
         (folder/(stem+".spdx.json")).write_text('{"spdxVersion":"SPDX-2.3"}')
@@ -89,6 +89,28 @@ class FleetPublisherTests(TestCase):
             lc["postgresql"][0]["eol"]="2026-01-01"
             with self.assertRaises(p.Denied):
                 p.check_assets(folder,ext,receipt,COMMIT,123,lc,False)
+
+    def test_push_mode_requires_complete_pr_receipt_and_signed_package_event(self):
+        ext,lc,receipt=fixture()
+        receipt.update(status="VERIFIED_CHAT_PR_AUTHORIZATION",
+                       authorizationMode="chat-pr-authorization",
+                       authorizationPr=35, authorizationCommit=COMMIT,
+                       authorizationHeadSha="c"*40, authorizationBaseSha="d"*40,
+                       candidatePr=12, candidateRunId=900, decisionRunId=901)
+        with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):
+            folder=Path(tmp)
+            make_assets(folder,ext,workflow_event="push")
+            ok=p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
+                              workflow_event="push")
+            self.assertEqual(len(ok),15)
+            with self.assertRaises(p.Denied):
+                p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
+                               workflow_event="workflow_dispatch")
+            # Typed receipt is correct; PACKAGE-INFO was produced by the wrong event.
+            make_assets(folder,ext,workflow_event="workflow_dispatch")
+            with self.assertRaises(p.Denied):
+                p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
+                               workflow_event="push")
 
     def test_draft_must_be_unique_exact_commit_and_verified_by_id(self):
         tag="v18.1-windows.3"
