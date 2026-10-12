@@ -61,7 +61,7 @@ class PhaseCJoinTests(unittest.TestCase):
         self.assertEqual(merged["authorizationCommit"], approval_case.AFTER)
         self.assertEqual(merged["authorizationBaseSha"], approval_case.BASE)
         self.assertEqual(
-            receipt_check.auth.validate_receipt(
+            receipt_check.validate_receipt(
                 merged, repository=candidate["repo"],
                 commit=approval_case.AFTER, actor=candidate["actor"], event="push"),
             "push")
@@ -116,15 +116,15 @@ class PhaseCJoinTests(unittest.TestCase):
         candidate, context = paired_fixtures()
         merged = verify_pair(candidate, context)
         for bad_event in ("workflow_dispatch", "schedule", "pull_request"):
-            with self.subTest(event=bad_event), self.assertRaises(receipt_check.auth.Denied):
-                receipt_check.auth.validate_receipt(
+            with self.subTest(event=bad_event), self.assertRaises(receipt_check.Denied):
+                receipt_check.validate_receipt(
                     merged, repository=candidate["repo"],
                     commit=approval_case.AFTER, actor=candidate["actor"],
                     event=bad_event)
         forged = deepcopy(merged)
         forged["authorizationBaseSha"] = "0" * 40
-        with self.assertRaises(receipt_check.auth.Denied):
-            receipt_check.auth.validate_receipt(
+        with self.assertRaises(receipt_check.Denied):
+            receipt_check.validate_receipt(
                 forged, repository=candidate["repo"],
                 commit=approval_case.AFTER, actor=candidate["actor"], event="push")
 
