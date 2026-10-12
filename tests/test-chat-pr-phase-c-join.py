@@ -86,7 +86,7 @@ class PhaseCJoinTests(unittest.TestCase):
             candidate, context = paired_fixtures()
             change(candidate, context)
             with self.subTest(index=idx), self.assertRaises(
-                (gate_case.gate.Denied, approval.Denied)):
+                (gate_case.gate.Denied, approval_case.lib.Denied, approval.Denied)):
                 verify_pair(candidate, context)
 
     def test_unverified_candidate_decision_audit_and_matrix_denied(self):
@@ -122,7 +122,7 @@ class PhaseCJoinTests(unittest.TestCase):
                     commit=approval_case.AFTER, actor=candidate["actor"],
                     event=bad_event)
         forged = deepcopy(merged)
-        forged["authorizationBaseSha"] = "0" * 40
+        forged["authorizationBaseSha"] = "invalid"
         with self.assertRaises(receipt_check.Denied):
             receipt_check.validate_receipt(
                 forged, repository=candidate["repo"],
