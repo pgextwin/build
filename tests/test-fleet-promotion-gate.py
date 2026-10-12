@@ -141,6 +141,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(receipt["status"],"VERIFIED_CHAT_PR_AUTHORIZATION")
         self.assertEqual(receipt["authorizationMode"],"chat-pr-authorization")
         self.assertNotIn("authorizationPr",receipt)  # Only live PR gate may attach it.
+        self.assertEqual(receipt["candidateHeadSha"],PR_HEAD)
         x["authorization_mode"]="unknown"
         with self.assertRaises(gate.Denied):
             self.check(x)
