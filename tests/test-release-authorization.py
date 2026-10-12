@@ -55,6 +55,8 @@ class ReceiptTests(unittest.TestCase):
             ("chat-pr-authorization",{},{"candidatePr":"1"}),
             ("chat-pr-authorization",{},{"trustedCommit":BASE}),
             ("manual-dispatch",{},{"operator":""}),
+            ("manual-dispatch",{"actor":"github-actions[bot]"},{"operator":"github-actions[bot]"}),
+            ("chat-pr-authorization",{"actor":"Evilbot"},{"operator":"Evilbot"}),
             ("manual-dispatch",{},{"schemaVersion":True}),
         ]
         for idx,(mode,kwargs,mutation) in enumerate(cases):
