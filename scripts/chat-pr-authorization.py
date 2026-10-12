@@ -59,7 +59,7 @@ def _unique_keys(pairs):
 def git_blob_sha(content):
     """GitHub's SHA-1 object ID for the committed file, not a self-asserted hash."""
     require(type(content) is bytes, "authorization blob must be bytes")
-    return hashlib.sha1(b"blob " + str(len(content)).encode("ascii") + b"\\0" + content).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(content)).encode("ascii") + b"\0" + content).hexdigest()
 
 
 def verify_approval(authorization_json, *, repository, event, pr, pr_files, commit,
