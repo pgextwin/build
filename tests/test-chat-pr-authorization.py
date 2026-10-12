@@ -100,6 +100,8 @@ class ApprovalTests(unittest.TestCase):
             lambda x:x["commit"]["parents"][0].update(sha=HEAD),
             lambda x:x["commit"]["files"].append({"filename":"config/extension.json","status":"modified"}),
             lambda x:x["commit"]["files"][0].update(status="modified"),
+            lambda x:x["pr"]["head"].update(ref="other/"+TAG),
+            lambda x:x["pr"].update(number=True),
             lambda x:x["pr"].update(merged=False),
             lambda x:x["pr"].update(state="open"),
             lambda x:x["pr"].update(merge_commit_sha=HEAD),
@@ -122,6 +124,36 @@ class ApprovalTests(unittest.TestCase):
             lambda x:x["effective_rules"].update(restrictDirectPush=False),
         ]
         self.assert_all_denied(cases)
+
+    def test_two_independent_verifier_results_must_bind_exactly(self):
+        approved=lib.verify_approval(**fixture())
+        candidate={
+            "schemaVersion":1,
+            "status":"VERIFIED_CHAT_PR_AUTHORIZATION",
+            "authorizationMode":"chat-pr-authorization",
+            "operator":OPERATOR,"repository":REPO,"releaseTag":TAG,
+            "trustedCommit":AFTER,"candidatePr":12,
+            "candidateHeadSha":CANDIDATE,
+            "candidateRunId":123456,"decisionRunId":123455,
+            "majors":[14,15,16,17,18],"sources":[],
+        }
+        bound=lib.bind_verified_receipt(candidate,approved)
+        self.assertEqual(bound["authorizationCommit"],AFTER)
+        self.assertEqual(bound["authorizationPr"],33)
+        self.assertEqual(bound["authorizationBaseSha"],BASE)
+        for k,bad in [
+            ("operator","attacker"), ("repository","pgextwin/evil"),
+            ("releaseTag","v0-windows.1"), ("trustedCommit",BASE),
+            ("candidatePr",99), ("candidateHeadSha",HEAD),
+            ("candidateRunId",9),("decisionRunId",8),
+            ("authorizationMode","manual-dispatch"),
+            ("status","VERIFIED_MANUAL_DISPATCH")]:
+            mutated=dict(candidate); mutated[k]=bad
+            with self.subTest(field=k),self.assertRaises(lib.Denied):
+                lib.bind_verified_receipt(mutated,approved)
+        damaged=dict(approved); damaged["event"]="schedule"
+        with self.assertRaises(lib.Denied):
+            lib.bind_verified_receipt(candidate,damaged)
 
     def assert_all_denied(self,cases):
         for index, mutate in enumerate(cases):
