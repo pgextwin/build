@@ -52,6 +52,9 @@ jobs:
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
+      - name: Validate Phase C plpgsql_check read-only pilot evidence and deny fixtures
+        run: python tests/test-chat-pr-pilot-evidence.py
+
       - name: Enforce exact 14 BUILD manual-only Release allowlist and fail-closed controls
         run: python tests/test-fleet-promotion-policy.py
 
