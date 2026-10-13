@@ -250,12 +250,13 @@ class PhaseDGitHubAdapter:
     not constructed from PR, chat text, or downloaded candidate data.
     """
 
-    def __init__(self, token, *, event, main_sha, actor, allowed_operators):
+    def __init__(self, admin_token, evidence_token, *, event, main_sha, actor, allowed_operators):
         require(type(event) is dict and type(allowed_operators) in (set, frozenset)
                 and actor in allowed_operators and approval_lib.human(actor)
                 and approval_lib.full_sha(main_sha), "invalid runtime identity")
-        self.api = PilotReadOnly(token)
-        self.token = token
+        self.admin_api = PilotReadOnly(admin_token)
+        self.api = PilotReadOnly(evidence_token)
+        self.admin_token = admin_token
         self.event = event
         self.sha = main_sha
         self.actor = actor
@@ -264,7 +265,7 @@ class PhaseDGitHubAdapter:
 
     def capture(self):
         base = BASE
-        scope = self.api.get("installation/repositories?per_page=100")
+        scope = self.admin_api.get("installation/repositories?per_page=100")
         require(type(scope) is dict and type(scope.get("total_count")) is int
                 and scope["total_count"] == 1
                 and type(scope.get("repositories")) is list
@@ -275,7 +276,7 @@ class PhaseDGitHubAdapter:
         require(branch.get("protected") is True and
                 branch.get("commit", {}).get("sha") == self.sha, "main advanced/unprotected")
         classic = classic_lib.collect_verified_composite(
-            classic_lib.CompositeReader(self.token), expected_main_sha=self.sha)
+            classic_lib.CompositeReader(self.admin_token), expected_main_sha=self.sha)
         require(classic.get("status") == "VERIFIED_CLASSIC_COMPOSITE_READ_ONLY"
                 and classic.get("publishableReceipt") is False,
                 "fresh same-token Classic policy denied")
