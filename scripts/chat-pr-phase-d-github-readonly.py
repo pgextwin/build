@@ -170,7 +170,7 @@ def one_json(folder):
         raise Blocked("invalid decision JSON") from None
 
 
-def verified_artifacts(run_id, decision_id, majors, ext, sources):
+def verified_artifacts(run_id, decision_id, majors, ext, sources, candidate_head, candidate_branch):
     """Download actual candidate evidence; check ZIP bytes and Sigstore signatures.
 
     A routine green Windows CI with *unsigned* candidate ZIPs will DENY.
@@ -182,6 +182,10 @@ def verified_artifacts(run_id, decision_id, majors, ext, sources):
     require(type(majors) is list and majors and all(type(x) is int for x in majors),
             "untrusted artifact PG matrix")
     require(type(sources) is dict, "SHA-pinned extension sources missing")
+    require(approval_lib.full_sha(candidate_head)
+            and type(candidate_branch) is str
+            and re.fullmatch(r"auto-candidate/[0-9a-f]{20}", candidate_branch),
+            "artifact branch/head not trustworthy")
     digests = {}
     with tempfile.TemporaryDirectory(prefix="pgextwin-issue75-readonly-") as temp:
         folder = Path(temp)
@@ -228,8 +232,14 @@ def verified_artifacts(run_id, decision_id, majors, ext, sources):
             require(type(pkg) is dict and pkg.get("package", {}).get("name") == ext["name"]
                     and pkg.get("postgresql", {}).get("major") == major
                     and pkg.get("upstream", {}).get("commit") == source["commit"]
+                    and pkg.get("upstream", {}).get("ref") == source["ref"]
+                    and pkg.get("upstream", {}).get("version") == source["version"]
                     and pkg.get("upstream", {}).get("repository") == ext["upstream"]["repository"]
-                    and pkg.get("workflowRun", {}).get("id") == run_id,
+                    and pkg.get("workflowRun", {}).get("id") == run_id
+                    and pkg.get("workflowRun", {}).get("event") == "workflow_dispatch"
+                    and pkg.get("workflowRun", {}).get("ref") == "refs/heads/" + candidate_branch
+                    and pkg.get("source", {}).get("packagingRepository") == REPO
+                    and pkg.get("source", {}).get("packagingCommit") == candidate_head,
                     "ZIP PACKAGE-INFO candidate/run/source mismatch")
             require(json.loads(sbom_path.read_text(encoding="utf-8-sig")).get("spdxVersion") == "SPDX-2.3",
                     "invalid SPDX")
@@ -370,7 +380,8 @@ class PhaseDGitHubAdapter:
         majors = fleet_lib.ident.maintained_majors(ext, lifecycle)
         sources = fleet_lib.ident.sources(ext)
         decision, audit, digests = verified_artifacts(
-            run_id, decision_id, majors, ext, sources)
+            run_id, decision_id, majors, ext, sources,
+            candidate["head"]["sha"], candidate["head"]["ref"])
         receipt = fleet_lib.verify(
             REPO, self.sha, approval["releaseTag"], "PUBLISH", self.actor,
             policy, fleet, local, ext, lifecycle, candidate, candidate_files,
