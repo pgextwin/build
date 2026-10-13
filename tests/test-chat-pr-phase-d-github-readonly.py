@@ -149,15 +149,21 @@ class SignedBytesTests(TestCase):
         return ext, 15, lib.fleet_lib.ident.asset_stem(ext, 15)
 
     def downloader(self, ext, major, stem, *, bad_sha=False, unsigned=False,
-                   package_bad=False, sbom_bad=False):
+                   package_bad=False, sbom_bad=False, source_ref_bad=False,
+                   candidate_commit_bad=False):
         data = io.BytesIO()
         with ZipFile(data, "w") as archive:
             archive.writestr("PACKAGE-INFO.json", json.dumps({
                 "package": {"name": ext["name"] if not package_bad else "evil"},
                 "postgresql": {"major": major},
                 "upstream": {"repository": ext["upstream"]["repository"],
-                             "commit": "c" * 40},
-                "workflowRun": {"id": 900},
+                             "commit": "c" * 40,
+                             "ref": "bad-ref" if source_ref_bad else ext["upstream"]["ref"],
+                             "version": ext["upstream"]["version"]},
+                "workflowRun": {"id": 900, "event": "workflow_dispatch",
+                                "ref": "refs/heads/auto-candidate/" + "f" * 20},
+                "source": {"packagingRepository": lib.REPO,
+                           "packagingCommit": "0" * 40 if candidate_commit_bad else "d" * 40},
             }))
         zip_bytes = data.getvalue()
         digest = hashlib.sha256(zip_bytes).hexdigest()
@@ -196,7 +202,10 @@ class SignedBytesTests(TestCase):
         fake, sha = self.downloader(ext, major, stem, **kwargs)
         with mock.patch.object(lib, "gh_read", side_effect=fake) as gh:
             decision, audit, digests = lib.verified_artifacts(
-                900, 901, [major], ext, {major: {"commit": "c" * 40}})
+                900, 901, [major], ext, {
+                    major: {"commit": "c" * 40, "ref": ext["upstream"]["ref"],
+                            "version": ext["upstream"]["version"]}
+                }, "d" * 40, "auto-candidate/" + "f" * 20)
         self.assertEqual(decision["status"], "candidate")
         self.assertEqual(digests, {str(major): sha})
         calls = [z.args for z in gh.call_args_list]
@@ -208,16 +217,19 @@ class SignedBytesTests(TestCase):
         self.assertEqual(len(self.verify()["majors"]), 1)
 
     def test_unsigned_zip_tampered_sha_package_and_spdx_deny(self):
-        for issue in ("bad_sha", "unsigned", "package_bad", "sbom_bad"):
+        for issue in ("bad_sha", "unsigned", "package_bad", "sbom_bad",
+                      "source_ref_bad", "candidate_commit_bad"):
             with self.subTest(issue=issue), self.assertRaises(lib.Blocked):
                 self.verify(**{issue: True})
 
     def test_bad_matrix_denied_before_download(self):
         ext, major, stem = self.specimen()
         with self.assertRaises(lib.Blocked):
-            lib.verified_artifacts(900, 901, [15, True], ext, {})
+            lib.verified_artifacts(900, 901, [15, True], ext, {},
+                                   "d" * 40, "auto-candidate/" + "f" * 20)
         with self.assertRaises(lib.Blocked):
-            lib.verified_artifacts(0, 901, [15], ext, {})
+            lib.verified_artifacts(0, 901, [15], ext, {},
+                                   "d" * 40, "auto-candidate/" + "f" * 20)
 
 
 if __name__ == "__main__":
