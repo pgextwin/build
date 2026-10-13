@@ -97,13 +97,20 @@ class FleetPublisherTests(TestCase):
                        authorizationPr=35, authorizationCommit=COMMIT,
                        authorizationHeadSha="c"*40, authorizationBaseSha="d"*40,
                        candidateHeadSha="e"*40,
-                       candidatePr=12, candidateRunId=900, decisionRunId=901)
+                       candidatePr=12, candidateRunId=900, decisionRunId=901,
+                       signedArtifactsVerified=True)
         with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):
             folder=Path(tmp)
             make_assets(folder,ext,workflow_event="push")
             ok=p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
                               workflow_event="push")
             self.assertEqual(len(ok),15)
+            # A verified-run metadata flag is not itself signature proof;
+            # Chat-PR mode must have explicitly trusted signed evidence.
+            unverified=dict(receipt, signedArtifactsVerified=False)
+            with self.assertRaises(p.Denied):
+                p.check_assets(folder,ext,unverified,COMMIT,123,lc,False,
+                               workflow_event="push")
             with self.assertRaises(p.Denied):
                 p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
                                workflow_event="workflow_dispatch")
