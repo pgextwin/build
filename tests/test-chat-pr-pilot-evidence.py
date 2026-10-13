@@ -4,6 +4,8 @@ import base64
 from copy import deepcopy
 import importlib.util
 import json
+import io
+from unittest import mock
 from pathlib import Path
 import unittest
 
@@ -71,11 +73,16 @@ def fixture():
                             "app": {"id": 1234}}]},
         B + "pulls/12": {
             "merged": True, "user": {"login": "github-actions[bot]"},
-            "head": {"sha": CANDIDATE}},
-        B + "actions/runs/900": {"event": "workflow_dispatch",
+            "head": {"sha": CANDIDATE, "ref": "auto-candidate/test"}},
+        B + "actions/runs/900": {"id": 900, "run_attempt": 1,
+                                  "repository": {"full_name": REPO},
+                                  "head_branch": "auto-candidate/test",
+                                  "event": "workflow_dispatch",
                                   "status": "completed", "conclusion": "success",
                                   "head_sha": CANDIDATE},
-        B + "actions/runs/901": {"status": "completed", "conclusion": "success",
+        B + "actions/runs/901": {"id": 901, "run_attempt": 1,
+                                  "repository": {"full_name": REPO},
+                                  "status": "completed", "conclusion": "success",
                                   "head_branch": "main"},
         B + "git/ref/tags/" + TAG: None,
         B + "releases/tags/" + TAG: None,
@@ -175,6 +182,14 @@ class PilotTests(unittest.TestCase):
             lambda o,e,r:o[B+"pulls/33/files?per_page=100"][0].update(sha="f"*40),
             lambda o,e,r:o[B+"pulls/12"]["head"].update(sha=HEAD),
             lambda o,e,r:o[B+"pulls/12"]["user"].update(login="attacker"),
+            lambda o,e,r:o[B+"actions/runs/900"].update(id=999),
+            lambda o,e,r:o[B+"actions/runs/900"].update(run_attempt=2),
+            lambda o,e,r:o[B+"actions/runs/900"].update(run_attempt=None),
+            lambda o,e,r:o[B+"actions/runs/900"].update(repository={"full_name":"pgextwin/evil"}),
+            lambda o,e,r:o[B+"actions/runs/900"].update(head_branch="main"),
+            lambda o,e,r:o[B+"actions/runs/901"].update(id=999),
+            lambda o,e,r:o[B+"actions/runs/901"].update(run_attempt=2),
+            lambda o,e,r:o[B+"actions/runs/901"].update(repository={}),
             lambda o,e,r:o[B+"actions/runs/900"].update(conclusion="failure"),
             lambda o,e,r:o[B+"actions/runs/900"].update(head_sha=HEAD),
             lambda o,e,r:o[B+"actions/runs/901"].update(conclusion="failure"),
@@ -182,6 +197,28 @@ class PilotTests(unittest.TestCase):
             lambda o,e,r:o.update({B+"releases/tags/"+TAG: {"tag_name":TAG}}),
         ]
         self.assert_denied(changes)
+
+    def test_github_rest_page_truncation_is_denied(self):
+        # Even when the returned list contains just one apparent PR, a
+        # server-provided next-page Link means uniqueness is not established.
+        for link, denied in [
+            ("", False),
+            ('<https://api.github.com/repos/pgextwin/plpgsql_check/commits/a/pulls?page=2>; rel="next"', True),
+            ('<https://api.github.com/repos/pgextwin/plpgsql_check/commits/a/pulls?page=2>; rel=next', True),
+        ]:
+            with self.subTest(link=link):
+                response = io.BytesIO(b'[{"number":33}]')
+                response.status = 200
+                response.headers = {"Link": link}
+                with mock.patch.object(pilot, "urlopen", return_value=response):
+                    client = pilot.GitHubReadOnly("read-only-token")
+                    if denied:
+                        with self.assertRaises(pilot.Blocked):
+                            client.get(B + "commits/" + AFTER + "/pulls")
+                    else:
+                        self.assertEqual(
+                            client.get(B + "commits/" + AFTER + "/pulls"),
+                            [{"number": 33}])
 
     def assert_denied(self, mutations):
         for i, mutation in enumerate(mutations):
