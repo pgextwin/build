@@ -54,6 +54,11 @@ def get(path):
     try:
         with urlopen(req, timeout=25) as resp:
             check(resp.status == 200, "ambiguous GitHub response")
+            # A partial Release inventory can hide an existing tag or Draft;
+            # deny rather than trusting the first page of mutable GitHub data.
+            link = resp.headers.get("Link", "")
+            check(not re.search(r'\brel\s*=\s*"?next"?', link, re.I),
+                  "paginated GitHub Release/asset history is not authoritative")
             return json.load(resp)
     except HTTPError as e:
         if e.code == 404: return None
@@ -72,6 +77,11 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                               actor=receipt.get("operator"), event=workflow_event)
     except auth.Denied as e:
         raise Denied("invalid typed authorization: " + str(e)) from e
+    # A Chat PR receipt must never turn run-metadata SUCCESS into artifact
+    # attestation success by calling this verifier in a test/bypass mode.
+    if receipt.get("authorizationMode") == "chat-pr-authorization":
+        check(verify_signatures is True,
+              "Chat PR publication requires independent ZIP/SPDX attestations")
     check(receipt.get("schemaVersion") == 1
           and isinstance(receipt.get("operator"), str)
           and bool(receipt["operator"])
@@ -134,6 +144,8 @@ def staged_release_id(tag, commit):
     # display title or treat a tag lookup 404 as evidence of draft absence.
     releases = get("releases?per_page=100")
     check(isinstance(releases, list), "cannot enumerate staged Releases")
+    check(len(releases) < 100,
+          "potentially incomplete first page of staged Release history")
     matches = [r for r in releases if r.get("tag_name") == tag]
     check(len(matches) == 1, "missing or ambiguous freshly staged Release")
     release = matches[0]
@@ -157,7 +169,13 @@ def check_remote(tag, expected, draft, release_id):
         check(by_tag and by_tag.get("id") == release_id
               and by_tag.get("draft") is False,
               "published Release is not discoverable by its immutable tag")
+    check(isinstance(release.get("assets"), list)
+          and all(isinstance(a, dict) and isinstance(a.get("name"), str)
+                  for a in release["assets"]),
+          "invalid GitHub Release assets")
     assets = {a["name"]: a for a in release["assets"]}
+    check(len(assets) == len(release["assets"]),
+          "duplicate GitHub Release asset names")
     check(set(assets) == set(expected)
           and all(a.get("state") == "uploaded" for a in assets.values()),
           "partial or unexpected published assets")
