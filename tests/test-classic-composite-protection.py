@@ -32,6 +32,11 @@ def graphql_example():
                 "target": {"oid": SHA},
                 "branchProtectionRule": {
                     "id": "BPR-test-effective-main",
+                    "restrictsPushes": False,
+                    "pushAllowances": {
+                        "totalCount": 0, "nodes": [],
+                        "pageInfo": {"hasNextPage": False},
+                    },
                     "bypassPullRequestAllowances": {
                         "totalCount": 0, "nodes": [],
                         "pageInfo": {"hasNextPage": False},
@@ -105,10 +110,20 @@ class CompositeContractTests(TestCase):
         self.assertEqual(result["mainSha"], SHA)
         self.assertEqual(result["bypassEvidence"], "GRAPHQL_ZERO_FOR_REST_OMISSION")
         self.assertEqual(result["snapshotCount"], 2)
+        self.assertEqual(result["pushEvidence"], "REST_EXPLICIT_UNRESTRICTED")
+        self.assertTrue(result["independentPushUnrestricted"])
         self.assertTrue(result["independentEffectiveRefZero"])
         self.assertIs(result["publishableReceipt"], False)
         # Production verifier must never mutate raw REST evidence.
         self.assertNotIn("bypass_pull_request_allowances", p["required_pull_request_reviews"])
+
+    def test_missing_rest_push_restrictions_requires_graphql_unrestricted_zero(self):
+        b, p = self.base()
+        p.pop("restrictions")
+        result = self.verify(b, p)
+        self.assertEqual(result["pushEvidence"], "GRAPHQL_UNRESTRICTED_FOR_REST_OMISSION")
+        self.assertTrue(result["independentPushUnrestricted"])
+        self.assertNotIn("restrictions", p)
 
     def test_explicit_empty_rest_is_not_replaced(self):
         b, p = self.base(omitted=False)
@@ -145,7 +160,8 @@ class CompositeContractTests(TestCase):
             lambda b, p: p["enforce_admins"].update(enabled=False),
             lambda b, p: p["allow_force_pushes"].update(enabled=True),
             lambda b, p: p["allow_deletions"].update(enabled=True),
-            lambda b, p: p.pop("restrictions"),
+            lambda b, p: p.update(restrictions={"users": [{"login": "actor"}], "teams": [], "apps": []}),
+            lambda b, p: p.update(restrictions={"users": [], "teams": [], "apps": None}),
         ]
         for i, edit in enumerate(edits):
             b, p = self.base()
@@ -170,6 +186,15 @@ class CompositeContractTests(TestCase):
             lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"]["bypassPullRequestAllowances"].update(nodes=[{"id": "one"}]),
             lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"]["bypassPullRequestAllowances"].update(pageInfo={"hasNextPage": True}),
             lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"].pop("bypassPullRequestAllowances"),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"].update(restrictsPushes=True),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"].pop("restrictsPushes"),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"].update(restrictsPushes=None),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"].pop("pushAllowances"),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"].update(pushAllowances=None),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"]["pushAllowances"].update(totalCount=1),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"]["pushAllowances"].update(totalCount=False),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"]["pushAllowances"].update(nodes=[{"id": "one"}]),
+            lambda x: x["data"]["repository"]["ref"]["branchProtectionRule"]["pushAllowances"].update(pageInfo={"hasNextPage": True}),
         ]
         for i, edit in enumerate(edits):
             b, p = self.base()
@@ -196,6 +221,12 @@ class CompositeContractTests(TestCase):
         g3 = graphql_example()
         g3["data"]["repository"]["ref"]["branchProtectionRule"]["bypassPullRequestAllowances"]["totalCount"] = 1
         variants.append((b, p, g3))
+        g4 = graphql_example()
+        g4["data"]["repository"]["ref"]["branchProtectionRule"]["restrictsPushes"] = True
+        variants.append((b, p, g4))
+        p4 = deepcopy(p)
+        p4.pop("restrictions")
+        variants.append((b, p4, graphql_example()))
         for i, second in enumerate(variants):
             with self.subTest(i=i), self.assertRaises((composite.CompositeDenied, composite.graphql.GraphqlBypassDenied, composite.rest.ProtectionDenied)):
                 self.verify(b, p, second=second)
