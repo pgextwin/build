@@ -170,7 +170,7 @@ def one_json(folder):
         raise Blocked("invalid decision JSON") from None
 
 
-def verified_artifacts(run_id, decision_id, audit, majors, ext, sources):
+def verified_artifacts(run_id, decision_id, majors, ext, sources):
     """Download actual candidate evidence; check ZIP bytes and Sigstore signatures.
 
     A routine green Windows CI with *unsigned* candidate ZIPs will DENY.
@@ -181,9 +181,6 @@ def verified_artifacts(run_id, decision_id, audit, majors, ext, sources):
             "invalid signed artifact run identities")
     require(type(majors) is list and majors and all(type(x) is int for x in majors),
             "untrusted artifact PG matrix")
-    require(type(audit) is dict and type(audit.get("majors")) is list
-            and len(audit["majors"]) == len(majors),
-            "candidate audit matrix missing")
     require(type(sources) is dict, "SHA-pinned extension sources missing")
     digests = {}
     with tempfile.TemporaryDirectory(prefix="pgextwin-issue75-readonly-") as temp:
@@ -196,8 +193,12 @@ def verified_artifacts(run_id, decision_id, audit, majors, ext, sources):
         # The workflow's metadata still needs independent fleet.verify().
         decision = one_json(folder / "decision")
         actual_audit = one_json(folder / "audit")
-        require(actual_audit == audit, "candidate-audit bytes differ")
-        entries = {x.get("major"): x for x in audit["majors"] if type(x) is dict}
+        require(type(actual_audit) is dict
+                and type(actual_audit.get("majors")) is list
+                and len(actual_audit["majors"]) == len(majors),
+                "candidate-audit matrix missing")
+        entries = {x.get("major"): x for x in actual_audit["majors"]
+                   if type(x) is dict and type(x.get("major")) is int}
         require(set(entries) == set(majors), "duplicate or unexpected PG majors")
         for major in majors:
             item = entries[major]
@@ -214,7 +215,8 @@ def verified_artifacts(run_id, decision_id, audit, majors, ext, sources):
                     and item.get("sbom") == expected[1]
                     and item.get("grype") == expected[2],
                     "candidate audit filename mismatch")
-            sha = hashlib.file_digest(zip_path.open("rb"), "sha256").hexdigest()
+            with zip_path.open("rb") as asset_stream:
+                sha = hashlib.file_digest(asset_stream, "sha256").hexdigest()
             require(item.get("zipSha256") == sha, "candidate ZIP SHA256 mismatch")
             with ZipFile(zip_path, "r") as archive:
                 members = [m for m in archive.infolist() if m.filename == "PACKAGE-INFO.json"]
@@ -367,7 +369,7 @@ class PhaseDGitHubAdapter:
         majors = fleet_lib.ident.maintained_majors(ext, lifecycle)
         sources = fleet_lib.ident.sources(ext)
         decision, audit, digests = verified_artifacts(
-            run_id, decision_id, {}, majors, ext, sources)  # see note below
+            run_id, decision_id, majors, ext, sources)
         receipt = fleet_lib.verify(
             REPO, self.sha, approval["releaseTag"], "PUBLISH", self.actor,
             policy, fleet, local, ext, lifecycle, candidate, candidate_files,
