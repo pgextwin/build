@@ -46,6 +46,14 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
             and isinstance(receipt.get("sources"), list),
             "incomplete signed Release authorization")
     if mode == "chat-pr-authorization":
+        # A green Windows run or a synthetic ID join does not prove signed
+        # ZIP/SBOM/attestation bytes. A future trusted verifier MUST explicitly
+        # establish this evidence before issuing a typed receipt. Never accept
+        # a read-only pilot context, even if its status has been relabelled.
+        require(receipt.get("signedArtifactsVerified") is True
+                and receipt.get("publishingEnabled") is not False
+                and receipt.get("publishableReceipt") is not False,
+                "independent signed artifacts unproven or dry-run context")
         require(type(receipt.get("authorizationPr")) is int
                 and receipt["authorizationPr"] > 0
                 and receipt.get("authorizationCommit") == commit

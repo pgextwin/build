@@ -169,13 +169,12 @@ def verify_approval(authorization_json, *, repository, event, pr, pr_files, comm
 
 
 def bind_verified_receipt(candidate_receipt, approval):
-    """Bind TWO independent successful validations to one inert typed receipt.
+    """Join candidate and PR identity into INERT evidence, not a publish receipt.
 
-    candidate_receipt: output of fleet-promotion-gate.verify(...,
-        authorization_mode='chat-pr-authorization'), using independently
-        fetched exact-head Windows decision/audit.
-    approval: output of verify_approval() on independently fetched trusted
-        GitHub snapshots. No caller workflow exists in Phase B.
+    The candidate fixture gate is not an independent ZIP/attestation/SBOM
+    verifier, and the GitHub event evidence is presently synthetic. A
+    successful join MUST NOT pass release-authorization.validate_receipt().
+    No live publisher may consume this function as authorization.
     """
     require(type(candidate_receipt) is dict and type(approval) is dict,
             "two independent verifier results are required")
@@ -204,4 +203,12 @@ def bind_verified_receipt(candidate_receipt, approval):
     for key in ("authorizationPr", "authorizationCommit",
                 "authorizationHeadSha", "authorizationBaseSha"):
         result[key] = approval[key]
+    # Only the identity join is established. Typed promotion receipts must
+    # come from a future SAME-TRUSTED-JOB signature + artifacts verifier.
+    # Keep this context structurally incompatible with the publisher.
+    result["candidateGateStatus"] = result["status"]
+    result["status"] = "DRY_RUN_CONTEXT_ONLY"
+    result["publishingEnabled"] = False
+    result["publishableReceipt"] = False
+    result["signedArtifactsVerified"] = False
     return result
