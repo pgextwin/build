@@ -83,6 +83,7 @@ class PilotReadOnly:
         suffix = path[len(BASE):] if path.startswith(BASE) else ""
         patterns = (
             r"branches/main(?:/protection)?",
+            r"contents/\\.github/release-authorizations\\?ref=[0-9a-f]{40}",
             r"commits/[0-9a-f]{40}(?:/pulls)?",
             r"commits/[0-9a-f]{40}/check-runs\?per_page=100",
             r"pulls/[1-9][0-9]*(?:/files\?per_page=100)?",
@@ -95,7 +96,10 @@ class PilotReadOnly:
         require(valid, "GitHub path not on read-only pilot allowlist")
         if allow_404:
             require(path.startswith(BASE + "git/ref/tags/") or
-                    path.startswith(BASE + "releases/tags/"),
+                    path.startswith(BASE + "releases/tags/") or
+                    re.fullmatch(re.escape(BASE)
+                                 + r"contents/\\.github/release-authorizations\\?ref=[0-9a-f]{40}",
+                                 path) is not None,
                     "404 cannot silently prove missing evidence")
 
     def get(self, path, *, allow_404=False):
