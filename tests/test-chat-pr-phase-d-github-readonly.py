@@ -133,9 +133,9 @@ class GitHubReadOnlyTests(TestCase):
 
     def test_real_authorization_is_missing_so_no_publishing_possible(self):
         adapter = lib.PhaseDGitHubAdapter(
-            TOKEN, event={"ref": "refs/heads/main"}, main_sha=SHA,
+            TOKEN, TOKEN, event={"ref": "refs/heads/main"}, main_sha=SHA,
             actor="HumanOperator", allowed_operators={"HumanOperator"})
-        adapter.api.get = lambda path, **kwargs: {"total_count": 0, "repositories": []}
+        adapter.admin_api.get = lambda path, **kwargs: {"total_count": 0, "repositories": []}
         with self.assertRaises(lib.Blocked):
             adapter.capture()
         self.assertEqual(adapter.signed_digests, [])
