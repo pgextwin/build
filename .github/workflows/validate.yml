@@ -67,6 +67,9 @@ jobs:
       - name: Validate Phase C shared candidate and PR provenance binding (synthetic only)
         run: python tests/test-chat-pr-phase-c-join.py
 
+      - name: Validate Phase D prepublication JIT and TOCTOU denial fixtures (#75)
+        run: python tests/test-chat-pr-phase-d-prepublish.py
+
       - name: Enforce exact 14 BUILD manual-only Release allowlist and fail-closed controls
         run: python tests/test-fleet-promotion-policy.py
 
