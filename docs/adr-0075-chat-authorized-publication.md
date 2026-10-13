@@ -104,3 +104,55 @@ Required safe experiment:
 - [ ] Shared design reviewed with exact API contracts and initial test fixtures; no production enabling before then.
 
 **No Release dispatch, tag creation, publishing workflow modification, permission changes, branch-rule changes or App-secret manipulation is authorized by this ADR.**
+
+
+## Phase C security decision update — 2026-10-13: Classic protection audit credential
+
+**Status: DESIGN / INERT CODE ONLY. No App, secret, token, workflow trigger or Release was created.**
+The historical unprotected-branch observations above have been superseded by
+Issue #61's CLOSED acceptance and subsequent build/plpgsql_check protection.
+Issue #75's runtime Classic protection read is **still blocked**:
+the existing Codex Connector (installation 168187810, org-wide) has no
+Administration permission and gets REST HTTP 403. The catalog-only proposer
+(installation 170516730) must not be repurposed or have its access expanded.
+Actions GITHUB_TOKEN and public Rulesets cannot prove Classic protection.
+
+**Decision:** after an independent explicit Work authorization, create the
+organization-owned single-repository **pgextwin-classic-protection-auditor**
+GitHub App, install on **pgextwin/plpgsql_check only**, with repository
+`Administration:read`, mandatory `Metadata:read`, no organization or other
+repository permissions, no write permissions and no webhook subscriptions.
+Use a newly minted short-lived, explicitly repo/permission-restricted
+installation token in an isolated trusted-main read-only job. Store its
+private key as a plpgsql_check-only Actions repository secret, and App/Client/
+Installation IDs as plpgsql_check-only repository variables. Never expose the
+token to PR/candidate code, artifacts or GitHub logs.
+
+**PAT alternative:** a fine-grained personal access token could read
+Administration:read but has user/lifecycle coupling and broad operational
+rotation risks; a dedicated GitHub App has a short-lived scoped token and
+independent rotation/revocation. Existing Codex and Catalog Apps remain
+untouched. Any actual App creation or secret storage requires separate Work
+authorization and verified test acceptance.
+
+**Fail-closed proof contract:** the future trusted job must independently GET
+`/branches/main` plus `/branches/main/protection` on the pilot repository.
+Require PR rule with zero approvals, empty explicit PR bypass lists,
+`required_status_checks.strict=true`, precisely pinned GitHub Actions App ID
+and required contexts (including `Windows required summary`), admin
+enforcement, no force pushes or deletion, and exact protected main SHA.
+Unavailable 403/404, omitted JSON properties with ambiguous semantics,
+Rulesets bypass omission or stale/changed evidence **DENY**. The submitted
+UI screenshots and PR JSON are not runtime evidence. Retrieving branch rules
+twice reduces snapshot inconsistency but is not an atomic transaction; verify
+again immediately before any future privileged operation. Do not infer
+publication authority from this auditor alone.
+
+**Implementation / full operating design:**
+[issue-75-classic-protection-audit-app.md](issue-75-classic-protection-audit-app.md).
+The `scripts/classic-protection-audit.py` module and offline negative tests
+have **no CLI or publication entrypoint**; they are not a real credentialed
+GitHub API success demonstration. Work must not create secrets or change
+permissions based on this code PR alone; the subsequent Work handoff is a
+separate user decision. No new main push-to-publish trigger, Release or
+Workflow Dispatch was enabled. Issue #75 remains OPEN.
