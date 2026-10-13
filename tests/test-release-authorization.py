@@ -24,7 +24,8 @@ def fixture(mode="manual-dispatch"):
                    authorizationMode=mode, authorizationPr=34,
                    authorizationCommit=SHA, authorizationHeadSha=HEAD,
                    authorizationBaseSha=BASE, candidateHeadSha="d"*40, candidatePr=3,
-                   candidateRunId=31, decisionRunId=32)
+                   candidateRunId=31, decisionRunId=32,
+                   signedArtifactsVerified=True)
     return obj
 
 class ReceiptTests(unittest.TestCase):
@@ -54,6 +55,10 @@ class ReceiptTests(unittest.TestCase):
             ("chat-pr-authorization",{},{"decisionRunId":None}),
             ("chat-pr-authorization",{},{"candidatePr":"1"}),
             ("chat-pr-authorization",{},{"trustedCommit":BASE}),
+            ("chat-pr-authorization",{},{"signedArtifactsVerified":False}),
+            ("chat-pr-authorization",{},{"signedArtifactsVerified":None}),
+            ("chat-pr-authorization",{},{"publishingEnabled":False}),
+            ("chat-pr-authorization",{},{"publishableReceipt":False}),
             ("manual-dispatch",{},{"operator":""}),
             ("manual-dispatch",{"actor":"github-actions[bot]"},{"operator":"github-actions[bot]"}),
             ("chat-pr-authorization",{"actor":"Evilbot"},{"operator":"Evilbot"}),
