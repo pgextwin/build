@@ -61,6 +61,9 @@ jobs:
       - name: Validate strict GraphQL effective-ref bypass-zero proof fixtures (#75)
         run: python tests/test-classic-graphql-bypass.py
 
+      - name: Validate strict two-snapshot Classic REST-GraphQL composite contract (#75)
+        run: python tests/test-classic-composite-protection.py
+
       - name: Validate Phase C shared candidate and PR provenance binding (synthetic only)
         run: python tests/test-chat-pr-phase-c-join.py
 
