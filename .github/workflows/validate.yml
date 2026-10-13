@@ -70,6 +70,9 @@ jobs:
       - name: Validate Phase D prepublication JIT and TOCTOU denial fixtures (#75)
         run: python tests/test-chat-pr-phase-d-prepublish.py
 
+      - name: Validate Phase D real-GitHub reader and signed-byte denial fixtures (#75)
+        run: python tests/test-chat-pr-phase-d-github-readonly.py
+
       - name: Enforce exact 14 BUILD manual-only Release allowlist and fail-closed controls
         run: python tests/test-fleet-promotion-policy.py
 
