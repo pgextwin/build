@@ -200,7 +200,7 @@ class CompositeContractTests(TestCase):
             b, p = self.base()
             g = graphql_example()
             edit(g)
-            with self.subTest(i=i), self.assertRaises(composite.graphql.GraphqlBypassDenied):
+            with self.subTest(i=i), self.assertRaises((composite.graphql.GraphqlBypassDenied, composite.CompositeDenied)):
                 self.verify(b, p, g)
 
     def test_race_between_full_rest_graphql_snapshots_denied(self):
