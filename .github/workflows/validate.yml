@@ -58,6 +58,9 @@ jobs:
       - name: Validate single-repo Classic protection audit deny contract (#75)
         run: python tests/test-classic-protection-audit.py
 
+      - name: Validate strict GraphQL effective-ref bypass-zero proof fixtures (#75)
+        run: python tests/test-classic-graphql-bypass.py
+
       - name: Validate Phase C shared candidate and PR provenance binding (synthetic only)
         run: python tests/test-chat-pr-phase-c-join.py
 
