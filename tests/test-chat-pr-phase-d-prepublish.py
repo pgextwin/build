@@ -101,7 +101,7 @@ class PhaseDTests(unittest.TestCase):
 
     def test_modified_first_round_denied(self):
         changes = [
-            lambda s: s.update(mainSha="b" * 40),
+            lambda s: s.update(mainSha="0" * 40),
             lambda s: s.update(tagRef="UNKNOWN"),
             lambda s: s.update(tagRef="PRESENT"),
             lambda s: s.update(release="PRESENT"),
@@ -111,14 +111,14 @@ class PhaseDTests(unittest.TestCase):
             lambda s: s.pop("approval"),
             lambda s: s["approval"].update(event="workflow_dispatch"),
             lambda s: s["approval"].update(operator="attacker"),
-            lambda s: s["approval"].update(authorizationCommit="b" * 40),
+            lambda s: s["approval"].update(authorizationCommit="0" * 40),
             lambda s: s["approval"].update(candidatePr=333),
             lambda s: s["candidateReceipt"].update(candidateRunId=33),
             lambda s: s["candidateReceipt"].update(decisionRunId=33),
             lambda s: s["candidateReceipt"].update(candidateHeadSha="f" * 40),
             lambda s: s["candidateReceipt"].update(status="VERIFIED_MANUAL_DISPATCH"),
             lambda s: s["candidateReceipt"].update(operator="intruder"),
-            lambda s: s["classicComposite"].update(mainSha="b" * 40),
+            lambda s: s["classicComposite"].update(mainSha="0" * 40),
             lambda s: s["classicComposite"].update(status="DENY"),
             lambda s: s["classicComposite"].update(snapshotCount=1),
             lambda s: s["classicComposite"].update(snapshotCount=True),
@@ -144,7 +144,7 @@ class PhaseDTests(unittest.TestCase):
 
     def test_fresh_second_read_detects_main_and_candidate_toctou(self):
         changes = [
-            lambda s: s.update(mainSha="b" * 40),
+            lambda s: s.update(mainSha="0" * 40),
             lambda s: s.update(tagRef="PRESENT"),
             lambda s: s.update(release="PRESENT"),
             lambda s: s["approval"].update(authorizationCommit="f" * 40),
@@ -152,7 +152,7 @@ class PhaseDTests(unittest.TestCase):
             lambda s: s["candidateReceipt"].update(candidateRunId=71),
             lambda s: s["candidateReceipt"].update(decisionRunId=71),
             lambda s: s["candidateReceipt"].update(sources=[{"commit": "c" * 40}]),
-            lambda s: s["classicComposite"].update(mainSha="b" * 40),
+            lambda s: s["classicComposite"].update(mainSha="0" * 40),
             lambda s: s["classicComposite"].update(strict=False),
             lambda s: s["classicComposite"].update(bypassEvidence="REST_EXPLICIT_EMPTY"),
             lambda s: s["classicComposite"].update(pushEvidence="REST_EXPLICIT_UNRESTRICTED"),
