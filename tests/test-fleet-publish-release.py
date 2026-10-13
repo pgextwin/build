@@ -102,9 +102,17 @@ class FleetPublisherTests(TestCase):
         with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):
             folder=Path(tmp)
             make_assets(folder,ext,workflow_event="push")
-            ok=p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
-                              workflow_event="push")
+            with patch.object(p,"run",return_value="") as verifier:
+                ok=p.check_assets(folder,ext,receipt,COMMIT,123,lc,True,
+                                  workflow_event="push")
+                # Two independent attestation verifications per PG major.
+                self.assertEqual(verifier.call_count,10)
+                self.assertEqual(sum(
+                    "--predicate-type" in c.args for c in verifier.call_args_list),5)
             self.assertEqual(len(ok),15)
+            with self.assertRaises(p.Denied):
+                p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
+                               workflow_event="push")
             # A verified-run metadata flag is not itself signature proof;
             # Chat-PR mode must have explicitly trusted signed evidence.
             unverified=dict(receipt, signedArtifactsVerified=False)
@@ -126,12 +134,15 @@ class FleetPublisherTests(TestCase):
             "assets":[{"name":"sample.zip","state":"uploaded","digest":"sha256:"+"d"*64}]}
         with patch.object(p,"get",return_value=[release]):
             self.assertEqual(p.staged_release_id(tag,COMMIT),879)
-        for bad in ([],[release,release],[{**release,"draft":False}],
+        for bad in ([],[release,release],[release]*100,[{**release,"draft":False}],
                     [{**release,"target_commitish":"f"*40}]):
             with patch.object(p,"get",return_value=bad),self.assertRaises(p.Denied):
                 p.staged_release_id(tag,COMMIT)
         with patch.object(p,"get",return_value=release),patch.object(
                 p,"run",side_effect=AssertionError("draft must not download by tag")):
+            p.check_remote(tag,{"sample.zip":"d"*64},True,879)
+        duplicate={**release,"assets":[release["assets"][0],release["assets"][0]]}
+        with patch.object(p,"get",return_value=duplicate),self.assertRaises(p.Denied):
             p.check_remote(tag,{"sample.zip":"d"*64},True,879)
         bad={**release,"assets":[{**release["assets"][0],"digest":"sha256:"+"e"*64}]}
         with patch.object(p,"get",return_value=bad),self.assertRaises(p.Denied):
