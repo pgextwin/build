@@ -11,6 +11,7 @@ import binascii
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -52,6 +53,11 @@ class GitHubReadOnly:
         try:
             with urlopen(req, timeout=20) as response:
                 require(response.status == 200, "unexpected GitHub REST response")
+                # A truncated GitHub collection can otherwise look like a
+                # unique PR, merge, or required CI result. Never trust page 1.
+                link = response.headers.get("Link", "")
+                require(not re.search(r'\brel\s*=\s*"?next"?', link, re.IGNORECASE),
+                        "GitHub pagination requires complete authoritative evidence")
                 return json.load(response)
         except HTTPError as exc:
             if allow_404 and exc.code == 404:
@@ -204,15 +210,23 @@ def inspect_pilot(api, event, *, runtime_repo, runtime_ref, runtime_sha,
             and (candidate_pr.get("user") or {}).get("login") == "github-actions[bot]"
             and (candidate_pr.get("head") or {}).get("sha") == approved["candidateHeadSha"],
             "candidate PR identity not independently confirmed")
-    require(candidate_run.get("event") == "workflow_dispatch"
+    require(candidate_run.get("id") == approved["candidateRunId"]
+            and candidate_run.get("run_attempt") == 1
+            and (candidate_run.get("repository") or {}).get("full_name") == PILOT
+            and candidate_run.get("head_branch") ==
+                (candidate_pr.get("head") or {}).get("ref")
+            and candidate_run.get("event") == "workflow_dispatch"
             and candidate_run.get("status") == "completed"
             and candidate_run.get("conclusion") == "success"
             and candidate_run.get("head_sha") == approved["candidateHeadSha"],
-            "candidate Windows run not successful on exact head")
-    require(decision_run.get("status") == "completed"
+            "candidate Windows run identity, first attempt or exact head unproven")
+    require(decision_run.get("id") == approved["decisionRunId"]
+            and decision_run.get("run_attempt") == 1
+            and (decision_run.get("repository") or {}).get("full_name") == PILOT
+            and decision_run.get("status") == "completed"
             and decision_run.get("conclusion") == "success"
             and decision_run.get("head_branch") == "main",
-            "candidate decision run not successful")
+            "candidate decision run identity or first attempt unproven")
     require(api.get(base + "git/ref/tags/" + quote(tag, safe=""),
                     allow_404=True) is None
             and api.get(base + "releases/tags/" + quote(tag, safe=""),
