@@ -27,6 +27,10 @@ _QUERY = """query {
         bypassPullRequestAllowances(first: 1) {
           totalCount nodes { id } pageInfo { hasNextPage }
         }
+        restrictsPushes
+        pushAllowances(first: 1) {
+          totalCount nodes { id } pageInfo { hasNextPage }
+        }
       }
     }
   }
@@ -107,6 +111,22 @@ def _verified_rest_snapshot(branch, protection, graphql_response, expected_sha):
             or proof.get("publishableReceipt") is not False):
         raise CompositeDenied("effective GraphQL zero proof incomplete")
 
+    # The official effective Classic rule must independently confirm push
+    # restrictions are disabled AND no push actor allowances exist. Neither
+    # GitHub REST omission nor a GraphQL absent/partial connection is proof.
+    rule = graphql_response["data"]["repository"]["ref"]["branchProtectionRule"]
+    if rule.get("restrictsPushes") is not False:
+        raise CompositeDenied("effective push restrictions not proven disabled")
+    push = rule.get("pushAllowances")
+    if (type(push) is not dict
+            or type(push.get("totalCount")) is not int
+            or push["totalCount"] != 0
+            or type(push.get("nodes")) is not list
+            or push["nodes"]
+            or type(push.get("pageInfo")) is not dict
+            or push["pageInfo"].get("hasNextPage") is not False):
+        raise CompositeDenied("effective push allowance count not proven zero")
+
     if type(protection) is not dict:
         raise CompositeDenied("REST protection not object")
     reviews = protection.get("required_pull_request_reviews")
@@ -125,8 +145,17 @@ def _verified_rest_snapshot(branch, protection, graphql_response, expected_sha):
         # No fallback for null, object with missing lists, wrong types or
         # nonempty actors; the unchanged original REST validator denies them.
         source = "REST_EXPLICIT_EMPTY"
+    if "restrictions" not in protection:
+        # Only this absent REST field may be supplemented, after independent
+        # effective-ref restrictsPushes=False and zero pushAllowances proof.
+        normalized["restrictions"] = None
+        push_source = "GRAPHQL_UNRESTRICTED_FOR_REST_OMISSION"
+    else:
+        # Explicit malformed/nonempty actor restrictions remain unchanged and
+        # are always subject to the original REST policy validator.
+        push_source = "REST_EXPLICIT_UNRESTRICTED"
     verified = rest._validate_snapshot(branch, normalized, expected_sha)
-    return verified, source
+    return verified, source, push_source
 
 
 def collect_verified_composite(reader, *, expected_main_sha):
@@ -143,20 +172,22 @@ def collect_verified_composite(reader, *, expected_main_sha):
         branch = reader.get(rest.BRANCH_PATH)
         protection = reader.get(rest.PROTECTION_PATH)
         gql_data = reader.get_graphql()
-        verified, source = _verified_rest_snapshot(
+        verified, source, push_source = _verified_rest_snapshot(
             branch, protection, gql_data, expected_main_sha)
-        snapshots.append((branch, protection, gql_data, verified, source))
+        snapshots.append((branch, protection, gql_data, verified, source, push_source))
     first, second = snapshots
     # Raw, rather than synthesized, protection snapshots must be identical.
     # This also checks effective rule ID and both GraphQL connections unchanged.
-    if first[:3] != second[:3] or first[4] != second[4]:
+    if first[:3] != second[:3] or first[4:] != second[4:]:
         raise CompositeDenied("REST/GraphQL evidence changed between snapshots")
     result = dict(second[3])
     result.update({
         "schemaVersion": 1,
         "status": "VERIFIED_CLASSIC_COMPOSITE_READ_ONLY",
         "bypassEvidence": second[4],
+        "pushEvidence": second[5],
         "independentEffectiveRefZero": True,
+        "independentPushUnrestricted": True,
         "snapshotCount": 2,
         "publishableReceipt": False,
     })
