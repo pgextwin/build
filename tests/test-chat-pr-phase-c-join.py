@@ -54,19 +54,28 @@ class PhaseCJoinTests(unittest.TestCase):
         candidate, context = paired_fixtures()
         merged = verify_pair(candidate, context)
         self.assertEqual(merged["authorizationMode"], "chat-pr-authorization")
-        self.assertEqual(merged["status"], "VERIFIED_CHAT_PR_AUTHORIZATION")
+        self.assertEqual(merged["status"], "DRY_RUN_CONTEXT_ONLY")
+        self.assertEqual(merged["candidateGateStatus"], "VERIFIED_CHAT_PR_AUTHORIZATION")
+        self.assertFalse(merged["signedArtifactsVerified"])
+        self.assertFalse(merged["publishableReceipt"])
+        self.assertFalse(merged["publishingEnabled"])
         self.assertEqual(merged["candidateHeadSha"], candidate["pr"]["head"]["sha"])
         self.assertEqual(merged["candidateRunId"], candidate["run"]["id"])
         self.assertEqual(merged["decisionRunId"], candidate["watch_run"]["id"])
         self.assertEqual(merged["authorizationCommit"], approval_case.AFTER)
         self.assertEqual(merged["authorizationBaseSha"], approval_case.BASE)
-        self.assertEqual(
+        # A successful synthetic ID join must NEVER validate as a publish
+        # receipt before independent ZIP/attestation/SBOM verification.
+        with self.assertRaises(receipt_check.Denied):
             receipt_check.validate_receipt(
                 merged, repository=candidate["repo"],
-                commit=approval_case.AFTER, actor=candidate["actor"], event="push"),
-            "push")
-        # Critically, none of these pure validators creates a public Release.
-        self.assertNotIn("publishableReceipt", merged)
+                commit=approval_case.AFTER, actor=candidate["actor"], event="push")
+        forged = deepcopy(merged)
+        forged["status"] = "VERIFIED_CHAT_PR_AUTHORIZATION"
+        with self.assertRaises(receipt_check.Denied):
+            receipt_check.validate_receipt(
+                forged, repository=candidate["repo"],
+                commit=approval_case.AFTER, actor=candidate["actor"], event="push")
 
     def test_cross_validator_identity_mismatch_denied(self):
         changes = [
