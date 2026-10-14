@@ -149,5 +149,116 @@ class FleetPublisherTests(TestCase):
         with patch.object(p,"get",return_value=bad),self.assertRaises(p.Denied):
             p.check_remote(tag,{"sample.zip":"d"*64},True,879)
 
+
+    def test_pre_g4_real_historical_publisher_manual_offline(self):
+        """Both exact pinned scripts read local synthetic ZIPs; no publisher main(), GET or write."""
+        import hashlib
+        import shutil
+        import subprocess
+        from copy import deepcopy
+        from urllib.error import HTTPError
+
+        frozen=ROOT/"tests"/"fixtures"/"issue-75-pre-g4"/"fleet-publish-release.py"
+        raw=frozen.read_bytes()
+        blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
+        self.assertEqual(blob,"85cbe8e6893477210831c6a813fe796f23d7eb08")
+        with TemporaryDirectory() as tmp:
+            local=Path(tmp)/"legacy"
+            local.mkdir()
+            shutil.copyfile(frozen,local/"fleet-publish-release.py")
+            shutil.copyfile(ROOT/"scripts"/"fleet-release-identity.py",
+                            local/"fleet-release-identity.py")
+            spec=importlib.util.spec_from_file_location(
+                "issue75_frozen_publisher",local/"fleet-publish-release.py")
+            legacy=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(legacy)
+            ext,lc,receipt=fixture()
+            dist=Path(tmp)/"dist"
+            dist.mkdir()
+            make_assets(dist,ext)
+            def simulate_attestation(*args):
+                self.assertEqual(args[:3],("gh","attestation","verify"))
+                self.assertIn("--signer-workflow",args)
+                self.assertEqual(args[args.index("--signer-workflow")+1],
+                                 "pgextwin/build/.github/workflows/build-extension-attested.yml")
+                if "--predicate-type" in args:
+                    self.assertEqual(args[args.index("--predicate-type")+1],
+                                     "https://spdx.dev/Document/v2.3")
+                return ""  # Stub only. NEVER a signed-evidence PASS.
+            with patch.object(subprocess,"run",side_effect=AssertionError("NO COMMAND")), patch("urllib.request.urlopen",side_effect=AssertionError("NO NETWORK")):
+                for implementation in (legacy,p):
+                    with self.subTest(implementation=implementation.__name__), patch.object(implementation,"REPO",REPO):
+                        result=implementation.check_assets(dist,ext,deepcopy(receipt),
+                              COMMIT,123,lc,verify_signatures=False)
+                        self.assertEqual(len(result),15)
+                        with patch.object(implementation,"run",side_effect=simulate_attestation) as signer:
+                            verified_by_stub=implementation.check_assets(
+                                dist,ext,deepcopy(receipt),COMMIT,123,lc,verify_signatures=True)
+                            self.assertEqual(result,verified_by_stub)
+                            self.assertEqual(signer.call_count,10)
+                            self.assertEqual(sum("--predicate-type" in call.args for call in signer.call_args_list),5)
+                        negative=(
+                            ("wrong status",{"status":"VERIFIED_CHAT_PR_AUTHORIZATION"}),
+                            ("wrong mode",{"authorizationMode":"chat-pr-authorization"}),
+                            ("wrong trusted SHA",{"trustedCommit":"f"*40}),
+                            ("wrong repo",{"repository":"pgextwin/other"}),
+                            ("wrong actor empty",{"operator":""}),
+                            ("wrong PG major",{"majors":[15,16,17,18]}),
+                            ("wrong source SHA",{"sources":[dict(receipt["sources"][0],commit="f"*40)]+receipt["sources"][1:]}),
+                        )
+                        for title,change in negative:
+                            with self.subTest(implementation=implementation.__name__,deny=title):
+                                mutated=deepcopy(receipt)
+                                mutated.update(change)
+                                with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                                    implementation.check_assets(dist,ext,mutated,COMMIT,123,lc,False)
+                        expired=deepcopy(lc)
+                        expired["postgresql"][0]["eol"]="2020-01-01"
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                            implementation.check_assets(dist,ext,receipt,COMMIT,123,expired,False)
+                        # The actual manual executable needs exact event=workflow_dispatch and main ref.
+                        make_assets(dist,ext,run=999)
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                            implementation.check_assets(dist,ext,receipt,COMMIT,123,lc,False)
+                        make_assets(dist,ext,workflow_event="push")
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                            implementation.check_assets(dist,ext,receipt,COMMIT,123,lc,False)
+                        make_assets(dist,ext)
+                # Adversarial API: neither executable treats 503 as an absent tag.
+                for implementation in (legacy,p):
+                    with patch.object(implementation,"REPO",REPO), patch.dict("os.environ", {"GH_TOKEN":"OFFLINE_DUMMY"}, clear=False), patch.object(
+                        implementation,"urlopen",side_effect=HTTPError("https://api.github.com",503,"unavailable",{},None)):
+                        with self.assertRaises(implementation.Denied):
+                            implementation.get("releases/tags/v18.1-windows.3")
+                # No release, ref, Draft, Dispatch, POST/PATCH or subprocess executed.
+
+    def test_pre_g4_known_workflow_attempt_gap_is_not_claimed_as_verified(self):
+        """Both publisher implementations ignore PACKAGE-INFO.workflowRun.attempt.
+
+        This is a documented BLOCKED field, not a positive run-attempt acceptance.
+        """
+        import shutil
+        with TemporaryDirectory() as tmp:
+            local=Path(tmp)/"legacy"
+            local.mkdir()
+            shutil.copyfile(ROOT/"tests"/"fixtures"/"issue-75-pre-g4"/"fleet-publish-release.py",
+                            local/"fleet-publish-release.py")
+            shutil.copyfile(ROOT/"scripts"/"fleet-release-identity.py",
+                            local/"fleet-release-identity.py")
+            spec=importlib.util.spec_from_file_location("issue75_attempt_gap",
+                                                        local/"fleet-publish-release.py")
+            legacy=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(legacy)
+            ext,lc,receipt=fixture()
+            dist=Path(tmp)/"dist"
+            dist.mkdir()
+            make_assets(dist,ext)
+            # The synthetic packages omit attempt altogether; both readers currently accept.
+            # Do not infer authentic run_attempt or same-run signer from this check.
+            for implementation in (legacy,p):
+                with patch.object(implementation,"REPO",REPO):
+                    self.assertEqual(len(implementation.check_assets(
+                        dist,ext,receipt,COMMIT,123,lc,False)),15)
+
 if __name__=="__main__":
     main()
