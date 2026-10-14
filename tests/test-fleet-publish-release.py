@@ -37,7 +37,11 @@ def make_assets(folder,ext,run=123,workflow_event="workflow_dispatch"):
                 "repository":ext["upstream"]["repository"],
                 "ref":s["ref"],"version":s["version"],"commit":s["commit"]},
             "source":{"packagingRepository":REPO,"packagingCommit":COMMIT},
-            "workflowRun":{"id":run,"event":workflow_event,"ref":"refs/heads/main"}}
+            "buildInfrastructure":{"repository":"pgextwin/build",
+                "workflow":p.guard.SIGNER_PATH,"commit":p.guard.SIGNER_SHA},
+            "workflowRun":{"id":run,"attempt":1,
+                "url":f"https://github.com/{REPO}/actions/runs/{run}",
+                "event":workflow_event,"ref":"refs/heads/main"}}
         with ZipFile(folder/(stem+".zip"),"w") as z:
             z.writestr("PACKAGE-INFO.json",json.dumps(info))
         (folder/(stem+".spdx.json")).write_text('{"spdxVersion":"SPDX-2.3"}')
@@ -103,14 +107,14 @@ class FleetPublisherTests(TestCase):
         with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):
             folder=Path(tmp)
             make_assets(folder,ext,workflow_event="push")
+            # PRE-G4 current-main guard deliberately refuses a future push
+            # publication: neither a typed receipt nor a mocked empty gh
+            # verification result can bypass the active manual-run preflight.
             with patch.object(p,"run",return_value="") as verifier:
-                ok=p.check_assets(folder,ext,receipt,COMMIT,123,lc,True,
-                                  workflow_event="push")
-                # Two independent attestation verifications per PG major.
-                self.assertEqual(verifier.call_count,10)
-                self.assertEqual(sum(
-                    "--predicate-type" in c.args for c in verifier.call_args_list),5)
-            self.assertEqual(len(ok),15)
+                with self.assertRaises(p.guard.Deny):
+                    p.check_assets(folder,ext,receipt,COMMIT,123,lc,True,
+                                   workflow_event="push")
+                verifier.assert_not_called()
             with self.assertRaises(p.Denied):
                 p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
                                workflow_event="push")
@@ -192,11 +196,19 @@ class FleetPublisherTests(TestCase):
                               COMMIT,123,lc,verify_signatures=False)
                         self.assertEqual(len(result),15)
                         with patch.object(implementation,"run",side_effect=simulate_attestation) as signer:
-                            verified_by_stub=implementation.check_assets(
-                                dist,ext,deepcopy(receipt),COMMIT,123,lc,verify_signatures=True)
-                            self.assertEqual(result,verified_by_stub)
-                            self.assertEqual(signer.call_count,10)
-                            self.assertEqual(sum("--predicate-type" in call.args for call in signer.call_args_list),5)
+                            if implementation is legacy:
+                                # Frozen production pin remains unchanged and only
+                                # synthetic legacy compatibility is asserted here.
+                                self.assertEqual(result,implementation.check_assets(
+                                    dist,ext,deepcopy(receipt),COMMIT,123,lc,True))
+                                self.assertEqual(signer.call_count,10)
+                            else:
+                                # Current-main guard requires authenticated active
+                                # run GET + genuine strict JSON before publication.
+                                with self.assertRaises(implementation.guard.Deny):
+                                    implementation.check_assets(
+                                        dist,ext,deepcopy(receipt),COMMIT,123,lc,True)
+                                signer.assert_not_called()
                         negative=(
                             ("wrong status",{"status":"VERIFIED_CHAT_PR_AUTHORIZATION"}),
                             ("wrong mode",{"authorizationMode":"chat-pr-authorization"}),
@@ -210,18 +222,18 @@ class FleetPublisherTests(TestCase):
                             with self.subTest(implementation=implementation.__name__,deny=title):
                                 mutated=deepcopy(receipt)
                                 mutated.update(change)
-                                with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                                with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                                     implementation.check_assets(dist,ext,mutated,COMMIT,123,lc,False)
                         expired=deepcopy(lc)
                         expired["postgresql"][0]["eol"]="2020-01-01"
-                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                             implementation.check_assets(dist,ext,receipt,COMMIT,123,expired,False)
                         # The actual manual executable needs exact event=workflow_dispatch and main ref.
                         make_assets(dist,ext,run=999)
-                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                             implementation.check_assets(dist,ext,receipt,COMMIT,123,lc,False)
                         make_assets(dist,ext,workflow_event="push")
-                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                             implementation.check_assets(dist,ext,receipt,COMMIT,123,lc,False)
                         make_assets(dist,ext)
                 # Adversarial API: neither executable treats 503 as an absent tag.
@@ -232,11 +244,8 @@ class FleetPublisherTests(TestCase):
                             implementation.get("releases/tags/v18.1-windows.3")
                 # No release, ref, Draft, Dispatch, POST/PATCH or subprocess executed.
 
-    def test_pre_g4_known_workflow_attempt_gap_is_not_claimed_as_verified(self):
-        """Both publisher implementations ignore PACKAGE-INFO.workflowRun.attempt.
-
-        This is a documented BLOCKED field, not a positive run-attempt acceptance.
-        """
+    def test_pre_g4_frozen_legacy_attempt_gap_remains_not_fixed(self):
+        """Frozen old pin remains unchanged; current main rejects missing attempt."""
         import shutil
         with TemporaryDirectory() as tmp:
             local=Path(tmp)/"legacy"
@@ -253,12 +262,18 @@ class FleetPublisherTests(TestCase):
             dist=Path(tmp)/"dist"
             dist.mkdir()
             make_assets(dist,ext)
-            # The synthetic packages omit attempt altogether; both readers currently accept.
-            # Do not infer authentic run_attempt or same-run signer from this check.
-            for implementation in (legacy,p):
-                with patch.object(implementation,"REPO",REPO):
-                    self.assertEqual(len(implementation.check_assets(
-                        dist,ext,receipt,COMMIT,123,lc,False)),15)
+            # Omit attempt deliberately only for this regression.
+            for zip_path in dist.glob("*.zip"):
+                with ZipFile(zip_path) as archive:
+                    pkg=json.loads(archive.read("PACKAGE-INFO.json"))
+                pkg["workflowRun"].pop("attempt")
+                with ZipFile(zip_path,"w") as archive:
+                    archive.writestr("PACKAGE-INFO.json",json.dumps(pkg))
+            with patch.object(legacy,"REPO",REPO):
+                self.assertEqual(len(legacy.check_assets(
+                    dist,ext,receipt,COMMIT,123,lc,False)),15)
+            with patch.object(p,"REPO",REPO), self.assertRaises(p.Denied):
+                p.check_assets(dist,ext,receipt,COMMIT,123,lc,False)
 
 if __name__=="__main__":
     main()
