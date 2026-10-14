@@ -39,6 +39,7 @@ jobs:
         run: python tests/test-issue-75-historical-certificate-readonly.py
 
       # Complete all ten read-only predicate checks even if an early X509 claim is absent.
+      # Interpret the observed gh 2.102.0 X509 runInvocationURI; exact attempt required.
       - name: Independently verify real historical X509 signer/run-attempt binding
         env:
           GH_TOKEN: ${{ github.token }}
