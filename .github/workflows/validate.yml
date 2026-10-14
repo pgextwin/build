@@ -70,6 +70,9 @@ jobs:
       - name: Validate Phase D prepublication JIT and TOCTOU denial fixtures (#75)
         run: python tests/test-chat-pr-phase-d-prepublish.py
 
+      - name: Validate Phase D atomic create-only tag/replay simulation (offline only)
+        run: python tests/test-chat-pr-phase-d-atomic-replay.py
+
       - name: Validate Phase D real-GitHub reader and signed-byte denial fixtures (#75)
         run: python tests/test-chat-pr-phase-d-github-readonly.py
 
