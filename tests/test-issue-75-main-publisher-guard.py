@@ -76,8 +76,7 @@ def certificate(kind, zip_path, attempt=1, mutate=None):
             cert.pop(field, None)
         else:
             cert[field] = value
-    sbom = json.loads(zip_path.with_suffix(".spdx.json").read_text()) if False else {
-        "spdxVersion": "SPDX-2.3"}
+    sbom = {"spdxVersion": "SPDX-2.3"}
     signed_pred = (
         sbom if kind == g.SPDX else
         {"buildDefinition": {"buildType": "offline-fixture"},
@@ -119,7 +118,8 @@ def valid_gh(*args):
 
 
 class MainGuardOffline(TestCase):
-    def invoke(self, *, distort=None, signed=None, mutate_pkg=None, env=None):
+    def invoke(self, *, distort=None, signed=None, mutate_pkg=None, env=None,
+               api_failure=None):
         ext, lifecycle, receipt = oldtests.fixture()
         majors = receipt["majors"]
         active, page = evidence(majors)
@@ -131,6 +131,8 @@ class MainGuardOffline(TestCase):
             if mutate_pkg:
                 mutate_pkg(folder)
             def fake_get(path):
+                if api_failure is not None:
+                    raise p.Denied("GitHub API HTTP " + str(api_failure))
                 if path == f"actions/runs/{RUN}":
                     return copy.deepcopy(active)
                 if path == f"actions/runs/{RUN}/attempts/1/jobs?per_page=100":
@@ -209,11 +211,8 @@ class MainGuardOffline(TestCase):
                           repo=REPO, sha=COMMIT, run_id=RUN, attempt=1,
                           majors=[14,15,16,17,18])
         for status in (401, 403, 404, 429, 500, 503):
-            def err(*_):
-                raise p.Denied("API HTTP " + str(status))
             with self.subTest(status=status), self.assertRaises(p.Denied):
-                self.invoke(distort=None, signed=err if False else None,
-                            env={"GITHUB_RUN_ATTEMPT": "2"})
+                self.invoke(api_failure=status)
         # Direct pure contract rejects incomplete, missing, oversized or stale pages.
         run, page = evidence([14,15,16,17,18])
         page["total_count"] = 100
