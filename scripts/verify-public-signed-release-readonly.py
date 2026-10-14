@@ -67,7 +67,7 @@ def gh(*args):
         args[:2] == ("release", "download") or
         args[:2] == ("attestation", "verify") or
         (args[0] == "api" and len(args) == 2 and
-         re.fullmatch(r"repos/pgextwin/plpgsql_check/(?:releases/tags/v2\\.10\\.14-windows\\.1|git/ref/tags/v2\\.10\\.14-windows\\.1|actions/runs/[1-9][0-9]*)", args[1]))
+         re.fullmatch(r"repos/pgextwin/plpgsql_check/(?:releases/tags/v2\.10\.14-windows\.1|git/ref/tags/v2\.10\.14-windows\.1|actions/runs/[1-9][0-9]*)", args[1]))
     ), "non-readonly or unallowlisted gh command")
     try:
         p = subprocess.run(("gh",) + args, capture_output=True, text=True,
