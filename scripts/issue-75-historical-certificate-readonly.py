@@ -6,6 +6,7 @@ never evidence, and this code is not imported by any publishing component.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import importlib.util
 import json
 import os
@@ -34,7 +35,7 @@ EXPECTED_WORKFLOW = (
     "pgextwin/build/.github/workflows/issue-75-historical-certificate-readonly.yml"
     "@refs/heads/main"
 )
-FIELDS = ("issuer", "runnerInvocationURI", "buildSignerURI", "buildSignerDigest",
+FIELDS = ("issuer", "runInvocationURI", "buildSignerURI", "buildSignerDigest",
           "sourceRepositoryURI", "sourceRepositoryDigest", "sourceRepositoryRef",
           "buildTrigger")
 
@@ -124,7 +125,7 @@ def certified_claims(item, *, predicate, name, digest, sbom, run):
         raise Blocked("verified certificate required fields missing: "
                       + ",".join(k for k in FIELDS if k not in cert)
                       + "; actual certificate keys: " + ",".join(sorted(cert)))
-    uri = cert["runnerInvocationURI"]
+    uri = cert["runInvocationURI"]
     if type(uri) is not str:
         raise Blocked("runnerInvocationURI not a string")
     match = re.fullmatch(
@@ -136,7 +137,15 @@ def certified_claims(item, *, predicate, name, digest, sbom, run):
             "certificate run ID/attempt differs from fixed historical run")
     offline.check_run(run, public.REPO, public.TAG_SHA, RUN_ID, ATTEMPT)
     with_sbom = sbom if predicate == public.SPDX else {}
-    offline.check_statement([item], predicate, name, digest, with_sbom,
+    # gh 2.102.0 real signed certificate uses runInvocationURI (not the
+    # synthetic fixture's older runnerInvocationURI). Adapt only the input to
+    # the previously tested pure helper after successful CLI cryptographic
+    # verification; never treat a constructed JSON as a fresh signature.
+    require("runnerInvocationURI" not in cert,
+            "ambiguous certificate invocation claim names")
+    compat = deepcopy(item)
+    compat["verificationResult"]["signature"]["certificate"]["runnerInvocationURI"] = uri
+    offline.check_statement([compat], predicate, name, digest, with_sbom,
                             public.REPO, public.TAG_SHA, offline.SIGNER_SHA, uri)
     return {field: cert[field] for field in FIELDS} | {
         "verifiedTimestampCount": len(timestamps)}
