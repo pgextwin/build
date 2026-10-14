@@ -222,18 +222,18 @@ class FleetPublisherTests(TestCase):
                             with self.subTest(implementation=implementation.__name__,deny=title):
                                 mutated=deepcopy(receipt)
                                 mutated.update(change)
-                                with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                                with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                                     implementation.check_assets(dist,ext,mutated,COMMIT,123,lc,False)
                         expired=deepcopy(lc)
                         expired["postgresql"][0]["eol"]="2020-01-01"
-                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                             implementation.check_assets(dist,ext,receipt,COMMIT,123,expired,False)
                         # The actual manual executable needs exact event=workflow_dispatch and main ref.
                         make_assets(dist,ext,run=999)
-                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                             implementation.check_assets(dist,ext,receipt,COMMIT,123,lc,False)
                         make_assets(dist,ext,workflow_event="push")
-                        with self.assertRaises((implementation.Denied,implementation.ident.Denied)):
+                        with self.assertRaises((implementation.Denied,implementation.ident.Denied,p.guard.Deny)):
                             implementation.check_assets(dist,ext,receipt,COMMIT,123,lc,False)
                         make_assets(dist,ext)
                 # Adversarial API: neither executable treats 503 as an absent tag.
