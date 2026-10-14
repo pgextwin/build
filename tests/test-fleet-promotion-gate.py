@@ -146,5 +146,72 @@ class GateTests(unittest.TestCase):
         with self.assertRaises(gate.Denied):
             self.check(x)
 
+
+    def test_pre_g4_exact_pin_manual_parity_offline(self):
+        """Execute the immutable old gate and current gate on the SAME synthetic data."""
+        import hashlib
+        import shutil
+        import subprocess
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        frozen=ROOT/"tests"/"fixtures"/"issue-75-pre-g4"/"fleet-promotion-gate.py"
+        data=frozen.read_bytes()
+        blob=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\\0"+data).hexdigest()
+        self.assertEqual(blob,"6abf79d6a037a9ca5e77d5ce7803d520701e290c")
+        with TemporaryDirectory() as tmp:
+            location=Path(tmp)
+            shutil.copyfile(frozen,location/"fleet-promotion-gate.py")
+            shutil.copyfile(ROOT/"scripts"/"fleet-release-identity.py",
+                            location/"fleet-release-identity.py")
+            spec=importlib.util.spec_from_file_location(
+                "issue75_frozen_gate",location/"fleet-promotion-gate.py")
+            legacy=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(legacy)
+            # The executed identity helper is immutable between old and current pins.
+            ident_bytes=(location/"fleet-release-identity.py").read_bytes()
+            identity=hashlib.sha1(b"blob "+str(len(ident_bytes)).encode()+
+                                  b"\\0"+ident_bytes).hexdigest()
+            self.assertEqual(identity,"e8c63f6f7f26a883cf898ca1c3e386d9ed2f1d7c")
+            with patch.object(subprocess,"run",side_effect=AssertionError("NO SUBPROCESS")), \\
+                 patch("urllib.request.urlopen",side_effect=AssertionError("NO NETWORK")):
+                for extension in ("plpgsql_check","pg_bigm","pgaudit"):
+                    with self.subTest(extension=extension):
+                        item=fixture(extension)
+                        old=legacy.verify(**deepcopy(item))
+                        new=gate.verify(**deepcopy(item))
+                        self.assertEqual(old,new)
+                        self.assertEqual(old["status"],"VERIFIED_MANUAL_DISPATCH")
+                        self.assertEqual(old["authorizationMode"],"manual-dispatch")
+                        self.assertNotIn("publishableReceipt",old)
+                        self.assertNotIn("signedArtifactsVerified",old)
+                cases={
+                    "wrong PUBLISH":lambda x:x.update(confirmation="publish"),
+                    "wrong actor":lambda x:x.update(actor="github-actions[bot]"),
+                    "wrong policy":lambda x:x["policy"].update(releasePolicy="chat-pr-authorization"),
+                    "wrong local mode":lambda x:x["local"].update(releasePolicy="chat-pr-authorization"),
+                    "wrong main SHA":lambda x:x.update(main_sha="short"),
+                    "wrong candidate event":lambda x:x["run"].update(event="push"),
+                    "wrong candidate run":lambda x:x["run"].update(id=999),
+                    "wrong candidate head":lambda x:x["pr"]["head"].update(sha="1"*40),
+                    "wrong upstream SHA":lambda x:x["ext"]["upstream"].update(commit="1"*40),
+                    "wrong decision":lambda x:x["decision"].update(candidateId="0"*20),
+                    "wrong audit digest":lambda x:x["audit"]["majors"][0].update(zipSha256="0"*63),
+                    "expired PG":lambda x:x["lifecycle"]["postgresql"][0].update(eol="2020-01-01"),
+                }
+                for title,change in cases.items():
+                    item=fixture()
+                    change(item)
+                    with self.subTest(deny=title):
+                        for impl in (legacy,gate):
+                            with self.assertRaises((impl.Denied,impl.ident.Denied)):
+                                impl.verify(**deepcopy(item))
+                chat=fixture()
+                chat["authorization_mode"]="chat-pr-authorization"
+                with self.assertRaises(TypeError):
+                    legacy.verify(**chat)  # Legacy executable has no Chat mode.
+                with self.assertRaises(gate.Denied):
+                    gate.verify(**chat)  # Actual central/local policy is manual-only.
+
 if __name__=="__main__":
     unittest.main()
