@@ -1,0 +1,175 @@
+# Issue #75 — Production readiness and acceptance matrix (G0–G5)
+
+**Version:** 1.0 (2026-10-14 JST)  
+**Status:** G0 **ACCEPTED IN LIMITED SCOPE**; G1 **documentation-only gate**; G2–G5 **NOT ACCEPTED / no production enablement**.  
+**Tracker:** [build Issue #75](https://github.com/pgextwin/build/issues/75); authoritative [G0–G5 decision](https://github.com/pgextwin/build/issues/75#issuecomment-6160549857).  
+**Related:** [ADR-0075](adr-0075-chat-authorized-publication.md), [Classic auditor contract](issue-75-classic-protection-audit-app.md), [chat-first policy](chat-first-publication.md), [Issue #61](https://github.com/pgextwin/build/issues/61).
+
+This is a **versioned implementation / test / evidence contract**, not a publication instruction. The G0 proofs are deliberately not rerun. A passing documentation PR, an offline test or a historical signed Release **does not** create or authorize a new publishable receipt. Do not treat a future G2 or G3 acceptance as permission to move to G4. Separately approve any capability-changing step.
+
+## 1. Immutable baseline and present policy
+
+Baseline reconciled on 2026-10-14 JST (recheck current GitHub refs when applying a *future* gate):
+
+| Item | Observed state / auditable evidence |
+| --- | --- |
+| `pgextwin/build` protected main | `765852d7dd9575abe8b002e785e70d6118175615` after [PR #91](https://github.com/pgextwin/build/pull/91); main required context `resolver`, GitHub Actions App ID `15368` |
+| Phase D PR exact head | `0618c7b805fafebe3ae320e0a6007f057d409d37`; [PR run #38508401081](https://github.com/pgextwin/build/actions/runs/38508401081) `pull_request`, required resolver **SUCCESS** |
+| Phase D postmerge | [main run #38508471848](https://github.com/pgextwin/build/actions/runs/38508471848) `push`, **SUCCESS**; six hostile/offline tests added in #91 |
+| Phase D sign-off | [Issue comment #6160501342](https://github.com/pgextwin/build/issues/75#issuecomment-6160501342): **PASS_OFFLINE_SIMULATION_ONLY**, `publishableReceipt=false` |
+| Genuine nonpublishing actor/event | [plpgsql_check PR #27 evidence](https://github.com/pgextwin/build/issues/75#issuecomment-6159994062); real protected merge / event / Windows CI; **not** a real publication |
+| Historical public signed asset bytes | [PR #90](https://github.com/pgextwin/build/pull/90), [byte-level evidence](https://github.com/pgextwin/build/issues/75#issuecomment-6160343683): already public `plpgsql_check v2.10.14-windows.1`, PG14–18 ZIP/SHA/PACKAGE-INFO, SPDX/Grype and SLSA/SPDX attestations. Historical promotion run #38128142145 ended **FAILURE**; do not report that entire run as successful |
+| Unmerged future candidate | [plpgsql_check PR #29](https://github.com/pgextwin/plpgsql_check/pull/29): **OPEN/DRAFT** at reconciliation; ordinary `windows.yml` candidate run is not a signed publisher authorization |
+| Central and local modes | `build/metadata/release-promotion.json.releasePolicy=manual-dispatch`; `plpgsql_check/config/release-promotion.json.releasePolicy=manual-dispatch`; `build/metadata/automation-fleet.json.releasePolicy=manual-only` (14 BUILD entries). Maintain these exact values throughout G1–G3 |
+| Catalog daily audit | `catalog/.github/workflows/catalog-drift-readonly.yml`, cron `30 0 * * *` (09:30 JST), read-only; first **actual** `schedule` run on 2026-10-14 **NOT ACCEPTED**; see independent track below |
+
+**Scope restrictions:** G1 must touch documentation only. No Release, tag or `git/refs` write, Dispatch, real `.github/release-authorizations/*.json`, live PUBLISH PR, write-capable publication trigger, publishable receipt, policy switch, PR automerge, Secret, GitHub App permissions, or branch protection changes. Issue #75 remains OPEN. The historic Classic auditor design document has some older “credentials not created” status language; defer to newer Issue #75 acceptance evidence for achieved pilot proof, but **always** require fresh, authenticated runtime evidence in a future trusted job.
+
+## 2. Status vocabulary and dependency order
+
+- **PASS (bounded):** the named evidence and exact trust boundary only. `PASS_OFFLINE_SIMULATION_ONLY` does **not** imply live GitHub tag atomicity or future candidate signature verification.
+- **DENY:** a negative condition or missing/ambiguous evidence; fail closed, do not generate any publication receipt or privileged write.
+- **BLOCKED / NOT ACCEPTED:** prerequisites are not independently proven; prohibition on enabling publication remains.
+- **SKIPPED:** a CI job not required in that event; never relabel it SUCCESS.
+
+| Gate | Prerequisite | Current acceptance | Permitted immediate successor |
+| --- | --- | --- | --- |
+| **G0** Immutable nonpublishing baseline | Existing #61/Phase C/D findings | **ACCEPTED — bounded proofs only** | G1 documentation; no live enablement |
+| **G1** Versioned trust/acceptance contract | G0 and latest Issue/main recheck | **Document review / protected docs PR** | G2 only after exact-head resolver and postmerge main CI |
+| **G2** Real GET-only JIT negative audit | G1 accepted and isolated trusted-read setup | **NOT ACCEPTED** | G3 inert integration after two genuine snapshots/negative DENY |
+| **G3** Future mode/receipt contract, default DENY | G2 acceptance, no policy or trigger switch | **NOT ACCEPTED** | Separate explicit transition decision before any G4 work |
+| **G4** Controlled live PR authorization acceptance | G3 + independently authorized production transition + eligible future candidate | **NOT AUTHORIZED / NOT ACCEPTED** | G5 only after event, identity, signing and atomic reservation proofs |
+| **G5** Actual future Release → Catalog → Website | G4 independent acceptance + separately approved fresh explicit PUBLISH | **NOT AUTHORIZED / NOT ACCEPTED** | Extension-by-extension opt-in only after proven E2E |
+
+The **Catalog scheduled-audit checkpoint is parallel** to G1–G3 and blocks any 14-extension daily rollout, regardless of G0–G3 status. Do not silently equate a `push` audit run with `event=schedule`.
+
+## 3. Detailed gate contracts
+
+### G0 — Preserve proven, nonpublishing baseline (accepted; DO NOT repeat)
+
+| Field | Contract |
+| --- | --- |
+| Repositories / verifier | `build` (shared gate and tests), `plpgsql_check` (protected real actor/event and signed historical bytes), `catalog` (separate read-only schedule track); GitHub Actions, Chat GitHub connector, independent read-only audit |
+| GitHub events | Actual PR #27 `pull_request` / postmerge `push`; build #90/#91 PR `pull_request` and postmerge `push`; separately historical `workflow_dispatch`-origin signed assets |
+| Authentication / permissions | Human connector PR/merge provenance; Classic `Administration:read`/Metadata read-only App and effective REST+GraphQL evidence; signed attestation verification. No publisher write identity inferred |
+| SHA / required CI | Exact PR #91 head `0618c7...`, build main `765852...`; build `resolver` app 15368 SUCCESS; pilot `plpgsql_check` protected eight-context baseline (listed in section 5). Real original signed assets' SHA256 checked independently |
+| Method / PASS | Preserve #27 actor/event/negative denial proof, #90 already-published byte/SLSA/SPDX signature proof and #91 synthetic one-file approval/JIT/atomic 422/replay/partial-Draft hostile fixtures. **PASS only within each named proof's scope** |
+| DENY / not accepted | Bot/unproven identity, wrong head, direct push, missing Classic, stale JIT, tag taken, replay, wrong ID/timeouts. **Never** infer new live PUBLISH intent, live concurrent `POST git/refs` behavior, fresh candidate attestation or a new Release from the G0 results |
+| Evidence gap / exit | All future live write/receipt/E2E acceptance absent. Gate exits to G1 only; no additional G0 implementation requested |
+
+Source mapping: `scripts/chat-pr-authorization.py` (`verify_approval`, `bind_verified_receipt`), `scripts/chat-pr-phase-d-github-readonly.py` (`PhaseDGitHubAdapter`), `scripts/chat-pr-phase-d-prepublish.py` (`verify_inert_prepublication_recheck`), `scripts/classic-protection-audit.py`, `scripts/fleet-publish-release.py`; `tests/test-chat-pr-phase-d-atomic-replay.py`; historical fixed-byte verifier `scripts/verify-public-signed-release-readonly.py`. [PR #90](https://github.com/pgextwin/build/pull/90) and [PR #91](https://github.com/pgextwin/build/pull/91) are completed work, not templates for reexecution.
+
+### G1 — This document, implementation-to-evidence traceability (safe now)
+
+| Field | Contract |
+| --- | --- |
+| Repositories / verifier | `pgextwin/build` **only**; Chat-connected writer and GitHub Actions `resolver` |
+| GitHub event | Ordinary **documentation-only** PR `pull_request` and protected `main` `push` after squash; absolutely no authorization pathname or publishing event |
+| Authentication / permissions | Current GitHub connector acting as an authenticated contributor; ordinary protected PR+CI, no publisher/App credential |
+| SHA / required CI | Branch created from freshly verified build `main`, one document path `docs/issue-75-production-readiness.md`; exact PR head `resolver` SUCCESS from app 15368, expected-head squash; postmerge main run `push` and resolver SUCCESS at resulting main SHA |
+| Method / PASS | Each gate documents target repo, trusted verifier, event, principal, fixed SHA/required checks, positive/negative method, evidence not yet obtained and promotion dependencies; PR diff is documentation only |
+| DENY | Any change to executable code/policy/triggers/receipts, unresolved CI, wrong head, protection regression or missing postmerge verification → do not declare G1 merged/complete |
+| Evidence gap / exit | After protected merge and postmerge CI attach PR/head/main/run/Issue comment. Then G2 is **eligible for planning**, not automatically accepted or enabled |
+
+### G2 — Production-shaped authenticated read-only JIT NEGATIVE audit (future, no authorization)
+
+| Field | Contract |
+| --- | --- |
+| Repositories / verifier | Trusted protected-main `plpgsql_check` pilot, shared `build` immutable code; separate narrowly installed Classic auditor App; future isolated verifier, not a PR-provided script |
+| GitHub event | Audited nonpublishing trusted-main evidence run only; **not** `push`-to-publish, `workflow_dispatch` promotion, or `release-authorizations` file. A real authorization must be absent |
+| Authentication / permissions | GET-only evidence token (`contents:read`, `attestations:read`) and distinct `pgextwin-classic-protection-auditor` short-lived installation token restricted to `plpgsql_check` `Administration:read` + `Metadata:read`; zero GitHub writes; no token in candidate checkout/log/artifacts |
+| SHA / required CI | Pin reviewed shared runner code and actual `main` SHA, two *fresh genuine* reads of main, protected Classic REST+GraphQL proof, all eight exact-head GitHub Actions app 15368 checks on relevant pilot PR, candidate PR/head/decision run/audit, tag ref, public Release and independently verified signatures |
+| Method / PASS | Reuse `PhaseDGitHubAdapter.capture`, Classic composite, `verify_inert_prepublication_recheck` and prior negative probe; exercise authenticated **absence** of actual authorization / unsigned Draft → **DENY**; verify 2 real snapshots, no publisher receipt or write capabilities. Record sanitized HTTP/status/head/run evidence |
+| DENY | Missing real auth, Draft/unmerged candidate, unsigned/unknown artifacts, wrong signer/PG/source, occupied/unknown tag, stale main, failed/skipped/missing CI, incomplete pagination, 401/403/404/429/5xx/timeout, changed Classic/bypass, nonmatching snapshots; never accept synthetic fixture as live authorization |
+| Evidence gap / exit | No two live complete authenticated snapshots and no future eligible signed candidate proven yet. G2 accepted **only as real read-only negative acceptance**; no positive publication conclusion. Requires separate protected nonpublishing job review before any code is added |
+
+### G3 — Default-DENY integration of future event/receipt/publisher boundaries (future, inert)
+
+| Field | Contract |
+| --- | --- |
+| Repositories / verifier | Shared `build` gate/publisher/package validators, inert `plpgsql_check` caller fixtures; independent adversarial CI |
+| GitHub event | Future `chat-pr-authorization` contract expects trusted protected `main` `push` after exactly one squash-merged authorization JSON PR; present production remains only `manual-dispatch` / `workflow_dispatch` |
+| Authentication / permissions | Future human allowlist + authenticated GitHub PR/commit/check evidence, scoped GET/Classic proof; **no enabled publish trigger or write token** at G3 |
+| SHA / required CI | Future tuple: actual `push.before=packagingMainSha`, `push.after=authorizationCommit=current main`, exactly one parent, authenticated merged PR/one-file matching blob, exact authorization PR head and eight app-bound required checks, merged candidate SHA/decision/windowed runs, immutable upstream full SHA. Current build changes still require its own exact-head `resolver` |
+| Method / PASS | Inert validation of `VERIFIED_CHAT_PR_AUTHORIZATION` + `push` + correctly typed PACKAGE-INFO event + candidate identities; keep `bind_verified_receipt` output nonpublishable; require comprehensive negative tests including actor/bot, direct push, extra file, wrong parent/head/merge, stale candidate, signature, two-read JIT races, timeout/pagination, 422 race, replay, tag/Draft/immutable Release ID and recovery |
+| DENY | Any policy remains `manual-dispatch` (as it must during G3), absent genuine authorization/identity/signature proof, unexpected event/receipt tuple or any ambiguous API state ⇒ DENY. No production-capable receipt minted in this gate |
+| Evidence gap / exit | Production end-to-end signer-to-receipt-to-write boundary still unproven. G3 exit requires review of least-privilege write-token isolation, event suppression semantics, single-tag serialization, partial-Draft recovery runbook and separately authorized G4 decision; **do not flip any policy automatically** |
+
+Code mapping: `scripts/release-authorization.py:validate_receipt` recognizes strict typed mode/event pairs; `scripts/fleet-promotion-gate.py` handles candidate evidence; `scripts/fleet-publish-release.py` includes tag/Draft/ID-scoped state but active production manual mode remains unchanged. `build-extension-attested.yml` / package finalizer event provenance must agree. No mock should be imported as a trusted runtime publisher.
+
+### G4 — One controlled real authorization transition (future; explicit separate approval mandatory)
+
+| Field | Contract |
+| --- | --- |
+| Repositories / verifier | Exactly `plpgsql_check` pilot and `build` trusted shared gate; fresh human Chat publication instruction, independent GitHub PR/event/Classic/candidate/signer checks |
+| GitHub event | A genuinely new one-file authorization PR, exact-head required `pull_request` CI, expected-head **squash**; actual main `push` trigger proven rather than assumed (GitHub `GITHUB_TOKEN` event suppression matters). No publication from direct push/issue/comment/bot |
+| Authentication / permissions | Individually authenticated allowlisted **human**, exact `user.login`, `merged_by.login`, `sender`/`GITHUB_ACTOR` correlation and authentic API provenance; separately approved tightly scoped publication credential, dedicated GET-only Classic App; never use Catalog App as publisher |
+| SHA / required CI | Explicit fresh instruction binds exact repo/tag/candidate and literal `PUBLISH`; single committed JSON `releaseTag`, `packagingMainSha`, `candidatePr`, `candidateHeadSha`, `candidateRunId`, `decisionRunId`, `operatorLogin`; live `before`/single-parent squash/`after`, eight required plpgsql_check checks on **exact** head (section 5), source full SHA, signed PG lifecycle matrix, current main and tag/Release double JIT |
+| Method / PASS | Only after a separate approved transition, demonstrate future eligible signed candidate, genuine Chat intent + same event/PR/blob identity, current Classic proof, signed attestation, last possible JIT before privileged operation, create-only tag reservation with recorded API outcome, first-use and replay denial. Any isolated real two-writer tag experiment needs **separate explicit isolated-scope authorization**, not accidental production concurrency |
+| DENY | Actor/event equality **alone** does not cryptographically prove text typed to Chat; absent fresh unambiguous user PUBLISH for named release, changed SHA/checks, failed evidence, occupied tag, non-atomic GET-only “absence”, unproven write principal or scope, reuse/replay → STOP with no tag or receipt |
+| Evidence gap / exit | **No real authorization PR, true future signed candidate publish transition, live `POST git/refs` atomic race, or publishable receipt proof exists.** G4 may not start under this G1 instruction. Separate approval and documented credential boundary required; G5 not implied |
+
+### G5 — Genuine new Release, Catalog proposal, Website verification (future; separately approved)
+
+| Field | Contract |
+| --- | --- |
+| Repositories / verifier | `plpgsql_check` pilot Release; `build` signer/immutable publisher, independent validator; `catalog` scoped proposer and protected PR, `website` publish verification |
+| GitHub events | Authenticated verified `main` authorization `push` → signed builder/Release; Catalog read-only reconciliation `schedule` when accepted, scoped one-record `pull_request` and Chat-reviewed protected merge; Website existing main CI/publication |
+| Authentication / permissions | Fresh user-bound PUBLISH, independently gated publish-only credential; Catalog proposal App restricted to Catalog and cannot publish/merge; Chat GitHub connector merges only latest-head CI-passing Catalog PR |
+| SHA / required CI | New eligible merged candidate exact head, immutable upstream source SHA, packaging/main/authorization SHA and single unused tag; maintained-PG Windows matrix (PG14 EOL policy evaluated at time of run), package ZIP SHA256, PACKAGE-INFO, SPDX SBOM, Grype **report-only**, signed SLSA+SPDX predicates and signer-workflow, immutable Release ID; exact-head Catalog required CI, Website EN/JA and download SHA |
+| Method / PASS | Real create-only reservation and release workflow succeeds; independently re-download / rehash / verify signed new public bytes; quarantine partial failures without overwrite/delete; Catalog independently verifies new public assets, proposes **one** monotonic record PR; Chat merges protected exact-head and checks Website EN/JA, direct ZIP URL, displayed checksums / SBOM / Grype links |
+| DENY | Failed Promotion run, unsigned/mismatched bytes, stale PG version, reused/occupied tag, partial Draft, changed Release ID, absent Catalog scheduled-run acceptance, skipped/failed head CI, broken EN/JA or links; never call historical signed bytes a new Release E2E |
+| Evidence gap / exit | No future new release-to-Website single-Chat / zero-Work evidence. **Not authorized here.** Successful one-pilot E2E is prerequisite to individually controlled remaining-13 rollout; no unattended Release, auto candidate merge or Catalog auto merge |
+
+## 4. Trust boundary and exact identity mapping
+
+**Chat intention is not GitHub actor authentication.** A logged-in human `actor`, `sender`, `user.login` or `merged_by.login` proves only the authenticated GitHub-side identities/events within its API trust boundary. It cannot cryptographically attest the user's exact natural-language Chat PUBLISH instruction. The operator must separately provide a **fresh, explicit, uniquely target-bound** publication instruction; neither G0 nor a document issue/comment nor a synthetic literal `PUBLISH` supplies it.
+
+**Candidate provenance is not public signed-byte provenance.** A `windows.yml` candidate run, even when successful, is not the signed Release build or a publishable receipt. An old, validly signed public `plpgsql_check v2.10.14-windows.1` ZIP proves those historical bytes only. For a future candidate rebind and independently verify `candidateHeadSha`, merged candidate PR, `candidateRunId`, `decisionRunId`, upstream full SHA, maintained PG matrix and each new ZIP+SBOM+attestation signer/subject; do not recycle a fixed historical signature.
+
+**GET absence is not atomic tag ownership.** Two nontransactional `GET git/ref/tags/<tag>` / `GET releases/tags/<tag>` calls cannot reserve a tag. The PR #91 test makes two fake GETs both “absent”, then uses an **in-memory simulation** of `POST git/refs` create-only: one success and one fake HTTP 422. This proves simulated control-flow fail-closed behavior, **not** GitHub's live concurrency behavior. Any future write must use an actual create-only operation, validate its server result, retain tag/draft-ID recovery evidence, deny replay and never force-update/delete/reuse a tag.
+
+**Main, policy and event binding:**
+
+1. `candidatePr` is the previously audited automation-owned candidate; its *actual merged* `head.sha` must equal `candidateHeadSha`. `candidateRunId` and `decisionRunId` must be actual verified successful independent evidence, not caller-supplied labels.
+2. `packagingMainSha` is the exact `main` SHA **before** authorization merge and equals real `push.before`; `authorizationCommit` is the exact single-parent squash result and equals `push.after`, run `GITHUB_SHA` and then-current main. The unique committed authorization JSON blob must match both PR file and commit file SHA; no extra edits/deletions/renames.
+3. Authorization PR head `authorizationHeadSha` has exact required CI; PR `merge_commit_sha` matches the push commit; creator, merger, sender and operator identities are authenticated and allowed. A PR body, message or filename alone does not substitute.
+4. Both trusted policy files must independently opt in before any future mode can publish, and candidate fleet policy and lifecycle must match. **During G1–G3 no opt-in is permitted**; current `manual-dispatch` and `manual-only` values mandate DENY for Chat-PR publication.
+5. Re-fetch mutable main/branch-protection/PR/CI/tag/Release/assets as near as possible to any future privileged write; compare two genuine snapshots and final JIT state. Even same-state GETs cannot guarantee a concurrent administrative change cannot happen after the last read.
+6. Typed receipt and PACKAGE-INFO tuple must be independently coherent: legacy `manual-dispatch` → `VERIFIED_MANUAL_DISPATCH` / `workflow_dispatch`; future `chat-pr-authorization` → `VERIFIED_CHAT_PR_AUTHORIZATION` / verified `push`. Current inert helpers deliberately yield `DRY_RUN_CONTEXT_ONLY` or `DRY_RUN_PHASE_D_RECHECK_ONLY`, `publishableReceipt=false`, `signedArtifactsVerified=false`. Never upgrade these statuses by field substitution.
+
+## 5. Exact required CI / protected-branch invariants
+
+The pilot Classic proof pins eight required check names to **GitHub Actions App ID 15368**, presently:
+
+1. `syntax`
+2. `windows / Resolve extension and PostgreSQL matrix`
+3. `windows / PostgreSQL 15 / Windows x64`
+4. `windows / PostgreSQL 16 / Windows x64`
+5. `windows / PostgreSQL 17 / Windows x64`
+6. `windows / PostgreSQL 18 / Windows x64`
+7. `Regression-test immutable Release preflight`
+8. `Windows required summary`
+
+Exact PR-head `completed/success` for every required check, enforced `strict=true`, PR-only main, zero required independent approvals, enforced admin protection, no bypass, no force-push/deletion and no silent Rulesets/Classic fallback. Missing/omitted/ambiguous REST fields are not equivalent to explicit empty bypass lists: `scripts/classic-protection-composite.py` and associated verified REST+GraphQL effective-ref proof must independently establish the constraints. Check names/major set are a **point-in-time contract**; PostgreSQL EOL and future matrix changes require a separately reviewed protection/CI migration (PG14 scheduled EOL 2026-11-12), never an implicit waiver. Build documentation PR requires its own required `resolver` at exact head; the eight checks refer to the pilot repository, not build.
+
+## 6. Independent Catalog scheduled-audit and 14-extension rollout track
+
+- **Catalog initial scheduled acceptance: NOT ACCEPTED.** `catalog-drift-readonly.yml` is Active with GitHub Actions enabled, and the cron specifies 09:30 JST / 00:30 UTC. The 2026-10-14 first true `event=schedule` run has **not** been established in the accepted evidence. A `push` SUCCESS is not a schedule SUCCESS; root cause has not been independently proven.
+- **Next checkpoint: 2026-10-15 09:30 JST.** Recheck actual workflow run `event=schedule`, head ref/SHA, attempt, job conclusion, two independent live read-only snapshots, no-change or justified drift and API-failure DENY; record a real run URL if present. Never fabricate a schedule run or dispatch it to stand in for one.
+- **14-extension daily read-only rollout: HOLD.** Existing 14 BUILD entries and earlier dry-run/no-change successes do not lift the blocked scheduled-event acceptance. Require separately accepted schedule behavior, 14 independent correctly scoped read-only validations, duplicate/no-change and timeout/TOCTOU denials before a rollout decision. No automatic PR creation, Catalog auto-merge, publication or App expansion.
+- This schedule gate is **not** G4/G5 authorization. Even when an authentic Catalog scheduled read-only audit passes, future public Release and Catalog proposal still require their own protected/attested evidence and explicit policy gates.
+
+## 7. Evidence ledger and next safe action
+
+| Gate / track | Accepted evidence | Still needed; not implied by G1 |
+| --- | --- | --- |
+| G0 | [Actor/event #6159994062](https://github.com/pgextwin/build/issues/75#issuecomment-6159994062), [signed historic bytes #6160343683](https://github.com/pgextwin/build/issues/75#issuecomment-6160343683), [offline #6160501342](https://github.com/pgextwin/build/issues/75#issuecomment-6160501342) | Real future intent, fresh signed candidate, live atomic write and E2E |
+| G1 | This versioned document (PR/head/CI/main/Issue URLs recorded in separate execution comment) | Protected exact-head docs PR merge and postmerge CI before marking G1 complete |
+| G2 | Existing inert reader and negative tests | Actual GET-only scoped two-snapshot trusted-main negative proof and CI URL |
+| G3 | Mode/receipt prototypes and hostile fixtures | Same-job independent integration, full CI and proof of default DENY; no enabled trigger |
+| G4 | None | Separate approval, genuine new authorized protected PR/push + human explicit PUBLISH + safe atomic reserve |
+| G5 | None | Actual new Release → independent new signed bytes → Catalog one-record PR → EN/JA Website |
+| Catalog schedule | Workflow is Active / cron configured; `push` evidence separate | Authentic `schedule` run and 14-extension rollout approval |
+
+**Recommended next engineering gate after a fully accepted G1:** G2, narrowly scoped **production-shaped GET-only negative JIT proof** in a trusted protected-main pilot. Reuse the existing read-only adapter and deny fixtures, retain default manual policy and do not introduce any real authorization, tag, Release, Dispatch or write credentials. Track the independent 2026-10-15 Catalog schedule checkpoint separately. Keep Issue #75 OPEN until actual separately authorized G5 acceptance.
