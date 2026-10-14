@@ -7,6 +7,8 @@ PUBLISH authorization is used. This is NOT live create-ref/E2E acceptance.
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import redirect_stdout, redirect_stderr
+import io
 import importlib.util
 import json
 import os
@@ -141,8 +143,10 @@ def invoke(fake, directory, *, recovery="recovery.json"):
                            side_effect=AssertionError("live subprocess forbidden")), \
          mock.patch.object(publisher, "urlopen",
                            side_effect=AssertionError("live HTTP forbidden")):
-        # A real typed manual receipt is validated; no fake Chat-PUBLISH is made.
-        return publisher.main()
+        # The real publisher's success banner must never appear in mock-CI
+        # logs as if a real public Release had occurred.
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            return publisher.main()
 
 
 class AtomicReplayTests(TestCase):
