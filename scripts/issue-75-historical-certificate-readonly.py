@@ -205,6 +205,21 @@ def run_audit():
                             "--predicate-type", predicate, "--format", "json")
                     results = public.read_json(public.gh(*args))
                     chosen = matching_evidence(results, predicate, zip_path.name, digest)
+                    # Print *only public, verified X.509 claims*, never raw token,
+                    # signature, whole bundle, or potentially secret predicate.
+                    x509 = ((chosen.get("verificationResult") or {})
+                            .get("signature") or {}).get("certificate")
+                    if type(x509) is dict:
+                        visible = ("issuer", "runInvocationURI", "buildSignerURI",
+                                   "buildSignerDigest", "sourceRepositoryURI",
+                                   "sourceRepositoryDigest", "sourceRepositoryRef",
+                                   "buildTrigger", "subjectAlternativeName",
+                                   "githubWorkflowSHA", "githubWorkflowRef",
+                                   "buildConfigURI", "buildConfigDigest")
+                        print(json.dumps({"pg": major, "predicate": short,
+                                          "verifiedX509PublicClaims": {
+                                              k: x509.get(k) for k in visible}},
+                                         sort_keys=True), flush=True)
                     claims = certified_claims(
                         chosen, predicate=predicate, name=zip_path.name,
                         digest=digest, sbom=sbom, run=run)
