@@ -143,8 +143,28 @@ def certified_claims(item, *, predicate, name, digest, sbom, run):
     # verification; never treat a constructed JSON as a fresh signature.
     require("runnerInvocationURI" not in cert,
             "ambiguous certificate invocation claim names")
+    # Real Fulcio cert contains the immutable reusable workflow SHA in its URI.
+    # This is stronger than the stale synthetic fixture's @refs/heads/main.
+    immutable_signer = ("https://github.com/pgextwin/build/" +
+                        offline.SIGNER_PATH + "@" + offline.SIGNER_SHA)
+    require(cert["buildSignerURI"] == immutable_signer
+            and cert.get("subjectAlternativeName") == immutable_signer
+            and cert["buildSignerDigest"] == offline.SIGNER_SHA
+            and cert.get("buildConfigURI") ==
+                ("https://github.com/" + public.REPO + "/" +
+                 offline.PROMOTE_PATH + "@refs/heads/main")
+            and cert.get("buildConfigDigest") == public.TAG_SHA
+            and cert.get("githubWorkflowSHA") == public.TAG_SHA
+            and cert.get("githubWorkflowRef") == "refs/heads/main",
+            "certified immutable signer URI / caller workflow identity mismatch")
+    # Only a deep copy is normalized for the older synthetic-only helper.
+    # Authentic requirements above are enforced on the original gh-verified cert.
     compat = deepcopy(item)
-    compat["verificationResult"]["signature"]["certificate"]["runnerInvocationURI"] = uri
+    compat_cert = compat["verificationResult"]["signature"]["certificate"]
+    compat_cert["runnerInvocationURI"] = uri
+    compat_cert["buildSignerURI"] = (
+        "https://github.com/pgextwin/build/" + offline.SIGNER_PATH +
+        "@refs/heads/main")
     offline.check_statement([compat], predicate, name, digest, with_sbom,
                             public.REPO, public.TAG_SHA, offline.SIGNER_SHA, uri)
     return {field: cert[field] for field in FIELDS} | {
