@@ -151,7 +151,9 @@ class RecoveryTests(TestCase):
         second["release"]["id"] = 702
         self.assertEqual(recovery.classify_recovery_evidence(
             evidence(), [first, second])["classification"], "UNKNOWN_QUARANTINE")
-        for failed in ({"error": "timeout"}, {"httpStatus": 503}, None):
+        self.assertEqual(recovery.classify_recovery_evidence(
+            evidence(), [None, snapshot()])["classification"], "UNKNOWN_QUARANTINE")
+        for failed in ({"error": "timeout"}, {"httpStatus": 503}):
             self.assertEqual(classify(first=failed)["classification"],
                              "UNKNOWN_QUARANTINE")
 
