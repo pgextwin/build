@@ -85,6 +85,9 @@ jobs:
       - name: Validate G2 independent real-read negative audit offline DENY fixtures (#75)
         run: python tests/test-chat-pr-g2-live-negative.py
 
+      - name: Validate G3 future event, typed receipt, PACKAGE-INFO and inert publisher boundary (#75)
+        run: python tests/test-chat-pr-g3-inert-contract.py
+
       - name: Enforce exact 14 BUILD manual-only Release allowlist and fail-closed controls
         run: python tests/test-fleet-promotion-policy.py
 
