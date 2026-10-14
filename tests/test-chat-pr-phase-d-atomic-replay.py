@@ -203,6 +203,8 @@ class AtomicReplayTests(TestCase):
         with mock.patch.object(publisher, "get", side_effect=api.get):
             with self.assertRaises(publisher.Denied):
                 publisher.check_remote(TAG, {}, True, 701)
+            # Wrong target commit during draft enumeration must fail, too.
+            api.releases[701]["target_commitish"] = "f" * 40
             with self.assertRaises(publisher.Denied):
                 publisher.staged_release_id(TAG, SHA)
         self.assertEqual(api.commands, [])
