@@ -98,7 +98,8 @@ class FleetPublisherTests(TestCase):
                        authorizationHeadSha="c"*40, authorizationBaseSha="d"*40,
                        candidateHeadSha="e"*40,
                        candidatePr=12, candidateRunId=900, decisionRunId=901,
-                       signedArtifactsVerified=True)
+                       signedArtifactsVerified=True, publishingEnabled=True,
+                       publishableReceipt=True)
         with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):
             folder=Path(tmp)
             make_assets(folder,ext,workflow_event="push")

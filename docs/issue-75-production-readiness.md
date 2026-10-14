@@ -173,3 +173,48 @@ Exact PR-head `completed/success` for every required check, enforced `strict=tru
 | Catalog schedule | Workflow is Active / cron configured; `push` evidence separate | Authentic `schedule` run and 14-extension rollout approval |
 
 **Recommended next engineering gate after a fully accepted G1:** G2, narrowly scoped **production-shaped GET-only negative JIT proof** in a trusted protected-main pilot. Reuse the existing read-only adapter and deny fixtures, retain default manual policy and do not introduce any real authorization, tag, Release, Dispatch or write credentials. Track the independent 2026-10-15 Catalog schedule checkpoint separately. Keep Issue #75 OPEN until actual separately authorized G5 acceptance.
+
+## 8. PRE-G4 inert hardening: strict receipt, trust roles and recovery (2026-10-14)
+
+**Authorization:** [Issue #75 decision #6163105169](https://github.com/pgextwin/build/issues/75#issuecomment-6163105169) permits only nonpublishing defensive code, tests and design. **G4/G5 remain NO-GO / NOT AUTHORIZED; Issue #75 OPEN.** This section does not enable a new publisher path.
+
+### Future typed receipt
+
+In scripts/release-authorization.py, future chat-pr-authorization mode requires signedArtifactsVerified, publishingEnabled, and publishableReceipt each to be **literal bool True (is True)**. Missing, null, false, 0, 1, strings, arrays, objects and other truthy stand-ins are denied. Mode/status/event, operator, repository, complete commit SHA and PR/candidate identities are separately checked. Current manual-dispatch semantics are unchanged. The receipt parser cannot certify a signer or the user's actual Chat intent; **no independent issuer or publishable receipt is created here**. Synthetic G3 output is still DENY.
+
+### Actual plpgsql_check manual workflow permission boundary
+
+On pilot protected main 881efc3c170e89ee68fd336f2e224fbd462c1c10, .github/workflows/promote.yml remains **workflow_dispatch only**. The actual executed manual shared-build pin is 455f0ccc667697f600700a6e64bcfd6c57b6a977 (both authorize/publish). The reusable attested builder is pinned to 5756b3c5136a8bf4db710016cfe97555f0a71c6d. **Neither is current build/main 1688d66a5130ea642fdb140e24fb555c31f0dc9a**; CI for main cannot prove those pinned executables passed an equivalent regression.
+
+| Role | Existing permissions | Trust boundary / required later review |
+| --- | --- | --- |
+| authorize (manual) | contents:read, actions:read, pull-requests:read | Future trusted protected-main GET-only verifier must independently bind human, PR/merge/push, required CI, Classic and double JIT. Never give verifier a publication writer credential. |
+| release_build | contents:read, id-token:write, attestations:write, artifact-metadata:write | Bind each maintained PG ZIP, SHA, PACKAGE-INFO, SPDX, Grype and independent signer/attestation to exact upstream/packaging full SHA. Signing role is not a Release writer. |
+| publish (manual only) | contents:write, actions:read, attestations:read | Only current manual publisher has Release writer scope. A future new writer needs separate GO and a trusted pinned implementation. Never supply write token to untrusted PR head, arbitrary checkout, or untrusted artifact. |
+| catalog_sync | contents:read; scoped Catalog App token (catalog Actions:write) | Catalog dispatch/proposer App cannot become a Release publisher. |
+| Classic protection auditor | dedicated Administration:read/Metadata:read scoped App | Strict GET-only Classic/GraphQL bypass-zero audit; no contents:write, separate from signer/publisher/Catalog. |
+
+Before any G4 rollout: independently diff **both exact executed shared pins** and the caller against reviewed build code; verify complete job token boundaries and signing build artifacts. An authenticated GitHub actor/sender/merged_by does not cryptographically prove a target-specific Chat PUBLISH instruction. A GITHUB_TOKEN-origin push normally suppresses subsequent workflows; an actual future human-authorized event must be proven. Do not change these existing pins, events, jobs, token scopes, settings, Secrets or policies in PRE-G4.
+
+### Recovery state gap and read-only design
+
+Current scripts/fleet-publish-release.py:state() writes **schemaVersion=1** with only schemaVersion, state, tag, runId and commit; it does **not** persist git/ref reservation response/status, immutable Release ID or remote asset inventory. Actual control flow already uses GET (non-atomic) → create-only POST git/refs → verify-tag Draft → uniquely resolve immutable Release ID → compare remote asset digest by ID → PATCH only that ID → re-verify published bytes. An ambiguous response or failed state write cannot establish a safe retry. Historic failed [Promotion Run #38128142145](https://github.com/pgextwin/plpgsql_check/actions/runs/38128142145) was FAILURE at DRAFT_STAGED state mismatch; the exact mismatching field was never identified.
+
+**Proposed future durable recovery evidence schema v2 (not emitted or consumed by the actual publisher):**
+- schemaVersion=2, state, tag, runId, exact commit SHA.
+- reservation: outcome CREATED, HTTP 201, refs/tags/<tag>, confirmed immutable ref target SHA; retain raw response and errors.
+- releaseId: exact immutable positive Release ID after staging; no title/tag lookup substitution.
+- assetInventory: complete basename → lowercase SHA256 mapping; retain each remotely observed asset ID, upload state, SHA digest, and raw source response.
+- Two independently obtained, authenticated, complete GET snapshots (including HTTP status, pagination completeness, observation time and request identity); snapshots must agree.
+
+For TAG_RESERVED, require confirmed reservation and ref SHA with no unexpected Draft. For DRAFT_STAGED and DRAFT_VERIFIED, require matching positive Release ID, tag, target commit, draft=true, all expected assets with valid digests. For PUBLISHED_AUDIT_PENDING and PUBLISHED_VERIFIED, require same ID and draft=false, exact assets, and then a separate genuine signed/public-byte audit. Current v1 recovery artifacts lack essential fields, so always classify as UNKNOWN rather than pretending safe resumption.
+
+Any 422 loser/occupied tag, 429/5xx, timeout/connection reset, lost POST/PATCH response, failed persistence/upload of recovery artifact, incomplete or paginated inventory, two-read disagreement, changed ref SHA or immutable ID, draft state mismatch, missing/duplicate/extra/partial assets, digest mismatch, unexpected Release, replay or missing evidence → **UNKNOWN_QUARANTINE / fail closed**. A tag-lookup 404 must never imply absent Draft. Permitted next step is operator-controlled **GET-only investigation**. Automatic re-POST, retry, PATCH, mutation, deletion, overwrite, tag reuse or publishing is prohibited.
+
+The new scripts/release-recovery-evidence.py classifier is an **offline pure helper not referenced by the current publisher or workflow**. It returns either CONSISTENT_READ_ONLY or UNKNOWN_QUARANTINE, never publish/retry/mutation authorization. The matching classification is evidence consistency only, not proof that synthetic snapshots came from independent authenticated GitHub queries; mock tests cannot establish live one-winner behavior or actual recovery. No executable new publisher write flow is introduced. Only a later separately authorized G4 can address durable persistence and writer operations.
+
+### Scope and residual NO-GO
+
+Central and pilot-local releasePolicy=manual-dispatch, all 14 fleet BUILD/manual-only, candidate PR #29 Draft, and current promote.yml unchanged. The PRE-G4 acceptance gate is exact-head build resolver SUCCESS (App ID 15368), protected expected-head squash merge and postmerge main push CI SUCCESS; test the strict receipt and simulated read-only recovery classifier. **This proves no actual Release capability.**
+
+Remaining G4 blockers: genuinely new eligible candidate (Draft cleared, all required exact-head checks, full SHA/PG lifecycle and real fresh signed assets), fresh human target-bound Chat PUBLISH intent, independently authenticated and protected one-file PR/squash/push event, reviewed fixed executable pins, separate least-privileged GET-only verifier and narrowly scoped writer, independently verified signer/receipt issuer, two genuinely positive live JIT snapshots immediately before privileged action, atomic reservation/race tests under separate authorization, and durable immutable-ID recovery with quarantined ambiguity. A new publisher write flow, policy/trigger transition, real Release and subsequent G5 Catalog/Website E2E **each need separate explicit GO**.

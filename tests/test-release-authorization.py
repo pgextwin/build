@@ -25,7 +25,8 @@ def fixture(mode="manual-dispatch"):
                    authorizationCommit=SHA, authorizationHeadSha=HEAD,
                    authorizationBaseSha=BASE, candidateHeadSha="d"*40, candidatePr=3,
                    candidateRunId=31, decisionRunId=32,
-                   signedArtifactsVerified=True)
+                   signedArtifactsVerified=True, publishingEnabled=True,
+                   publishableReceipt=True)
     return obj
 
 class ReceiptTests(unittest.TestCase):
@@ -36,6 +37,33 @@ class ReceiptTests(unittest.TestCase):
                 self.assertEqual(auth.validate_receipt(
                     fixture(mode),repository=REPO,commit=SHA,
                     actor="HumanOperator",event=event),event)
+
+    def test_chat_flags_are_explicit_boolean_true_only(self):
+        # The future Chat route is inert, but its receipt validator must never
+        # treat missing, null or truthy values as an independently verified gate.
+        invalid = [None, False, 0, 1, "true", "True", [], [True], {}, {"value": True}]
+        for flag in ("signedArtifactsVerified", "publishingEnabled",
+                     "publishableReceipt"):
+            for value in invalid:
+                receipt = fixture("chat-pr-authorization")
+                receipt[flag] = value
+                with self.subTest(flag=flag, value=value), self.assertRaises(auth.Denied):
+                    auth.validate_receipt(receipt, repository=REPO, commit=SHA,
+                                          actor="HumanOperator", event="push")
+            receipt = fixture("chat-pr-authorization")
+            del receipt[flag]
+            with self.subTest(flag=flag, value="missing"), self.assertRaises(auth.Denied):
+                auth.validate_receipt(receipt, repository=REPO, commit=SHA,
+                                      actor="HumanOperator", event="push")
+
+    def test_manual_mode_does_not_require_future_chat_flags(self):
+        # Preserve deployed manual-dispatch behavior exactly.
+        manual = fixture()
+        for field in ("signedArtifactsVerified", "publishingEnabled", "publishableReceipt"):
+            self.assertNotIn(field, manual)
+        self.assertEqual(auth.validate_receipt(
+            manual, repository=REPO, commit=SHA, actor="HumanOperator",
+            event="workflow_dispatch"), "workflow_dispatch")
 
     def test_cross_mode_actor_identity_and_schema_denials(self):
         cases=[

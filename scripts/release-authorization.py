@@ -51,8 +51,8 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
         # establish this evidence before issuing a typed receipt. Never accept
         # a read-only pilot context, even if its status has been relabelled.
         require(receipt.get("signedArtifactsVerified") is True
-                and receipt.get("publishingEnabled") is not False
-                and receipt.get("publishableReceipt") is not False,
+                and receipt.get("publishingEnabled") is True
+                and receipt.get("publishableReceipt") is True,
                 "independent signed artifacts unproven or dry-run context")
         require(type(receipt.get("authorizationPr")) is int
                 and receipt["authorizationPr"] > 0
