@@ -91,6 +91,9 @@ jobs:
       - name: Enforce exact 14 BUILD manual-only Release allowlist and fail-closed controls
         run: python tests/test-fleet-promotion-policy.py
 
+      - name: Validate PRE-G4 run attempt and certificate provenance boundary (offline only)
+        run: python tests/test-issue-75-attempt-provenance-readonly.py
+
       - name: Validate 14-extension ID-scoped attested publisher denial fixtures
         run: python tests/test-fleet-publish-release.py
 
