@@ -135,7 +135,10 @@ class MainGuardOffline(TestCase):
                     raise p.Denied("GitHub API HTTP " + str(api_failure))
                 if path == f"actions/runs/{RUN}":
                     return copy.deepcopy(active)
-                if path == f"actions/runs/{RUN}/attempts/1/jobs?per_page=100":
+                if (path.startswith(f"actions/runs/{RUN}/attempts/")
+                        and path.endswith("/jobs?per_page=100")):
+                    # Simulate a valid GET page for the requested attempt; the
+                    # independent run/job metadata must still reject mismatch.
                     return copy.deepcopy(page)
                 raise AssertionError("unexpected or write API endpoint: " + path)
             with patch.object(p, "REPO", REPO), patch.dict(p.os.environ,
