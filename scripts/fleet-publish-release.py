@@ -26,6 +26,10 @@ ROOT = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("fleet_identity", ROOT / "fleet-release-identity.py")
 ident = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ident)
+_guard_spec = importlib.util.spec_from_file_location(
+    "pre_g4_publisher_guard", ROOT / "issue-75-publisher-preflight.py")
+guard = importlib.util.module_from_spec(_guard_spec)
+_guard_spec.loader.exec_module(guard)
 _auth_spec = importlib.util.spec_from_file_location("typed_release_auth", ROOT / "release-authorization.py")
 auth = importlib.util.module_from_spec(_auth_spec)
 _auth_spec.loader.exec_module(auth)
@@ -103,6 +107,20 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
           "receipt source pins or maintained PostgreSQL matrix mismatch")
     check({p.name for p in folder.iterdir() if p.is_file()} == expected_files,
           "partial/extra major release files")
+    # Existing manual Publisher runs *while* root Actions status is in_progress.
+    # Authenticated attempt-scoped jobs, not root completion, are the prewrite gate.
+    attempt = None
+    initial_snapshot = None
+    if verify_signatures:
+        attempt = guard.attempt_from_env(os.environ, run_id, REPO)
+        initial_snapshot = guard.validate_snapshot(
+            get("actions/runs/" + str(run_id)),
+            get("actions/runs/" + str(run_id) + "/attempts/" +
+                str(attempt) + "/jobs?per_page=100"),
+            repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
+            majors=maintained)
+    before_hashes = {name: digest(folder / name) for name in expected_files}
+    package_attempt = None
     for major in maintained:
         source = configured[major]
         stem = ident.asset_stem(ext, major)
@@ -112,7 +130,19 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
         with ZipFile(zip_path) as z:
             check(z.namelist().count("PACKAGE-INFO.json") == 1,
                   "missing/duplicate package identity")
-            pkg = json.loads(z.read("PACKAGE-INFO.json").decode("utf-8-sig"))
+            pkg = json.loads(z.read("PACKAGE-INFO.json").decode("utf-8-sig"),
+                             object_pairs_hook=guard._unique)
+        wf = pkg.get("workflowRun") if type(pkg) is dict else None
+        check(type(wf) is dict and guard.positive(wf.get("attempt")),
+              "missing/bool/string/zero PACKAGE-INFO.workflowRun.attempt")
+        if package_attempt is None:
+            package_attempt = wf["attempt"]
+        check(package_attempt == wf["attempt"], "mixed PG run attempts")
+        if verify_signatures:
+            check(wf["attempt"] == attempt, "package vs authenticated run attempt")
+        guard.validate_pkg(pkg, major=major, repo=REPO,
+                           packaging_sha=commit, upstream_sha=source["commit"],
+                           run_id=run_id, attempt=package_attempt)
         check(pkg.get("buildMode") == "release-attested"
               and pkg["package"]["name"] == ext["name"]
               and pkg["postgresql"]["major"] == major
@@ -131,11 +161,37 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
         check(isinstance(json.loads(grype_path.read_text(encoding="utf-8-sig")).get("matches"), list),
               "invalid Grype vulnerability report")
         if verify_signatures:
-            run("gh", "attestation", "verify", str(zip_path), "--repo", REPO,
-                "--signer-workflow", SIGNER)
-            run("gh", "attestation", "verify", str(zip_path), "--repo", REPO,
-                "--signer-workflow", SIGNER, "--predicate-type", "https://spdx.dev/Document/v2.3")
-    return {name: digest(folder / name) for name in expected_files}
+            sbom = json.loads(spdx_path.read_text(encoding="utf-8-sig"),
+                              object_pairs_hook=guard._unique)
+            zip_hash = before_hashes[zip_path.name]
+            # Only zero-exit actual gh CLI verification supplies trust. Parsing
+            # forged verificationResult JSON alone NEVER authenticates bytes.
+            for kind in (guard.PROVENANCE, guard.SPDX):
+                verified = run(
+                    "gh", "attestation", "verify", str(zip_path),
+                    "--repo", REPO, "--signer-workflow", SIGNER,
+                    "--signer-digest", guard.SIGNER_SHA,
+                    "--source-digest", commit, "--source-ref", "refs/heads/main",
+                    "--predicate-type", kind, "--format", "json")
+                guard.verified_claims(
+                    verified, predicate=kind, repo=REPO, packaging_sha=commit,
+                    run_id=run_id, attempt=attempt, zip_name=zip_path.name,
+                    zip_digest=zip_hash, sbom=sbom)
+                check(digest(zip_path) == zip_hash and
+                      digest(spdx_path) == before_hashes[spdx_path.name],
+                      "local ZIP/SPDX modified during signed verification")
+    check({name: digest(folder / name) for name in expected_files} == before_hashes,
+          "local release assets changed during preflight")
+    if verify_signatures:
+        final_snapshot = guard.validate_snapshot(
+            get("actions/runs/" + str(run_id)),
+            get("actions/runs/" + str(run_id) + "/attempts/" +
+                str(attempt) + "/jobs?per_page=100"),
+            repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
+            majors=maintained)
+        check(initial_snapshot == final_snapshot,
+              "Actions run/job attempt changed during signature verification")
+    return before_hashes
 
 def staged_release_id(tag, commit):
     # GitHub's releases/tags/{tag} endpoint can return HTTP 404 for an
