@@ -73,6 +73,9 @@ jobs:
       - name: Validate Phase D real-GitHub reader and signed-byte denial fixtures (#75)
         run: python tests/test-chat-pr-phase-d-github-readonly.py
 
+      - name: Validate Phase D fixed public Release signed-evidence fixtures (#75)
+        run: python tests/test-verify-public-signed-release-readonly.py
+
       - name: Validate Phase D authenticated negative probe and no-write guards (#75)
         run: python tests/test-chat-pr-phase-d-live-deny-probe.py
 
@@ -127,3 +130,29 @@ jobs:
       - name: Test matrix resolver
         shell: pwsh
         run: ./tests/test-resolve-matrix.ps1
+
+  existing_signed_release_readonly:
+    name: Phase D existing signed public Release (read-only, nonpublishing)
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-signed-release-readonly'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Check out exact proposed verifier source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Install the existing package schema validator
+        run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+
+      - name: Read actual public ZIPs and independently verify Sigstore provenance/SPDX
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/verify-public-signed-release-readonly.py
