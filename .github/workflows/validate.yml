@@ -94,6 +94,9 @@ jobs:
       - name: Validate PRE-G4 run attempt and certificate provenance boundary (offline only)
         run: python tests/test-issue-75-attempt-provenance-readonly.py
 
+      - name: Validate PRE-G4 independent live certificate auditor adversarial fixtures
+        run: python tests/test-issue-75-historical-certificate-readonly.py
+
       - name: Validate 14-extension ID-scoped attested publisher denial fixtures
         run: python tests/test-fleet-publish-release.py
 
