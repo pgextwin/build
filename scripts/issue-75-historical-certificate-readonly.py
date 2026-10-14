@@ -122,7 +122,8 @@ def certified_claims(item, *, predicate, name, digest, sbom, run):
         raise Blocked("verifiedTimestamps missing/empty")
     if any(field not in cert for field in FIELDS):
         raise Blocked("verified certificate required fields missing: "
-                      + ",".join(k for k in FIELDS if k not in cert))
+                      + ",".join(k for k in FIELDS if k not in cert)
+                      + "; actual certificate keys: " + ",".join(sorted(cert)))
     uri = cert["runnerInvocationURI"]
     if type(uri) is not str:
         raise Blocked("runnerInvocationURI not a string")
@@ -170,6 +171,7 @@ def run_audit():
     offline.check_run(run, public.REPO, public.TAG_SHA, RUN_ID, ATTEMPT)
     require(run.get("conclusion") == "failure", "unexpected historical run conclusion")
     records = []
+    failures = []
     with tempfile.TemporaryDirectory(prefix="pgextwin-cert-readonly-") as tmp:
         folder = Path(tmp)
         public.gh("release", "download", public.TAG, "--repo", public.REPO,
@@ -185,30 +187,45 @@ def run_audit():
             sbom = public.read_json(sbom_path.read_text(encoding="utf-8-sig"))
             for predicate, short in ((public.PROVENANCE, "SLSA-v1"),
                                      (public.SPDX, "SPDX-2.3")):
-                args = ("attestation", "verify", str(zip_path),
-                        "--repo", public.REPO, "--signer-workflow", public.SIGNER,
-                        "--signer-digest", offline.SIGNER_SHA,
-                        "--source-digest", public.TAG_SHA,
-                        "--source-ref", "refs/heads/main",
-                        "--predicate-type", predicate, "--format", "json")
-                results = public.read_json(public.gh(*args))
-                chosen = matching_evidence(results, predicate, zip_path.name, digest)
-                claims = certified_claims(
-                    chosen, predicate=predicate, name=zip_path.name,
-                    digest=digest, sbom=sbom, run=run)
-                if predicate == public.SPDX:
-                    # Existing independent validator also checks semantic JSON equality.
-                    with tempfile.TemporaryDirectory(prefix="pgextwin-predicate-") as temp:
-                        proof = Path(temp) / "verified.json"
-                        proof.write_text(json.dumps([chosen]), encoding="utf-8")
-                        public.validate_command(
-                            "verify-sbom-attestation.py", "--verification-json",
-                            str(proof), "--sbom", str(sbom_path), "--zip", str(zip_path))
-                record = {"pg": major, "predicate": short, "zipSha256": digest,
-                          "runId": RUN_ID, "attempt": ATTEMPT, "certificate": claims,
-                          "status": "CERTIFICATE_JOIN_VERIFIED"}
-                records.append(record)
-                print(json.dumps(record, sort_keys=True), flush=True)
+                try:
+                    args = ("attestation", "verify", str(zip_path),
+                            "--repo", public.REPO, "--signer-workflow", public.SIGNER,
+                            "--signer-digest", offline.SIGNER_SHA,
+                            "--source-digest", public.TAG_SHA,
+                            "--source-ref", "refs/heads/main",
+                            "--predicate-type", predicate, "--format", "json")
+                    results = public.read_json(public.gh(*args))
+                    chosen = matching_evidence(results, predicate, zip_path.name, digest)
+                    claims = certified_claims(
+                        chosen, predicate=predicate, name=zip_path.name,
+                        digest=digest, sbom=sbom, run=run)
+                    if predicate == public.SPDX:
+                        # Existing independent validator checks semantic JSON equality.
+                        with tempfile.TemporaryDirectory(prefix="pgextwin-predicate-") as temp:
+                            proof_file = Path(temp) / "verified.json"
+                            proof_file.write_text(json.dumps([chosen]), encoding="utf-8")
+                            public.validate_command(
+                                "verify-sbom-attestation.py", "--verification-json",
+                                str(proof_file), "--sbom", str(sbom_path),
+                                "--zip", str(zip_path))
+                    record = {"pg": major, "predicate": short, "zipSha256": digest,
+                              "runId": RUN_ID, "attempt": ATTEMPT, "certificate": claims,
+                              "status": "CERTIFICATE_JOIN_VERIFIED"}
+                    records.append(record)
+                    print(json.dumps(record, sort_keys=True), flush=True)
+                except (Blocked, public.Unavailable) as exc:
+                    failure = {"pg": major, "predicate": short,
+                               "status": "BLOCKED_NOT_CRYPTOGRAPHICALLY_ATTESTED",
+                               "zipSha256": digest, "reason": str(exc)}
+                    failures.append(failure)
+                    print(json.dumps(failure, sort_keys=True), flush=True)
+                except (public.Deny, offline.Deny, ValueError, TypeError,
+                        KeyError, IndexError, OSError) as exc:
+                    failure = {"pg": major, "predicate": short,
+                               "status": "DENY_HISTORICAL_CERTIFICATE_AUDIT",
+                               "zipSha256": digest, "reason": str(exc)}
+                    failures.append(failure)
+                    print(json.dumps(failure, sort_keys=True), flush=True)
 
         proof = public.check_packages(
             folder, hashes, public.TAG_SHA, get_run=lambda _path: run,
@@ -219,6 +236,19 @@ def run_audit():
         require(release_identity(first) == release_identity(second)
                 and tag_before == tag_after and run == run_after,
                 "release/tag/run TOCTOU between independent GETs")
+        if failures:
+            print(json.dumps({"matrixChecked": len(records) + len(failures),
+                              "certificateJoins": len(records),
+                              "failed": len(failures),
+                              "decision": ("DENY_HISTORICAL_CERTIFICATE_AUDIT"
+                                           if any(x["status"].startswith("DENY") for x in failures)
+                                           else "BLOCKED_NOT_CRYPTOGRAPHICALLY_ATTESTED"),
+                              "publishableReceipt": False,
+                              "mutationsEnabled": False,
+                              "publication": "DENY"}, sort_keys=True), flush=True)
+            if any(x["status"].startswith("DENY") for x in failures):
+                raise public.Deny("one or more verified certificate claims or subject checks denied")
+            raise Blocked("incomplete authentic certificate-to-run binding matrix")
         require(len(records) == 10 and {
             (r["pg"], r["predicate"]) for r in records
         } == {(pg, pred) for pg in public.MAJORS

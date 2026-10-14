@@ -38,6 +38,7 @@ jobs:
       - name: Validate hostile synthetic certificate fixtures (not acceptance evidence)
         run: python tests/test-issue-75-historical-certificate-readonly.py
 
+      # Complete all ten read-only predicate checks even if an early X509 claim is absent.
       - name: Independently verify real historical X509 signer/run-attempt binding
         env:
           GH_TOKEN: ${{ github.token }}
