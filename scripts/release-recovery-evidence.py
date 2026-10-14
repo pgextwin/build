@@ -31,7 +31,8 @@ def _valid_record(record):
     if type(record) is not dict or type(record.get("schemaVersion")) is not int:
         return False
     # Current deployed schemaVersion=1 lacks sufficient identity fields; deny.
-    if record["schemaVersion"] != 2 or record.get("state") not in STAGES:
+    if (record["schemaVersion"] != 2 or type(record.get("state")) is not str
+            or record["state"] not in STAGES):
         return False
     tag, commit = record.get("tag"), record.get("commit")
     if (type(tag) is not str or not TAG.fullmatch(tag)
