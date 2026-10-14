@@ -226,7 +226,7 @@ class FleetPublisherTests(TestCase):
                         make_assets(dist,ext)
                 # Adversarial API: neither executable treats 503 as an absent tag.
                 for implementation in (legacy,p):
-                    with patch.object(implementation,"REPO",REPO), patch.object(
+                    with patch.object(implementation,"REPO",REPO), patch.dict("os.environ", {"GH_TOKEN":"OFFLINE_DUMMY"}, clear=False), patch.object(
                         implementation,"urlopen",side_effect=HTTPError("https://api.github.com",503,"unavailable",{},None)):
                         with self.assertRaises(implementation.Denied):
                             implementation.get("releases/tags/v18.1-windows.3")
