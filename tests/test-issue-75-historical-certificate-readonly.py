@@ -25,8 +25,15 @@ CERT = {"issuer": m.offline.ISSUER, "runInvocationURI": URI,
         "sourceRepositoryDigest": m.public.TAG_SHA,
         "sourceRepositoryRef": "refs/heads/main",
         "buildSignerURI": "https://github.com/pgextwin/build/" +
-            m.offline.SIGNER_PATH + "@refs/heads/main",
+            m.offline.SIGNER_PATH + "@" + m.offline.SIGNER_SHA,
+        "subjectAlternativeName": "https://github.com/pgextwin/build/" +
+            m.offline.SIGNER_PATH + "@" + m.offline.SIGNER_SHA,
         "buildSignerDigest": m.offline.SIGNER_SHA,
+        "buildConfigURI": "https://github.com/" + m.public.REPO + "/" +
+            m.offline.PROMOTE_PATH + "@refs/heads/main",
+        "buildConfigDigest": m.public.TAG_SHA,
+        "githubWorkflowSHA": m.public.TAG_SHA,
+        "githubWorkflowRef": "refs/heads/main",
         "buildTrigger": "workflow_dispatch"}
 
 
