@@ -20,7 +20,7 @@ RUN = {"id": m.RUN_ID, "run_attempt": 1, "head_sha": m.public.TAG_SHA,
        "head_branch": "main", "event": "workflow_dispatch",
        "path": ".github/workflows/promote.yml", "status": "completed",
        "conclusion": "failure", "repository": {"full_name": m.public.REPO}}
-CERT = {"issuer": m.offline.ISSUER, "runnerInvocationURI": URI,
+CERT = {"issuer": m.offline.ISSUER, "runInvocationURI": URI,
         "sourceRepositoryURI": "https://github.com/" + m.public.REPO,
         "sourceRepositoryDigest": m.public.TAG_SHA,
         "sourceRepositoryRef": "refs/heads/main",
@@ -83,7 +83,7 @@ class HistoricalCertificateContract(TestCase):
             claims = m.certified_claims(sample(kind), predicate=kind,
                                        name=NAME, digest=DIGEST,
                                        sbom=SBOM, run=RUN)
-            self.assertEqual(claims["runnerInvocationURI"], URI)
+            self.assertEqual(claims["runInvocationURI"], URI)
             self.assertEqual(claims["buildSignerDigest"], m.offline.SIGNER_SHA)
         # The pure parser is NOT exposed as live verification, nor a receipt.
         self.assertFalse(hasattr(m, "publish"))
@@ -101,7 +101,7 @@ class HistoricalCertificateContract(TestCase):
             elif label == "no-timestamps":
                 v["verifiedTimestamps"] = []
             elif label == "no-attempt":
-                v["signature"]["certificate"]["runnerInvocationURI"] = URI.split("/attempts/")[0]
+                v["signature"]["certificate"]["runInvocationURI"] = URI.split("/attempts/")[0]
             else:
                 v["signature"]["certificate"].pop("sourceRepositoryDigest")
             with self.subTest(label=label), self.assertRaises(m.Blocked):
@@ -117,7 +117,12 @@ class HistoricalCertificateContract(TestCase):
             ("buildSignerURI", "https://github.com/evil/forged.yml"),
             ("buildSignerDigest", "c" * 40),
             ("buildTrigger", "push"),
-            ("runnerInvocationURI", URI[:-1] + "2"))
+            ("runInvocationURI", URI[:-1] + "2"))
+        ambiguous = sample()
+        ambiguous["verificationResult"]["signature"]["certificate"]["runnerInvocationURI"] = URI
+        with self.assertRaises(m.public.Deny):
+            m.certified_claims(ambiguous, predicate=m.public.SPDX, name=NAME,
+                               digest=DIGEST, sbom=SBOM, run=RUN)
         for field, wrong in cases:
             item = sample()
             item["verificationResult"]["signature"]["certificate"][field] = wrong
