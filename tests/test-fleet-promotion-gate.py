@@ -157,7 +157,7 @@ class GateTests(unittest.TestCase):
 
         frozen=ROOT/"tests"/"fixtures"/"issue-75-pre-g4"/"fleet-promotion-gate.py"
         data=frozen.read_bytes()
-        blob=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\\0"+data).hexdigest()
+        blob=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
         self.assertEqual(blob,"6abf79d6a037a9ca5e77d5ce7803d520701e290c")
         with TemporaryDirectory() as tmp:
             location=Path(tmp)
@@ -171,10 +171,9 @@ class GateTests(unittest.TestCase):
             # The executed identity helper is immutable between old and current pins.
             ident_bytes=(location/"fleet-release-identity.py").read_bytes()
             identity=hashlib.sha1(b"blob "+str(len(ident_bytes)).encode()+
-                                  b"\\0"+ident_bytes).hexdigest()
+                                  b"\0"+ident_bytes).hexdigest()
             self.assertEqual(identity,"e8c63f6f7f26a883cf898ca1c3e386d9ed2f1d7c")
-            with patch.object(subprocess,"run",side_effect=AssertionError("NO SUBPROCESS")), \\
-                 patch("urllib.request.urlopen",side_effect=AssertionError("NO NETWORK")):
+            with patch.object(subprocess,"run",side_effect=AssertionError("NO SUBPROCESS")), patch("urllib.request.urlopen",side_effect=AssertionError("NO NETWORK")):
                 for extension in ("plpgsql_check","pg_bigm","pgaudit"):
                     with self.subTest(extension=extension):
                         item=fixture(extension)
