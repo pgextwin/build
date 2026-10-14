@@ -41,6 +41,7 @@ jobs:
       # Complete all ten read-only predicate checks even if an early X509 claim is absent.
       # Interpret the observed gh 2.102.0 X509 runInvocationURI; exact attempt required.
       # Log real public X509 signer/source claims for exact identity mismatch diagnosis.
+      # Enforce the observed immutable signer URI pinned to build commit SHA.
       - name: Independently verify real historical X509 signer/run-attempt binding
         env:
           GH_TOKEN: ${{ github.token }}
