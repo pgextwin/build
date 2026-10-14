@@ -233,7 +233,7 @@ class AtomicReplayTests(TestCase):
         ):
             item = approval_case.fixture()
             mutation(item)
-            with self.subTest(mutation=mutation), self.assertRaises(authorization.Denied):
+            with self.subTest(mutation=mutation), self.assertRaises(approval_case.lib.Denied):
                 approval_case.verify_fixture(item)
 
     def test_changed_snapshots_unknown_and_transport_timeout_fail_closed(self):
