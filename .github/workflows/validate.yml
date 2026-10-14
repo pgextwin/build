@@ -94,6 +94,9 @@ jobs:
       - name: Validate 14-extension ID-scoped attested publisher denial fixtures
         run: python tests/test-fleet-publish-release.py
 
+      - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
+        run: python tests/test-release-recovery-evidence.py
+
       - name: Validate default-denied post-manual Release Catalog policy
         run: python tests/test-manual-release-downstream.py
 
