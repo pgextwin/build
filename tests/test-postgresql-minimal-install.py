@@ -10,7 +10,7 @@ meta = json.loads((ROOT / "metadata/postgresql.json").read_text(encoding="utf-8"
 assert {v["major"] for v in meta["postgresql"]} == {14, 15, 16, 17, 18}
 for v in meta["postgresql"]:
     assert v["chocolateyPackage"] == f'postgresql{v["major"]}'
-    assert re.fullmatch(r"\\d+\\.\\d+\\.\\d+", v["chocolateyVersion"])
+    assert re.fullmatch(r"\d+\.\d+\.\d+", v["chocolateyVersion"])
 line = next(x.strip() for x in script.splitlines() if x.strip().startswith("& choco install "))
 assert line.count("--ia") == 1
 assert '--ia "--disable-components pgAdmin,stackbuilder"' in line
