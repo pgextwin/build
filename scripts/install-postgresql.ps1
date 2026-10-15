@@ -23,7 +23,7 @@ $maxAttempts = 3
 $code = -1
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Write-Host "Installing $ChocolateyPackage version $ChocolateyVersion (attempt $attempt/$maxAttempts)."
-    & choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres"
+    & choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres" --ia "--disable-components pgAdmin,stackbuilder"
     $code = $LASTEXITCODE
     if ($successCodes -contains $code) { break }
     if ($attempt -lt $maxAttempts) {
