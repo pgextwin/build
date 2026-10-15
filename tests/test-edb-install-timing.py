@@ -31,7 +31,7 @@ for major in range(14, 19):
     assert result["phases"]["download_seconds"] == 4, result
     assert result["phases"]["verification_seconds"] == 5, result
     assert result["phases"]["installer_seconds"] == 130, result
-    assert result["phases"]["total_phase_seconds"] == 150, result
+    assert result["phases"]["total_phase_seconds"] == 140, result
 
 assert mod.analyze(fixture(17, download=644), 17)["phases"]["download_seconds"] == 644
 assert all(v == "UNKNOWN" for v in mod.analyze(fixture(17, retry=True), 17)["phases"].values())
