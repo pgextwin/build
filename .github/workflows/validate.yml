@@ -28,6 +28,9 @@ jobs:
       - name: Validate GitHub Actions trust policy
         run: python tests/test-github-actions-security.py
 
+      - name: Validate PG14-18 minimal EDB install arguments and fail-closed retry
+        run: python tests/test-postgresql-minimal-install.py
+
       - name: Validate update watch fixtures
         run: python tests/test-update-watch.py
 
