@@ -11,12 +11,12 @@ from datetime import datetime
 
 MARKERS = {
     "download_start": r"Downloading postgresql{major} 64 bit",
-    "download_end": r"Download of postgresql-{major}\\.[^\\r\\n]* completed\\.",
-    "verify_end": r"Hashes match\\.",
-    "install_start": r"Installing postgresql{major}\\.\\.\\.",
-    "install_end": r"postgresql{major} has been installed\\.",
+    "download_end": r"Download of postgresql-{major}\.[^\r\n]* completed\.",
+    "verify_end": r"Hashes match\.",
+    "install_start": r"Installing postgresql{major}\.\.\.",
+    "install_end": r"postgresql{major} has been installed\.",
 }
-STAMP = re.compile(r"^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z)\\s+(.*)$")
+STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$")
 
 
 def analyze(log: str, major: int) -> dict:
@@ -33,7 +33,7 @@ def analyze(log: str, major: int) -> dict:
         except ValueError:
             continue
         message = match.group(2)
-        if re.search(rf"Installing postgresql{major} version .*\\(attempt \\d+/3\\)", message):
+        if re.search(rf"Installing postgresql{major} version .*\(attempt \d+/3\)", message):
             attempts += 1
         for key, pattern in MARKERS.items():
             if re.search(pattern.format(major=major), message):
