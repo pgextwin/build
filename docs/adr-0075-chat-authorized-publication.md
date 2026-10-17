@@ -99,12 +99,30 @@ Required safe experiment:
 - [x] PACKAGING metadata + publisher mode coupling identified.
 - [x] Current candidate and Catalog dispatch dependencies identified.
 - [x] Threat model and negative test inventory documented.
-- [ ] Independently demonstrate GitHub-connector-authored user PR, user `merged_by` and real nonpublishing push-event behavior.
-- [ ] #61 extension main protection independently completed.
-- [ ] Shared design reviewed with exact API contracts and initial test fixtures; no production enabling before then.
+- [x] Independently demonstrate connector PR / human `merged_by` / real main `push` event — [plpgsql_check PR #27 and Run #38504575462](https://github.com/pgextwin/build/issues/75#issuecomment-6159994062) (G0 only; not proof of Chat PUBLISH intent).
+- [x] #61 extension main protection independently completed — [Issue #61 final acceptance](https://github.com/pgextwin/build/issues/61#issuecomment-6134234616); 2026-10-17 readback 14/14 protected with App15368 required checks.
+- [x] Initial shared inert design and hostile fixtures — [Phase D offline tests](https://github.com/pgextwin/build/issues/75#issuecomment-6160501342), [G3 inert review](https://github.com/pgextwin/build/issues/75#issuecomment-6162531379). No live production enabling.
 
 **No Release dispatch, tag creation, publishing workflow modification, permission changes, branch-rule changes or App-secret manipulation is authorized by this ADR.**
 
+
+## 2026-10-17 verified nonpublishing gate reconciliation
+
+**This section supersedes stale readiness statements from the original 2026-10-12 design inventory; it DOES NOT approve any new publication path.** Read-only snapshot: `build/main@0466d7275473cd88a95de650c4ac002c7941a67f`; `plpgsql_check/main@a8527b925c6b5c259532e9732f74d881b8766bcd`.
+
+| Boundary | Current evidentiary decision | Limit |
+| --- | --- | --- |
+| #61 protection | **PASS (14/14 main protected)**. Each required check reports GitHub Actions App ID **15368**; 13 extension mains require `Windows required summary`, and plpgsql_check reports eight fixed contexts (including summary). [#61](https://github.com/pgextwin/build/issues/61#issuecomment-6134234616) | Branch API readback is not an independent admin-permission Classic full-field or Rulesets bypass-zero audit; retain prior scoped [two-snapshot credentialed evidence](https://github.com/pgextwin/build/issues/75#issuecomment-6145490096). |
+| G0 connected-Chat human actor / real event | **PASS, ALREADY TESTED — DO NOT REPEAT**. [plpgsql_check docs-only PR #27](https://github.com/pgextwin/plpgsql_check/pull/27) has author and `merged_by=ShutenOishi`; expected-head protected squash generated `3276ef29ed5a4562010e6c5fbdd727e0a199a47a`; [real push Run #38504575462](https://github.com/pgextwin/plpgsql_check/actions/runs/38504575462) succeeded with `actor=triggering_actor=ShutenOishi` at that SHA, plus exact-head required CI. [Original acceptance](https://github.com/pgextwin/build/issues/75#issuecomment-6159994062). | GitHub account provenance is not a cryptographic attestation of a Chat user instruction. A human-initiated push creating a run does not prove `GITHUB_TOKEN`-initiated push does so; normally those events are suppressed. |
+| Shared adversarial authorization and Classic gates | **INERT/OFFLINE + bounded real GET negative tests ONLY**. Reuse existing G0–G3, Classic composite, signed historical bytes and pre-G4 Publisher denial work. | No live positive PUBLISH request, signable future candidate or publishable receipt. |
+| Promotion and fleet policy | All **14/14** live `.github/workflows/promote.yml` checked: `workflow_dispatch` only, no new push-to-publish trigger. Central `metadata/release-promotion.json` and pilot local `config/release-promotion.json` retain `manual-dispatch`; fleet 14 entries retain `manual-only`. | Do not add `.github/release-authorizations/` files, publish triggers, new write tokens, or change `automaticFormalRelease`. |
+| GO A signing canary | [pilot protected PR #40](https://github.com/pgextwin/plpgsql_check/pull/40) accepted for PR/CI only. Prior owner resource-risk acceptance [A/B/C](https://github.com/pgextwin/build/issues/75#issuecomment-6181544815) remains valid, **do not re-request**. Fresh 2026-10-17 enumerated Actions Runs: 219/219 inspected; **zero** dedicated `issue-75-pre-g4-signed-canary.yml` runs. | **NOT DISPATCHED, fresh signed-canary positive 0/10**. Account-specific `$0` Actions hard-budget eligibility for artifact/attestation write remains **UNVERIFIED**; [GUI STOP](https://github.com/pgextwin/build/issues/75#issuecomment-6181629956) and [later risk decision](https://github.com/pgextwin/build/issues/75#issuecomment-6188976767) apply. No billing override or invocation in this reconciliation. |
+| Catalog proposal | [Existing proposal-only sync](https://github.com/pgextwin/catalog/blob/main/.github/workflows/sync-verified-release.yml) is `workflow_dispatch`, gated on a Catalog-only proposer App; [read-only wal2json drift schedule](https://github.com/pgextwin/catalog/blob/main/.github/workflows/catalog-drift-readonly.yml) cannot propose or publish. | Live future signed Release → newly App-proposed Catalog PR → protected merge → EN/JA Website acceptance **NOT PROVEN**. |
+| GO B / G4 / G5 | **NO-GO** for live Publisher/signing repin/push-to-publish/E2E. Candidate [plpgsql_check PR #29](https://github.com/pgextwin/plpgsql_check/pull/29) remains OPEN/DRAFT. | Do not merge, Dispatch, create tags/releases or waive required CI. [Decision](https://github.com/pgextwin/build/issues/75#issuecomment-6162531379). |
+
+**Minimum nonpublishing authentication experiment:** The exact docs-only `PR author → required check at immutable head → protected expected-head squash merge → real `push` run event SHA / actor / `merged_by` comparison is already completed by PR #27. A new duplicate probe is not a prerequisite. Future actionable work starts at still-unproven gates (budget/signed canary; then separately reviewed G4/G5), **not** at a second G0 test. This documentation update itself contains no authorization JSON, publication input, secret, workflow trigger, publisher, signing or budget change.
+
+**Independent P1 acceptance is not advanced:** [Issue #112](https://github.com/pgextwin/build/issues/112#issuecomment-6229742414) remains at 65/70, with plpgsql_check PG14–18 five DENY, and the older published Release's causal bridge not proven.
 
 ## Phase C security decision update — 2026-10-13: Classic protection audit credential
 
