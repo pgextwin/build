@@ -113,8 +113,17 @@ def offline_probe(lock,seen,platform):
             ret=subprocess.run(args+extra+["--dest",str(dest),"-r",str(req)],
                 env=clean,capture_output=True,text=True,stdin=subprocess.DEVNULL,
                 check=False,timeout=180)
-            need(ret.returncode==0)
-            check_wheelhouse(dest,seen[platform])
+            if ret.returncode!=0:
+                log=(ret.stderr+"\n"+ret.stdout).lower()
+                code=("HASH_MISMATCH" if "hashes do not match" in log
+                      else "NO_WHEEL" if "no matching distribution" in log or
+                      "could not find a version" in log else "PIP_REJECTED")
+                raise Deny(("OFFLINE_" if is_offline else "ONLINE_")+code)
+            try:
+                check_wheelhouse(dest,seen[platform])
+            except Deny:
+                raise Deny(("OFFLINE_" if is_offline else "ONLINE_")+
+                           "WHEELHOUSE_FILESET_OR_HASH_MISMATCH")
     return True
 def main():
     ap=argparse.ArgumentParser()
@@ -133,6 +142,7 @@ def main():
             result.update(decision="OFFLINE_WHEELHOUSE_REPRODUCED_NO_GO",
                           platform=mode,offlineWheelReadbackProven=True)
         print(json.dumps(result,sort_keys=True));return 0
-    except (Deny,OSError,KeyError,ValueError,TypeError,subprocess.TimeoutExpired):
+    except (Deny,OSError,KeyError,ValueError,TypeError,subprocess.TimeoutExpired) as exc:
+        result["reasonCode"]=str(exc) if isinstance(exc,Deny) else type(exc).__name__
         print(json.dumps(result,sort_keys=True));return 2
 if __name__=="__main__":sys.exit(main())
