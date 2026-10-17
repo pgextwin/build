@@ -89,11 +89,15 @@ def check_wheelhouse(folder,expected):
 def offline_probe(lock,seen,platform):
     # Binary-only pip download, never install or execute package content.
     # Online acquisition pinned by digest, then no-index offline re-resolution.
-    need(os.environ.get("GITHUB_EVENT_NAME")=="pull_request" and
-         os.environ.get("GITHUB_HEAD_REF")=="issue-75-edb-installer-wheel-lock" and
-         os.environ.get("GITHUB_REPOSITORY")=="pgextwin/build" and
-         os.environ.get("GITHUB_JOB")=="issue75_wheel_lock_probe")
-    need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"))
+    for env_key,want in (("GITHUB_EVENT_NAME","pull_request"),
+                         ("GITHUB_HEAD_REF","issue-75-edb-installer-wheel-lock"),
+                         ("GITHUB_REPOSITORY","pgextwin/build"),
+                         ("GITHUB_JOB","issue75_wheel_lock_probe")):
+        if os.environ.get(env_key)!=want:
+            raise Deny("INVALID_JOB_IDENTITY_"+env_key)
+    for env_key in ("GH_TOKEN","GITHUB_TOKEN"):
+        if os.environ.get(env_key):
+            raise Deny("UNEXPECTED_EXPLICIT_TOKEN_"+env_key)
     target="manylinux2014_x86_64" if platform=="ubuntu" else "win_amd64"
     clean=os.environ.copy()
     for name in list(clean):
