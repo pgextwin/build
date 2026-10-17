@@ -268,8 +268,10 @@ def main():
         print(json.dumps(out,sort_keys=True))
         return 0
     except (Deny,OSError,ValueError,TypeError,KeyError,UnicodeError,
-            BadZipFile,ET.ParseError):
+            BadZipFile,ET.ParseError) as exc:
+        reason=(str(exc) if isinstance(exc,Deny) else type(exc).__name__)
         print(json.dumps({"decision":"DENY_SECONDARY_PACKAGE_SOURCE",
+                          "reasonCode":reason[:100],
                           "goB":"NO_GO","g4":"NO_GO","g5":"NO_GO",
                           "releaseAuthorized":False},sort_keys=True))
         return 2
