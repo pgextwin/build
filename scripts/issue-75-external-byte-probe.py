@@ -201,7 +201,7 @@ def inspect_observed(evidence, plan):
              "wheel source scope drift")
         wheels=wh.get("wheels")
         need(type(wheels) is dict and len(wheels)==8 and
-             all(re.fullmatch(r"[A-Za-z0-9_.+-]+\\.whl",k) and
+             all(re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl",k) and
                  SHA64.fullmatch(v or "") for k,v in wheels.items()),
              "incomplete wheel SHA256 map")
         need(any(k.startswith("jsonschema-4.") for k in wheels) and
