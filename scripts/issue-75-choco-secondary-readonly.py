@@ -131,7 +131,9 @@ def archive_inventory(raw,name,version):
         tag=lambda e:e.tag.split("}")[-1]
         ids=[e.text for e in ns.iter() if tag(e)=="id"]
         versions=[e.text for e in ns.iter() if tag(e)=="version"]
-        need(ids==[name] and versions==[version],"package id/version mismatch")
+        need(len(ids)==1 and isinstance(ids[0],str) and
+             ids[0].lower()==name.lower(),"nuspec id does not match approved package")
+        need(versions==[version],"nuspec exact version does not match approved package")
         for node in ns.iter():
             if tag(node)=="dependency":
                 result["dependencies"].append({
