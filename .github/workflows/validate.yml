@@ -136,6 +136,12 @@ jobs:
           python tests/test-issue-75-external-byte-probe.py
           python scripts/issue-75-external-byte-probe.py --mode static
 
+      - name: Validate Issue75 inert Chocolatey script analyzer and platform wheel lock
+        run: |
+          python tests/test-issue-75-edb-wheel-lock.py
+          python scripts/issue-75-choco-edb-nonexec.py --mode static
+          python scripts/issue-75-wheel-lock-candidate.py --mode static
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
@@ -243,6 +249,44 @@ jobs:
           persist-credentials: false
       - name: Independently hash public bytes without installation or credential injection
         run: python scripts/issue-75-external-byte-probe.py --mode ${{ matrix.mode }}
+
+  issue75_choco_script_probe:
+    name: Issue75 inert EDB source replay against proven five-EXE SHA256 ledger
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-edb-installer-wheel-lock'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Read-only checkout without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Parse actual PG14-18 nupkg scripts and bounded PG14 EXE GET (never run installers)
+        run: python scripts/issue-75-choco-edb-nonexec.py --mode inspect
+
+  issue75_wheel_lock_probe:
+    name: Issue75 download-only locked Python wheelhouse offline roundtrip
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-edb-installer-wheel-lock'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            mode: ubuntu
+          - os: windows-latest
+            mode: windows
+    steps:
+      - name: Read-only checkout without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch hash-pinned binary wheels only and repeat with no index (never install)
+        run: python scripts/issue-75-wheel-lock-candidate.py --mode ${{ matrix.mode }}
 
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
