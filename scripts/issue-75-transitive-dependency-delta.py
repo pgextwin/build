@@ -99,6 +99,7 @@ GAPS = {
     "vsToolchainMutable", "grypeDatabaseMutable",
     "noRealSignedPublisherPositivePrewrite", "noVerifiedReaderTokenScopes",
     "noLiveWriterTokenIsolation", "noLiveCrashSafeWriter",
+    "signerCheckoutPersistsJobCredential", "runtimeWorkflowCheckoutResolutionUnproven",
 }
 
 def require(ok, message):
@@ -186,7 +187,8 @@ def inspect(delta, base, *, base_bytes):
         visit(node)
     creds = delta.get("credentialBoundaries")
     require(type(creds) is dict and set(creds) == {"reader", "signer", "writer",
-                "artifactsMayContainSecrets", "checkoutPersistCredentials"},
+                "pilotAuthorizePublisherPersistCredentials",
+                "readerCheckoutPersistCredentials", "artifactLeakageRuntimeVerified"},
             "missing credential boundary record")
     reader, signer, writer = (creds[n] for n in ("reader", "signer", "writer"))
     require(type(reader) is dict and reader.get("job") == "issue75_reader_probe"
@@ -198,7 +200,8 @@ def inspect(delta, base, *, base_bytes):
     require(type(signer) is dict and signer.get("permissions") ==
             ["contents:read", "id-token:write", "attestations:write",
              "artifact-metadata:write"] and
-            signer.get("runtimeTokenScopesVerified") is False,
+            signer.get("runtimeTokenScopesVerified") is False and
+            signer.get("checkoutPersistCredentials") is True,
             "signer permission/status drift")
     require(type(writer) is dict and writer.get("permissions") ==
             ["contents:write", "actions:read", "attestations:read"] and
@@ -206,8 +209,9 @@ def inspect(delta, base, *, base_bytes):
             writer.get("tokenMintedThisStep") is False and
             writer.get("runtimeTokenScopesVerified") is False,
             "writer was claimed active")
-    require(creds["checkoutPersistCredentials"] is False and
-            creds["artifactsMayContainSecrets"] is False,
+    require(creds["pilotAuthorizePublisherPersistCredentials"] is False and
+            creds["readerCheckoutPersistCredentials"] is False and
+            creds["artifactLeakageRuntimeVerified"] is False,
             "unreviewed checkout/artifact security status")
     accepted = delta.get("acceptance")
     require(type(accepted) is dict and set(accepted) == {
