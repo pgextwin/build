@@ -1,0 +1,259 @@
+{
+  "schemaVersion": 1,
+  "kind": "ISSUE75_KB_FURTHER_ARCHIVE_BYTES_JOB_SUCCESS_PARENT_RUN_FAILURE_NO_GO",
+  "source": {
+    "repository": "pgextwin/build",
+    "runId": 39039716020,
+    "runAttempt": 1,
+    "headSha": "27c3a6a3d9b1fce59f1b9dea9de300ba6aa4abde",
+    "jobId": 117416530390,
+    "jobConclusion": "success",
+    "parentRunConclusion": "failure",
+    "reason": "Required resolver failed stale test --mode closure assertion; do not waive",
+    "url": "https://github.com/pgextwin/build/actions/runs/39039716020"
+  },
+  "observed": {
+    "allRuntimeDependenciesClosed": false,
+    "decision": "FURTHER_THREE_KB_DEPENDENCY_PACKAGES_SOURCE_ONLY_NO_GO",
+    "dynamicKBInstallersFullyVerified": false,
+    "furtherPackages": [
+      {
+        "archiveBytes": 26163,
+        "archiveSHA256": "1cf1b09a1dc3c9094c05216b3a6eb32ad4f0372bb96066c21038b30c4372ebf4",
+        "dependencies": [],
+        "files": [
+          {
+            "bytes": 519,
+            "path": "_rels/.rels",
+            "sha256": "f91cf6eca13aeee5bc8bae9ab492a8c4ab89b1cfb2dfd7cc7a061e74c557ff24"
+          },
+          {
+            "bytes": 567,
+            "path": "CHANGELOG.md",
+            "sha256": "4abd30a76963f9c608e7d4d6d803867e437c813d73ed202cea4dc7a6881be9f3"
+          },
+          {
+            "bytes": 8691,
+            "path": "README.md",
+            "sha256": "c3febfbbc97f1803c30858f79cbc7de54a23257fb538cc061548437e9d89eac4"
+          },
+          {
+            "bytes": 268,
+            "path": "extensions/chocolatey-windowsupdate.psm1",
+            "sha256": "9d775df50af323e804f161c890fe2bbf0f38928e7831eace9006cf79583bbb10"
+          },
+          {
+            "bytes": 747,
+            "path": "extensions/Get-NativeInstallerExitCode.ps1",
+            "sha256": "9578150663fa740cc87e30621e045d6bd6ada06ec5ee1f2d49dbc096ce8ef3aa"
+          },
+          {
+            "bytes": 52106,
+            "path": "extensions/Get-WindowsUpdateErrorDescription.ps1",
+            "sha256": "d3ae37280b16044522f43d136c64411dd233168c60428220ffe3b0f48809aec7"
+          },
+          {
+            "bytes": 7918,
+            "path": "extensions/Install-ChocolateyPackageAndHandleExitCode.ps1",
+            "sha256": "a28aefce0b115dc37a94180ec279dab0a2237b367e8c995eeab98f01c28d3fa9"
+          },
+          {
+            "bytes": 15185,
+            "path": "extensions/Install-WindowsUpdate.ps1",
+            "sha256": "e9d1e80e176eb755f48153e9e5b8d7e5caa30bb2cb905df043ca36c1059691ab"
+          },
+          {
+            "bytes": 547,
+            "path": "extensions/Set-PowerShellExitCode.ps1",
+            "sha256": "ca135c60948c54651f2a20086c5aafc5abb6ea993628b1a7703fd508623b9532"
+          },
+          {
+            "bytes": 1252,
+            "path": "extensions/Test-WindowsUpdate.ps1",
+            "sha256": "1345b6ad05d4ad94d7ecbb9f292c1bd9c08c3b2552cadb8e0212c6920749f31e"
+          },
+          {
+            "bytes": 832,
+            "path": "package/services/metadata/core-properties/1ea80b629aeb4a9997f841ac5422cf75.psmdcp",
+            "sha256": "acf670127ebc7f937eddbfcad7f152826c965f551e9706deab8cdb3e57b34feb"
+          },
+          {
+            "bytes": 566,
+            "path": "[Content_Types].xml",
+            "sha256": "4d2972f90ed7502f90c9228caaa315b52bee7ec80699c4ffff29aed1a27e58a2"
+          },
+          {
+            "bytes": 1584,
+            "path": "chocolatey-windowsupdate.extension.nuspec",
+            "sha256": "e9e0c9caa0504d06f802898d5cc386a744dac6dd0590a550d993d106f4465279"
+          }
+        ],
+        "fullPackageRuntimeDependencyClosure": false,
+        "independentGETs": 2,
+        "name": "chocolatey-windowsupdate.extension",
+        "scriptInspectionIsNotExecution": true,
+        "scriptLiteralExternalDownloads": [
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "LITERAL_ONLY_NOT_RUNTIME_PROOF",
+            "path": "extensions/Get-NativeInstallerExitCode.ps1",
+            "scriptSHA256": "9578150663fa740cc87e30621e045d6bd6ada06ec5ee1f2d49dbc096ce8ef3aa"
+          },
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "LITERAL_ONLY_NOT_RUNTIME_PROOF",
+            "path": "extensions/Get-WindowsUpdateErrorDescription.ps1",
+            "scriptSHA256": "d3ae37280b16044522f43d136c64411dd233168c60428220ffe3b0f48809aec7"
+          },
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "LITERAL_ONLY_NOT_RUNTIME_PROOF",
+            "path": "extensions/Install-ChocolateyPackageAndHandleExitCode.ps1",
+            "scriptSHA256": "a28aefce0b115dc37a94180ec279dab0a2237b367e8c995eeab98f01c28d3fa9"
+          },
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "UNRESOLVED_DYNAMIC_OR_MULTIBRANCH",
+            "path": "extensions/Install-WindowsUpdate.ps1",
+            "scriptSHA256": "e9d1e80e176eb755f48153e9e5b8d7e5caa30bb2cb905df043ca36c1059691ab"
+          },
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "LITERAL_ONLY_NOT_RUNTIME_PROOF",
+            "path": "extensions/Set-PowerShellExitCode.ps1",
+            "scriptSHA256": "ca135c60948c54651f2a20086c5aafc5abb6ea993628b1a7703fd508623b9532"
+          },
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "LITERAL_ONLY_NOT_RUNTIME_PROOF",
+            "path": "extensions/Test-WindowsUpdate.ps1",
+            "scriptSHA256": "1345b6ad05d4ad94d7ecbb9f292c1bd9c08c3b2552cadb8e0212c6920749f31e"
+          }
+        ],
+        "version": "1.0.2"
+      },
+      {
+        "archiveBytes": 5835,
+        "archiveSHA256": "b13d656e223baa0b8b29979d585cb1b4dcf2e68d3daca73681fbd093abab1e4b",
+        "dependencies": [
+          {
+            "id": "chocolatey-windowsupdate.extension",
+            "version": "1.0.2"
+          }
+        ],
+        "files": [
+          {
+            "bytes": 494,
+            "path": "_rels/.rels",
+            "sha256": "e857eb469e883caeb09cd299dceae9f08ec854a1c3bb9cde8086c9107ffd7ba3"
+          },
+          {
+            "bytes": 3411,
+            "path": "Tools/ChocolateyInstall.ps1",
+            "sha256": "6eff49d5efff45d4397c78bfcceba4d34e88fc2e74efdf6fe2ed6f9b71443a95"
+          },
+          {
+            "bytes": 1880,
+            "path": "package/services/metadata/core-properties/8d6185fe0c104674841b9d9cce9ac72c.psmdcp",
+            "sha256": "b5a031d89163f076c65ea01e73efe31d404451f5162e5608701fd6b232aa447d"
+          },
+          {
+            "bytes": 448,
+            "path": "[Content_Types].xml",
+            "sha256": "fb3a0dd0b490433910acd9980b9fbad2cca0f11bf9242014055ae9b42ade26c4"
+          },
+          {
+            "bytes": 2447,
+            "path": "KB3035131.nuspec",
+            "sha256": "20202f852dfe6aeb2331c1fe9d388f6b584b0c20f4baddd5a2e6b63f37796cd7"
+          }
+        ],
+        "fullPackageRuntimeDependencyClosure": false,
+        "independentGETs": 2,
+        "name": "KB3035131",
+        "scriptInspectionIsNotExecution": true,
+        "scriptLiteralExternalDownloads": [
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "UNRESOLVED_DYNAMIC_OR_MULTIBRANCH",
+            "path": "Tools/ChocolateyInstall.ps1",
+            "scriptSHA256": "6eff49d5efff45d4397c78bfcceba4d34e88fc2e74efdf6fe2ed6f9b71443a95"
+          }
+        ],
+        "version": "1.0.1"
+      },
+      {
+        "archiveBytes": 4495,
+        "archiveSHA256": "8d1c0b79ec22343f6fe3a9a52d5072320b3265182ee273c453fef04e7b221cf3",
+        "dependencies": [],
+        "files": [
+          {
+            "bytes": 494,
+            "path": "_rels/.rels",
+            "sha256": "5d4bc2a1a321a5c833cc47b037ba55b8625a2385ec9b187c0b3b34a950417d1c"
+          },
+          {
+            "bytes": 1449,
+            "path": "tools/ChocolateyInstall.ps1",
+            "sha256": "e06f99a282649e4f85aee31bd2e98d481ea809412272afb84676d51cd52a9b3c"
+          },
+          {
+            "bytes": 1272,
+            "path": "package/services/metadata/core-properties/5a125436a93f411eaa09890362226cb2.psmdcp",
+            "sha256": "5d9c78fbfe561066832471861fadc07fc6f20ee0403899dd7ced42ef0e8af0f5"
+          },
+          {
+            "bytes": 448,
+            "path": "[Content_Types].xml",
+            "sha256": "fb3a0dd0b490433910acd9980b9fbad2cca0f11bf9242014055ae9b42ade26c4"
+          },
+          {
+            "bytes": 1661,
+            "path": "KB2919442.nuspec",
+            "sha256": "e1a0070bf01e8dd0a32dcb2a63d6732ef58b2c3d686d6a5ac89ef7a707e7addf"
+          }
+        ],
+        "fullPackageRuntimeDependencyClosure": false,
+        "independentGETs": 2,
+        "name": "KB2919442",
+        "scriptInspectionIsNotExecution": true,
+        "scriptLiteralExternalDownloads": [
+          {
+            "containsDynamicPowerShell": true,
+            "literalDownloadURLs": {},
+            "parseStatus": "LITERAL_ONLY_NOT_RUNTIME_PROOF",
+            "path": "tools/ChocolateyInstall.ps1",
+            "scriptSHA256": "e06f99a282649e4f85aee31bd2e98d481ea809412272afb84676d51cd52a9b3c"
+          }
+        ],
+        "version": "1.0.20160915"
+      }
+    ],
+    "furtherPackagesSHA256Verified": 3,
+    "g4": "NO_GO",
+    "g5": "NO_GO",
+    "goB": "NO_GO",
+    "originalKBArchiveSHA256Matches": 3,
+    "originalMicrosoftActualByteRun": 39039490483,
+    "originalVCExeSHA256Matches": 2,
+    "releaseAuthorized": false
+  },
+  "gate": {
+    "canCountAsSuccessfulRequiredPRRun": false,
+    "realKBInstallerPayloadBytesProven": false,
+    "kbNupkgByteInventoryObserved": 3,
+    "allPackageGraphNodesDiscovered": true,
+    "allRuntimeBytesClosed": false,
+    "goB": "NO_GO",
+    "g4": "NO_GO",
+    "g5": "NO_GO",
+    "releaseAuthorized": false
+  }
+}
