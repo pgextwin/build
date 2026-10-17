@@ -109,6 +109,38 @@ class HostileFixtureTests(TestCase):
         self.assertNotIn("pip install",sec)
         self.assertNotIn("choco install",sec)
 
+    def test_actual_microsoft_binary_hashes_and_prior_run_locked(self):
+        prior=p.archived_vc_kb_receipt()
+        self.assertEqual(prior["source"]["runId"],39039490483)
+        self.assertEqual(prior["observations"]["vcExeVerified"],2)
+        self.assertEqual(len(prior["observations"]["kbPackages"]),3)
+        for row in prior["observations"]["vcRedistributableEXEs"]:
+            self.assertTrue(row["verified"])
+            self.assertEqual(row["sha256"],row["expectedSHA256"])
+        self.assertFalse(prior["acceptance"]["allTransitiveNupkgClosed"])
+    def test_third_level_package_allowlist(self):
+        self.assertEqual(p.MORE_PACKAGES,(
+            ("chocolatey-windowsupdate.extension","1.0.2"),
+            ("KB3035131","1.0.1"),
+            ("KB2919442","1.0.20160915")))
+        with self.assertRaises(p.Deny):
+            p.double_read_package("kb3035131","latest",lambda *a:b"")
+    def test_conditional_kb_scripts_never_claim_complete_source(self):
+        raw=archive(name="KB3035131",version="1.0.1",
+                    script=literal()+literal(digest="b"*64))
+        q=p.archive_inventory(raw,"KB3035131","1.0.1")
+        t=q["scriptLiteralExternalDownloads"][0]
+        self.assertEqual(t["parseStatus"],"UNRESOLVED_DYNAMIC_OR_MULTIBRANCH")
+        self.assertEqual(t["literalDownloadURLs"],{})
+        self.assertFalse(q["fullPackageRuntimeDependencyClosure"])
+    def test_third_level_source_uses_only_lightweight_archives(self):
+        wf=(ROOT/".github/workflows/validate.yml").read_text()
+        sec=wf.split("  issue75_secondary_chocolatey_readonly:",1)[1]
+        sec=sec.split("\n  existing_signed_release_readonly:",1)[0]
+        self.assertIn("--mode further",sec)
+        self.assertNotIn("--mode closure",sec)
+        self.assertNotIn("install ",sec)
+
     def test_workflow_job_isolated_and_no_write(self):
         wf=(ROOT/".github/workflows/validate.yml").read_text()
         start=wf.index("  issue75_secondary_chocolatey_readonly:")
@@ -117,7 +149,7 @@ class HostileFixtureTests(TestCase):
         for required in ("github.event_name == 'pull_request'",
                          "github.head_ref == 'issue-75-choco-secondary-closure'",
                          "persist-credentials: false","contents: read",
-                         "issue-75-choco-secondary-readonly.py --mode closure"):
+                         "issue-75-choco-secondary-readonly.py --mode further"):
             self.assertIn(required,job)
         for prohibited in ("contents: write","id-token: write","secrets.",
                            "GH_TOKEN:","GITHUB_TOKEN:","upload-artifact",
