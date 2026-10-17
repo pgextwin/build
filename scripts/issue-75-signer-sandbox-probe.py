@@ -19,7 +19,7 @@ LEAK = re.compile(
     r"(?i)(authorization\s*[:=]|extraheader\s*=|x-access-token|"
     r"github_pat_|gh[pousr]_[A-Za-z0-9]+|"
     r"(?:GH_TOKEN|GITHUB_TOKEN|ACTIONS_RUNTIME_TOKEN)\s*=|"
-    r"credential\s*\.\s*helper|password\s*[:=])"
+    r"(?:\[credential\]|credential\s*\.\s*helper)|password\s*[:=])"
 )
 def inspect_bytes(raw):
     """Never return or log the examined bytes; synthetic fixtures only in tests."""
