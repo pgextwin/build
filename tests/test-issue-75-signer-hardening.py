@@ -2,7 +2,11 @@
 """Hostile offline tests; no real Signer, Publisher, GitHub POST or credential."""
 import copy
 import importlib.util
+import io
 import json
+import os
+from contextlib import redirect_stdout
+from unittest import mock
 from pathlib import Path
 import tempfile
 from unittest import TestCase, main
@@ -113,6 +117,18 @@ class HardeningTests(TestCase):
                           "download-artifact","GH_TOKEN:", "GITHUB_TOKEN:",
                           "gh release","gh workflow run","workflow_dispatch"):
             self.assertNotIn(forbidden,job)
+    def test_missing_sandbox_identity_is_ci_failure_without_token_echo(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            buf=io.StringIO()
+            with redirect_stdout(buf):
+                result=s.main()
+        self.assertEqual(result,2)
+        output=json.loads(buf.getvalue())
+        self.assertEqual(output["decision"],"SANDBOX_NOT_PROVEN")
+        self.assertEqual(output["goB"],"NO_GO")
+        self.assertFalse(output["publicationAuthorized"])
+        self.assertNotIn("Bearer",buf.getvalue())
+
     def test_pinned_external_gaps_remain_explicit(self):
         v=record()
         for gap in ("runnerImages","chocolatey","python","syftGrype",
