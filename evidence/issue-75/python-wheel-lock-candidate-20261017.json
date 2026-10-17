@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "kind": "ISSUE75_OFFLINE_WHEEL_LOCK_CANDIDATE_NONDEPLOYED",
+  "source": {
+    "runId": 39034789275,
+    "runAttempt": 1,
+    "headSha": "f32e43d55e5613e6b985b1f37e883800e6f2127c",
+    "evidenceBlob": "c5acb7920a5d9871eacef54a01a92ae71677a24f"
+  },
+  "pythonTarget": "3.13",
+  "arch": "x64",
+  "onlyBinary": true,
+  "packages": {
+    "attrs": {
+      "version": "26.1.0",
+      "platforms": {
+        "ubuntu": {
+          "filename": "attrs-26.1.0-py3-none-any.whl",
+          "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"
+        },
+        "windows": {
+          "filename": "attrs-26.1.0-py3-none-any.whl",
+          "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"
+        }
+      }
+    },
+    "jsonschema": {
+      "version": "4.26.0",
+      "platforms": {
+        "ubuntu": {
+          "filename": "jsonschema-4.26.0-py3-none-any.whl",
+          "sha256": "d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce"
+        },
+        "windows": {
+          "filename": "jsonschema-4.26.0-py3-none-any.whl",
+          "sha256": "d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce"
+        }
+      }
+    },
+    "jsonschema-specifications": {
+      "version": "2025.9.1",
+      "platforms": {
+        "ubuntu": {
+          "filename": "jsonschema_specifications-2025.9.1-py3-none-any.whl",
+          "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe"
+        },
+        "windows": {
+          "filename": "jsonschema_specifications-2025.9.1-py3-none-any.whl",
+          "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe"
+        }
+      }
+    },
+    "meson": {
+      "version": "1.8.3",
+      "platforms": {
+        "ubuntu": {
+          "filename": "meson-1.8.3-py3-none-any.whl",
+          "sha256": "ef02b806ce0c5b6becd5bb5dc9fa67662320b29b337e7ace73e4354500590233"
+        },
+        "windows": {
+          "filename": "meson-1.8.3-py3-none-any.whl",
+          "sha256": "ef02b806ce0c5b6becd5bb5dc9fa67662320b29b337e7ace73e4354500590233"
+        }
+      }
+    },
+    "ninja": {
+      "version": "1.11.1.4",
+      "platforms": {
+        "ubuntu": {
+          "filename": "ninja-1.11.1.4-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.whl",
+          "sha256": "096487995473320de7f65d622c3f1d16c3ad174797602218ca8c967f51ec38a0"
+        },
+        "windows": {
+          "filename": "ninja-1.11.1.4-py3-none-win_amd64.whl",
+          "sha256": "4617b3c12ff64b611a7d93fd9e378275512bb36eff8babff7c83f5116b4f8d66"
+        }
+      }
+    },
+    "referencing": {
+      "version": "0.37.0",
+      "platforms": {
+        "ubuntu": {
+          "filename": "referencing-0.37.0-py3-none-any.whl",
+          "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231"
+        },
+        "windows": {
+          "filename": "referencing-0.37.0-py3-none-any.whl",
+          "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231"
+        }
+      }
+    },
+    "rpds-py": {
+      "version": "2026.9.1",
+      "platforms": {
+        "ubuntu": {
+          "filename": "rpds_py-2026.9.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "sha256": "7868b85224291c6cb6759f9b5adb9745f486d226f62b16a614dd5a2a5ab2b35b"
+        },
+        "windows": {
+          "filename": "rpds_py-2026.9.1-cp313-cp313-win_amd64.whl",
+          "sha256": "3e93b2cd69a9830be33e03945cd7cda940a0a8bfcfbff41d6144f0cb0d3d8bd9"
+        }
+      }
+    },
+    "typing-extensions": {
+      "version": "4.16.0",
+      "platforms": {
+        "ubuntu": {
+          "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+          "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+        },
+        "windows": {
+          "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+          "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+        }
+      }
+    }
+  },
+  "boundary": {
+    "offlineWheelCandidateValidated": false,
+    "signerPipInstallModified": false,
+    "wheelHashesPinnedInSigner": false,
+    "fullyReproducibleSigner": false,
+    "goB": "NO_GO",
+    "g4": "NO_GO",
+    "g5": "NO_GO",
+    "publicationAuthorized": false
+  }
+}
