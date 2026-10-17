@@ -152,10 +152,21 @@ def archive_inventory(raw,name,version):
             if fn.lower().endswith(".ps1"):
                 need(len(contents)<150_000,"oversize PowerShell source")
                 txt=contents.decode("utf-8-sig",errors="replace")
-                literals=parse_literals(txt)
+                try:
+                    literals=parse_literals(txt)
+                    status="LITERAL_ONLY_NOT_RUNTIME_PROOF"
+                except Deny:
+                    if (name,version) not in KB_PACKAGES:
+                        raise
+                    # The old OS-specific KB installers contain repeated
+                    # branch-local/dynamically computed properties. Do not
+                    # infer a unique URL or SHA256 from those scripts.
+                    literals={}
+                    status="UNRESOLVED_DYNAMIC_OR_MULTIBRANCH"
                 result["scriptLiteralExternalDownloads"].append({
                     "path":fn,"scriptSHA256":file_info["sha256"],
                     "literalDownloadURLs":literals,
+                    "parseStatus":status,
                     "containsDynamicPowerShell":True})
     return result
 
