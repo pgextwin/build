@@ -92,6 +92,6 @@ def main():
     except (Deny,OSError,TypeError,ValueError):
         out["reasonCode"]="SANDBOX_IDENTITY_OR_LOCAL_GIT_CONFIG_UNPROVEN"
     print(json.dumps(out,sort_keys=True))
-    # No positive signed Publisher receipt is possible from this result.
-    return 0
+    # Missing/ambiguous sandbox evidence fails the PR job (never approval).
+    return 0 if out["decision"]=="SANDBOX_NONPERSISTENT_CHECKOUT_ONLY" else 2
 if __name__=="__main__":sys.exit(main())
