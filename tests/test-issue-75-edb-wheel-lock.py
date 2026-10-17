@@ -99,6 +99,16 @@ class AdversarialTests(TestCase):
         with self.assertRaises(e.Deny):
             e.bounded_installer_get({"package":"postgresql14","checksumType64":"sha256",
                 "checksum64":"0"*64,"url64":"https://attacker.invalid/a.exe"})
+    def test_downloaded_exe_wrong_sha256_is_fatal_not_silently_successful(self):
+        row=e.inspect_installer_script(clean_script(),"postgresql14","14.24.0")
+        fake=io.BytesIO(b"exe_test_payload"*100000)
+        class Opener:
+            def open(self,*args,**kwargs):
+                fake.seek(0)
+                return fake
+        with mock.patch.object(e,"build_opener",return_value=Opener()):
+            with self.assertRaises(e.Deny):
+                e.bounded_installer_get(row)
     def test_pr_only_workflow_no_writer_scope(self):
         text=(ROOT/".github/workflows/validate.yml").read_text()
         for job in ("issue75_choco_script_probe","issue75_wheel_lock_probe"):
