@@ -112,6 +112,56 @@ class PublicByteHostileTests(TestCase):
                           "download-artifact","gh workflow run",
                           "gh release","create-github-app-token"):
             self.assertNotIn(forbidden,part)
+    def test_exact_original_successful_pr_byte_observation_is_no_go(self):
+        ledger=p.load(p.OBSERVED)
+        result=p.inspect_observed(ledger,records()[0])
+        self.assertEqual((result["ActionFilesSHA256"],result["LinuxWheelsSHA256"],
+                          result["WindowsWheelsSHA256"],
+                          result["ChocolateyArchivesSHA256"]),(13,8,8,5))
+        self.assertFalse(result["realRuntimeClosureAuthenticated"])
+        self.assertFalse(result["publicationAuthorized"])
+        self.assertEqual(result["goB"],"NO_GO")
+    def test_prior_observation_immutable_provenance_and_digest_tamper_deny(self):
+        changes=[
+          lambda j:j["source"].update(headSha="0"*40),
+          lambda j:j["source"].update(runAttempt=2),
+          lambda j:j["observations"]["ubuntu"]["actionFiles"][0].update(sha256="f"*64),
+          lambda j:j["observations"]["ubuntu"]["actionFiles"].pop(),
+          lambda j:j["observations"]["windows"]["chocolateyArchives"][0].update(
+              postgresqlInstallerSHA256Verified=True),
+          lambda j:j["observations"]["windows"]["chocolateyArchives"][0].update(
+              nupkgIdentityVerified=False),
+          lambda j:j["observations"]["ubuntu"]["wheelInventory"]["wheels"].pop(
+              "jsonschema-4.26.0-py3-none-any.whl"),
+          lambda j:j["observations"]["windows"]["runner"].update(
+              changedSincePriorProbe=True),
+          lambda j:j["boundaries"].update(signedPublisherPositivePrewriteProven=True),
+          lambda j:j["boundaries"].update(goB="GO"),
+        ]
+        for c in changes:
+            ledger=p.load(p.OBSERVED)
+            c(ledger)
+            with self.subTest(mutation=str(c)):
+                with self.assertRaises(p.Deny):
+                    p.inspect_observed(ledger,records()[0])
+    def test_reproducibility_comparator_rejects_different_bytes(self):
+        ledger=p.load(p.OBSERVED)
+        for mode,key in (("action-python","actionFiles"),
+                         ("chocolatey-python","chocolateyArchives")):
+            role="ubuntu" if mode=="action-python" else "windows"
+            original=ledger["observations"][role]
+            current={key:copy.deepcopy(original[key]),
+                     "wheelInventory":copy.deepcopy(original["wheelInventory"])}
+            self.assertTrue(p.compare_against_record(mode,current,ledger))
+            current[key][0]["GETs"]=1
+            with self.assertRaises(p.Deny):
+                p.compare_against_record(mode,current,ledger)
+            current={key:copy.deepcopy(original[key]),
+                     "wheelInventory":copy.deepcopy(original["wheelInventory"])}
+            k=next(iter(current["wheelInventory"]["wheels"]))
+            current["wheelInventory"]["wheels"][k]="0"*64
+            with self.assertRaises(p.Deny):
+                p.compare_against_record(mode,current,ledger)
     def test_bounded_download_simulation_and_no_go(self):
         plan=records()[0]
         # Scope to an inert one-file fake Git object; real manifests never changed.
