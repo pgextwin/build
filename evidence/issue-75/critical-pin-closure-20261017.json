@@ -23,7 +23,8 @@
         "scripts/fleet-release-identity.py": "e8c63f6f7f26a883cf898ca1c3e386d9ed2f1d7c",
         "metadata/release-promotion.json": "d11ad5406fec63bf70fa9fc109c7c77dd92e2e9e",
         "metadata/automation-fleet.json": "3af52a623e956131f44c45212c9b8d6c0e614eb1",
-        "metadata/postgresql.json": "44efa0bd070f75e67fbc31fd07820b2e0fad560d"
+        "metadata/postgresql.json": "44efa0bd070f75e67fbc31fd07820b2e0fad560d",
+        ".github/workflows/build-extension-attested.yml": "93a0a7641253735cf5adb845c768981c79f75b46"
       }
     },
     "signer": {
@@ -55,7 +56,8 @@
         "scripts/release-recovery-evidence.py": "41760a940a5f0e0a493600898c809b1881f57c48",
         "metadata/release-promotion.json": "f1e28af7ce6e71b572f2ca865c53647754dc103a",
         "metadata/automation-fleet.json": "061c48ad3e60294572a27b8d70d333b545400c9e",
-        "metadata/postgresql.json": "44efa0bd070f75e67fbc31fd07820b2e0fad560d"
+        "metadata/postgresql.json": "44efa0bd070f75e67fbc31fd07820b2e0fad560d",
+        ".github/workflows/build-extension-attested.yml": "93a0a7641253735cf5adb845c768981c79f75b46"
       }
     }
   },
