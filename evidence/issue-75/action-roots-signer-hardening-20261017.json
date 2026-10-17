@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "kind": "ISSUE75_SIGNER_CHECKOUT_ACTION_ROOTS_OFFLINE_NO_GO",
+  "source": "Six immutable GitHub action root GET /git/trees/<commit>, action.yml read at exact SHA, 2026-10-17; only tree immediate children; not transitive byte attestations.",
+  "signer": {
+    "repository": "pgextwin/build",
+    "commit": "5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+    "workflow": ".github/workflows/build-extension-attested.yml",
+    "blob": "93a0a7641253735cf5adb845c768981c79f75b46",
+    "checkoutOccurrences": 5,
+    "persistCredentialsDisabledOccurrences": 0
+  },
+  "actions": {
+    "actions/checkout": {
+      "commit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "manifestBlob": "5b0524f730db83f9513c18ab31a6c086c7239076",
+      "lockBlob": "faf0e22120b3e68dd2d480968fe3ae5227079ad4",
+      "distTree": "8254fdcb2607245529e80705d59fa93407c07c00",
+      "observation": "root_tree_and_manifest_source_only",
+      "fullTransitiveClosureProven": false
+    },
+    "actions/setup-python": {
+      "commit": "ece7cb06caefa5fff74198d8649806c4678c61a1",
+      "manifestBlob": "7a9a7b634ec348b35b882f1f14fcaa4d41836a8e",
+      "lockBlob": "62d9ae1b7b09a47477d1816ce3dcbd3e477c97b0",
+      "distTree": "2c14c5496daa839d0f3771408b302e81d75cade3",
+      "observation": "root_tree_and_manifest_source_only",
+      "fullTransitiveClosureProven": false
+    },
+    "actions/upload-artifact": {
+      "commit": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "manifestBlob": "7cb4d1e81db55320b41217e1a78a1a46e3d2baef",
+      "lockBlob": "7b5e8775fc15bcc6a4a83897ccc9d00b722d5284",
+      "distTree": "98611229ac6c2b129cdcf813ccb68a1590bd4e8f",
+      "observation": "root_tree_and_manifest_source_only",
+      "fullTransitiveClosureProven": false
+    },
+    "actions/download-artifact": {
+      "commit": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "manifestBlob": "8b8c65029ccad20750a29fecb438eca5a607fc57",
+      "lockBlob": "c8e8d8fd5b0870b7aaa920099b202943979353bf",
+      "distTree": "511ccd68589c860b1d48d956dbf37d777a1c1245",
+      "observation": "root_tree_and_manifest_source_only",
+      "fullTransitiveClosureProven": false
+    },
+    "actions/attest": {
+      "commit": "1e69f48acb82d1966a394da916b4c1698aa569d6",
+      "manifestBlob": "f3d593f3020cf14b65d2789e3788d015354475e9",
+      "lockBlob": "abb24e7f936f4326f55b99c0cbc1b77cca2f3146",
+      "distTree": "cb69a9a5b16fc356366a7e8d259a8fd4cb159d3d",
+      "observation": "root_tree_and_manifest_source_only",
+      "fullTransitiveClosureProven": false
+    },
+    "actions/create-github-app-token": {
+      "commit": "bcd2ba49218906704ab6c1aa796996da409d3eb1",
+      "manifestBlob": "9f45ab3e2605ffeb987d3e029f27ee4d96bca6a0",
+      "lockBlob": "6120d7e4883ec0491b2afa6dcb1c845218ca5ae7",
+      "distTree": "41e12c94a9c70ec4135eecb750ca10247c10febf",
+      "observation": "root_tree_and_manifest_source_only",
+      "fullTransitiveClosureProven": false
+    }
+  },
+  "unresolved": {
+    "actionBundles": "dist tree Git SHA only; JS npm runtime dependencies, Node runtime on GitHub runner and action downloads not full verified bytes",
+    "runnerImages": "windows-latest and ubuntu-latest floating; resolved image version is run-scoped inventory only, not a pin",
+    "chocolatey": "PG14..18 package versions fixed by metadata, package download bytes digest and install scripts unverified",
+    "python": "jsonschema>=4,<5 floating; meson==1.8.3 ninja==1.11.1.4 version-only, wheels/transitives unhashed",
+    "syftGrype": "installer expected ZIP SHA256 present; this audit never redownloads/checks archives; Grype vulnerability DB dynamic",
+    "signerCheckout": "5 pinned Signer checkouts lack persist-credentials:false; only generated inert hardening candidate, deployed pin unchanged",
+    "token": "No token introspection or publication; local mock and fresh PR-only CI sandbox only"
+  },
+  "decision": {
+    "sourceCandidateOnly": true,
+    "actualSignerDeployedHardening": false,
+    "runnerIsolationProven": false,
+    "actionExecutableClosureProven": false,
+    "writerTokenIsolationProven": false,
+    "signedPublisherPositivePrewriteProven": false,
+    "goB": "NO_GO",
+    "g4": "NO_GO",
+    "g5": "NO_GO",
+    "publicationAuthorized": false
+  }
+}
