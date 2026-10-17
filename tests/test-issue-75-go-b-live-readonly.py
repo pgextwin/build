@@ -6,6 +6,7 @@ Sigstore proof or publication authorization. Every transport is mocked.
 """
 import base64
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -37,8 +38,11 @@ def workflow(pin=OLD, signer=o.SIGNER_PIN):
         "  publish:\n    permissions:\n      contents: write\n    steps:\n"
         "      - uses: actions/checkout@full\n        with:\n"
         f"          ref: {pin}\n")
-    return {"encoding": "base64", "sha": "3ae586814b063fefa5c3a554758f13467bb23ea5",
-            "content": base64.b64encode(src.encode()).decode(), "size": len(src)}
+    raw = src.encode()
+    claimed_blob = hashlib.sha1(
+        b"blob " + str(len(raw)).encode("ascii") + b"\x00" + raw).hexdigest()
+    return {"encoding": "base64", "sha": claimed_blob,
+            "content": base64.b64encode(raw).decode(), "size": len(raw)}
 
 def fake_state(pin=OLD):
     run, page = fixtures.evidence([14, 15, 16, 17, 18])
@@ -90,16 +94,32 @@ class GoBObserverOffline(TestCase):
             self.assertEqual(result[key], "NO_GO")
 
     def test_actual_unsigned_candidate_root_is_deny(self):
+        # The real authenticated Run identity, but mocked transport (no network).
+        # It is not a signed, main-only, active Publisher Run.
         state = fake_state()
-        run = state[f"actions/runs/{RUN}"]
-        run.update(id=39021934569, head_branch="auto-candidate/29d1c1984a1b44a55107",
-                   head_sha="4899b5c1da8e2fb681381fff4fa2ab41882cb0bc",
-                   status="completed", conclusion="success",
-                   path=".github/workflows/windows.yml")
+        real_id = 39021934569
+        actual_sha = "4899b5c1da8e2fb681381fff4fa2ab41882cb0bc"
+        root = state.pop(f"actions/runs/{RUN}")
+        jobs = state.pop(f"actions/runs/{RUN}/attempts/1/jobs?per_page=100")
+        state.pop(f"commits/{SHA}/check-runs?per_page=100")
+        state.pop(f"contents/.github/workflows/promote.yml?ref={SHA}")
+        root.update(id=real_id,
+                    head_branch="auto-candidate/29d1c1984a1b44a55107",
+                    head_sha=actual_sha, status="completed", conclusion="success",
+                    path=".github/workflows/windows.yml")
+        state[f"actions/runs/{real_id}"] = root
+        state[f"actions/runs/{real_id}/attempts/1/jobs?per_page=100"] = jobs
+        state[f"commits/{actual_sha}/check-runs?per_page=100"] = fake_state()[
+            f"commits/{SHA}/check-runs?per_page=100"]
+        state[f"contents/.github/workflows/promote.yml?ref={actual_sha}"] = workflow()
+        # Protected branch remains the real main SHA, not the unmerged candidate.
         calls = []
         with self.assertRaises(o.Deny):
-            o.observe(reader(state, calls), run_id=RUN)
-        # No attempt to reinterpret the real unsigned 9/9-success record as GO B.
+            o.observe(reader(state, calls), run_id=real_id)
+        self.assertEqual(calls[0][1], real_id)
+        self.assertTrue(all(c[0].startswith(("actions/", "branches/",
+                                             "commits/", "contents/"))
+                            for c in calls))
 
     def test_signed_canary_failure_wrong_workflow_is_deny(self):
         state = fake_state()
