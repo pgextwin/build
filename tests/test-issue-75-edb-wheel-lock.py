@@ -103,7 +103,7 @@ class AdversarialTests(TestCase):
         text=(ROOT/".github/workflows/validate.yml").read_text()
         for job in ("issue75_choco_script_probe","issue75_wheel_lock_probe"):
             self.assertIn("  "+job+":",text)
-            sec=text.split("  "+job+":",1)[1].split("\n  ",1)[0]
+            sec=text.split("  "+job+":",1)[1].split("\n  existing_signed_release_readonly:",1)[0]
             self.assertIn("github.event_name == 'pull_request'",sec)
             self.assertIn("issue-75-edb-installer-wheel-lock",sec)
         for token in ("secrets.PGEXTWIN", "gh release create","gh workflow run"):
