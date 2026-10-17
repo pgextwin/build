@@ -251,7 +251,7 @@ jobs:
         run: python scripts/issue-75-external-byte-probe.py --mode ${{ matrix.mode }}
 
   issue75_choco_script_probe:
-    name: Issue75 inert EDB EXE checksum provenance and bounded byte canary
+    name: Issue75 inert EDB source replay against proven five-EXE SHA256 ledger
     if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-edb-installer-wheel-lock'
     runs-on: windows-latest
     timeout-minutes: 15
@@ -263,7 +263,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Parse actual PG14-18 nupkg scripts and bounded PG14 EXE GET (never run installers)
-        run: python scripts/issue-75-choco-edb-nonexec.py --mode remaining
+        run: python scripts/issue-75-choco-edb-nonexec.py --mode inspect
 
   issue75_wheel_lock_probe:
     name: Issue75 download-only locked Python wheelhouse offline roundtrip
