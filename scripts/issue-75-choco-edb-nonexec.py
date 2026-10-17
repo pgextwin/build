@@ -154,6 +154,8 @@ def bounded_installer_get(row, maximum=420_000_000):
         result["status"]="MATCH" if result["verified"] else "CHECKSUM_MISMATCH"
         need(result["verified"],"untrusted EDB installer content")
     except (OSError,TimeoutError,urllib.error.URLError,Deny):
+        if result["status"]=="CHECKSUM_MISMATCH":
+            raise Deny("EDB_SHA256_MISMATCH")
         if result["status"]=="NOT_OBSERVED":result["status"]="UNAVAILABLE_OR_BOUNDED"
         # Resource/network obstacles are honestly NOT_PROVEN; digest mismatches
         # cannot become success and MUST fail the job.
@@ -164,7 +166,7 @@ def bounded_installer_get(row, maximum=420_000_000):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--mode",choices=("static","inspect","canary"),default="static")
+    ap.add_argument("--mode",choices=("static","inspect","canary","remaining"),default="static")
     args=ap.parse_args()
     out={"decision":"DENY_INSTALLER_SOURCE","goB":"NO_GO","g4":"NO_GO",
          "g5":"NO_GO","publicationAuthorized":False}
@@ -190,6 +192,13 @@ def main():
                 out["installerByteVerifiedCount"]=int(out["canary"]["verified"])
                 if out["canary"]["verified"]:
                     out["decision"]="ONE_EDB_INSTALLER_SOURCE_AND_BYTES_MATCH_NO_GO"
+            if args.mode=="remaining":
+                out["remainingInstallers"]=[bounded_installer_get(row) for row in data[1:]]
+                out["installerByteVerifiedCount"]=sum(int(x["verified"]) for x in out["remainingInstallers"])
+                if out["installerByteVerifiedCount"]==4:
+                    out["decision"]="FOUR_EDB_INSTALLER_BYTES_MATCH_NO_GO"
+                else:
+                    out["decision"]="INCOMPLETE_EDB_INSTALLER_BYTES_NO_GO"
         print(json.dumps(out,sort_keys=True));return 0
     except (Deny,OSError,ValueError,TypeError,KeyError,UnicodeError):
         print(json.dumps(out,sort_keys=True));return 2
