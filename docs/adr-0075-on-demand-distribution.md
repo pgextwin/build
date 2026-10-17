@@ -57,3 +57,42 @@ P0 this ADR → P1 `plpgsql_check` nonpublishing B1 protected PR + hostile tests
 **Do not reduce organization/repository global retention to 1 day**: since 2026-10-01 it covers checks, runs, statuses and logs as well as Artifacts; retain critical evidence through immutable Issue/Catalog/Release records before shortening only disposable artifact `retention-days`. 500MB allowance and observed ~11.896MB/70 Windows Artifacts **do not establish current free headroom, $0 billing eligibility, or final invoice**. GitHub Support #4860203 remains pending. Publication DENY, GO A unsigned-canary 0/10, GO B/repin/G4/G5 NO-GO remain invariant.
 
 References: [GitHub offline attestation verification](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations-offline), [GitHub CLI verify](https://cli.github.com/manual/gh_attestation_verify), [retention scope](https://docs.github.com/en/organizations/managing-organization-settings/configuring-the-retention-period-for-github-actions-artifacts-and-logs-in-your-organization).
+
+## 5. CLI-created offline ZIP product contract — owner clarification, 2026-10-17 (nonpublishing)
+
+**This section controls the intended future distribution product.** It clarifies the older *proposed* archive/sign-and-publish language in sections 2–4 and [Issue #112](https://github.com/pgextwin/build/issues/112); do not interpret that language as authorization to publish new centrally prebuilt full-extension bundle ZIPs. The project owner requires a **client-side CLI that generates ZIPs in the user's own environment**. Existing immutable GitHub Release assets remain historical input/evidence, not newly authorized product bundles.
+
+| Boundary | Required future behavior | Prohibited inference |
+| --- | --- | --- |
+| Online CLI | Retrieve the exact immutable Catalog snapshot and independently verified existing published Release bytes/evidence, apply major/architecture/runtime policy, then create the requested ZIP **locally**. A request may fetch source payloads, but must not publish a new ready-made bundle from CI. | A successful historical asset GET, unsigned Windows CI or GO A sign-only Artifact is **not** a new distributable Release/installation approval. |
+| Offline preparation | In a networked environment, the CLI creates a transfer-ready ZIP from verified eligible inputs; transport it to a disconnected Windows host. No server-side pre-created new offline bundle is required. | A local ZIP's own embedded checksum or Catalog JSON is not an external signature of its origin. |
+| Full-fleet portable ZIP | Generate **one ZIP for a selected PostgreSQL major** (e.g. `pgextwin-offline-pg18-windows-x64.zip`), containing eligible extension entries and the complete manifest/evidence/coverage snapshot for that major only; not one mixed-PG14–18 giant bundle. Explicitly label missing, blocked, unsupported and historical entries. | Do not advertise a 14/14 COMPLETE PG-major bundle while a required extension row lacks formally acceptable evidence. |
+| Trust | Preserve original Release payload bytes and genuine SLSA/SPDX evidence, cryptographically verify before packing and again when using offline. Pin the Catalog commit and independent trust material. Distinguish verified provenance of **embedded source bytes** from cryptographic authorship of the **locally assembled archive**. | Do not call an unsigned locally generated archive a pgextwin-signed Release, and do not claim `SIGNATURE_VERIFIED` merely because its internal checksums match. |
+| Installation | The same shared CLI parser/validator/planner handles online sources and a locally produced offline ZIP without network. `install --dry-run` comes before any separately gated `--apply` transaction; no hidden service restart, preload edit, SQL, privilege elevation, or overwriting. | A locally generated archive is not proof of successful install or safe write authorization. |
+
+**Example client-local major-specific layout (schema names remain subject to P0 review):**
+
+```text
+pgextwin-offline-pg18-windows-x64.zip    # written by CLI on user's machine
+  manifest.json                         # immutable Catalog commit + exact PG18 coverage
+  catalog/index.json
+  catalog/extensions/<extension>.json
+  packages/pg18/<extension>/<version>/<original-release-asset>.zip
+  evidence/<extension>/<release-tag>/<original-SLSA-SPDX-bundles>
+  evidence/<extension>/<release-tag>/<SPDX-and-Grype-reports>
+  licenses/<extension>/<license-or-notice>
+```
+
+**Trust bootstrap / negative boundary:** an offline target must have externally authenticated trusted-root/pinned signer identity and a trustworthy Catalog snapshot commitment, or fail closed. Material supplied only inside an attacker-replaceable ZIP cannot independently authenticate that ZIP. Preserve verified in-toto/Sigstore claims, actual Release asset IDs/SHA256 and source/packaging/run/attempt evidence; reject path traversal, duplicate members, symlinks, zip bombs, wrong PostgreSQL major/architecture, substitutions, stale roots and missing checks. Never claim online revocation freshness while disconnected.
+
+**Fleet source acceptance is a separate prerequisite.** As of this clarification, the historical formal P1 ledger is **65/70**, the historical source ledger **40/40**, and `plpgsql_check` PG14–18 still has **five DENY** because the published Release's PUBLISH→publish-success causal bridge is not proven. The separate nonpublishing GO A Run 39008743613 generated and reverified 10 genuine signatures but its workflow concluded FAILURE; those Artifacts do not repair the historical P1 ledger and are not distributable inputs. No new Release/Tag/Publisher/GO B/G4/G5 is authorized.
+
+**Revised nonpublishing sequence for Issue #112:**
+
+1. **P0:** Inventory immutable Catalog, independently admissible historical Release/evidence and per-major availability; define deterministic manifest schema, client-generated PG-major ZIP identity, independent trust anchor and hostile fixtures. Explicit `blocked` coverage where P1 evidence is absent.
+2. **P1:** Implement deterministic pure manifest generator and verifier on pinned fixtures. No publication workflow or signing privilege.
+3. **P2:** Generate local/private prototype ZIPs on the CLI host for individual majors; byte-compare genuine eligible Release sources; deny incomplete or untrusted full-fleet claims. Do not upload a centrally assembled distribution ZIP.
+4. **P3/P4:** Implement shared C#/.NET online/offline read/verify/pack and dry-run planner, then separately gated transactional install with rollback testing on disposable Windows systems.
+5. **P5/P6:** Validate end-to-end local ZIP generation → offline transfer → independently trusted offline verify → dry-run/apply (when separately gated), Catalog/Website documentation and coverage. A new centrally signed/hosted bundle product is **outside** this clarification and would require a distinct product decision and security authorization.
+
+**No change to current deployment/credential state.** The old Release assets, 14 manual-only promoters, candidate PRs, exact signer pin and source/PG lifecycle rules are preserved. This documentation amendment itself authorizes no new ZIP publication, Release/Tag, Actions Dispatch, signature, App/Secret, budget, branch protection or live installer write.
