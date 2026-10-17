@@ -263,7 +263,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Parse actual PG14-18 nupkg scripts and bounded PG14 EXE GET (never run installers)
-        run: python scripts/issue-75-choco-edb-nonexec.py --mode canary
+        run: python scripts/issue-75-choco-edb-nonexec.py --mode remaining
 
   issue75_wheel_lock_probe:
     name: Issue75 download-only locked Python wheelhouse offline roundtrip
