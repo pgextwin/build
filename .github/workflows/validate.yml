@@ -121,6 +121,11 @@ jobs:
           python scripts/issue-75-go-b-critical-pin-closure.py --snapshot evidence/issue-75/critical-pin-closure-20261017.json
 
 
+      - name: Validate Issue75 transitive SHA subgraph, unresolved external dependencies and isolated Reader
+        run: |
+          python tests/test-issue-75-transitive-dependency-delta.py
+          python scripts/issue-75-transitive-dependency-delta.py
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
