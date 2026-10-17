@@ -126,6 +126,11 @@ jobs:
           python tests/test-issue-75-transitive-dependency-delta.py
           python scripts/issue-75-transitive-dependency-delta.py
 
+      - name: Validate Issue75 Signer checkout-hardening candidate and pinned Action root inventory
+        run: |
+          python tests/test-issue-75-signer-hardening.py
+          python scripts/issue-75-signer-checkout-hardening.py
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
@@ -192,6 +197,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/issue-75-reader-isolation-probe.py
+
+  issue75_sandbox_probe:
+    name: Issue75 PR-only isolated runner/git credential negative probe (no signer)
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-signer-credential-external-proof'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout disposable sandbox with no persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read local checkout config and runner tool versions without exposing token bytes
+        run: python scripts/issue-75-signer-sandbox-probe.py
 
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
