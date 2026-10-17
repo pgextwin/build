@@ -1,0 +1,11 @@
+# Issue #75 — Chocolatey secondary dependency SHA256 (2026-10-17)
+
+**Status: PR-only read-only dependency observation; no Signer, Writer, PUBLISH or Release.**
+
+This follow-up reuses the exact frozen successful EDB PG14–18 EXE source evidence (1,954,467,240 bytes, 5/5 matches; `evidence/issue-75/edb-pg14-18-exe-byte-observations-20261017.json`, Git Blob `cd820757fde0ae7fdd7d0e728b7076ef7d1dff10`) without downloading the five ~2GB EXEs again. All five PostgreSQL nupkg nuspec source records independently identify `chocolatey-core.extension=1.3.3` and `vcredist140=14.23.27820` as transitive dependencies.
+
+The [inert inventory](../scripts/issue-75-choco-secondary-readonly.py) downloads exactly the two historic Chocolatey nupkg URLs twice each. It checks that complete raw archive bytes match between both independent HTTPS GETs, validates nuspec package identity, SHA256-hashes all ZIP members under bounded size limits, inventories any additional dependencies, and extracts PowerShell `.ps1` literal download URLs and checksums as text only. It does **not** execute scripts or install anything. Unexpected external URL hosts or malformed/dynamic checksum literals fail the job. Package root and scripts are *not* a complete attestation of runtime dependency execution; a PowerShell script can contain dynamic behavior the static regex does not understand.
+
+The source contract and malicious ZIP/URL/checksum fixtures run in the existing required `resolver` App15368 job. One PR-branch-only Windows job `issue75_secondary_chocolatey_readonly` uses `contents:read`, `persist-credentials:false`, no explicit token env, no Secrets, no Artifact, no publish. The completed job log is the primary observed-byte source until its SHA256 is frozen in a follow-up evidence record. Genuine Microsoft VC redistributable EXE bytes and dynamic dependency closure require separately explicit download proofs: *the mere appearance of a SHA256 literal is not actual-byte verification*.
+
+No revisions to actual Signer/Publisher pins, `promote.yml`, draft PR #29, budget, Secrets or branch protection. P1 65/70, independent source 40/40, historic PG14–18 five DENY, P1 BLOCKED, P2 NO-GO, GO B/G4/G5 NO-GO and formal Release/distribution DENY remain unchanged.
