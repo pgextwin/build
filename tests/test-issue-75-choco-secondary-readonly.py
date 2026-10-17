@@ -80,6 +80,35 @@ class HostileFixtureTests(TestCase):
                   "https://u:p@community.chocolatey.org/a",
                   "https://community.chocolatey.org:999/x"):
             with self.assertRaises(p.Deny):p.host_allowed(u,"nupkg")
+    def test_original_two_packages_immutable_run_and_kb_refs(self):
+        ledger=p.original_observation()
+        self.assertEqual(ledger["source"]["runId"],39039052934)
+        self.assertEqual(ledger["packages"][0]["archiveSHA256"],
+                         "ed7a281f45a61150df0e1414651bca8501004c56deb43439c075f1ba58aff70a")
+        self.assertEqual(ledger["packages"][1]["archiveSHA256"],
+                         "aec3e2fa9a92dd7c158f8ecf51a541f13bcbe95933ace4ace5ec1d1681e9c9dd")
+        self.assertEqual(len(ledger["packages"][1]["dependencies"]),4)
+        self.assertFalse(ledger["boundary"]["allRuntimeDependencyBytesVerified"])
+    def test_microsoft_x86_x64_byte_mismatch_fails(self):
+        pck=p.original_observation()["packages"][1]
+        with mock.patch.object(p,"get",return_value=b"F"*1_200_000):
+            with self.assertRaises(p.Deny):
+                p.actual_vcredist_bytes(pck)
+    def test_no_forged_double_get_receipt_or_mutable_runtime(self):
+        base=p.original_observation()
+        self.assertEqual(len(base["packages"]),2)
+        self.assertFalse(base["boundary"]["scriptExecuted"])
+        with self.assertRaises(p.Deny):
+            p.double_read_package("kb2999226","latest",lambda *args:b"")
+    def test_static_job_includes_microsoft_and_kb_without_execution(self):
+        wf=(ROOT/".github/workflows/validate.yml").read_text()
+        start=wf.index("  issue75_secondary_chocolatey_readonly:")
+        end=wf.index("\n  existing_signed_release_readonly:",start)
+        sec=wf[start:end]
+        self.assertIn(" --mode closure",sec)
+        self.assertNotIn("pip install",sec)
+        self.assertNotIn("choco install",sec)
+
     def test_workflow_job_isolated_and_no_write(self):
         wf=(ROOT/".github/workflows/validate.yml").read_text()
         start=wf.index("  issue75_secondary_chocolatey_readonly:")
