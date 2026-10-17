@@ -26,6 +26,10 @@ PACKAGES=(("chocolatey-core.extension","1.3.3"),
           ("vcredist140","14.23.27820"))
 KB_PACKAGES=(("KB3033929","1.0.3"),("KB2919355","1.0.20160915"),
              ("kb2999226","1.0.20170509"))
+MORE_PACKAGES=(("chocolatey-windowsupdate.extension","1.0.2"),
+               ("KB3035131","1.0.1"),("KB2919442","1.0.20160915"))
+VC_KB=ROOT/"evidence/issue-75/vc-kb-actual-bytes-39039490483.json"
+VC_KB_BLOB="38a730fe18240684a378413e6e865b87049b786b"
 ORIGINAL=ROOT/"evidence/issue-75/choco-secondary-observed-39039052934.json"
 ORIGINAL_BLOB="244c016b7056761825dbf4a8bb3e77758cf40dbb"
 SHA256=re.compile(r"[a-f0-9]{64}\Z")
@@ -158,7 +162,7 @@ def archive_inventory(raw,name,version):
                     literals=parse_literals(txt)
                     status="LITERAL_ONLY_NOT_RUNTIME_PROOF"
                 except Deny:
-                    if (name,version) not in KB_PACKAGES:
+                    if (name,version) not in KB_PACKAGES+MORE_PACKAGES:
                         raise
                     # The old OS-specific KB installers contain repeated
                     # branch-local/dynamically computed properties. Do not
@@ -168,13 +172,13 @@ def archive_inventory(raw,name,version):
                 row={"path":fn,"scriptSHA256":file_info["sha256"],
                      "literalDownloadURLs":literals,
                      "containsDynamicPowerShell":True}
-                if (name,version) in KB_PACKAGES:
+                if (name,version) in KB_PACKAGES+MORE_PACKAGES:
                     row["parseStatus"]=status
                 result["scriptLiteralExternalDownloads"].append(row)
     return result
 
 def double_read_package(name,version,download=get):
-    need((name,version) in PACKAGES+KB_PACKAGES,"not allowlisted")
+    need((name,version) in PACKAGES+KB_PACKAGES+MORE_PACKAGES,"not allowlisted")
     url=SOURCE_PREFIX+name+"/"+version
     first=download(url,"nupkg",25_000_000)
     second=download(url,"nupkg",25_000_000)
@@ -253,6 +257,62 @@ def actual_vcredist_bytes(package):
                         "GETs":2,"verified":True,"executed":False})
     return results
 
+def archived_vc_kb_receipt():
+    raw=VC_KB.read_bytes()
+    if gitblob(raw)!=VC_KB_BLOB:
+        p=subprocess.run(["git","show","HEAD:"+VC_KB.relative_to(ROOT).as_posix()],
+                         cwd=ROOT,capture_output=True,check=False,timeout=10)
+        need(p.returncode==0,"historical public byte Git Blob unavailable")
+        raw=p.stdout
+    need(gitblob(raw)==VC_KB_BLOB,"VC/KB true actual bytes receipt modified")
+    data=json.loads(raw)
+    need(data.get("kind")=="ISSUE75_CHOCOLATEY_HISTORICAL_VC_KB_OBSERVED_NO_GO" and
+         data.get("source")=={
+            "repository":"pgextwin/build","runId":39039490483,"attempt":1,
+            "headSha":"48ae70e021f4b78b4b0858206c8ab6187b7e9a94",
+            "jobId":117415887526,"runConclusion":"success",
+            "jobConclusion":"success",
+            "url":"https://github.com/pgextwin/build/actions/runs/39039490483"},
+         "original signed source run mismatch")
+    need(data.get("acceptance")=={
+        "MicrosoftVCExeBytesVerified":2,"KBArchivesVerified":3,
+        "secondariesVerified":2,"installedOrExecuted":False,
+        "KBMsusOrPatchBytesVerified":False,"allTransitiveNupkgClosed":False,
+        "signerWriterIsolationProven":False,"signedPublisherPrewriteProven":False,
+        "goB":"NO_GO","g4":"NO_GO","g5":"NO_GO","releaseAuthorized":False},
+         "forged downstream acceptance")
+    j=data["observations"]
+    need(j["decision"]=="MICROSOFT_TWO_EXE_AND_THREE_KB_ARCHIVES_SOURCE_ONLY_NO_GO" and
+         j["goB"]=="NO_GO" and len(j["kbPackages"])==3 and
+         len(j["vcRedistributableEXEs"])==2 and j["vcExeVerified"]==2,
+         "incomplete archived Microsoft executable witness")
+    for row in j["vcRedistributableEXEs"]:
+        need(row["sha256"]==row["expectedSHA256"] and row["GETs"]==2
+             and row["verified"] is True and row["executed"] is False,
+             "actual Microsoft executable byte proof mismatch")
+    return data
+
+def further_packages():
+    immutable_parent()
+    original=original_observation()
+    proof=archived_vc_kb_receipt()
+    source=proof["observations"]
+    need(source["packages"]==original["packages"],"historical secondary packages drift")
+    for row in source["kbPackages"]:
+        need((row["name"],row["version"]) in KB_PACKAGES and
+             row["independentGETs"]==2,"original KB package identity drift")
+    further=[double_read_package(*x) for x in MORE_PACKAGES]
+    return {"decision":"FURTHER_THREE_KB_DEPENDENCY_PACKAGES_SOURCE_ONLY_NO_GO",
+            "originalMicrosoftActualByteRun":39039490483,
+            "originalVCExeSHA256Matches":2,
+            "originalKBArchiveSHA256Matches":3,
+            "furtherPackages":further,
+            "furtherPackagesSHA256Verified":3,
+            "dynamicKBInstallersFullyVerified":False,
+            "allRuntimeDependenciesClosed":False,
+            "goB":"NO_GO","g4":"NO_GO","g5":"NO_GO",
+            "releaseAuthorized":False}
+
 def observe_closure():
     immutable_parent()
     original=original_observation()
@@ -270,12 +330,13 @@ def observe_closure():
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--mode",choices=("static","observe","closure"),default="static")
+    parser.add_argument("--mode",choices=("static","observe","closure","further"),default="static")
     mode=parser.parse_args().mode
     try:
         immutable_parent()
         if mode=="observe":out=witness()
         elif mode=="closure":out=observe_closure()
+        elif mode=="further":out=further_packages()
         else:out={"decision":"SECONDARY_PACKAGE_SOURCE_CONTRACT_ONLY",
                   "parents":5,"packages":2,"goB":"NO_GO","g4":"NO_GO","g5":"NO_GO",
                   "runtimeClosureProven":False,"releaseAuthorized":False}
