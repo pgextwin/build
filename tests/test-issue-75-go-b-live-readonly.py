@@ -46,6 +46,9 @@ def workflow(pin=OLD, signer=o.SIGNER_PIN):
 
 def fake_state(pin=OLD):
     run, page = fixtures.evidence([14, 15, 16, 17, 18])
+    # Existing shared Publisher fixture originates from pgextwin/pgaudit;
+    # the GO B pilot observer deliberately permits only plpgsql_check.
+    run["repository"]["full_name"] = o.REPO
     branch = {
         "name": "main", "protected": True, "commit": {"sha": SHA},
         "protection": {"required_status_checks": {"checks": [
@@ -120,6 +123,12 @@ class GoBObserverOffline(TestCase):
         self.assertTrue(all(c[0].startswith(("actions/", "branches/",
                                              "commits/", "contents/"))
                             for c in calls))
+
+    def test_other_repository_run_does_not_enter_pilot_positive_path(self):
+        state = fake_state()
+        state[f"actions/runs/{RUN}"]["repository"]["full_name"] = "pgextwin/pgaudit"
+        with self.assertRaises(o.Deny):
+            o.observe(reader(state, []), run_id=RUN)
 
     def test_signed_canary_failure_wrong_workflow_is_deny(self):
         state = fake_state()
