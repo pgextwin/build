@@ -112,6 +112,10 @@ jobs:
       - name: Validate PRE-G4 main Publisher active-manual fail-closed guards (offline only)
         run: python tests/test-issue-75-main-publisher-guard.py
 
+      - name: Validate GO B bounded GET-only live observer, double-JIT and no-write DENY fixtures
+        run: python tests/test-issue-75-go-b-live-readonly.py
+
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
