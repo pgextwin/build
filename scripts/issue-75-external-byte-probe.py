@@ -26,6 +26,7 @@ PLAN = ROOT / "evidence/issue-75/external-byte-probe-plan-20261017.json"
 ROOT_RECORD = ROOT / "evidence/issue-75/action-roots-signer-hardening-20261017.json"
 PG = ROOT / "metadata/postgresql.json"
 OBSERVED = ROOT / "evidence/issue-75/external-public-byte-observed-39034789275.json"
+EXPECTED_ORIGINAL_OBSERVATION_GIT_BLOB = "c5acb7920a5d9871eacef54a01a92ae71677a24f"
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 EXPECTED_BUNDLES = {
@@ -149,6 +150,11 @@ def inspect_observed(evidence, plan):
          evidence.get("schemaVersion")==1 and
          evidence.get("kind")=="ISSUE75_EXTERNAL_PUBLIC_BYTES_DOUBLE_GET_OBSERVED_NO_GO",
          "unrecognized original public-byte evidence")
+    # Bind the entire log-derived receipt (all SHA256 values, all runner
+    # fields and immutable Run identity), not merely its JSON structure.
+    need(gitblob((json.dumps(evidence,indent=2,ensure_ascii=True)+"\n").encode("utf-8"))==
+         EXPECTED_ORIGINAL_OBSERVATION_GIT_BLOB,
+         "entire original successful CI SHA256 receipt changed")
     origin=evidence.get("source")
     need(type(origin) is dict and origin == {
         "repository":"pgextwin/build","workflowRunId":39034789275,
