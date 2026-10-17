@@ -147,6 +147,11 @@ jobs:
           python tests/test-issue-75-choco-secondary-readonly.py
           python scripts/issue-75-choco-secondary-readonly.py --mode static
 
+      - name: Validate Issue75 inert OS-conditional KB/MSU script inventory
+        run: |
+          python tests/test-issue-75-kb-conditional-inert.py
+          python scripts/issue-75-kb-conditional-inert.py --mode static
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
@@ -307,6 +312,21 @@ jobs:
           persist-credentials: false
       - name: Download two secondary nupkg twice, inspect ZIP scripts as inert data
         run: python scripts/issue-75-choco-secondary-readonly.py --mode further
+
+  issue75_kb_inert:
+    name: Issue75 KB/MSU inert source inventory
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-kb-conditional-inert'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout isolated source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rehash eight nupkg originals twice and classify KB/MSU conditional source (never execute)
+        run: python scripts/issue-75-kb-conditional-inert.py --mode observe
 
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
