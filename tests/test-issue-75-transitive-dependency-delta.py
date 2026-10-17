@@ -104,10 +104,12 @@ class DependencyAndReaderTests(TestCase):
                 tokenMintedThisStep=True),
             lambda s: s["credentialBoundaries"]["signer"]["permissions"].append(
                 "contents:write"),
+            lambda s: s["credentialBoundaries"]["signer"].update(
+                checkoutPersistCredentials=False),
             lambda s: s["credentialBoundaries"].update(
-                checkoutPersistCredentials=True),
+                readerCheckoutPersistCredentials=True),
             lambda s: s["credentialBoundaries"].update(
-                artifactsMayContainSecrets=True),
+                artifactLeakageRuntimeVerified=True),
             lambda s: s["acceptance"].update(liveSignedPublisherPrewrite=True),
             lambda s: s["acceptance"].update(goB="GO"),
             lambda s: s["knownUnresolved"].remove("noVerifiedReaderTokenScopes"),
