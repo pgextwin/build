@@ -20,7 +20,7 @@ from pathlib import Path
 import re
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location(
@@ -47,6 +47,11 @@ assert len(REQUIRED) == 8
 class Deny(ValueError):
     pass
 
+class _NoRedirect(HTTPRedirectHandler):
+    """Refuse every redirect before a Bearer token can reach another host."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise Deny("redirect refused for authenticated read-only GET")
+
 def require(ok, why):
     if not ok:
         raise Deny(why)
@@ -70,8 +75,11 @@ def api_path_ok(path, run_id, attempt, sha):
     }
     return path in allowed
 
-def get_json(path, *, token, run_id, attempt, sha, opener=urlopen):
+def get_json(path, *, token, run_id, attempt, sha, opener=None):
     require(type(token) is str and bool(token), "read-only GH_TOKEN missing")
+    if opener is None:
+        # Standard urlopen follows redirects; do NOT forward Authorization.
+        opener = build_opener(_NoRedirect()).open
     require(type(run_id) is int and run_id > 0
             and type(attempt) is int and attempt > 0
             and type(sha) is str and SHA.fullmatch(sha),

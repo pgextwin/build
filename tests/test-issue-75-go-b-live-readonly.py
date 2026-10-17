@@ -247,6 +247,18 @@ class GoBObserverOffline(TestCase):
                               run_id=123, attempt=1, sha=SHA, opener=opener)
         self.assertEqual(observed, {"ok": True})
 
+    def test_redirect_blocked_before_authorization_can_escape_github(self):
+        # Redirect rejection is enforced at the HTTP handler, not after data
+        # has already been sent to an attacker-controlled second endpoint.
+        with self.assertRaises(o.Deny):
+            o._NoRedirect().redirect_request(
+                None, None, 302, "Moved", {},
+                "https://malicious.example/capture-token")
+        with self.assertRaises(o.Deny):
+            o._NoRedirect().redirect_request(
+                None, None, 307, "Temporary", {},
+                "https://api.github.com/other/path")
+
     def test_http_pagination_duplicate_json_and_sensitive_errors_deny(self):
         for case in ("http500", "pagination", "duplicate", "malformed", "size"):
             class Response:
