@@ -269,5 +269,84 @@ class MainGuardOffline(TestCase):
                     p.check_assets(folder, ext, receipt, COMMIT, RUN, lc)
 
 
+    def test_observed_v21015_unsigned_dispatch_is_not_a_signed_publisher(self):
+        """Fixed authenticated GET identities; purely synthetic denial, no network.
+
+        The successful one-shot candidate is eligible *unsigned* evidence only.
+        Even with its real job names and clean result, it has no attested
+        main/authorize/publish topology or verified certificates. This test
+        NEVER calls the Publisher writer or promotes historical GO A.
+        """
+        candidate_sha = "4899b5c1da8e2fb681381fff4fa2ab41882cb0bc"
+        candidate_run_id = 39021934569
+        candidate_run = {
+            "id": candidate_run_id, "run_attempt": 1,
+            "repository": {"full_name": REPO}, "head_sha": candidate_sha,
+            "head_branch": "auto-candidate/29d1c1984a1b44a55107",
+            "event": "workflow_dispatch",
+            "path": ".github/workflows/windows.yml",
+            "status": "completed", "conclusion": "success"}
+        candidate_names = [
+            "Regression-test immutable Release preflight",
+            "windows / Resolve extension and PostgreSQL matrix",
+            *[f"windows / PostgreSQL {pg} / Windows x64"
+              for pg in range(14, 19)],
+            "Windows required summary",
+            "Verify PG-major candidate artifacts and annotate owned PR / report",
+        ]
+        self.assertEqual(len(candidate_names), 9)
+        candidate_page = {
+            "total_count": 9,
+            "jobs": [{"id": 117365321417 + i, "name": name,
+                      "run_id": candidate_run_id, "run_attempt": 1,
+                      "head_sha": candidate_sha, "status": "completed",
+                      "conclusion": "success"}
+                     for i, name in enumerate(candidate_names)]
+        }
+        attempts = [("actual successful unsigned candidate", candidate_run,
+                     candidate_page)]
+        claimed_main = copy.deepcopy(candidate_run)
+        claimed_main.update(head_branch="main",
+                            path=p.guard.PROMOTE_PATH,
+                            status="in_progress", conclusion=None)
+        attempts.append(("forged promotion root, unsigned jobs", claimed_main,
+                         candidate_page))
+        # Even inventing the signed job names cannot turn a fully completed
+        # candidate run into an active, write-isolated prepublish Publisher.
+        forged_names = [p.guard.AUTHORIZE, p.guard.RESOLVE, *[
+            p.guard.BUILD + f" / PostgreSQL {pg} / Windows x64"
+            for pg in range(14, 19)], p.guard.PUBLISH]
+        forged_page = {
+            "total_count": len(forged_names),
+            "jobs": [{"id": 999100 + i, "name": name,
+                      "run_id": candidate_run_id, "run_attempt": 1,
+                      "head_sha": candidate_sha, "status": "completed",
+                      "conclusion": "success"}
+                     for i, name in enumerate(forged_names)]
+        }
+        attempts.append(("forged completed Publisher job", claimed_main,
+                         forged_page))
+        for label, observed_run, observed_jobs in attempts:
+            with self.subTest(case=label), self.assertRaises(p.guard.Deny):
+                p.guard.validate_snapshot(
+                    copy.deepcopy(observed_run),
+                    copy.deepcopy(observed_jobs), repo=REPO,
+                    sha=candidate_sha, run_id=candidate_run_id,
+                    attempt=1, majors=[14, 15, 16, 17, 18])
+        # An unsigned candidate-audit's self-declared VERIFIED status is NOT
+        # real zero-exit gh attestation verification, SLSA or signed SPDX.
+        fake_audit = json.dumps({"schemaVersion": 1, "status": "VERIFIED",
+                                 "matrixResult": "success",
+                                 "runId": candidate_run_id})
+        with self.assertRaises(p.guard.Deny):
+            p.guard.verified_claims(
+                fake_audit, predicate=p.guard.PROVENANCE, repo=REPO,
+                packaging_sha=candidate_sha, run_id=candidate_run_id,
+                attempt=1, zip_name="plpgsql_check-pg14-windows-x64.zip",
+                zip_digest="c17fc1a68474452979233a540e704ea376feda3451ce976935b08f01c5a54819",
+                sbom={"spdxVersion": "SPDX-2.3"})
+
+
+
 if __name__ == "__main__":
     main()
