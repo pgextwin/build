@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "ISSUE75_IMMUTABLE_CRITICAL_DEPENDENCY_SNAPSHOT",
+  "observedDate": "2026-10-17",
+  "source": "GitHub immutable git/trees GET plus exact promote.yml GET; this record is not cryptographic attestation or live capability authorization",
+  "roots": {
+    "pilot": {
+      "repository": "pgextwin/plpgsql_check",
+      "commit": "98452723fcad2aedafb1c02a210f35950f7e8cf2",
+      "blobs": {
+        ".github/workflows/promote.yml": "3ae586814b063fefa5c3a554758f13467bb23ea5",
+        "config/release-promotion.json": "ed8f1cb18ee9912a72d4d8d194ba85c55d6710a8",
+        "config/extension.json": "32e50546d6d2dec2e06a73faf3b1e4652fd272e7",
+        "config/test-contract.json": "c656c2ffbac60ad3248729d2133c36f6ecf91d6c"
+      }
+    },
+    "legacy": {
+      "repository": "pgextwin/build",
+      "commit": "455f0ccc667697f600700a6e64bcfd6c57b6a977",
+      "blobs": {
+        "scripts/fleet-promotion-gate.py": "6abf79d6a037a9ca5e77d5ce7803d520701e290c",
+        "scripts/fleet-publish-release.py": "85cbe8e6893477210831c6a813fe796f23d7eb08",
+        "scripts/fleet-release-identity.py": "e8c63f6f7f26a883cf898ca1c3e386d9ed2f1d7c",
+        "metadata/release-promotion.json": "d11ad5406fec63bf70fa9fc109c7c77dd92e2e9e",
+        "metadata/automation-fleet.json": "3af52a623e956131f44c45212c9b8d6c0e614eb1",
+        "metadata/postgresql.json": "44efa0bd070f75e67fbc31fd07820b2e0fad560d"
+      }
+    },
+    "signer": {
+      "repository": "pgextwin/build",
+      "commit": "5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+      "blobs": {
+        ".github/workflows/build-extension-attested.yml": "93a0a7641253735cf5adb845c768981c79f75b46",
+        "scripts/resolve-matrix.ps1": "2abfdf261925940fe02a667f6fd418da983f075a",
+        "scripts/finalize-package.ps1": "7712876c458c6168c06f4181b11d1bb1961210d4",
+        "scripts/verify-sbom-attestation.py": "4e670d811807f1228841681b587e82dd66cf5a70",
+        "scripts/validate-package-metadata.py": "9d0e744105490b5947915c4c4762152fbb69bd24",
+        "scripts/validate-test-contract.py": "9ec17b66993a6cc581b46669ef5b7ade8a2072dc",
+        "schema/package-info.schema.json": "94c83ead519de29512d9ae9a256e6279b8352655",
+        "schema/test-contract.schema.json": "dcd60a4a9e94978ca0714314b38b603e4a1d8da1",
+        "metadata/postgresql.json": "44efa0bd070f75e67fbc31fd07820b2e0fad560d"
+      }
+    },
+    "current": {
+      "repository": "pgextwin/build",
+      "commit": "2fa0dd844fdef66e529c090625c6e6f0aa105a67",
+      "blobs": {
+        "scripts/fleet-promotion-gate.py": "cdcc84862b108758bd5918efd63b1a50bb8ff935",
+        "scripts/fleet-publish-release.py": "0ba9700d9b4472d62bdd7137347e4194438a9e66",
+        "scripts/fleet-release-identity.py": "e8c63f6f7f26a883cf898ca1c3e386d9ed2f1d7c",
+        "scripts/issue-75-publisher-preflight.py": "eb89283a76d325d493cdfb9f36881c43998448c8",
+        "scripts/issue-75-attempt-pin-migration-offline.py": "4e6a8e5e8650c610b4b9ccadf3b3b28dbfa49147",
+        "scripts/issue-75-attempt-provenance-readonly.py": "21da590b4d23c4a040c4244a45281c01533984a9",
+        "scripts/release-authorization.py": "db03ea58b05f0a4fd93a541b10e722ef3cab3775",
+        "scripts/release-recovery-evidence.py": "41760a940a5f0e0a493600898c809b1881f57c48",
+        "metadata/release-promotion.json": "f1e28af7ce6e71b572f2ca865c53647754dc103a",
+        "metadata/automation-fleet.json": "061c48ad3e60294572a27b8d70d333b545400c9e",
+        "metadata/postgresql.json": "44efa0bd070f75e67fbc31fd07820b2e0fad560d"
+      }
+    }
+  },
+  "pilotWorkflow": {
+    "publisherCheckoutSha": "455f0ccc667697f600700a6e64bcfd6c57b6a977",
+    "authorizeCheckoutSha": "455f0ccc667697f600700a6e64bcfd6c57b6a977",
+    "signerReusableSha": "5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+    "trigger": "workflow_dispatch",
+    "authorizePermissions": [
+      "contents:read",
+      "actions:read",
+      "pull-requests:read"
+    ],
+    "buildPermissions": [
+      "contents:read",
+      "id-token:write",
+      "attestations:write",
+      "artifact-metadata:write"
+    ],
+    "publishPermissions": [
+      "contents:write",
+      "actions:read",
+      "attestations:read"
+    ],
+    "catalogPermissions": [
+      "contents:read"
+    ],
+    "catalogAppPermissions": [
+      "catalog:actions:write"
+    ],
+    "persistCredentials": false
+  },
+  "knownGaps": [
+    "legacyPublisherMissingAttemptScopedGuard",
+    "legacyPublisherMissingSignerAndSourceDigestPins",
+    "activePublisherRecoverySchemaV1",
+    "noRealSignedPublisherPositivePrewrite",
+    "noVerifiedReaderTokenRuntimeSeparation",
+    "noPublisherRepinAuthorization",
+    "noLiveCrashSafeRecoveryAcceptance"
+  ],
+  "acceptance": {
+    "signedArtifactsVerified": false,
+    "publisherLivePositiveProven": false,
+    "writerTokenIsolationProven": false,
+    "pinCutoverAuthorized": false,
+    "recoveryV2WriterDeployed": false,
+    "publishableReceipt": false,
+    "publicationAuthorized": false,
+    "goB": "NO_GO",
+    "g4": "NO_GO",
+    "g5": "NO_GO"
+  }
+}
