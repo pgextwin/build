@@ -105,7 +105,7 @@ class HostileFixtureTests(TestCase):
         start=wf.index("  issue75_secondary_chocolatey_readonly:")
         end=wf.index("\n  existing_signed_release_readonly:",start)
         sec=wf[start:end]
-        self.assertIn(" --mode closure",sec)
+        self.assertIn(" --mode further",sec)
         self.assertNotIn("pip install",sec)
         self.assertNotIn("choco install",sec)
 
