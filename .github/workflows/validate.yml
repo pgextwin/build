@@ -142,6 +142,11 @@ jobs:
           python scripts/issue-75-choco-edb-nonexec.py --mode static
           python scripts/issue-75-wheel-lock-candidate.py --mode static
 
+      - name: Validate Issue75 immutable Chocolatey secondary dependency parsing and deny fixtures
+        run: |
+          python tests/test-issue-75-choco-secondary-readonly.py
+          python scripts/issue-75-choco-secondary-readonly.py --mode static
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
@@ -287,6 +292,21 @@ jobs:
           persist-credentials: false
       - name: Fetch hash-pinned binary wheels only and repeat with no index (never install)
         run: python scripts/issue-75-wheel-lock-candidate.py --mode ${{ matrix.mode }}
+
+  issue75_secondary_chocolatey_readonly:
+    name: Issue75 Chocolatey transitive secondary nupkg original byte SHA256 (never execute)
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-choco-secondary-closure'
+    runs-on: windows-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout disposable PR source without credential persistence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download two secondary nupkg twice, inspect ZIP scripts as inert data
+        run: python scripts/issue-75-choco-secondary-readonly.py --mode observe
 
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
