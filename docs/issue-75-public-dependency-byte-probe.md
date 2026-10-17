@@ -1,0 +1,21 @@
+# Issue #75 — Public Action bundle, wheel and Chocolatey byte observations (nonpublishing)
+
+**Status: bounded public retrieval only. GO B/G4/G5 NO-GO. Formal Release/Distribution DENY.**
+
+## Source/root contract
+
+This opt-in, PR-only branch `issue-75-external-byte-closure-probe` leaves original signer `5756b3c5136a8bf4db710016cfe97555f0a71c6d`, deployed publisher `455f0ccc667697f600700a6e64bcfd6c57b6a977`, pilot `promote.yml`, all Secrets, existing 32+13 Git Blobs and old evidence untouched.
+
+[Immutable input record](../evidence/issue-75/external-byte-probe-plan-20261017.json) anchors exactly **6 Action commits, 7 dist JS/CJS blobs, 6 package-lock.json blobs** in the existing [Action root GET evidence](../evidence/issue-75/action-roots-signer-hardening-20261017.json). The first-level Action tree and deeper dist tree GETs established Git Blob SHA and sizes for each bundle. [Bounded probe](../scripts/issue-75-external-byte-probe.py) uses unauthenticated `raw.githubusercontent.com` URLs containing immutable Action commit SHA, GETs each file **twice**, recomputes Git blob ID over actual bytes, verifies known bundle sizes, and produces an observed SHA256. A verified source blob is **not** an assertion that GitHub Actions hosted runner executed those bytes or that the full Node/npm transitive dependency graph is locked; the latter stays NO-GO.
+
+For Python, it downloads **binary wheels only**, no installation or arbitrary build scripts, from PyPI using isolated pip and no cache, twice in separate folders. Target: Python 3.13 CPython amd64 on `manylinux2014_x86_64` and `win_amd64`; requirements match the live source exactly: `jsonschema>=4,<5` (floating), `meson==1.8.3` and `ninja==1.11.1.4` (versions only). It compares complete wheel filenames and SHA256 across the two independent resolution/download attempts. These observations **do not retroactively lock wheels used by a previous signed build** or prove an installer was not substituted.
+
+For Chocolatey, it GETs all **PG14–18 name/version nupkg archives** from `community.chocolatey.org/api/v2/package/<name>/<version>` twice, with bounded size/HTTPS redirects restricted to known source hosts, checks archive id/version from nuspec, and records SHA256. Nupkg content hashes **cannot** stand in for PostgreSQL third-party EDB installer download SHA256; this does not execute Chocolatey or install PostgreSQL. Any unexpected endpoint, download error, missing package, partial wheel, changed bytes or wrong digest is fail-closed; record only the observed evidence and any gap.
+
+## Runtime boundary and acceptance
+
+New `issue75_public_byte_probe` on two separate Windows/Ubuntu runners is available only to the named PR branch, `pull_request` event, job `contents:read`, checkout `persist-credentials:false`. No `GH_TOKEN`, `GITHUB_TOKEN`, Secret, credential-bearing Artifact, Signer call, Writer, `gh release`, tag or publish event. The isolated steps print hashes and sanitized platform version numbers only, no credentials or exception response bodies. `ImageOS` and `ImageVersion` are compared with the prior tested values (`ubuntu24/20261012.334.1`; `win25-vs2026/20261007.264.1`), with drift reported explicitly. Neither Runner alias nor version is an immutable full-image digest.
+
+[Hostile offline tests](../tests/test-issue-75-external-byte-probe.py) and the manifest-only CLI run in existing required App15368 `resolver`. They assert correct immutable bundles, failure on misplaced/replaced binaries or missing nodes, no ability to claim wheel/choco digest pin by source, source URL allowlist, nupkg identifier checks, double-download mismatch denial, rejected local executable/wheel substitution, and PR-only/job permissions.
+
+**Acceptance is strictly limited to a successful double-byte SHA256 observation.** The real signed Publisher positive prewrite, immutable Windows runner/toolchain/EDB binary digest, exact built wheel/Node code used by the pinned Signer, and actual Writer token separation remain NOT_PROVEN. The existing v2 UNKNOWN_QUARANTINE classifier, old GO A FAILURE, unsigned candidate run and original controls remain unchanged. Formal P1 **65/70**, independently accepted source **40/40**, plpgsql_check PG14–18 historic **five DENY**, P1 BLOCKED/P2 NO-GO, GO B/G4/G5 NO-GO, all formal distribution DENY.

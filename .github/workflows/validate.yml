@@ -131,6 +131,11 @@ jobs:
           python tests/test-issue-75-signer-hardening.py
           python scripts/issue-75-signer-checkout-hardening.py
 
+      - name: Validate bounded public Action bundle, PyPI wheel and Chocolatey archive plan (#75)
+        run: |
+          python tests/test-issue-75-external-byte-probe.py
+          python scripts/issue-75-external-byte-probe.py --mode static
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
@@ -215,6 +220,29 @@ jobs:
           persist-credentials: false
       - name: Read local checkout config and runner tool versions without exposing token bytes
         run: python scripts/issue-75-signer-sandbox-probe.py
+
+  issue75_public_byte_probe:
+    name: Issue75 PR-only public dependency bytes (no install or release)
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-external-byte-closure-probe'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            mode: action-python
+          - os: windows-latest
+            mode: chocolatey-python
+    steps:
+      - name: Checkout exact PR plan with no retained GitHub credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Independently hash public bytes without installation or credential injection
+        run: python scripts/issue-75-external-byte-probe.py --mode ${{ matrix.mode }}
 
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
