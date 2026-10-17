@@ -306,7 +306,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download two secondary nupkg twice, inspect ZIP scripts as inert data
-        run: python scripts/issue-75-choco-secondary-readonly.py --mode closure
+        run: python scripts/issue-75-choco-secondary-readonly.py --mode further
 
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
