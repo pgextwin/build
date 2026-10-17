@@ -170,6 +170,24 @@ jobs:
         shell: pwsh
         run: ./tests/test-resolve-matrix.ps1
 
+  issue75_reader_probe:
+    name: Issue75 isolated READ-only negative witness (never Publisher)
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-transitive-closure-reader-isolation'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out exact PR-only audit code without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Perform two authenticated, allowlisted GETs against an unsigned negative fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue-75-reader-isolation-probe.py
+
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
     if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-signed-release-readonly'
