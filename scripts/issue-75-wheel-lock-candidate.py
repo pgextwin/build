@@ -31,6 +31,18 @@ def load(path):
         return d
     return json.loads(data.decode(),object_pairs_hook=unique)
 def git_blob(data):return hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+def read_original_evidence():
+    """Use actual local Git Blob bytes on Windows autoCRLF worktrees."""
+    worktree=SOURCE.read_bytes()
+    if git_blob(worktree)==EXPECTED_SOURCE_GIT_BLOB:
+        return worktree
+    relative=SOURCE.relative_to(ROOT).as_posix()
+    proc=subprocess.run(["git","show","HEAD:"+relative],cwd=ROOT,
+                        capture_output=True,check=False,timeout=12)
+    need(proc.returncode==0 and
+         git_blob(proc.stdout)==EXPECTED_SOURCE_GIT_BLOB)
+    return proc.stdout
+
 def validated(lock,raw_source):
     need(git_blob(raw_source)==EXPECTED_SOURCE_GIT_BLOB)
     source=json.loads(raw_source)
@@ -136,7 +148,7 @@ def main():
     result={"decision":"DENY_OFFLINE_WHEEL_CANDIDATE","goB":"NO_GO","g4":"NO_GO",
             "g5":"NO_GO","publicationAuthorized":False}
     try:
-        lock=load(LOCK);seen=validated(lock,SOURCE.read_bytes())
+        lock=load(LOCK);seen=validated(lock,read_original_evidence())
         result.update(decision="HASHED_WHEEL_LOCK_CANDIDATE_ONLY",
                       packageCount=len(lock["packages"]),platforms=2,
                       wheelFiles=16,signerModified=False,
