@@ -163,11 +163,12 @@ def archive_inventory(raw,name,version):
                     # infer a unique URL or SHA256 from those scripts.
                     literals={}
                     status="UNRESOLVED_DYNAMIC_OR_MULTIBRANCH"
-                result["scriptLiteralExternalDownloads"].append({
-                    "path":fn,"scriptSHA256":file_info["sha256"],
-                    "literalDownloadURLs":literals,
-                    "parseStatus":status,
-                    "containsDynamicPowerShell":True})
+                row={"path":fn,"scriptSHA256":file_info["sha256"],
+                     "literalDownloadURLs":literals,
+                     "containsDynamicPowerShell":True}
+                if (name,version) in KB_PACKAGES:
+                    row["parseStatus"]=status
+                result["scriptLiteralExternalDownloads"].append(row)
     return result
 
 def double_read_package(name,version,download=get):
