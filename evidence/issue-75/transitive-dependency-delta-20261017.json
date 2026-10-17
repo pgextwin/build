@@ -1,0 +1,407 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "ISSUE75_TRANSITIVE_DEPENDENCY_DELTA_DENY_ONLY",
+  "observedDate": "2026-10-17",
+  "source": "GitHub immutable git/trees?recursive=1 (all four truncated=false), immutable fetch_file; manual edge trace at pinned workflow and scripts",
+  "baseline": {
+    "path": "evidence/issue-75/critical-pin-closure-20261017.json",
+    "gitBlob": "b846c8c55e1ffbaab126d4674de9d7dc52376cf0",
+    "rootNames": [
+      "pilot",
+      "legacy",
+      "signer",
+      "current"
+    ],
+    "blobCount": 32
+  },
+  "additionalGitBlobs": {
+    "pilot:config/export-audit.json": "51ecd6ced788a54489e469c6b20e4fedb4484f88",
+    "pilot:windows/ci/build.ps1": "abb70ec55193c7c9eebe9aa2d72f0bf49e57daab",
+    "pilot:windows/ci/install.ps1": "da2b07f4052833d37572035715b7263911e15019",
+    "pilot:windows/ci/package.ps1": "aea30d03a3d0129007d3a216cc38ebeca8598723",
+    "pilot:windows/ci/smoke-test.ps1": "3aa02d0d866ebcba55bf274d6373ecc1871652eb",
+    "signer:scripts/install-postgresql.ps1": "c40c7c59df30800d46d0cd4928b40ea0e715212f",
+    "signer:scripts/install-syft.ps1": "08cdfde4a51c8ea36100b910d87bad62a1456ac6",
+    "signer:scripts/generate-sbom.ps1": "e427f92cc32715a2db9b1b7df7d50bcb26cf5a0e",
+    "signer:scripts/install-grype.ps1": "1312bae41b730e61fdb4589d76c3d221b2bd15b7",
+    "signer:scripts/scan-vulnerabilities.ps1": "9fc0084070b74ccd6314ca052fa15095bea2c055",
+    "signer:scripts/validate-sbom.py": "0200e9b013cb2c398c038e32b43b417a1df3a457",
+    "signer:scripts/validate-vulnerability-report.py": "a99eafcc0361ef8e2926cbde05838a22acae8b12",
+    "signer:config/grype-report-only.yaml": "b8b79e2c07a9d275188bd0394f965e90e4b3233e"
+  },
+  "edges": [
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "legacy:scripts/fleet-promotion-gate.py"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "legacy:scripts/fleet-publish-release.py"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "signer:.github/workflows/build-extension-attested.yml"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "pilot:config/extension.json"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "pilot:config/release-promotion.json"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "ext:actions/checkout"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "ext:actions/upload-artifact"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "ext:actions/download-artifact"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "ext:actions/create-github-app-token"
+    },
+    {
+      "from": "pilot:.github/workflows/promote.yml",
+      "to": "ext:ubuntu-runner"
+    },
+    {
+      "from": "legacy:scripts/fleet-promotion-gate.py",
+      "to": "legacy:scripts/fleet-release-identity.py"
+    },
+    {
+      "from": "legacy:scripts/fleet-promotion-gate.py",
+      "to": "legacy:metadata/release-promotion.json"
+    },
+    {
+      "from": "legacy:scripts/fleet-promotion-gate.py",
+      "to": "legacy:metadata/automation-fleet.json"
+    },
+    {
+      "from": "legacy:scripts/fleet-promotion-gate.py",
+      "to": "legacy:metadata/postgresql.json"
+    },
+    {
+      "from": "legacy:scripts/fleet-publish-release.py",
+      "to": "legacy:scripts/fleet-release-identity.py"
+    },
+    {
+      "from": "legacy:scripts/fleet-publish-release.py",
+      "to": "legacy:metadata/postgresql.json"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/resolve-matrix.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/finalize-package.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/install-postgresql.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/install-syft.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/generate-sbom.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/validate-sbom.py"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/install-grype.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/scan-vulnerabilities.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/validate-vulnerability-report.py"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/validate-package-metadata.py"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/validate-test-contract.py"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:scripts/verify-sbom-attestation.py"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:metadata/postgresql.json"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:schema/test-contract.schema.json"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "signer:schema/package-info.schema.json"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "ext:actions/checkout"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "ext:actions/setup-python"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "ext:actions/attest"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "ext:actions/upload-artifact"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "ext:windows-runner"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "ext:ubuntu-runner"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "pilot:windows/ci/build.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "pilot:windows/ci/install.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "pilot:windows/ci/package.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "pilot:windows/ci/smoke-test.ps1"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "pilot:config/test-contract.json"
+    },
+    {
+      "from": "signer:scripts/resolve-matrix.ps1",
+      "to": "pilot:config/extension.json"
+    },
+    {
+      "from": "signer:scripts/finalize-package.ps1",
+      "to": "signer:metadata/postgresql.json"
+    },
+    {
+      "from": "signer:scripts/install-postgresql.ps1",
+      "to": "ext:chocolatey-postgresql"
+    },
+    {
+      "from": "signer:scripts/install-syft.ps1",
+      "to": "ext:syft-zip"
+    },
+    {
+      "from": "signer:scripts/install-grype.ps1",
+      "to": "ext:grype-zip"
+    },
+    {
+      "from": "signer:scripts/scan-vulnerabilities.ps1",
+      "to": "signer:config/grype-report-only.yaml"
+    },
+    {
+      "from": "signer:scripts/scan-vulnerabilities.ps1",
+      "to": "ext:grype-db"
+    },
+    {
+      "from": "signer:.github/workflows/build-extension-attested.yml",
+      "to": "ext:python-jsonschema"
+    },
+    {
+      "from": "pilot:windows/ci/build.ps1",
+      "to": "pilot:config/export-audit.json"
+    },
+    {
+      "from": "pilot:windows/ci/build.ps1",
+      "to": "ext:python-meson-ninja"
+    },
+    {
+      "from": "pilot:windows/ci/build.ps1",
+      "to": "ext:vs-msvc"
+    },
+    {
+      "from": "pilot:windows/ci/build.ps1",
+      "to": "ext:upstream-source"
+    }
+  ],
+  "externalDependencies": {
+    "ext:actions/checkout": {
+      "kind": "github_action",
+      "pin": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "verification": "git_ref_only",
+      "gap": "Action transitive JavaScript/npm/binary dependencies not verified"
+    },
+    "ext:actions/setup-python": {
+      "kind": "github_action",
+      "pin": "ece7cb06caefa5fff74198d8649806c4678c61a1",
+      "verification": "git_ref_only",
+      "gap": "Python toolcache and Action transitive dependencies unresolved"
+    },
+    "ext:actions/upload-artifact": {
+      "kind": "github_action",
+      "pin": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "verification": "git_ref_only",
+      "gap": "Action transitive dependencies unresolved"
+    },
+    "ext:actions/download-artifact": {
+      "kind": "github_action",
+      "pin": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "verification": "git_ref_only",
+      "gap": "Action transitive dependencies unresolved"
+    },
+    "ext:actions/attest": {
+      "kind": "github_action",
+      "pin": "1e69f48acb82d1966a394da916b4c1698aa569d6",
+      "verification": "git_ref_only",
+      "gap": "Action transitive dependencies unresolved"
+    },
+    "ext:actions/create-github-app-token": {
+      "kind": "github_action",
+      "pin": "bcd2ba49218906704ab6c1aa796996da409d3eb1",
+      "verification": "git_ref_only",
+      "gap": "Catalog job only; transitive dependencies unresolved; never executed in this step"
+    },
+    "ext:syft-zip": {
+      "kind": "release_download",
+      "pin": "8b56e8285e295e0bbed26eeea9b16ed51c493be97ccdf42dae6326c84fe8e19f",
+      "verification": "sha256_in_installer_source_only",
+      "gap": "Downloaded archive actual bytes not reverified here; v1.54.1"
+    },
+    "ext:grype-zip": {
+      "kind": "release_download",
+      "pin": "32e3c811f31822d17592908bafdc6288aaaca3d52583c479167a8dc8399ed65d",
+      "verification": "sha256_in_installer_source_only",
+      "gap": "Downloaded archive actual bytes not reverified here; v0.120.1"
+    },
+    "ext:chocolatey-postgresql": {
+      "kind": "package_manager",
+      "pin": "postgresql14=14.24.0;postgresql15=15.19.0;postgresql16=16.15.5;postgresql17=17.11.4;postgresql18=18.6.5",
+      "verification": "version_only",
+      "gap": "Chocolatey package binaries/repository content hashes not pinned"
+    },
+    "ext:python-jsonschema": {
+      "kind": "python_package",
+      "pin": "jsonschema>=4,<5",
+      "verification": "floating",
+      "gap": "pip range and complete dependency hashes not locked"
+    },
+    "ext:python-meson-ninja": {
+      "kind": "python_package",
+      "pin": "meson==1.8.3;ninja==1.11.1.4",
+      "verification": "version_only",
+      "gap": "versions fixed but wheel and transitive SHA256 absent"
+    },
+    "ext:windows-runner": {
+      "kind": "runner_image",
+      "pin": "windows-latest",
+      "verification": "floating",
+      "gap": "Runner image, preinstalled Python/PowerShell/Chocolatey/VS/MSVC tools mutable"
+    },
+    "ext:ubuntu-runner": {
+      "kind": "runner_image",
+      "pin": "ubuntu-latest",
+      "verification": "floating",
+      "gap": "Runner image and preinstalled gh/Python mutable"
+    },
+    "ext:vs-msvc": {
+      "kind": "toolchain",
+      "pin": "vswhere -latest;VC.Tools.x86.x64",
+      "verification": "floating",
+      "gap": "MSVC selected from mutable runner; runtime version recorded only"
+    },
+    "ext:grype-db": {
+      "kind": "remote_database",
+      "pin": "grype db update",
+      "verification": "floating",
+      "gap": "Vulnerability DB updated at execution, version/digest not immutable"
+    },
+    "ext:upstream-source": {
+      "kind": "upstream_git",
+      "pin": "ccdbcce9de51f01e1138c270aeb9fe4e26c6e911",
+      "verification": "git_ref_only",
+      "gap": "This is existing main v2.10.14, NOT PR29 v2.10.15; upstream dependency closure not inspected"
+    }
+  },
+  "credentialBoundaries": {
+    "reader": {
+      "job": "issue75_reader_probe",
+      "permissions": [
+        "actions:read",
+        "contents:read"
+      ],
+      "separateTokenContext": true,
+      "usesWriterCredential": false,
+      "runtimeTokenScopesVerified": false
+    },
+    "signer": {
+      "permissions": [
+        "contents:read",
+        "id-token:write",
+        "attestations:write",
+        "artifact-metadata:write"
+      ],
+      "runtimeTokenScopesVerified": false,
+      "checkoutPersistCredentials": true
+    },
+    "writer": {
+      "permissions": [
+        "contents:write",
+        "actions:read",
+        "attestations:read"
+      ],
+      "runThisStep": false,
+      "tokenMintedThisStep": false,
+      "runtimeTokenScopesVerified": false
+    },
+    "pilotAuthorizePublisherPersistCredentials": false,
+    "readerCheckoutPersistCredentials": false,
+    "artifactLeakageRuntimeVerified": false
+  },
+  "acceptance": {
+    "internalClosureAuthenticated": false,
+    "externalClosureAuthenticated": false,
+    "liveSignedPublisherPrewrite": false,
+    "goB": "NO_GO",
+    "g4": "NO_GO",
+    "g5": "NO_GO",
+    "publicationAuthorized": false,
+    "mutationAuthorized": false
+  },
+  "knownUnresolved": [
+    "thirdPartyActionTransitiveDependencies",
+    "runnerImageUnpinned",
+    "chocolateyBinaryDigestAbsent",
+    "pythonDependencyWheelHashesAbsent",
+    "vsToolchainMutable",
+    "grypeDatabaseMutable",
+    "noRealSignedPublisherPositivePrewrite",
+    "noVerifiedReaderTokenScopes",
+    "noLiveWriterTokenIsolation",
+    "noLiveCrashSafeWriter",
+    "signerCheckoutPersistsJobCredential",
+    "runtimeWorkflowCheckoutResolutionUnproven"
+  ]
+}
