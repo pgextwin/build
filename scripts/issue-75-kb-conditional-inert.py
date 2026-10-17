@@ -39,7 +39,7 @@ PACKAGES = (
     ("KB2919442", "1.0.20160915", "8d1c0b79ec22343f6fe3a9a52d5072320b3265182ee273c453fef04e7b221cf3"),
 )
 URL = re.compile(r"https?://[^\s'\"<>\\)]+", re.I)
-ASSIGN = re.compile(r"^\s*\$?(url64?|checksum64?|checksumtype64?)\s*=\s*(.*?)\s*$", re.I)
+ASSIGN = re.compile(r"^\s*\$?(url(?:64)?|checksum(?:64)?|checksumtype(?:64)?)\s*=\s*(.*?)\s*$", re.I)
 QUOTED = re.compile(r"^(['\"])(.*?)\1\s*(?:#.*)?$")
 OS_KEY = re.compile(r"(?m)^\s*['\"](\d+\.\d+(?:-[\w]+)?)['\"]\s*=\s*@\{")
 SHA = re.compile(r"^[0-9a-fA-F]{64}$")
