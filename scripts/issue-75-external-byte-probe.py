@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "evidence/issue-75/external-byte-probe-plan-20261017.json"
 ROOT_RECORD = ROOT / "evidence/issue-75/action-roots-signer-hardening-20261017.json"
 PG = ROOT / "metadata/postgresql.json"
+OBSERVED = ROOT / "evidence/issue-75/external-public-byte-observed-39034789275.json"
+SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 EXPECTED_BUNDLES = {
  "actions/checkout": [("dist/index.js","06ae5d221b3dc83259d396ec60027972181e51b9",1452503)],
@@ -136,6 +138,123 @@ def inspect(plan,root,pg):
             "chocolateyPackageHashesPinned":False,
             "runnerImagePinned":False,"goB":"NO_GO","g4":"NO_GO",
             "g5":"NO_GO","publicationAuthorized":False}
+
+def inspect_observed(evidence, plan):
+    """Bound exact original successful PR log SHA256 to unchanged NO-GO roots.
+
+    This is a reproducibility ledger, not a cryptographic GitHub job-log
+    signature, an installed binary digest, or a Publisher attestation.
+    """
+    need(type(evidence) is dict and
+         evidence.get("schemaVersion")==1 and
+         evidence.get("kind")=="ISSUE75_EXTERNAL_PUBLIC_BYTES_DOUBLE_GET_OBSERVED_NO_GO",
+         "unrecognized original public-byte evidence")
+    origin=evidence.get("source")
+    need(type(origin) is dict and origin == {
+        "repository":"pgextwin/build","workflowRunId":39034789275,
+        "runAttempt":1,"headSha":"f32e43d55e5613e6b985b1f37e883800e6f2127c",
+        "event":"pull_request","conclusion":"success",
+        "ubuntuJobId":117402324705,"windowsJobId":117402324607,
+        "runUrl":"https://github.com/pgextwin/build/actions/runs/39034789275"},
+        "untrusted fixed Run/attempt/head proof reference")
+    limits=evidence.get("boundaries")
+    need(type(limits) is dict and limits == {
+        "authScopesProven":False,"signedPublisherPositivePrewriteProven":False,
+        "actionRuntimeExecutionProven":False,
+        "postgresqlInstallerDigestsProven":False,
+        "pythonWheelSignerPinsProven":False,"runnerImageDigestProven":False,
+        "goB":"NO_GO","g4":"NO_GO","g5":"NO_GO",
+        "formalReleaseAuthorized":False}, "forged real acceptance flag")
+    jobs=evidence.get("observations")
+    need(type(jobs) is dict and set(jobs)=={"ubuntu","windows"},
+         "original runtime matrix evidence incomplete")
+    expected_action_files={
+        (repo,file["path"]) for repo,v in plan["actions"].items()
+        for file in v["files"]
+    }
+    for role in ("ubuntu","windows"):
+        j=jobs[role]
+        need(type(j) is dict and
+             j.get("decision")=="PUBLIC_BYTES_DOUBLE_HASHED_SOURCE_ONLY_NO_GO" and
+             j.get("publicationAuthorized") is False and
+             all(j.get(k)=="NO_GO" for k in ("goB","g4","g5")) and
+             j.get("pipDependencyHashesPinned") is False and
+             j.get("chocolateyPackageHashesPinned") is False and
+             j.get("runnerImagePinned") is False, "forged public-byte job success")
+        runtime=j.get("runner")
+        target="ubuntu" if role=="ubuntu" else "windows"
+        need(type(runtime) is dict and runtime.get("runner")==target and
+             runtime.get("baselineImageVersion")==
+             plan["baseline"][target+"ImageVersion"] and
+             runtime.get("imageDigestPinned") is False and
+             runtime.get("changedSincePriorProbe") is False and
+             runtime.get("imageOS")==plan["baseline"][target+"ImageOs"] and
+             runtime.get("imageVersion")==plan["baseline"][target+"ImageVersion"],
+             "original Runner image drift/identity falsely described")
+        wh=j.get("wheelInventory")
+        need(type(wh) is dict and
+             wh.get("independentDownloadSets")==2 and
+             wh.get("pythonTarget")=="cp313" and
+             wh.get("hashesLockedBySigner") is False and
+             wh.get("platform")==PIP_TARGETS[
+                 "action-python" if role=="ubuntu" else "chocolatey-python"][0],
+             "wheel source scope drift")
+        wheels=wh.get("wheels")
+        need(type(wheels) is dict and len(wheels)==8 and
+             all(re.fullmatch(r"[A-Za-z0-9_.+-]+\\.whl",k) and
+                 SHA64.fullmatch(v or "") for k,v in wheels.items()),
+             "incomplete wheel SHA256 map")
+        need(any(k.startswith("jsonschema-4.") for k in wheels) and
+             any(k.startswith("meson-1.8.3-") for k in wheels) and
+             any(k.startswith("ninja-1.11.1.4-") for k in wheels),
+             "wheel pins missing from observed set")
+    ua=jobs["ubuntu"].get("actionFiles")
+    need(type(ua) is list and len(ua)==13 and
+         {(x["repository"],x["path"]) for x in ua}==expected_action_files,
+         "original double-read Action bundle/lock coverage")
+    for item in ua:
+        need(type(item) is dict and
+             item.get("GETs")==2 and item.get("gitBlobVerified") is True and
+             item.get("executableAttestation") is False and
+             type(item.get("bytes")) is int and 0<item["bytes"]<12_000_000 and
+             SHA64.fullmatch(item.get("sha256","")) is not None,
+             "Action byte observation forged")
+        v=plan["actions"][item["repository"]]
+        f=next(x for x in v["files"] if x["path"]==item["path"])
+        if f["kind"]=="action_bundle":
+            need(item["bytes"]==f["size"],"Action bundle byte size drift")
+    wc=jobs["windows"].get("chocolateyArchives")
+    need(type(wc) is list and len(wc)==5 and
+         {(x["name"],x["version"]) for x in wc}==
+         {(x["name"],x["version"]) for x in plan["chocolatey"]["packages"]},
+         "nupkg collection out of approved scope")
+    for x in wc:
+        need(type(x) is dict and x.get("GETs")==2 and
+             x.get("nupkgIdentityVerified") is True and
+             x.get("postgresqlInstallerSHA256Verified") is False and
+             x.get("containsInstallScript") is True and
+             type(x.get("nupkgBytes")) is int and x["nupkgBytes"]>0 and
+             SHA64.fullmatch(x.get("nupkgSHA256","")) is not None,
+             "nupkg not reproducibly observed")
+    return {"originalRun":39034789275,"ActionFilesSHA256":13,
+            "LinuxWheelsSHA256":8,"WindowsWheelsSHA256":8,
+            "ChocolateyArchivesSHA256":5,
+            "realRuntimeClosureAuthenticated":False,
+            "goB":"NO_GO","g4":"NO_GO","g5":"NO_GO",
+            "publicationAuthorized":False}
+
+def compare_against_record(mode, fresh, observed):
+    key="ubuntu" if mode=="action-python" else "windows"
+    old=observed["observations"][key]
+    if mode=="action-python":
+        need(fresh["actionFiles"]==old["actionFiles"],
+             "Action bytes changed since original successful Run")
+    else:
+        need(fresh["chocolateyArchives"]==old["chocolateyArchives"],
+             "Chocolatey package bytes changed since original Run")
+    need(fresh["wheelInventory"]["wheels"]==old["wheelInventory"]["wheels"],
+         "Python wheel resolution or SHA256 changed since original Run")
+    return True
 
 def allow_url(url, allowed=ALLOWED_HOSTS):
     u=urlsplit(url)
@@ -283,6 +402,8 @@ def main(argv=None):
     try:
         plan,root,pg=load(PLAN),load(ROOT_RECORD),load(PG)
         out=inspect(plan,root,pg)
+        observed=load(OBSERVED)
+        out["immutableOriginalObservation"]=inspect_observed(observed,plan)
         if mode!="static":
             need(os.environ.get("GITHUB_EVENT_NAME")=="pull_request" and
                  os.environ.get("GITHUB_REPOSITORY")=="pgextwin/build" and
@@ -297,6 +418,8 @@ def main(argv=None):
             else:
                 out["chocolateyArchives"]=download_chocolatey(plan)
             out["wheelInventory"]=download_wheels(plan,mode)
+            compare_against_record(mode,out,observed)
+            out["observedByteDigestsReproduced"]=True
             out["decision"]="PUBLIC_BYTES_DOUBLE_HASHED_SOURCE_ONLY_NO_GO"
         print(json.dumps(out,sort_keys=True))
         return 0
