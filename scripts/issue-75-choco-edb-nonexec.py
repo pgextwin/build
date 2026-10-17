@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import urllib.error
 from urllib.parse import urlsplit, urljoin
@@ -27,6 +28,8 @@ base=importlib.util.module_from_spec(spec);spec.loader.exec_module(base)
 SHA64=re.compile(r"[a-fA-F0-9]{64}\Z")
 SIMPLE=re.compile(r"(?im)^\s*(url64|checksum64|checksumtype64|filetype)\s*=\s*(['\"])(.*?)\2\s*(?:#.*)?$")
 EDB=re.compile(r"https://get\.enterprisedb\.com/postgresql/postgresql-(1[4-8])\.(\d+)-(\d+)-windows-x64\.exe\Z")
+RECEIPT=ROOT/"evidence/issue-75/edb-pg14-18-exe-byte-observations-20261017.json"
+RECEIPT_BLOB="cd820757fde0ae7fdd7d0e728b7076ef7d1dff10"
 class Deny(ValueError):pass
 def need(condition,why):
     if not condition:raise Deny(why)
@@ -106,6 +109,62 @@ def inspect_five(fetch):
          "PG14..18 declared source incomplete")
     return proof
 
+def verify_receipt(raw):
+    # No claims about the original signed Publisher or actual installation.
+    # This is an exact-source record of two independent successful PR Runs.
+    need(base.gitblob(raw)==RECEIPT_BLOB,"EDB complete evidence Git Blob drift")
+    data=json.loads(raw)
+    need(type(data) is dict and data.get("schemaVersion")==1 and
+         data.get("kind")=="ISSUE75_EDB_PG14_TO_18_EXE_BYTES_OBSERVED_READONLY_NO_GO",
+         "EDB receipt kind")
+    sources=data.get("sources")
+    need(type(sources) is list and len(sources)==2,"missing source run")
+    for row,run,sha,job in zip(sources,(39038000517,39038162434),
+                               ("18826c6c6938df9323b8f0086b4fef6a044357bb",
+                                "0a6649933e4ad313d3f0ce7cc84510a7a5e1a04e"),
+                               (117411610495,117412082965)):
+        need(row["source"]=={"runId":run,"attempt":1,"head":sha,"jobId":job,
+                            "runConclusion":"success","jobConclusion":"success"},
+             "original run-identity mismatch")
+        need(len(row["sourcePackages"])==5,"missing nupkg source root")
+    need(sources[0]["sourcePackages"]==sources[1]["sourcePackages"],
+         "nupkg scripts differ between original successful runs")
+    proofs=[item for row in sources for item in row["downloadedInstallers"]]
+    need(data.get("verifiedInstallerCount")==5 and len(proofs)==5 and
+         len({x["package"] for x in proofs})==5 and
+         data.get("verifiedExeTotalBytes")==sum(x["bytesRead"] for x in proofs),
+         "installer byte count drift")
+    expected={e["package"]:e for e in sources[0]["sourcePackages"]}
+    for item in proofs:
+        pkg=expected[item["package"]]
+        need(item["checksumFromChocolatey"]==pkg["checksum64"] and
+             item["computedSHA256"]==pkg["checksum64"] and
+             item["installerURL"]==pkg["url64"] and
+             item["verified"] is True and item["status"]=="MATCH" and
+             200000000<item["bytesRead"]<=420000000,
+             "forged actual EDB EXE checksum match")
+    need(data.get("acceptance")=={
+        "actualPG14To18InstallerBytesMatchedChocolatey":True,
+        "installedPostgresByThisAudit":False,
+        "executedPowerShell":False,"executedExe":False,
+        "postgresqlRuntimeClosureProven":False,
+        "chocolateyDependencyBytesClosed":False,
+        "signerPinsModified":False,
+        "signedPublisherPrewriteProven":False,
+        "goB":"NO_GO","g4":"NO_GO","g5":"NO_GO","releaseAuthorized":False},
+        "forged runtime/publish acceptance")
+    return data
+def read_receipt():
+    raw=RECEIPT.read_bytes()
+    if base.gitblob(raw)!=RECEIPT_BLOB:
+        # core.autocrlf on Windows may change checkout worktree bytes; Git
+        # object is authoritative, no network access or credential required.
+        cmd=["git","show","HEAD:"+RECEIPT.relative_to(ROOT).as_posix()]
+        p=subprocess.run(cmd,cwd=ROOT,capture_output=True,check=False,timeout=12)
+        need(p.returncode==0,"Git receipt object unavailable")
+        raw=p.stdout
+    return verify_receipt(raw)
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
         return None
@@ -171,10 +230,13 @@ def main():
     out={"decision":"DENY_INSTALLER_SOURCE","goB":"NO_GO","g4":"NO_GO",
          "g5":"NO_GO","publicationAuthorized":False}
     try:
+        receipt=read_receipt()
+        out["recordedExeMatches"]=receipt["verifiedInstallerCount"]
+        out["recordedExeBytes"]=receipt["verifiedExeTotalBytes"]
         if args.mode=="static":
-            # No network and no installation: source-only software contract.
+            # Immutable two-Run record; no live download or trust upgrade.
             need(EDB.fullmatch("https://get.enterprisedb.com/postgresql/postgresql-14.24-1-windows-x64.exe") is not None,"EDB URL parser")
-            out["decision"]="INERT_INSTALLER_SCRIPT_PARSER_ONLY"
+            out["decision"]="RECORDED_FIVE_INSTALLER_BYTES_SOURCE_ONLY"
         else:
             need(os.environ.get("GITHUB_EVENT_NAME")=="pull_request" and
                  os.environ.get("GITHUB_REPOSITORY")=="pgextwin/build" and
@@ -184,6 +246,8 @@ def main():
             need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
                  "credentials observed")
             data=inspect_five(base.fetch_bytes)
+            need(data==receipt["sources"][0]["sourcePackages"],
+                 "new nupkg script no longer matches verified receipt")
             out.update(decision="CHOCOLATEY_SCRIPT_LITERAL_SHA256_ONLY",
                        sourcePackages=data,sourceScriptCount=len(data),
                        installerByteVerifiedCount=0)
