@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -109,6 +110,10 @@ def workflow_pins(blob):
         src = raw.decode("utf-8")
     except (ValueError, UnicodeError) as exc:
         raise Deny("unreadable pinned workflow file") from exc
+    # Bind the claimed immutable Git blob SHA to actual decoded bytes.
+    git_blob = b"blob " + str(len(raw)).encode("ascii") + b"\x00" + raw
+    require(hashlib.sha1(git_blob).hexdigest() == blob["sha"],
+            "promote.yml Git blob SHA/content mismatch")
     refs = re.findall(r"^\s+ref:\s*([0-9a-f]{40})\s*$", src, re.M)
     signer = re.findall(
         r"^\s+uses:\s+pgextwin/build/\.github/workflows/"
@@ -224,7 +229,8 @@ def main(argv=None):
             run_id=args.run_id)
         # Even a true in-progress topology is not a complete GO B acceptance.
         print(json.dumps(result, sort_keys=True))
-        return 0
+        # Even a valid topology is NOT a signed artifact or publish approval.
+        return 2
     except (Deny, guard.Deny, TypeError, KeyError) as exc:
         # Do not print third-party HTTP error text or token.
         result["reason"] = (str(exc) if isinstance(exc, Deny)
