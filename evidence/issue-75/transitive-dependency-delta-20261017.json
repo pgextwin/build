@@ -363,7 +363,8 @@
         "attestations:write",
         "artifact-metadata:write"
       ],
-      "runtimeTokenScopesVerified": false
+      "runtimeTokenScopesVerified": false,
+      "checkoutPersistCredentials": true
     },
     "writer": {
       "permissions": [
@@ -375,8 +376,9 @@
       "tokenMintedThisStep": false,
       "runtimeTokenScopesVerified": false
     },
-    "artifactsMayContainSecrets": false,
-    "checkoutPersistCredentials": false
+    "pilotAuthorizePublisherPersistCredentials": false,
+    "readerCheckoutPersistCredentials": false,
+    "artifactLeakageRuntimeVerified": false
   },
   "acceptance": {
     "internalClosureAuthenticated": false,
@@ -398,6 +400,8 @@
     "noRealSignedPublisherPositivePrewrite",
     "noVerifiedReaderTokenScopes",
     "noLiveWriterTokenIsolation",
-    "noLiveCrashSafeWriter"
+    "noLiveCrashSafeWriter",
+    "signerCheckoutPersistsJobCredential",
+    "runtimeWorkflowCheckoutResolutionUnproven"
   ]
 }
