@@ -109,6 +109,28 @@ class AdversarialTests(TestCase):
         with mock.patch.object(e,"build_opener",return_value=Opener()):
             with self.assertRaises(e.Deny):
                 e.bounded_installer_get(row)
+    def test_exact_five_exe_original_receipt_stays_nonpublishing(self):
+        raw=e.RECEIPT.read_bytes()
+        result=e.verify_receipt(raw)
+        self.assertEqual(result["verifiedInstallerCount"],5)
+        self.assertEqual(result["verifiedExeTotalBytes"],1954467240)
+        self.assertFalse(result["acceptance"]["chocolateyDependencyBytesClosed"])
+        self.assertEqual(result["acceptance"]["goB"],"NO_GO")
+        self.assertFalse(result["acceptance"]["releaseAuthorized"])
+        for tampered in (raw+b" ",raw.replace(b'"goB": "NO_GO"',b'"goB": "GO"'),
+                         raw.replace(b"360966784",b"360966785")):
+            with self.assertRaises(e.Deny):
+                e.verify_receipt(tampered)
+    def test_lightweight_pr_job_reuses_large_immutable_proof(self):
+        workflow=(ROOT/".github/workflows/validate.yml").read_text()
+        p=workflow.split("  issue75_choco_script_probe:",1)[1]
+        p=p.split("\n  issue75_wheel_lock_probe:",1)[0]
+        self.assertIn("--mode inspect",p)
+        self.assertNotIn("--mode remaining",p)
+        self.assertNotIn("--mode canary",p)
+        self.assertIn("persist-credentials: false",p)
+        self.assertIn("contents: read",p)
+
     def test_pr_only_workflow_no_writer_scope(self):
         text=(ROOT/".github/workflows/validate.yml").read_text()
         for job in ("issue75_choco_script_probe","issue75_wheel_lock_probe"):
