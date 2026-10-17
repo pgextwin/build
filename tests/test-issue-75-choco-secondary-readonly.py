@@ -117,7 +117,7 @@ class HostileFixtureTests(TestCase):
         for required in ("github.event_name == 'pull_request'",
                          "github.head_ref == 'issue-75-choco-secondary-closure'",
                          "persist-credentials: false","contents: read",
-                         "issue-75-choco-secondary-readonly.py --mode observe"):
+                         "issue-75-choco-secondary-readonly.py --mode closure"):
             self.assertIn(required,job)
         for prohibited in ("contents: write","id-token: write","secrets.",
                            "GH_TOKEN:","GITHUB_TOKEN:","upload-artifact",
