@@ -1,0 +1,39 @@
+# Issue #75 — GET-only inventory of connected private-executor readiness (2026-10-18)
+
+## Observations from actual connected GitHub tools
+
+Baseline build protected main: `7900eb697284c6cf5aec69d05ce347120a803265`, PR #130 MERGED, postmerge Validate Run 39113161951 push attempt1 exact SHA parent SUCCESS, App15368 resolver SUCCESS, previous report Issue #75 comment 6247931188 verified.
+
+- The current connected GitHub installation listing returned **2 installations**. The pgextwin-accessible installation returned **18 repos, all public**, with repository selection `all`. A second installation returned 6 other public repos. These results are **only the scope of this specific connected app**; they DO NOT establish that no private repository or alternate credential exists in GitHub or elsewhere.
+- `pgextwin/build` and `pgextwin/plpgsql_check` are both Public, `main.protected=true` by branch GET. Repository metadata reported `admin=true` for the caller, but that does NOT imply that this installed GitHub App can read organization settings or branch protection.
+- Attempted GET for `/repos/pgextwin/{build,plpgsql_check}/environments`, `/repos/pgextwin/build/actions/permissions`, `/orgs/pgextwin/actions/permissions`: connector allowlist denied the request. GET for build `/branches/main/protection` returned **HTTP403 Resource not accessible by integration**. Both repo ruleset list GETs returned `[]`; this does not establish an absence of classic branch protection or environment policies. Org memberships listed as empty for this connection; cannot infer the human user's actual org ownership or management rights.
+- Workflow source was retrieved via immutable Git Blob: build `issue-75-principal-boundaries.yml` Blob `0e16dd2ec65ee22e71c30b2d234a475c03e2d7ba`, pilot `promote.yml` Blob `3ae586814b063fefa5c3a554758f13467bb23ea5`. Existing Reader roles run on public ubuntu-latest, production Signer declares OIDC/attest permissions, and production Writer uses `GH_TOKEN: github.token`. Neither is evidence of an existing true *private* isolated credential store and separately authenticated Writer.
+- [GitHub's October 2 2026 installation token announcement](https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/) confirms JWT-format `ghs_` installation tokens have rolled out and are much longer than legacy opaque tokens. Existing private-only Writer code must treat tokens as opaque and avoid fixed 40-character assumptions; unit tests must never parse token JWT payload as GitHub-authenticated truth.
+
+## Implemented: constrained negative preflight, NOT a privileged private runtime
+
+The existing PR #127-130 immutable 32+13 Git Blob source/Reader/Signer/Writer proof, `scripts/issue-75-real-principal-acceptance.py`, `scripts/issue-75-private-signer-verify.py` and `scripts/issue-75-private-writer-app-probe.py` remain authoritative.
+
+The new `evidence/issue-75/connected-private-runtime-readiness-20261018.json` records only observed repository visibility, immutable Git Blob pins, exact inaccessible endpoint categories and **unproven** private infrastructure state. No App key, token, Secret metadata/value, private environment or speculative positive claim is included.
+
+`scripts/issue-75-private-runtime-readiness.py --mode static` validates that these bound **negative** observations still match pinned source and prior fail-closed contract; its successful exit means `CONNECTED_SCOPE_ASSESSED_PRIVATE_EXECUTOR_NOT_PROVEN`, never GO. `--mode require-private` **always exits 2** until separately authenticated independent private executor/environment evidence and authorization exists. No offline JSON or synthetic mocked successful response can switch that gate; no privileged network, JWT mint, release call or write is in this script.
+
+The required App15368 resolver runs adversarial `tests/test-issue-75-private-runtime-readiness.py` against forged private repo counts, altered scope, misleading admin state, positive claims, secret fields, missing policy GETs, wrong source SHA, and claimed GO. These are **test results**, not a live private environment audit.
+
+### Safe next verification: GitHub GUI read-only in Work, no actual execution
+
+The current connected GitHub App does not expose management endpoints. A separate GitHub GUI *GET-only* audit is the shortest way to distinguish a genuinely existing private environment from an unconfigured one, without changing privileges or asking for Secret content.
+
+1. Open [pgextwin organization](https://github.com/orgs/pgextwin) and the repositories [build](https://github.com/pgextwin/build) and [plpgsql_check](https://github.com/pgextwin/plpgsql_check). Read settings and associated Actions workflows. Identify **whether a separately existing private repository, separate approved credential-bearing runner/environment, and dedicated Signer/Writer credential subjects already exist**. Document ONLY yes/no/unknown, protected policy/reviewer state, private/public scope, workflow and repo names/links; never Secret values, private keys or token contents.
+2. Read [build environments](https://github.com/pgextwin/build/settings/environments), [plpgsql_check environments](https://github.com/pgextwin/plpgsql_check/settings/environments) and [org Actions general settings](https://github.com/organizations/pgextwin/settings/actions). If inaccessible, record `ACCESS_DENIED`, **not** `NO_ENVIRONMENTS`.
+3. Read [org installed GitHub Apps](https://github.com/organizations/pgextwin/settings/installations) and [org repositories](https://github.com/orgs/pgextwin/repositories). Do not add App, Secret, Environment, repository or budget, and do not change policies. A publicly visible Catalog App installation is not a uniquely authenticated Release Writer.
+4. If there is no pre-authorized *private* isolated executor, **no real credential-bearing test may run**. Report blockers and a scoped migration path instead. If it exists, record proof of protected ref, independent private stores, branch protection, isolated jobs/runner, token nonpropagation and authorized test-only Writer App installation. Even then, do not run/mint without satisfying existing approvals and exact positive evidence gates.
+5. Return only grounded URLs, sanitized state and unknowns to Issue #75 / controlling chat; retain P1 65/70, source 40/40, five historic plpgsql_check DENY, GO B/G4/G5 NO_GO, final Release DENY. Do not change production Signer/Publisher pin or retry the original failed GO A Run.
+
+**Important**: on GitHub Free/Pro/Team, deployment required-reviewer controls may be restricted to public repositories, and private environment availability depends on plan/policy. Check actual existing plan entitlement and UI rather than silently presuming a private protected environment is available. See [GitHub environments reference](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
+
+## Work handoff (copyable, if the connected GitHub App cannot read settings)
+
+Run a read-only GUI audit for Issue #75 using the URLs above and the ordered checks 1–5. Verify the exact current public build main SHA `7900eb697284c6cf5aec69d05ce347120a803265` as starting baseline, but re-fetch any updated main before reporting. Inspect only settings existence, protection, scope and existing authorization; NEVER view or copy credential values. Do not dispatch workflows, mint tokens, change any security settings, or publish. Return evidence URLs and a classification of `PRIVATE_EXECUTOR_VERIFIED` (only if actual independent administrative GUI evidence is compelling), `PRIVATE_EXECUTOR_ABSENT` (only if a complete authenticated inventory proves absence), or `UNOBSERVABLE`. Classification does NOT automatically authorize live test or any Release.
+
+No GUI access is used in this implementation; the current negative classification remains `PRIVATE_EXECUTOR_NOT_PROVEN`.
