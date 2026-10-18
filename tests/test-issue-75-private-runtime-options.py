@@ -99,7 +99,7 @@ class OptionHostileTests(TestCase):
     def test_missing_duplicate_json_nul_and_oversize_denied(self):
         for raw in (b"",b"[]",b"{}"*p.MAX_BYTES,
                     b'{"a":1,"a":1}',b"\xff",b"\x00",b"{}"):
-            with self.assertRaises(p.Deny):p.read(raw)
+            with self.assertRaises(p.Deny):p.evaluate(p.read(raw))
 
     def test_execution_mode_always_exits_two_and_no_go(self):
         for mode,rc in (("static",0),("require-execution",2)):
