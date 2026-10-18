@@ -145,6 +145,11 @@ jobs:
           python tests/test-issue-75-private-runtime-readiness.py
           python scripts/issue-75-private-runtime-readiness.py --mode static
 
+      - name: Validate Issue75 Work GUI reported isolation gaps and negative-only admission
+        run: |
+          python tests/test-issue-75-work-gui-readiness.py
+          python scripts/issue-75-work-gui-readiness.py --mode static
+
       - name: Validate Issue75 Signer checkout-hardening candidate and pinned Action root inventory
         run: |
           python tests/test-issue-75-signer-hardening.py

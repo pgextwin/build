@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "ISSUE75_REPORTED_GUI_RUNTIME_NEGATIVE",
+  "observedDate": "2026-10-18",
+  "provenance": "USER_SUPPLIED_WORK_GUI_GET_ONLY_REPORT_NOT_INDEPENDENTLY_REFETCHED",
+  "pgextwin": {
+    "repositories": 18,
+    "privateRepositories": 0,
+    "buildEnvironments": 0,
+    "plpgsqlCheckEnvironments": 0,
+    "buildSelfHostedRunners": 0,
+    "plpgsqlCheckSelfHostedRunners": 0,
+    "organizationCustomRunners": 0
+  },
+  "unknowns": [
+    "externalPrivateExecutor",
+    "separateSignerIdentity",
+    "independentWriterIdentity",
+    "AppInstallationScopes",
+    "secretIsolation",
+    "crossJobCredentialNonPropagation"
+  ],
+  "privateExecutor": "NOT_PROVEN",
+  "goB": "NO_GO",
+  "g4": "NO_GO",
+  "g5": "NO_GO",
+  "publicationAuthorized": false
+}
