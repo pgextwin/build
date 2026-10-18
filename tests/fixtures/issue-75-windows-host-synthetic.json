@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "ISSUE75_LOCAL_WINDOWS_HOST_FACTS_UNATTESTED",
+  "observation": "SYNTHETIC_CI_FIXTURE_NOT_REAL",
+  "windowsBuild": 26100,
+  "windowsEdition": "Professional",
+  "hyperVFeature": "DISABLED",
+  "firmwareVirtualization": "YES",
+  "cpuSlat": "YES",
+  "physicalMemoryAtLeast8GiB": "YES",
+  "systemDriveFreeAtLeast40GiB": "YES",
+  "systemDriveEncryptionProtected": "YES",
+  "allFirewallProfilesEnabled": "YES",
+  "machineIdentityIncluded": false,
+  "credentialAccessAttempted": false,
+  "systemSettingsChanged": false,
+  "privateWriterRuntimeProven": false,
+  "publicationAuthorized": false
+}

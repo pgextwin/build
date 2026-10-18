@@ -160,6 +160,11 @@ jobs:
           python tests/test-issue-75-external-writer-preboot.py
           python scripts/issue-75-external-writer-preboot.py --mode static
 
+      - name: Validate Issue75 Windows 11 host read-only candidate triage and no-secrets hostile contract
+        run: |
+          python tests/test-issue-75-windows-host-assessment.py
+          python scripts/issue-75-windows-host-assessment.py --mode analyze --facts tests/fixtures/issue-75-windows-host-synthetic.json
+
       - name: Validate Issue75 Signer checkout-hardening candidate and pinned Action root inventory
         run: |
           python tests/test-issue-75-signer-hardening.py
