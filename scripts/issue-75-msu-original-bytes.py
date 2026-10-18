@@ -78,13 +78,22 @@ def get_msu(url: str, maximum: int = MAX_MSU) -> bytes:
 def source_pair(script: bytes) -> dict:
     if hashlib.sha256(script).hexdigest() != SCRIPT_SHA256:
         raise Deny("unapproved script original digest")
-    text = script.decode("utf-8-sig")
-    pairs = [(m.group("url"), m.group("digest").lower())
-             for m in PAIR.finditer(text)]
-    if pairs.count((URL, SHA256)) != 1:
+    # Reuse PR #125 original-source lexical classifier. The approved exact
+    # script SHA256 prevents a mutation of hashtable, quote or branch syntax.
+    # Line-local assignments are evidence of literal adjacency only.
+    inventory = kb.classify_script(script)
+    urls = [u for u in inventory["externalURLCandidates"]
+            if u["url"] == URL and u["literalAssignment"]
+            and u["allowlistedHost"]]
+    fields = inventory["urlOrChecksumAssignments"]
+    pairs = [(u, a) for u in urls for a in fields
+             if a["property"] == "checksum64"
+             and a["line"] == u["line"] + 1
+             and a["literalSHA256"] == SHA256
+             and any(v["property"] == "url64" and v["line"] == u["line"]
+                     and v["resolved"] for v in fields)]
+    if len(pairs) != 1 or len(urls) != 1:
         raise Deny("source URL/checksum adjacent pair absent or ambiguous")
-    if any(u == URL and h != SHA256 for u, h in pairs):
-        raise Deny("source reassigns approved MSU URL to a different digest")
     verify_url(URL)
     return {"url": URL, "expectedSHA256": SHA256,
             "sourceScriptSHA256": SCRIPT_SHA256,
