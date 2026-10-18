@@ -140,6 +140,11 @@ jobs:
       - name: Validate Issue75 dormant private Signer crypto and Writer App issuance/revocation hostile contract
         run: python tests/test-issue-75-private-principal-runtime.py
 
+      - name: Validate Issue75 connected private-executor GET-only inventory and fail-closed readiness
+        run: |
+          python tests/test-issue-75-private-runtime-readiness.py
+          python scripts/issue-75-private-runtime-readiness.py --mode static
+
       - name: Validate Issue75 Signer checkout-hardening candidate and pinned Action root inventory
         run: |
           python tests/test-issue-75-signer-hardening.py
