@@ -37,7 +37,7 @@ def need(condition):
         raise Deny("unproven cryptographic signer identity")
 
 def regular(path, limit):
-    need(type(path) is Path and path.is_absolute() and
+    need(isinstance(path, Path) and path.is_absolute() and
          path.is_file() and not path.is_symlink())
     need(0 < path.stat().st_size <= limit)
     return path
@@ -50,7 +50,7 @@ def sha256_file(path):
     return digest.hexdigest()
 
 def command(artifact, *, packaging_sha, predicate):
-    need(type(artifact) is Path and artifact.is_absolute())
+    need(isinstance(artifact, Path) and artifact.is_absolute())
     need(type(packaging_sha) is str and bool(SHA40.fullmatch(packaging_sha)))
     need(predicate in PREDICATES)
     return [
