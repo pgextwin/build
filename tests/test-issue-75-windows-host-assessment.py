@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Issue 75 Windows 11 local VM readiness hostile fixture tests."""
 import copy
+import hashlib
 import importlib.util
 import io
 import json
+import subprocess
+import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import TestCase,main,mock
@@ -18,6 +21,31 @@ spec.loader.exec_module(p)
 def sample():return p.parse(FIX.read_bytes())
 
 class HostAssessment(TestCase):
+    def test_autocrlf_checkout_preserves_pinned_blob_bytes(self):
+        pinned={
+            "evidence/issue-75/critical-pin-closure-20261017.json":
+                "b846c8c55e1ffbaab126d4674de9d7dc52376cf0",
+            "evidence/issue-75/transitive-dependency-delta-20261017.json":
+                "a8aa5b75972048bfc2e70fcdbdcfd0a799001389",
+            ".github/workflows/build-extension-attested.yml":
+                "93a0a7641253735cf5adb845c768981c79f75b46",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            prefix=directory.replace("\\","/").rstrip("/")+"/"
+            subprocess.run([
+                "git","-C",str(ROOT),"-c","core.autocrlf=true",
+                "checkout-index","--force","--prefix="+prefix,"--",
+                *pinned,
+            ],check=True,capture_output=True)
+            for relative,expected in pinned.items():
+                with self.subTest(path=relative):
+                    raw=(Path(directory)/relative).read_bytes()
+                    self.assertNotIn(b"\r\n",raw)
+                    actual=hashlib.sha1(
+                        b"blob "+str(len(raw)).encode("ascii")+b"\0"+raw
+                    ).hexdigest()
+                    self.assertEqual(actual,expected)
+
     def test_pro_vm_candidate_only_not_writer(self):
         x=p.assess(sample())
         self.assertEqual(x["classification"],"WINDOWS_LOCAL_HOST_FACTS_UNATTESTED")
@@ -170,3 +198,4 @@ class HostAssessment(TestCase):
 
 if __name__=="__main__":
     main()
+
