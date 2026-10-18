@@ -24,25 +24,5 @@
   "goB": "NO_GO",
   "g4": "NO_GO",
   "g5": "NO_GO",
-  "publicationAuthorized": false,
-  "guiContext": {
-    "orgOwnerBannerSeen": true,
-    "orgAppInstallationsVisible": 3,
-    "appDetails": "SUDO_CONFIRM_ACCESS_UNOBSERVABLE",
-    "runnerGroup": "Default",
-    "orgRunnerGroupCount": 1,
-    "orgRunnerCount": 0,
-    "actionsPolicy": "ALL_REPOSITORIES_ALL_ACTIONS_FULL_SHA_REQUIRED",
-    "defaultGithubToken": "CONTENTS_PACKAGES_READ",
-    "privateForkPRsDisabled": true,
-    "githubPlan": "Free",
-    "includedActionsMinutesMonthly": 2000,
-    "actionsBudgetUSD": 0,
-    "usageBlockedUi": true,
-    "existingPublicMainCiSucceeded": true,
-    "privateProtectedFeaturesShownNotIncluded": true,
-    "privateRunnerAndPlanCapability": "NOT_PROVEN",
-    "appDedicatedReleaseWriterIdentity": "NOT_PROVEN",
-    "noAdminOrBudgetMutation": true
-  }
+  "publicationAuthorized": false
 }
