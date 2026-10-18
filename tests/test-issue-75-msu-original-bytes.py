@@ -86,9 +86,9 @@ class HostileMSUProbe(TestCase):
         self.assertEqual(calls, [])
 
     def test_double_get_disagreement_and_inert_positive_fixture(self):
-        script = fake_script(sha="a" * 64)
-        archive = fake_archive(script)
         good = b"MSCF" + b"m" * 150_000
+        script = fake_script(sha=hashlib.sha256(good).hexdigest())
+        archive = fake_archive(script)
         with (mock.patch.object(p, "SCRIPT_SHA256", hashlib.sha256(script).hexdigest()),
               mock.patch.object(p, "SHA256", hashlib.sha256(good).hexdigest()),
               mock.patch.object(p, "PKG", ("KB3033929", "1.0.3", hashlib.sha256(archive).hexdigest()))):
