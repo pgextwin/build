@@ -44,7 +44,7 @@ def strict(obj,keys):
 def parse(raw):
     need(type(raw) is bytes and 0<len(raw)<=MAX_BYTES and b"\0" not in raw)
     try:
-        doc=json.loads(raw.decode("utf-8"),
+        doc=json.loads(raw.decode("utf-8-sig"),
                        object_pairs_hook=old.old.gui.existing.old.unique)
     except (UnicodeError,ValueError):
         raise Deny("untrusted or duplicate JSON") from None
