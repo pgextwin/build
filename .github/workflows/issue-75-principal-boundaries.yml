@@ -8,6 +8,8 @@ on:
       - .github/workflows/issue-75-principal-boundaries.yml
       - scripts/issue-75-principal-boundaries.py
       - tests/test-issue-75-principal-boundaries.py
+      - scripts/issue-75-active-principal-custody-readonly.py
+      - tests/test-issue-75-active-principal-custody-readonly.py
 
 # No PR, pull_request_target, dispatch, secrets, artifacts or write-capable job.
 permissions: {}
@@ -28,7 +30,7 @@ jobs:
       - name: Read two identical main/run identity snapshots without mutations
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python scripts/issue-75-principal-boundaries.py --role reader
+        run: python scripts/issue-75-principal-boundaries.py --role reader && python scripts/issue-75-active-principal-custody-readonly.py
 
   signer_denied:
     name: Issue75 trusted-main Signer unavailable (no signing or OIDC)
