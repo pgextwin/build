@@ -155,6 +155,11 @@ jobs:
           python tests/test-issue-75-private-runtime-options.py
           python scripts/issue-75-private-runtime-options.py --mode static
 
+      - name: Validate Issue75 external private Writer credentialless preboot and cost hostile contract
+        run: |
+          python tests/test-issue-75-external-writer-preboot.py
+          python scripts/issue-75-external-writer-preboot.py --mode static
+
       - name: Validate Issue75 Signer checkout-hardening candidate and pinned Action root inventory
         run: |
           python tests/test-issue-75-signer-hardening.py
