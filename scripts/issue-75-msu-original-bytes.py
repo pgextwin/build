@@ -91,7 +91,9 @@ def source_pair(script: bytes) -> dict:
             "lexicalAdjacentPair": True, "osBranchReachabilityProven": False}
 
 
-def verified_payload(data: bytes, expected: str = SHA256) -> dict:
+def verified_payload(data: bytes, expected: str | None = None) -> dict:
+    if expected is None:
+        expected = SHA256
     if not (100_000 <= len(data) <= MAX_MSU and data.startswith(b"MSCF")):
         raise Deny("MSU CAB magic, size or bound mismatch")
     digest = hashlib.sha256(data).hexdigest()
