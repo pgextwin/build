@@ -86,7 +86,7 @@ def authenticated_call(method, path, credential, payload=None, *,
             obj=json.loads(raw.decode("utf-8"),object_pairs_hook=unique)
             need(type(obj) is dict)
             return obj
-    except (OSError,HTTPError,URLError,TimeoutError,ValueError,UnicodeError):
+    except Exception:
         raise Deny("GitHub App authenticated REST probe failed") from None
 
 def read_expiry(value, now):
@@ -114,10 +114,16 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
              (app_id,installation_id,repository_id)))
     need(type(now) is datetime and now.tzinfo is not None)
     now=now.astimezone(timezone.utc)
-    identity=api("GET","/app",app_jwt)
+    try:
+        identity=api("GET","/app",app_jwt)
+    except Exception:
+        raise Deny("app JWT issuer lookup failed") from None
     need(type(identity) is dict and type(identity.get("id")) is int
          and identity["id"]==app_id)
-    install=api("GET","/app/installations/"+str(installation_id),app_jwt)
+    try:
+        install=api("GET","/app/installations/"+str(installation_id),app_jwt)
+    except Exception:
+        raise Deny("installation JWT identity lookup failed") from None
     need(type(install) is dict
          and type(install.get("id")) is int
          and install["id"]==installation_id
