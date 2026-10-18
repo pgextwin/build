@@ -31,13 +31,24 @@ Two new files:
 Example, on a real Windows 11 computer (user runs locally only after approving read-only diagnostics; does not expose secrets):
 
 ```powershell
-# From the locally checked-out pgextwin/build repository:
+# From the locally checked-out pgextwin/build repository; keep the facts in Temp:
+$facts = Join-Path $env:TEMP ("issue-75-host-" + [guid]::NewGuid().ToString('N') + ".json")
 & .\scripts\issue-75-windows-host-readonly.ps1 |
-  Set-Content -LiteralPath .\issue-75-local-host-facts.json -Encoding utf8
-python .\scripts\issue-75-windows-host-assessment.py --mode analyze --facts .\issue-75-local-host-facts.json
+  Set-Content -LiteralPath $facts -Encoding utf8
+$assessment = '.\scripts\issue-75-windows-host-assessment.py'
+$py = Get-Command py -ErrorAction SilentlyContinue
+if ($py) {
+  & $py.Source -3 $assessment --mode analyze --facts $facts
+} else {
+  # Set this to an already available interpreter, including a managed runtime.
+  $pythonExe = 'C:\path\to\existing\python.exe'
+  & $pythonExe $assessment --mode analyze --facts $facts
+}
 ```
 
-PowerShell 5.1 `Set-Content -Encoding utf8` may write a UTF-8 BOM; the Python JSON parser accepts it. Run these two commands **outside** the public GitHub CI and without copying any full host information into a public repository. The saved JSON is intentionally low sensitivity but still local device state and should not be committed unless independently reviewed. This task did not execute these commands on the user's Windows device.
+PowerShell 5.1 `Set-Content -Encoding utf8` writes a UTF-8 BOM; the Python JSON parser accepts it. `py` is optional. If absent, call an already available Python interpreter by its full path; a `python.exe` App Execution Alias under `WindowsApps` may only open the Microsoft Store. Run the probe outside public GitHub CI and keep the identity-free facts in the local temporary directory. Do not copy the JSON into the repository or publish its raw contents; share only an independently reviewed, sanitized summary if formal reporting is needed.
+
+The protected source-ledger JSON and pinned Signer workflow are fixed to LF in `.gitattributes`. This preserves their exact committed Git Blob IDs in Windows checkouts with `core.autocrlf=true`; a hostile regression test forces that checkout setting.
 
 `--mode analyze` returning zero means only the *self-reported OS/CPU/disk/safety signals* could be evaluated. Possible results:
 - `LOCAL_HYPERV_VIRTUALIZATION_CANDIDATE_ONLY`: Windows 11 build, supported client edition, virtualization+SLAT, 8GiB RAM+40GiB free. **Not proof Hyper-V is installed, VM bootable, safe, or Signer/Writer can be trusted.**
@@ -56,3 +67,4 @@ PowerShell 5.1 `Set-Content -Encoding utf8` may write a UTF-8 BOM; the Python JS
 - As always: GO B/G4/G5 **NO_GO**, formal P1 **65/70**, independent source **40/40**, historical PG14–18 plpgsql_check **five DENY**, formal Release/distribution **DENY**, old GO A FAILURE unwaived. No changes to GitHub App/Secret, production pins, protection, roles, host, budget, release or tags.
 
 **Next safe action:** Run the read-only Windows probe locally if the user wants to select a no-secret VM trial, or first GET-inventory any **already authorized physically separate host**. Do not provision infrastructure or mint credentials from this assessment.
+

@@ -1,0 +1,5 @@
+# Keep files pinned by immutable Git blob IDs in their canonical LF form.
+/.gitattributes text eol=lf
+/evidence/issue-75/*.json text eol=lf
+/.github/workflows/build-extension-attested.yml text eol=lf
+

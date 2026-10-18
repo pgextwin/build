@@ -144,6 +144,15 @@ class PrebootHostileTests(TestCase):
         with self.assertRaises(p.Deny):p.inspect(d)
 
     def test_local_mode_check_0700_readonly_and_not_runtime_attestation(self):
+        if os.name == "nt":
+            # Windows ACLs are not POSIX 0700 modes; fail closed instead of
+            # treating the chmod compatibility bit as an isolation proof.
+            with tempfile.TemporaryDirectory() as root:
+                directory=Path(root)/"priv"
+                directory.mkdir()
+                with self.assertRaises(p.Deny):
+                    p.inspect_private_dir(directory)
+            return
         with tempfile.TemporaryDirectory() as root:
             directory=Path(root)/"priv"
             directory.mkdir(mode=0o700)
@@ -247,3 +256,4 @@ class PrebootHostileTests(TestCase):
 
 if __name__=="__main__":
     main()
+
