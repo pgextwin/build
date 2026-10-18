@@ -171,7 +171,8 @@ class PrincipalAcceptanceTests(TestCase):
             self.assertFalse(out["publicationAuthorized"])
             self.assertEqual(out["realPrincipalAcceptance"],"NOT_PROVEN")
             self.assertEqual(out["goB"],"NO_GO")
-            self.assertNotIn("token",cap.getvalue().lower())
+            self.assertNotIn("Bearer ",cap.getvalue())
+            self.assertNotIn("PRIVATE_SYNTHETIC_CREDENTIAL",cap.getvalue())
 
     def test_unreadable_evidence_does_not_print_sensitive_errors(self):
         cap=io.StringIO()
