@@ -144,10 +144,11 @@ class BoundaryTests(TestCase):
 
     def test_credential_never_printed_even_when_runtime_get_fails(self):
         with mock.patch.dict(os.environ, env(), clear=True), \
+             mock.patch("sys.argv", ["prog", "--role", "reader"]), \
              mock.patch.object(p, "get_json", side_effect=RuntimeError("SYNTHETIC-SECRET")):
             output = io.StringIO()
             with redirect_stdout(output):
-                rc = p.main_from_args(["--role", "reader"]) if hasattr(p, "main_from_args") else p.main()
+                rc = p.main()
         # main() uses sys.argv, so this path rejects untrusted args or GET; either
         # outcome MUST fail closed without printing injected exception text.
         self.assertEqual(rc, 2)
