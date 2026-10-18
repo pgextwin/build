@@ -152,6 +152,11 @@ jobs:
           python tests/test-issue-75-kb-conditional-inert.py
           python scripts/issue-75-kb-conditional-inert.py --mode static
 
+      - name: Validate one historical MSU source-bound real-byte witness guards (#75)
+        run: |
+          python tests/test-issue-75-msu-original-bytes.py
+          python scripts/issue-75-msu-original-bytes.py --mode static
+
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
@@ -327,6 +332,21 @@ jobs:
           persist-credentials: false
       - name: Rehash eight nupkg originals twice and classify KB/MSU conditional source (never execute)
         run: python scripts/issue-75-kb-conditional-inert.py --mode observe
+
+  issue75_msu_original:
+    name: Issue75 one historical Microsoft MSU original-byte SHA256 (never execute)
+    if: github.event_name == 'pull_request' && github.head_ref == 'issue-75-msu-original-bytes'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout isolated test source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download only one pinned historical KB3033929 x64 MSU twice and compare original SHA256 without executing
+        run: python scripts/issue-75-msu-original-bytes.py --mode observe
 
   existing_signed_release_readonly:
     name: Phase D existing signed public Release (read-only, nonpublishing)
