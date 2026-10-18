@@ -129,6 +129,9 @@ jobs:
       - name: Validate Issue75 trusted-main Reader Signer Writer negative principal boundary
         run: python tests/test-issue-75-principal-boundaries.py
 
+      - name: Validate Issue75 live pinned Publisher, Signer OIDC, Writer token custody hostile fixtures
+        run: python tests/test-issue-75-active-principal-custody-readonly.py
+
       - name: Validate Issue75 Signer checkout-hardening candidate and pinned Action root inventory
         run: |
           python tests/test-issue-75-signer-hardening.py
