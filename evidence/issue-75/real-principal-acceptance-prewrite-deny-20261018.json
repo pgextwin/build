@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "ISSUE75_REAL_PRINCIPAL_ACCEPTANCE_PREWRITE_DENY",
+  "sourceOnly": true,
+  "baseline": {
+    "buildMainBefore": "afdfb07d85608180b472288a3646447dbd4e67dd",
+    "pilotProtectedMain": "98452723fcad2aedafb1c02a210f35950f7e8cf2",
+    "publisherGitBlob": "3ae586814b063fefa5c3a554758f13467bb23ea5",
+    "publisherPin": "455f0ccc667697f600700a6e64bcfd6c57b6a977",
+    "signerPin": "5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+    "reused32GitBlobLedger": "b846c8c55e1ffbaab126d4674de9d7dc52376cf0",
+    "reused13GitBlobDelta": "a8aa5b75972048bfc2e70fcdbdcfd0a799001389"
+  },
+  "negativeRuntime": {
+    "runId": 39104746046,
+    "attempt": 1,
+    "event": "push",
+    "headSha": "afdfb07d85608180b472288a3646447dbd4e67dd",
+    "parentConclusion": "success",
+    "reader": {
+      "jobId": 117608071252,
+      "conclusion": "success",
+      "sourceDecision": "ACTIVE_SOURCE_GET4_NEGATIVE_GAPS_CONFIRMED",
+      "identityDecision": "READER_GET4_NEGATIVE_ONLY",
+      "effectiveTokenScopesProven": false
+    },
+    "signer": {
+      "jobId": 117608071136,
+      "conclusion": "success",
+      "decision": "SIGNER_UNPROVISIONED_NO_WRITE",
+      "oidcCertificateCryptographicallyVerified": false,
+      "checkoutHardeningDeployed": false
+    },
+    "writer": {
+      "jobId": 117608071199,
+      "conclusion": "success",
+      "decision": "WRITER_UNPROVISIONED_NO_WRITE",
+      "independentInstallationId": null,
+      "installationTokenMinted": false
+    }
+  },
+  "requiredFutureIndependentProofs": {
+    "signer": {
+      "verifiedSigstoreCertificateSubject": null,
+      "verifiedOIDCIssuer": null,
+      "verifiedSignerWorkflow": null,
+      "verifiedRunAttempt": null,
+      "trustedVerifierProcess": null
+    },
+    "writer": {
+      "installationId": null,
+      "installationOwner": null,
+      "installationRepository": null,
+      "grantContentsWriteVerified": false,
+      "tokenLifetimeVerified": false,
+      "separatePrincipalVerified": false,
+      "trustedVerifierProcess": null
+    },
+    "custody": {
+      "uniqueJobsVerified": false,
+      "ephemeralTokenNonPropagationVerified": false,
+      "noCrossJobArtifactTokenTransferVerified": false,
+      "signerCheckoutCredentialsNonPersistentVerified": false,
+      "trustedPrivateExecutorVerified": false
+    }
+  },
+  "acceptance": {
+    "runtimeSignerOIDCProven": false,
+    "runtimeWriterIndependentPrincipalProven": false,
+    "runtimeCredentialNonPropagationProven": false,
+    "signedPublisherPositivePrewriteProven": false,
+    "publishableReceipt": false,
+    "publicationAuthorized": false,
+    "goB": "NO_GO",
+    "g4": "NO_GO",
+    "g5": "NO_GO"
+  }
+}
