@@ -26,6 +26,12 @@ $source=[IO.File]::ReadAllText($pgv)
 $old='(*context->methods->stats) (context, NULL, NULL, &totals);'
 if(([regex]::Matches($source,[regex]::Escape($old))).Count -ne 1){throw 'pg_variables stats ABI pattern changed'}
 $source=$source.Replace($old,'(*context->methods->stats) (context, NULL, NULL, &totals, false);')
+
+# Older upstream AssertArg() is not provided by later PostgreSQL headers.
+# Preserve its assertion semantics using the supported Assert() macro.
+$oldAssert='AssertArg(MemoryContextIsValid(context));'
+if(([regex]::Matches($source,[regex]::Escape($oldAssert))).Count -ne 1){throw 'AssertArg upstream layout drift'}
+$source=$source.Replace($oldAssert,'Assert(MemoryContextIsValid(context));')
 [IO.File]::WriteAllText($pgv,$source,[Text.UTF8Encoding]::new($false))
 # access/tuptoaster.h was removed in core PG14-18;
 # the called toast_flatten_tuple_to_datum() API is now declared in access/heaptoast.h.
@@ -38,7 +44,20 @@ if(([regex]::Matches($recordSource,[regex]::Escape($oldHeader))).Count -ne 1){
 }
 $recordSource=$recordSource.Replace($oldHeader,'#include "access/heaptoast.h"')
 [IO.File]::WriteAllText($record,$recordSource,[Text.UTF8Encoding]::new($false))
-$exports=@('Pg_magic_func','_PG_init')
+
+$exports=@('Pg_magic_func','_PG_init','_PG_fini')
+# Upstream macro-generated SQL entry points are not spelled as concrete
+# PG_FUNCTION_INFO_V1(name) invocations; include every expanded V1 getter/setter.
+$getterTypes=@('int','text','numeric','timestamp','timestamptz','date','jsonb','any','array')
+$macroSource=[IO.File]::ReadAllText($pgv)
+foreach($kind in @('GET','SET')){
+  foreach($type in $getterTypes){
+    $pattern=if($kind -eq 'GET'){"(?m)^VARIABLE_GET_TEMPLATE\(\s*0\s*,\s*1\s*,\s*[23]\s*,\s*$type\s*,"}else{"(?m)^VARIABLE_SET_TEMPLATE\(\s*$type\s*,"}
+    if(([regex]::Matches($macroSource,$pattern)).Count -ne 1){throw "Missing expected upstream macro expansion: $kind $type"}
+    $symbol=if($kind -eq 'GET'){"variable_get_$type"}else{"variable_set_$type"}
+    $exports+=@($symbol,"pg_finfo_$symbol")
+  }
+}
 foreach($file in $sources){
   $path=Join-Path $UpstreamDir $file
   if(-not(Test-Path $path -PathType Leaf)){throw "Source missing $file"}
