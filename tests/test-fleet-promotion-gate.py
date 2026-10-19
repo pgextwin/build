@@ -68,6 +68,19 @@ class GateTests(unittest.TestCase):
     def check(self,case):
         return gate.verify(**case)
 
+    def test_third_wave_is_still_formally_denied_by_existing_central_allowlist(self):
+        # Identity support is not the same as manual Release authorization.
+        for name in ("pgtap","pg_variables","pg_store_plans"):
+            with self.subTest(extension=name):
+                x=fixture(name)
+                x["policy"]["allowedRepositories"]=["pgextwin/plpgsql_check"]
+                with self.assertRaises(gate.Denied):
+                    self.check(x)
+                x=fixture(name)
+                x["local"]["enabled"]=False
+                with self.assertRaises(gate.Denied):
+                    self.check(x)
+
     def test_uniform_dated_and_per_pg_receipts(self):
         for name in ("plpgsql_check","pg_bigm","pgaudit"):
             with self.subTest(name=name):
