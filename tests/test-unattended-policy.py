@@ -27,9 +27,9 @@ class TestUnattendedPolicy(unittest.TestCase):
         self.assertEqual(result["status"], "OBSERVE_ONLY")
         self.assertFalse(result["automaticPublicationAuthorized"])
 
-    def test_fourteen_build_candidates_do_not_authorize_unattended_release(self):
+    def test_seventeen_build_candidates_do_not_authorize_unattended_release(self):
         p, f = self.fixtures()
-        self.assertEqual(len([x for x in f["entries"] if x["mode"] == "BUILD"]), 14)
+        self.assertEqual(len([x for x in f["entries"] if x["mode"] == "BUILD"]), 17)
         self.assertEqual(module.evaluate(p, f)["status"], "OBSERVE_ONLY")
         p["mode"] = "UNATTENDED"
         for key in p["controls"]:
@@ -76,7 +76,7 @@ class TestUnattendedPolicy(unittest.TestCase):
         # Historical static single-pilot denial fixture: five new candidate
         # lanes are OFF, other non-pilot original lanes are WATCH.
         staged={"pgextwin/"+n for n in (
-            "hypopg","wal2json","pg_partman","pg_stat_monitor","orafce")}
+            "hypopg","wal2json","pg_partman","pg_stat_monitor","orafce","pgtap","pg_variables","pg_store_plans")}
         for entry in f["entries"]:
             if entry["repository"] != module.PILOT:
                 entry["mode"] = "OFF" if entry["repository"] in staged else "WATCH"
@@ -87,8 +87,8 @@ class TestUnattendedPolicy(unittest.TestCase):
         self.assertEqual(result["status"], "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED")
         self.assertFalse(result["automaticPublicationAuthorized"])
 
-    def test_five_new_members_are_strictly_off_or_explicit_build(self):
-        for repo in ("hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"):
+    def test_eight_staged_members_are_strictly_off_or_explicit_build(self):
+        for repo in ("hypopg","wal2json","pg_partman","pg_stat_monitor","orafce","pgtap","pg_variables","pg_store_plans"):
             with self.subTest(repository=repo):
                 p,f=self.fixtures()
                 item=next(x for x in f["entries"] if x["repository"]=="pgextwin/"+repo)
@@ -108,6 +108,21 @@ class TestUnattendedPolicy(unittest.TestCase):
             module.evaluate(p, f)
         p, f = self.fixtures()
         f["entries"][0]["candidateEnabled"] = False
+        with self.assertRaises(module.PolicyDenied):
+            module.evaluate(p, f)
+
+    def test_third_wave_cannot_expand_unattended_release_scope(self):
+        p, f = self.fixtures()
+        f["entries"].append(copy.deepcopy(f["entries"][-1]))
+        with self.assertRaises(module.PolicyDenied):
+            module.evaluate(p, f)
+        p, f = self.fixtures()
+        next(x for x in f["entries"] if x["repository"]=="pgextwin/pgtap")["repository"]="pgextwin/unauthorized"
+        with self.assertRaises(module.PolicyDenied):
+            module.evaluate(p, f)
+        p, f = self.fixtures()
+        p["mode"]="UNATTENDED"
+        for key in p["controls"]: p["controls"][key]=True
         with self.assertRaises(module.PolicyDenied):
             module.evaluate(p, f)
 

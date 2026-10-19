@@ -13,9 +13,10 @@ policy=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
 items=c.validate(policy)
 original={"pgextwin/"+n for n in ["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack","pg_ivm","pg_qualstats","plpgsql_check"]}
 staged={"pgextwin/"+n for n in ["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]}
-assert len(items)==14 and set(items)==original|staged, "full exact 14 repository registry"
+third={"pgextwin/"+n for n in ["pgtap","pg_variables","pg_store_plans"]}
+assert len(items)==17 and set(items)==original|staged|third, "full exact 17 repository candidate registry"
 assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] and items[r]["releasePolicy"]=="manual-only" for r in original), "preserve initial nine BUILD"
-assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] is True and items[r]["releasePolicy"]=="manual-only" for r in staged), "enable five candidate-only BUILD lanes after local gates validated"
+assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] is True and items[r]["releasePolicy"]=="manual-only" for r in staged|third), "enable centrally bounded candidate-only BUILD lanes; local opt-in remains separate"
 local={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow":"windows.yml"}
 ext={"name":"plpgsql_check","upstream":{"repository":"okbob/plpgsql_check"}}
 watch={"repository":"okbob/plpgsql_check","strategy":"github-releases"}
@@ -34,7 +35,7 @@ for mode in ("WATCH","OFF"):
     e["mode"]=mode;e["candidateEnabled"]=False
     assert c.decide(obj,"pgextwin/plpgsql_check",ext,watch,"candidate",local)==(False,mode)
     assert c.decide(obj,"pgextwin/plpgsql_check",ext,watch,"watch")== (mode!="OFF",mode)
-for repo in staged:
+for repo in staged|third:
     e=items[repo]
     ext2={"name":repo.split("/")[-1],"upstream":{"repository":"test/upstream"}}
     watch2={"repository":"test/upstream","strategy":e["strategy"]}
