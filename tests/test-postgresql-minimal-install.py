@@ -11,7 +11,7 @@ assert {v["major"] for v in meta["postgresql"]} == {14, 15, 16, 17, 18}
 for v in meta["postgresql"]:
     assert v["chocolateyPackage"] == f'postgresql{v["major"]}'
     assert re.fullmatch(r"\d+\.\d+\.\d+", v["chocolateyVersion"])
-line = next(x.strip() for x in script.splitlines() if x.strip().startswith("& choco install "))
+line = next(x.strip() for x in script.splitlines() if "& choco install " in x)
 assert line.count("--ia") == 1
 assert '--ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in line
 assert '"--version=$ChocolateyVersion"' in line
@@ -21,6 +21,13 @@ assert "for ($attempt = 1; $attempt -le $maxAttempts; $attempt++)" in script
 assert "$maxAttempts = 3" in script
 assert "$successCodes = @(0, 1641, 3010)" in script
 assert "if ($successCodes -notcontains $code)" in script
+assert "$feedOutageCount = 0" in script
+assert "$feedOutageCount++" in script
+assert "if ($feedOutageCount -ne $maxAttempts)" in script
+assert "Chocolatey failed after $maxAttempts attempts, without verified HTTP 503 in every attempt; EDB fallback DENY" in script
+assert "503 (Service Unavailable)" in script
+assert "https://community.chocolatey.org/api/v2/" in script
+assert script.index("if ($feedOutageCount -ne $maxAttempts)") < script.index("Start-Process -FilePath $installer")
 # Chocolatey failure is not success: permit only five previously byte-verified
 # EDB EXEs and fail closed on any discrepancy or unsafe installer exit.
 receipt = json.loads((ROOT / "evidence/issue-75/edb-pg14-18-exe-byte-observations-20261017.json").read_text(encoding="utf-8"))
