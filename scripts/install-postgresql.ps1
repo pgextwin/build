@@ -41,18 +41,19 @@ if ($successCodes -notcontains $code) {
     # used when the Chocolatey V2 registry itself is unavailable.
     # These are fixed executable-byte pins, NOT a Release authorization.
     $edb = @{
-        14 = @{ Version = '14.24.0'; File = 'postgresql-14.24-1-windows-x64.exe'; Sha256 = '52a51ec49c38a68a9f93f677b23e975ba709354ddab8283ef2558f3e7cb7f998'; Bytes = 360966784 }
-        15 = @{ Version = '15.19.0'; File = 'postgresql-15.19-1-windows-x64.exe'; Sha256 = '09dc76dc45332e031074df8e5d19d9eac64b2b98b51e279099b7461a5c12a92a'; Bytes = 362808024 }
-        16 = @{ Version = '16.15.5'; File = 'postgresql-16.15-5-windows-x64.exe'; Sha256 = '4065dbc5ffb52010e7357dfd6a74934878f1c6faf7a75cad1411a22e11b7b929'; Bytes = 404741880 }
-        17 = @{ Version = '17.11.4'; File = 'postgresql-17.11-4-windows-x64.exe'; Sha256 = 'c9828fd3a4daebbeeace19bec2de5f38d73c047fce47278148b525cfbe28a5e4'; Bytes = 410984080 }
-        18 = @{ Version = '18.6.5'; File = 'postgresql-18.6-5-windows-x64.exe'; Sha256 = '227e2bc08091b4c2b8338c7d61b11d057f895711480b006f90bfcfcd2410a58a'; Bytes = 414966472 }
+        '14' = @{ Version = '14.24.0'; File = 'postgresql-14.24-1-windows-x64.exe'; Sha256 = '52a51ec49c38a68a9f93f677b23e975ba709354ddab8283ef2558f3e7cb7f998'; Bytes = 360966784 }
+        '15' = @{ Version = '15.19.0'; File = 'postgresql-15.19-1-windows-x64.exe'; Sha256 = '09dc76dc45332e031074df8e5d19d9eac64b2b98b51e279099b7461a5c12a92a'; Bytes = 362808024 }
+        '16' = @{ Version = '16.15.5'; File = 'postgresql-16.15-5-windows-x64.exe'; Sha256 = '4065dbc5ffb52010e7357dfd6a74934878f1c6faf7a75cad1411a22e11b7b929'; Bytes = 404741880 }
+        '17' = @{ Version = '17.11.4'; File = 'postgresql-17.11-4-windows-x64.exe'; Sha256 = 'c9828fd3a4daebbeeace19bec2de5f38d73c047fce47278148b525cfbe28a5e4'; Bytes = 410984080 }
+        '18' = @{ Version = '18.6.5'; File = 'postgresql-18.6-5-windows-x64.exe'; Sha256 = '227e2bc08091b4c2b8338c7d61b11d057f895711480b006f90bfcfcd2410a58a'; Bytes = 414966472 }
     }
-    if (-not $edb.ContainsKey($Major) -or
+    $majorKey = [string]$Major
+    if (-not $edb.ContainsKey($majorKey) -or
         $ChocolateyPackage -cne "postgresql$Major" -or
-        $ChocolateyVersion -cne $edb[$Major].Version) {
+        $ChocolateyVersion -cne $edb[$majorKey].Version) {
         throw "Chocolatey failure; direct installer fallback DENY for unknown package/version"
     }
-    $pin = $edb[$Major]
+    $pin = $edb[$majorKey]
     $uri = "https://get.enterprisedb.com/postgresql/$($pin.File)"
     $installer = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-edb-$Major-" + [Guid]::NewGuid().ToString('N') + '.exe')
     try {
