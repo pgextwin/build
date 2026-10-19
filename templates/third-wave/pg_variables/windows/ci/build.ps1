@@ -27,6 +27,17 @@ $old='(*context->methods->stats) (context, NULL, NULL, &totals);'
 if(([regex]::Matches($source,[regex]::Escape($old))).Count -ne 1){throw 'pg_variables stats ABI pattern changed'}
 $source=$source.Replace($old,'(*context->methods->stats) (context, NULL, NULL, &totals, false);')
 [IO.File]::WriteAllText($pgv,$source,[Text.UTF8Encoding]::new($false))
+# access/tuptoaster.h was removed in core PG14-18;
+# the called toast_flatten_tuple_to_datum() API is now declared in access/heaptoast.h.
+# Rewrite only this expected include in the disposable, SHA-verified checkout.
+$record=Join-Path $UpstreamDir 'pg_variables_record.c'
+$recordSource=[IO.File]::ReadAllText($record)
+$oldHeader='#include "access/tuptoaster.h"'
+if(([regex]::Matches($recordSource,[regex]::Escape($oldHeader))).Count -ne 1){
+  throw 'Upstream pg_variables_record.c include layout drift'
+}
+$recordSource=$recordSource.Replace($oldHeader,'#include "access/heaptoast.h"')
+[IO.File]::WriteAllText($record,$recordSource,[Text.UTF8Encoding]::new($false))
 $exports=@('Pg_magic_func','_PG_init')
 foreach($file in $sources){
   $path=Join-Path $UpstreamDir $file
