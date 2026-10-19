@@ -19,8 +19,10 @@ if($LASTEXITCODE -ne 0 -or $sha -cne [string]$c.upstream.commit -or
    $PostgreSqlMajor -notin @(14,15,16,17,18) -or
    $PostgreSqlMinor -notmatch ('^'+$PostgreSqlMajor+'\.')){throw 'Package identity mismatch'}
 $label="$name-$UpstreamVersion-pg$PostgreSqlMajor-windows-x64"
-$stage=Join-Path $DistDir $label
-$zip=Join-Path $DistDir "$label.zip"
+$distRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../$DistDir"))
+New-Item -Path $distRoot -ItemType Directory -Force | Out-Null
+$stage=Join-Path $distRoot $label
+$zip=Join-Path $distRoot "$label.zip"
 if(Test-Path $stage){Remove-Item $stage -Recurse -Force}
 if(Test-Path $zip){Remove-Item $zip -Force}
 New-Item (Join-Path $stage 'share/extension') -ItemType Directory -Force|Out-Null
