@@ -128,6 +128,33 @@
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
+    },
+    {
+      "repository": "pgextwin/pgtap",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "manual-only",
+      "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
+    },
+    {
+      "repository": "pgextwin/pg_variables",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "manual-only",
+      "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
+    },
+    {
+      "repository": "pgextwin/pg_store_plans",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 0 * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "manual-only",
+      "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
     }
   ]
 }
