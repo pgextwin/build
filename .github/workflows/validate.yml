@@ -31,6 +31,9 @@ jobs:
       - name: Validate PG14-18 minimal EDB install arguments and fail-closed retry
         run: python tests/test-postgresql-minimal-install.py
 
+      - name: Validate five-major Chocolatey selected-components real-test-only path
+        run: python tests/test-postgresql-component-only.py
+
       - name: Validate PG14-18 read-only EDB phase timing fixtures
         run: python tests/test-edb-install-timing.py
 
