@@ -23,6 +23,15 @@ if($name -eq 'pg_store_plans'){
   if($count -ne 10){throw "Unexpected pg_store_plans C declarations: $count"}
   $text=[regex]::Replace($text,$pattern,'PGDLLEXPORT Datum$1$2(PG_FUNCTION_ARGS);')
   [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))
+  # PG14/15 EDB Windows dev package omits generated parser/gram.h.
+  # Copy a guarded token-ID shim derived from the matching PG grammars.
+  $json=Join-Path $UpstreamDir 'pgsp_json.c'
+  $source=[IO.File]::ReadAllText($json)
+  $legacy='#include "parser/gram.h"'
+  if(([regex]::Matches($source,[regex]::Escape($legacy))).Count -ne 1){throw 'pgsp_json parser source drift'}
+  $source=$source.Replace($legacy,'#include "pgextwin-token-compat.h"')
+  [IO.File]::WriteAllText($json,$source,[Text.UTF8Encoding]::new($false))
+  Copy-Item (Join-Path $PSScriptRoot 'pg14-15-token-compat.h') (Join-Path $UpstreamDir 'pgextwin-token-compat.h') -Force
 }
 $exports=@('Pg_magic_func','_PG_init')
 foreach($file in $sources){
