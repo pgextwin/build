@@ -13,7 +13,7 @@ for v in meta["postgresql"]:
     assert re.fullmatch(r"\d+\.\d+\.\d+", v["chocolateyVersion"])
 line = next(x.strip() for x in script.splitlines() if x.strip().startswith("& choco install "))
 assert line.count("--ia") == 1
-assert '--ia "--disable-components pgAdmin,stackbuilder"' in line
+assert '--ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in line
 assert '"--version=$ChocolateyVersion"' in line
 assert '--params "/Password:postgres"' in line
 assert "--override" not in line and "--force" not in line
@@ -24,6 +24,8 @@ assert "if ($successCodes -notcontains $code)" in script
 assert "throw \"Chocolatey failed after $maxAttempts attempts" in script
 assert 'include\\server\\postgres.h' in script
 assert 'lib\\postgres.lib' in script
+assert 'bin\\postgres.exe' in script and 'bin\\initdb.exe' in script
+assert 'bin\\psql.exe' in script and 'share\\extension\\plpgsql.control' in script
 assert '"PGROOT=$pgRoot" >> $env:GITHUB_ENV' in script
 assert '"$pgRoot\\bin" >> $env:GITHUB_PATH' in script
 print("PASS: PG14-18 metadata, Chocolatey installer args, retry and fail-closed contract")
