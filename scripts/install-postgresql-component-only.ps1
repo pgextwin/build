@@ -18,13 +18,18 @@ if ($matching.Count -ne 1 -or
     throw 'Chocolatey package and version must match approved fleet metadata.'
 }
 $root = Join-Path $env:ProgramFiles ("PostgreSQL\" + $Major)
-if (Test-Path -LiteralPath $root) {
-    throw "Refusing to reuse or overwrite preexisting PG$Major installation."
+$preexisting = Test-Path -LiteralPath $root
+if ($preexisting -and $Major -ne 17) {
+    throw "Unexpected existing PG$Major installation; never overwrite."
+}
+if ($preexisting) {
+    Write-Host 'PG17 already installed on the GitHub runner; verify its exact version and full build/runtime dependencies. No installation-time benchmark is claimed for this reuse.'
 }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $successCodes = @(0, 1641, 3010)
 $maxAttempts = 3
 $exit = -1
+if (-not $preexisting) {
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Write-Host "PG$Major Chocolatey selected components: server+commandlinetools; omit pgAdmin+stackbuilder; no shortcuts/runtime reinstall; attempt $attempt/$maxAttempts"
     # Reuse proven PR #110 exclusion; explicit allowlist guards the subset.
@@ -39,6 +44,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 if ($successCodes -notcontains $exit) {
     throw "Chocolatey PG$Major failed after $maxAttempts attempts: code=$exit"
 }
+} else { $exit = 0 }
 $files = @(
   'bin\postgres.exe', 'bin\pg_config.exe', 'bin\initdb.exe', 'bin\pg_ctl.exe',
   'bin\pg_isready.exe', 'bin\psql.exe',
@@ -63,7 +69,8 @@ if ($env:GITHUB_ENV) {
     "PGPORT=$TestPort" >> $env:GITHUB_ENV
 }
 if ($env:GITHUB_PATH) { (Join-Path $root 'bin') >> $env:GITHUB_PATH }
-Write-Host "PGEXTWIN_CHOCO_MINIMUM PG=$Major EXIT=$exit SECONDS=$seconds VERSION=$version COMPONENTS=server,commandlinetools"
+$installKind = if ($preexisting) { 'REUSED_RUNNER_PREINSTALL_NOT_BENCHMARK' } else { 'FRESH_CHOCOLATEY' }
+Write-Host "PGEXTWIN_CHOCO_MINIMUM PG=$Major MODE=$installKind EXIT=$exit SECONDS=$seconds VERSION=$version COMPONENTS=server,commandlinetools"
 if ($env:GITHUB_STEP_SUMMARY) {
-    "| PG$Major | Chocolatey component-only trial | $seconds | $version |" >> $env:GITHUB_STEP_SUMMARY
+    "| PG$Major | $installKind | $seconds | $version |" >> $env:GITHUB_STEP_SUMMARY
 }
