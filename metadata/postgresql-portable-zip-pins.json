@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "purpose": "READ_ONLY_PR_BENCHMARK_NOT_RELEASE",
+  "publisher": "EnterpriseDB Windows x64 binary ZIP",
+  "files": {
+    "14": {
+      "minor": "14.24",
+      "file": "postgresql-14.24-3-windows-x64-binaries.zip",
+      "sha256": "469f628e5740ea4aa22053fff4ef89334232b68a453691e329374b3eed2e8127",
+      "evidence": "https://community.chocolatey.org/packages/psql14/14.24.3"
+    },
+    "15": {
+      "minor": "15.19",
+      "file": "postgresql-15.19-4-windows-x64-binaries.zip",
+      "sha256": "3b1365016bb381b8e37a38337d9187c72e61696e473256fc24a6b2ed9ca4b255",
+      "evidence": "https://community.chocolatey.org/packages/psql15/15.19.4"
+    },
+    "16": {
+      "minor": "16.15",
+      "file": "postgresql-16.15-5-windows-x64-binaries.zip",
+      "sha256": "43bb45f173a6f08cf1d29a97a6d8deb119e8e8093a24c00d2d1001a0ccaa8281",
+      "evidence": "https://github.com/EnterpriseDB/edb-installers/issues/731"
+    },
+    "17": {
+      "minor": "17.11",
+      "file": "postgresql-17.11-4-windows-x64-binaries.zip",
+      "sha256": "b9424ee7bc60b52450ff910a3630225df32e633f3cb29c1d126d9299d59aea28",
+      "evidence": "https://github.com/EnterpriseDB/edb-installers/issues/706"
+    },
+    "18": {
+      "minor": "18.6",
+      "file": "postgresql-18.6-5-windows-x64-binaries.zip",
+      "sha256": "e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2",
+      "evidence": "https://github.com/EnterpriseDB/edb-installers/issues/733"
+    }
+  }
+}
