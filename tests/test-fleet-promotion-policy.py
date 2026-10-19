@@ -8,6 +8,7 @@ ROOT=Path(__file__).resolve().parents[1]
 ORIGINAL=["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack",
           "pg_ivm","pg_qualstats","plpgsql_check"]
 STAGED=["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]
+THIRD=["pgtap","pg_variables","pg_store_plans"]
 
 class PolicyTests(unittest.TestCase):
     def test_exact_fourteen_repository_operator_publish_allowlist(self):
@@ -19,9 +20,16 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(len(p["allowedRepositories"]),len(set(p["allowedRepositories"])))
         self.assertEqual(f["releasePolicy"],"manual-only")
         entries={e["repository"]:e for e in f["entries"]}
-        self.assertEqual(len(entries),14)
-        self.assertEqual(set(entries),set(p["allowedRepositories"]))
+        self.assertEqual(len(entries),17)
+        self.assertEqual(set(entries),set(p["allowedRepositories"])|{"pgextwin/"+x for x in THIRD})
+        # Completing the Windows build does not itself authorize the third-wave Releases.
+        self.assertTrue({"pgextwin/"+x for x in THIRD}.isdisjoint(p["allowedRepositories"]))
         for name in ORIGINAL+STAGED:
+            e=entries["pgextwin/"+name]
+            self.assertEqual(e["mode"],"BUILD")
+            self.assertIs(e["candidateEnabled"],True)
+            self.assertEqual(e["releasePolicy"],"manual-only")
+        for name in THIRD:
             e=entries["pgextwin/"+name]
             self.assertEqual(e["mode"],"BUILD")
             self.assertIs(e["candidateEnabled"],True)
