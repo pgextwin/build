@@ -21,21 +21,32 @@ $ErrorActionPreference = "Stop"
 $successCodes = @(0, 1641, 3010)
 $maxAttempts = 3
 $code = -1
+$feedOutageCount = 0
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Write-Host "Installing $ChocolateyPackage version $ChocolateyVersion (attempt $attempt/$maxAttempts)."
     # Explicitly allow only the already tested server + CLI components;
     # preserve the proven pgAdmin/StackBuilder exclusions (PR #110).
     # The hosted Windows image already supplies VC++ runtimes; the real
     # PG14-18 trial proved complete server, MSVC build and SQL smoke.
-    & choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres" --ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"
+    $attemptOutput = @(& choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres" --ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0" 2>&1)
     $code = $LASTEXITCODE
+    $attemptOutput | ForEach-Object { Write-Host $_ }
     if ($successCodes -contains $code) { break }
+    # A failed checksum, mismatching version, or any non-503 error must DENY.
+    $failureText = $attemptOutput -join [Environment]::NewLine
+    if ($failureText.Contains('https://community.chocolatey.org/api/v2/') -and
+        $failureText.Contains('503 (Service Unavailable)')) {
+        $feedOutageCount++
+    }
     if ($attempt -lt $maxAttempts) {
         Write-Warning "Chocolatey exited with $code; retrying after a bounded cooldown."
         Start-Sleep -Seconds (10 * $attempt)
     }
 }
 if ($successCodes -notcontains $code) {
+    if ($feedOutageCount -ne $maxAttempts) {
+        throw "Chocolatey failed after $maxAttempts attempts, without verified HTTP 503 in every attempt; EDB fallback DENY."
+    }
     # Only the exact EDB installer bytes independently retrieved and SHA256
     # verified in successful Issue #75 Runs 39038000517 + 39038162434 may be
     # used when the Chocolatey V2 registry itself is unavailable.
