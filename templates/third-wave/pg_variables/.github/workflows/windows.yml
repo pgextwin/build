@@ -1,0 +1,29 @@
+name: Windows CI/CD
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    permissions:
+      contents: read
+    uses: pgextwin/build/.github/workflows/build-extension.yml@474ae1745c5c570956b39de3d882febad560ea7f
+    with:
+      extension_config_path: config/extension.json
+      test_contract_path: config/test-contract.json
+  windows_required:
+    name: Windows required summary
+    if: ${{ always() }}
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require success of all maintained PG14-18 Windows jobs
+        shell: bash
+        env:
+          MATRIX_RESULT: ${{ needs.windows.result }}
+        run: test "$MATRIX_RESULT" = success
