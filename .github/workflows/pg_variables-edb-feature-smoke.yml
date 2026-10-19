@@ -1,0 +1,44 @@
+name: Third-wave pg_variables PG14 live-session recovery check
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/pg_variables-edb-feature-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  pg_variables_feature_smoke:
+    name: PG14 pinned EXE concurrent-backend feature test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout EDB fallback script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout exact pg_variables PR feature code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/pg_variables
+          ref: 0fb14eac695b3aa530a7cfd18637c741157354f8
+          path: pg_variables_repo
+          persist-credentials: false
+      - name: Checkout SHA-pinned upstream pg_variables
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: postgrespro/pg_variables
+          ref: 1d1bfe26a5e2eec6dda761565e1307d679b1072b
+          path: upstream
+          persist-credentials: false
+      - name: Install PG14 through verified EDB fallback when Chocolatey 503
+        shell: pwsh
+        run: |
+          $config = (Get-Content 'metadata/postgresql.json' -Raw | ConvertFrom-Json).postgresql | Where-Object { $_.major -eq 14 } | Select-Object -First 1
+          & .\scripts\install-postgresql.ps1 -Major 14 -ChocolateyPackage $config.chocolateyPackage -ChocolateyVersion $config.chocolateyVersion -TestPort $config.testPort
+          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL installer failed' }
+      - name: Compile DLL, create extension, exercise real concurrent sessions
+        shell: pwsh
+        run: |
+          $upstream=(Resolve-Path 'upstream').Path
+          & .\pg_variables_repo\windows\ci\build.ps1 -PgRoot $env:PGROOT -UpstreamDir $upstream
+          & .\pg_variables_repo\windows\ci\install.ps1 -PgRoot $env:PGROOT -UpstreamDir $upstream
+          & .\pg_variables_repo\windows\ci\smoke-test.ps1 -PgRoot $env:PGROOT -PgPort ([int]$env:PGPORT) -PostgreSqlMajor 14
+          Write-Host 'PASS: PG14 real pg_variables concurrent session isolation'
