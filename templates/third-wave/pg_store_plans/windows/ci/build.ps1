@@ -18,7 +18,7 @@ if($name -eq 'pg_store_plans'){
   }
   $text=$text.Replace('#include <dlfcn.h>','').Replace('#include <unistd.h>','#include <io.h>')
   # Postgres Windows PGDLLEXPORT declarations match PG_FUNCTION_INFO_V1.
-  $pattern='(?m)^Datum([ \t]+)(pg_store_plans(?:_[A-Za-z0-9]+)?)\s*\(PG_FUNCTION_ARGS\);'
+  $pattern='(?m)^Datum([ \t]+)(pg_store_plans(?:_[A-Za-z0-9_]+)?)\s*\(PG_FUNCTION_ARGS\);'
   $count=[regex]::Matches($text,$pattern).Count
   if($count -ne 10){throw "Unexpected pg_store_plans C declarations: $count"}
   $text=[regex]::Replace($text,$pattern,'PGDLLEXPORT Datum$1$2(PG_FUNCTION_ARGS);')
