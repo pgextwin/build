@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pgextwin/pg_variables
-          ref: 9b78696ea7041345a782e95dae04ee516bc6523c
+          ref: 0fb14eac695b3aa530a7cfd18637c741157354f8
           path: pg_variables_repo
           persist-credentials: false
       - name: Checkout SHA-pinned upstream pg_variables
