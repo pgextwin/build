@@ -24,8 +24,10 @@ assert "if ($successCodes -notcontains $code)" in script
 assert "$feedOutageCount = 0" in script
 assert "$feedOutageCount++" in script
 assert "if ($feedOutageCount -ne $maxAttempts)" in script
-assert "Chocolatey failed after $maxAttempts attempts, without verified HTTP 503 in every attempt; EDB fallback DENY" in script
+assert "Chocolatey failed after $maxAttempts attempts, without verified V2 HTTP 502/503/504 in every attempt; EDB fallback DENY" in script
+assert "502 \\(Bad Gateway\\)" in script
 assert "503 (Service Unavailable)" in script
+assert "504 \\(Gateway Timeout\\)" in script
 assert "https://community.chocolatey.org/api/v2/" in script
 assert script.index("if ($feedOutageCount -ne $maxAttempts)") < script.index("Start-Process -FilePath $installer")
 # Chocolatey failure is not success: permit only five previously byte-verified

@@ -32,10 +32,10 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     $code = $LASTEXITCODE
     $attemptOutput | ForEach-Object { Write-Host $_ }
     if ($successCodes -contains $code) { break }
-    # A failed checksum, mismatching version, or any non-503 error must DENY.
+    # A failed checksum, mismatching version, or non-gateway-outage error must DENY.
     $failureText = $attemptOutput -join [Environment]::NewLine
     if ($failureText.Contains('https://community.chocolatey.org/api/v2/') -and
-        $failureText.Contains('503 (Service Unavailable)')) {
+        ($failureText -match '(502 \(Bad Gateway\)|503 \(Service Unavailable\)|504 \(Gateway Timeout\))')) {
         $feedOutageCount++
     }
     if ($attempt -lt $maxAttempts) {
@@ -45,7 +45,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 }
 if ($successCodes -notcontains $code) {
     if ($feedOutageCount -ne $maxAttempts) {
-        throw "Chocolatey failed after $maxAttempts attempts, without verified HTTP 503 in every attempt; EDB fallback DENY."
+        throw "Chocolatey failed after $maxAttempts attempts, without verified V2 HTTP 502/503/504 in every attempt; EDB fallback DENY."
     }
     # Only the exact EDB installer bytes independently retrieved and SHA256
     # verified in successful Issue #75 Runs 39038000517 + 39038162434 may be
