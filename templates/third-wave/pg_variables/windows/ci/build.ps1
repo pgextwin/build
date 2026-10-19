@@ -19,6 +19,14 @@ if($name -eq 'pg_store_plans'){
   $text=$text.Replace('#include <dlfcn.h>','').Replace('#include <unistd.h>',"#include <io.h>`n#define unlink _unlink")
   [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))
 }
+# PG14-18 MemoryContextMethods::stats takes a fifth print_to_stderr parameter.
+# The upstream v1.2.1 call has only four; adapt the disposable pinned checkout.
+$pgv=Join-Path $UpstreamDir 'pg_variables.c'
+$source=[IO.File]::ReadAllText($pgv)
+$old='(*context->methods->stats) (context, NULL, NULL, &totals);'
+if(([regex]::Matches($source,[regex]::Escape($old))).Count -ne 1){throw 'pg_variables stats ABI pattern changed'}
+$source=$source.Replace($old,'(*context->methods->stats) (context, NULL, NULL, &totals, false);')
+[IO.File]::WriteAllText($pgv,$source,[Text.UTF8Encoding]::new($false))
 $exports=@('Pg_magic_func','_PG_init')
 foreach($file in $sources){
   $path=Join-Path $UpstreamDir $file
