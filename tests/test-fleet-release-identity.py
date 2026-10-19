@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-network heterogeneous 14-extension manual Release identity denial matrix."""
+"""No-network heterogeneous 17-extension manual Release identity denial matrix."""
 from datetime import date
 import importlib.util
 from pathlib import Path
@@ -24,6 +24,9 @@ SOURCES = {
     "pg_partman": ("v5.5.0", "5.5.0", "v5.5.0-windows.3"),
     "pg_stat_monitor": ("2.4.0", "2.4.0", "v2.4.0-windows.2"),
     "orafce": ("VERSION_4_16_13", "4.16.13", "v4.16.13-windows.2"),
+    "pgtap": ("v1.3.4", "1.3.4", "v1.3.4-windows.1"),
+    "pg_variables": ("v1.2.1", "1.2.1", "v1.2.1-windows.1"),
+    "pg_store_plans": ("1.10", "1.10", "v1.10-windows.1"),
 }
 PER_MAJOR = {
     "pgaudit": {
@@ -54,7 +57,7 @@ def manifest(name):
 
 class IdentityTests(unittest.TestCase):
     def test_every_fleet_member_has_an_exact_tag_and_fifteen_assets(self):
-        self.assertEqual(len(lib.UPSTREAMS),14)
+        self.assertEqual(len(lib.UPSTREAMS),17)
         self.assertEqual(set(lib.UPSTREAMS),set(SOURCES)|set(PER_MAJOR))
         for name in lib.UPSTREAMS:
             with self.subTest(extension=name):
