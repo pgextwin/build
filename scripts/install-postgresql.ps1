@@ -36,7 +36,50 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     }
 }
 if ($successCodes -notcontains $code) {
-    throw "Chocolatey failed after $maxAttempts attempts with exit code $code."
+    # Only the exact EDB installer bytes independently retrieved and SHA256
+    # verified in successful Issue #75 Runs 39038000517 + 39038162434 may be
+    # used when the Chocolatey V2 registry itself is unavailable.
+    # These are fixed executable-byte pins, NOT a Release authorization.
+    $edb = @{
+        14 = @{ Version = '14.24.0'; File = 'postgresql-14.24-1-windows-x64.exe'; Sha256 = '52a51ec49c38a68a9f93f677b23e975ba709354ddab8283ef2558f3e7cb7f998'; Bytes = 360966784 }
+        15 = @{ Version = '15.19.0'; File = 'postgresql-15.19-1-windows-x64.exe'; Sha256 = '09dc76dc45332e031074df8e5d19d9eac64b2b98b51e279099b7461a5c12a92a'; Bytes = 362808024 }
+        16 = @{ Version = '16.15.5'; File = 'postgresql-16.15-5-windows-x64.exe'; Sha256 = '4065dbc5ffb52010e7357dfd6a74934878f1c6faf7a75cad1411a22e11b7b929'; Bytes = 404741880 }
+        17 = @{ Version = '17.11.4'; File = 'postgresql-17.11-4-windows-x64.exe'; Sha256 = 'c9828fd3a4daebbeeace19bec2de5f38d73c047fce47278148b525cfbe28a5e4'; Bytes = 410984080 }
+        18 = @{ Version = '18.6.5'; File = 'postgresql-18.6-5-windows-x64.exe'; Sha256 = '227e2bc08091b4c2b8338c7d61b11d057f895711480b006f90bfcfcd2410a58a'; Bytes = 414966472 }
+    }
+    if (-not $edb.ContainsKey($Major) -or
+        $ChocolateyPackage -cne "postgresql$Major" -or
+        $ChocolateyVersion -cne $edb[$Major].Version) {
+        throw "Chocolatey failure; direct installer fallback DENY for unknown package/version"
+    }
+    $pin = $edb[$Major]
+    $uri = "https://get.enterprisedb.com/postgresql/$($pin.File)"
+    $installer = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-edb-$Major-" + [Guid]::NewGuid().ToString('N') + '.exe')
+    try {
+        Write-Warning "Chocolatey unavailable; downloading only the independently byte-verified EDB PG$Major installer."
+        Invoke-WebRequest -Uri $uri -OutFile $installer -MaximumRedirection 3 -ErrorAction Stop
+        if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "EDB installer missing" }
+        $length = (Get-Item -LiteralPath $installer).Length
+        if ($length -ne $pin.Bytes) { throw "EDB installer byte size mismatch: $length" }
+        $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -cne $pin.Sha256) { throw "EDB installer SHA256 mismatch; execution DENY" }
+        Write-Host "PASS: PG$Major EDB original EXE exact bytes and SHA256 verified"
+        # Same server+CLI component subset as the successful Chocolatey path.
+        # This runs only in an ephemeral GitHub Windows CI environment.
+        $arguments = @('--mode','unattended','--unattendedmodeui','none',
+                       '--superpassword','postgres','--enable_acledit','1',
+                       '--enable-components','server,commandlinetools',
+                       '--disable-components','pgAdmin,stackbuilder',
+                       '--create_shortcuts','0','--install_runtimes','0')
+        $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+        if ($successCodes -notcontains $process.ExitCode) {
+            throw "SHA256-verified EDB installer failed: exit $($process.ExitCode)"
+        }
+    } finally {
+        if (Test-Path -LiteralPath $installer) {
+            Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 $pgRoot = Join-Path $env:ProgramFiles "PostgreSQL\$Major"
