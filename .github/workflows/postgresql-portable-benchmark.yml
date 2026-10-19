@@ -1,0 +1,84 @@
+name: PostgreSQL 14-18 pinned portable ZIP benchmark (PR only)
+
+on:
+  pull_request:
+    paths:
+      - "scripts/install-postgresql-portable.ps1"
+      - "metadata/postgresql-portable-zip-pins.json"
+      - ".github/workflows/postgresql-portable-benchmark.yml"
+      - "tests/test-postgresql-portable-pins.py"
+
+permissions:
+  contents: read
+
+jobs:
+  portable_pg14_18:
+    name: PR-only portable PG${{ matrix.major }} + real extension build and smoke
+    if: github.event_name == 'pull_request' && github.head_ref == 'perf/pg14-18-pinned-portable-zip-install-20261019'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        major: [14, 15, 16, 17, 18]
+    steps:
+      - name: Check out exactly this PR's read-only benchmark
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out previously verified plpgsql_check main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/plpgsql_check
+          ref: c5b759074db6c8713f8aebed873eb6be8e64513d
+          path: pilot
+          persist-credentials: false
+
+      - name: Check out immutable upstream source for actual compile and SQL test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: okbob/plpgsql_check
+          ref: 0ac96adc13b34d071c4be8ba0ec4f73e6e7520f5
+          path: pilot/upstream
+          persist-credentials: false
+
+      - name: Verify independent benchmark and exact upstream/packaging commits
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = (& git -C pilot/upstream rev-parse HEAD).Trim()
+          $pilot = (& git -C pilot rev-parse HEAD).Trim()
+          if ($source -cne '0ac96adc13b34d071c4be8ba0ec4f73e6e7520f5') { throw 'Source SHA mismatch' }
+          if ($pilot -cne 'c5b759074db6c8713f8aebed873eb6be8e64513d') { throw 'Packaging SHA mismatch' }
+          Write-Host 'Pinned plpgsql_check runtime build contract verified. No Release signing/publishing.'
+          "| Major | Mode | Download | Verify | Extract | Total |" >> $env:GITHUB_STEP_SUMMARY
+          "| --- | --- | ---: | ---: | ---: | ---: |" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: SHA256-verify and extract official EDB PG${{ matrix.major }} binary ZIP
+        shell: pwsh
+        run: |
+          & ./scripts/install-postgresql-portable.ps1 -Major ([int]'${{ matrix.major }}') -TestPort 55432
+
+      - name: Verify full 48-export plpgsql_check DLL by MSVC and Meson
+        shell: pwsh
+        run: |
+          & ./pilot/windows/ci/build.ps1 -PgRoot $env:PGROOT -UpstreamDir (Join-Path $PWD 'pilot/upstream')
+
+      - name: Install extension DLL, SQL and control into portable PostgreSQL
+        shell: pwsh
+        run: |
+          & ./pilot/windows/ci/install.ps1 -PgRoot $env:PGROOT -UpstreamDir (Join-Path $PWD 'pilot/upstream')
+
+      - name: Real PostgreSQL CREATE EXTENSION and invalid-record-field SQL smoke
+        shell: pwsh
+        run: |
+          & ./pilot/windows/ci/smoke-test.ps1 -PgRoot $env:PGROOT -PgPort 55432 -PostgreSqlMajor ([int]'${{ matrix.major }}')
+
+      - name: Record isolated acceptance status (not a Release claim)
+        shell: pwsh
+        run: |
+          "PG${{ matrix.major }} PINNED_PORTABLE_ZIP_REAL_BUILD_SQL_SMOKE=PASS; PUBLISH=DENY" >> $env:GITHUB_STEP_SUMMARY
