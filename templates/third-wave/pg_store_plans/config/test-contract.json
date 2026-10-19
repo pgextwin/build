@@ -1,0 +1,47 @@
+{
+  "contractVersion": 2,
+  "extension": "pg_store_plans",
+  "smokeTest": {
+    "script": "windows/ci/smoke-test.ps1"
+  },
+  "runtimeRequirements": {
+    "extensionCreation": "required",
+    "preload": "shared",
+    "backgroundWorker": false,
+    "clientExecutable": {
+      "required": false,
+      "packagePaths": []
+    }
+  },
+  "testSetup": {
+    "preload": "shared",
+    "backgroundWorker": false,
+    "settings": [
+      {
+        "name": "shared_preload_libraries",
+        "value": "pg_store_plans"
+      },
+      {
+        "name": "compute_query_id",
+        "value": "on"
+      }
+    ]
+  },
+  "coverage": {
+    "createExtension": "covered",
+    "backgroundWorker": "not-applicable",
+    "clientExecutable": "not-applicable",
+    "serverLogAssertions": "not-covered",
+    "upgrade": "not-covered"
+  },
+  "functionalScenarios": [
+    {
+      "id": "real-query-plan-capture",
+      "description": "Check recorded plan and calls for a real statement after shared preload.",
+      "evidence": [
+        "sql-result",
+        "query-plan"
+      ]
+    }
+  ]
+}

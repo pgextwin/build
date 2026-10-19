@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "name": "pg_variables",
+  "upstream": {
+    "repository": "postgrespro/pg_variables",
+    "ref": "v1.2.1",
+    "version": "1.2.1",
+    "commit": "1d1bfe26a5e2eec6dda761565e1307d679b1072b"
+  },
+  "postgresql": {
+    "majors": [
+      14,
+      15,
+      16,
+      17,
+      18
+    ]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  }
+}

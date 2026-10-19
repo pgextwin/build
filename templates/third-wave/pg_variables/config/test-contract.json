@@ -1,0 +1,37 @@
+{
+  "contractVersion": 2,
+  "extension": "pg_variables",
+  "smokeTest": {
+    "script": "windows/ci/smoke-test.ps1"
+  },
+  "runtimeRequirements": {
+    "extensionCreation": "required",
+    "preload": "none",
+    "backgroundWorker": false,
+    "clientExecutable": {
+      "required": false,
+      "packagePaths": []
+    }
+  },
+  "testSetup": {
+    "preload": "none",
+    "backgroundWorker": false,
+    "settings": []
+  },
+  "coverage": {
+    "createExtension": "covered",
+    "backgroundWorker": "not-applicable",
+    "clientExecutable": "not-applicable",
+    "serverLogAssertions": "not-covered",
+    "upgrade": "not-covered"
+  },
+  "functionalScenarios": [
+    {
+      "id": "variable-transaction-and-sessions",
+      "description": "Check set/get, transaction rollback and separated backend sessions.",
+      "evidence": [
+        "sql-result"
+      ]
+    }
+  ]
+}

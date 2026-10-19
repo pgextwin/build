@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "name": "pg_store_plans",
+  "upstream": {
+    "repository": "ossc-db/pg_store_plans",
+    "ref": "1.10",
+    "version": "1.10",
+    "commit": "e802804d4d2763ad3b32fc8fcf9f218c61cc475f"
+  },
+  "postgresql": {
+    "majors": [
+      14,
+      15,
+      16,
+      17,
+      18
+    ]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  }
+}

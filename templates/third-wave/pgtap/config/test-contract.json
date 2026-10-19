@@ -1,0 +1,37 @@
+{
+  "contractVersion": 2,
+  "extension": "pgtap",
+  "smokeTest": {
+    "script": "windows/ci/smoke-test.ps1"
+  },
+  "runtimeRequirements": {
+    "extensionCreation": "required",
+    "preload": "none",
+    "backgroundWorker": false,
+    "clientExecutable": {
+      "required": false,
+      "packagePaths": []
+    }
+  },
+  "testSetup": {
+    "preload": "none",
+    "backgroundWorker": false,
+    "settings": []
+  },
+  "coverage": {
+    "createExtension": "covered",
+    "backgroundWorker": "not-applicable",
+    "clientExecutable": "not-applicable",
+    "serverLogAssertions": "not-covered",
+    "upgrade": "not-covered"
+  },
+  "functionalScenarios": [
+    {
+      "id": "tap-positive-negative-assertions",
+      "description": "Verify successful TAP and deliberately failed TAP assertion.",
+      "evidence": [
+        "sql-result"
+      ]
+    }
+  ]
+}
