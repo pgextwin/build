@@ -34,6 +34,9 @@ jobs:
       - name: Validate PG14-18 read-only EDB phase timing fixtures
         run: python tests/test-edb-install-timing.py
 
+      - name: Validate parallel PostgreSQL 14-18 pinned portable ZIP benchmark safeguards
+        run: python tests/test-postgresql-portable-pins.py
+
       - name: Validate update watch fixtures
         run: python tests/test-update-watch.py
 
