@@ -11,7 +11,7 @@ workflow = (ROOT / ".github/workflows/chocolatey-components-benchmark.yml").read
 metadata = json.loads((ROOT / "metadata/postgresql.json").read_text(encoding="utf-8"))
 
 # The proven previous PR #110 approach is mandatory and must not disappear.
-assert '--ia "--disable-components pgAdmin,stackbuilder"' in old
+assert '--ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in old
 assert "--params \"/Password:postgres\"" in old
 assert "$maxAttempts = 3" in old
 assert [x["major"] for x in metadata["postgresql"]] == [14, 15, 16, 17, 18]
