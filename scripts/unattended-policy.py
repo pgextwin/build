@@ -72,11 +72,13 @@ def evaluate(policy, fleet):
         "pg_repack", "pg_ivm", "pg_qualstats", "plpgsql_check")}
     staged_repos = {"pgextwin/" + n for n in (
         "hypopg", "wal2json", "pg_partman", "pg_stat_monitor", "orafce")}
-    require(type(entries) is list and len(entries) == 14,
-            "expected exactly fourteen manual-only fleet entries")
+    third_wave_repos = {"pgextwin/" + n for n in (
+        "pgtap", "pg_variables", "pg_store_plans")}
+    require(type(entries) is list and len(entries) == 17,
+            "expected exactly seventeen manual-only fleet entries")
     names = [x.get("repository") for x in entries if type(x) is dict]
-    require(len(names) == 14 and len(set(names)) == 14
-            and set(names) == old_repos | staged_repos and PILOT in names,
+    require(len(names) == 17 and len(set(names)) == 17
+            and set(names) == old_repos | staged_repos | third_wave_repos and PILOT in names,
             "fleet repository registry contains duplicates, omissions or unknown members")
     # A BUILD candidate lane NEVER authorizes automatic formal publication.
     # Permit the five staged repos to enter BUILD only with explicit local
@@ -84,8 +86,8 @@ def evaluate(policy, fleet):
     # repositories independently.
     require(all(x["mode"] in {"OFF", "BUILD"}
                 and (x["candidateEnabled"] is True) == (x["mode"] == "BUILD")
-                for x in entries if x["repository"] in staged_repos),
-            "five new repos require explicit manual-only candidate policy")
+                for x in entries if x["repository"] in staged_repos | third_wave_repos),
+            "non-original repos require explicit manual-only candidate policy")
     require(all(x.get("scheduleUtc") == SCHEDULE and
                 x.get("mode") in {"WATCH", "BUILD", "OFF"} and
                 x.get("releasePolicy") == "manual-only" for x in entries),
