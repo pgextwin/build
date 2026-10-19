@@ -219,6 +219,9 @@ jobs:
       - name: Validate Step 20 aggregated fleet status fixtures
         run: python tests/test-fleet-status.py
 
+      - name: Validate third-wave PG14-18 staged extension manifests and deny-default controls
+        run: python tests/test-third-wave-staging.py
+
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
