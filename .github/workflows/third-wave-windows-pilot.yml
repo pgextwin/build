@@ -1,0 +1,96 @@
+name: Third-wave PG14-18 unsigned Windows pilot
+
+on:
+  pull_request:
+    paths:
+      - "templates/third-wave/**"
+      - ".github/workflows/third-wave-windows-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    name: Pilot ${{ matrix.extension.name }} PG${{ matrix.major }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        major: [14, 15, 16, 17, 18]
+        extension:
+          - name: pgtap
+            repository: theory/pgtap
+            commit: 968eb53a33114e83042b3bdb0c664b5b80cf8bdf
+          - name: pg_variables
+            repository: postgrespro/pg_variables
+            commit: 1d1bfe26a5e2eec6dda761565e1307d679b1072b
+          - name: pg_store_plans
+            repository: ossc-db/pg_store_plans
+            commit: e802804d4d2763ad3b32fc8fcf9f218c61cc475f
+    steps:
+      - name: Checkout protected development scaffolding
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Checkout immutable upstream commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ matrix.extension.repository }}
+          ref: ${{ matrix.extension.commit }}
+          path: upstream
+          persist-credentials: false
+      - name: Verify source SHA and staged manifest
+        shell: pwsh
+        run: |
+          $name = "${{ matrix.extension.name }}"
+          $config = Get-Content "templates/third-wave/$name/config/extension.json" -Raw | ConvertFrom-Json
+          $sha = (& git -C upstream rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $sha -cne "${{ matrix.extension.commit }}" -or $sha -cne [string]$config.upstream.commit) {
+            throw "Immutable upstream SHA mismatch"
+          }
+          if ([int]("${{ matrix.major }}") -notin @($config.postgresql.majors)) {
+            throw "Major is not allowed in extension manifest"
+          }
+      - name: Validate Test Contract v2 against staged extension
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+          if ($LASTEXITCODE -ne 0) { throw "jsonschema install failed" }
+          $dir = "templates/third-wave/${{ matrix.extension.name }}"
+          python scripts/validate-test-contract.py --schema schema/test-contract.schema.json --contract "$dir/config/test-contract.json" --extension-config "$dir/config/extension.json" --repository-root "$dir"
+          if ($LASTEXITCODE -ne 0) { throw "Test contract invalid" }
+      - name: Install pinned server and CLI components
+        shell: pwsh
+        run: |
+          $major = [int]"${{ matrix.major }}"
+          $pg = (Get-Content "metadata/postgresql.json" -Raw | ConvertFrom-Json).postgresql | Where-Object { $_.major -eq $major } | Select-Object -First 1
+          if ($null -eq $pg) { throw "No approved PostgreSQL major" }
+          & .\scripts\install-postgresql.ps1 -Major $major -ChocolateyPackage $pg.chocolateyPackage -ChocolateyVersion $pg.chocolateyVersion -TestPort $pg.testPort
+          if ($LASTEXITCODE -ne 0) { throw "PostgreSQL installation failed" }
+      - name: Build, install, live SQL test and ZIP verification
+        shell: pwsh
+        run: |
+          $name = "${{ matrix.extension.name }}"
+          $major = [int]"${{ matrix.major }}"
+          $config = Get-Content "templates/third-wave/$name/config/extension.json" -Raw | ConvertFrom-Json
+          $minor = (Get-Content "metadata/postgresql.json" -Raw | ConvertFrom-Json).postgresql | Where-Object { $_.major -eq $major } | Select-Object -ExpandProperty minor
+          $upstream = (Resolve-Path upstream).Path
+          Push-Location "templates/third-wave/$name"
+          try {
+            & .\windows\ci\build.ps1 -PgRoot $env:PGROOT -UpstreamDir $upstream
+            & .\windows\ci\install.ps1 -PgRoot $env:PGROOT -UpstreamDir $upstream
+            & .\windows\ci\smoke-test.ps1 -PgRoot $env:PGROOT -PgPort ([int]$env:PGPORT) -PostgreSqlMajor $major
+            & .\windows\ci\package.ps1 -UpstreamDir $upstream -UpstreamRepository $config.upstream.repository -UpstreamRef $config.upstream.ref -UpstreamVersion $config.upstream.version -PostgreSqlMajor $major -PostgreSqlMinor $minor
+          } finally {
+            Pop-Location
+          }
+      - name: Upload unsigned test-only ZIP (not Release)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: pilot-${{ matrix.extension.name }}-pg${{ matrix.major }}
+          path: templates/third-wave/${{ matrix.extension.name }}/dist/*.zip
+          if-no-files-found: error
