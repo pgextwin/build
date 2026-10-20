@@ -23,7 +23,7 @@ def _require(condition, message):
         raise GraphqlBypassDenied(message)
 
 
-def validate_effective_ref_bypass_zero(payload, *, expected_main_sha):
+def validate_effective_ref_bypass_zero(payload, *, expected_main_sha, repository=_REPO):
     """Accept only a complete main-bound GraphQL zero-count connection.
 
     Expected *read-only query* shape:
@@ -41,6 +41,8 @@ def validate_effective_ref_bypass_zero(payload, *, expected_main_sha):
       }
     No data from caller-generated fixture may be used as live proof.
     """
+    _require(type(repository) is str and bool(repository),
+             "expected repository invalid")
     _require(type(expected_main_sha) is str
              and _SHA.fullmatch(expected_main_sha) is not None,
              "expected main SHA invalid")
@@ -49,7 +51,7 @@ def validate_effective_ref_bypass_zero(payload, *, expected_main_sha):
     data = payload.get("data")
     _require(type(data) is dict, "GraphQL data unavailable")
     repo = data.get("repository")
-    _require(type(repo) is dict and repo.get("nameWithOwner") == _REPO,
+    _require(type(repo) is dict and repo.get("nameWithOwner") == repository,
              "GraphQL repository identity mismatch")
     ref = repo.get("ref")
     _require(type(ref) is dict and ref.get("name") == "main"
@@ -76,7 +78,7 @@ def validate_effective_ref_bypass_zero(payload, *, expected_main_sha):
     return {
         "schemaVersion": 1,
         "status": "VERIFIED_EFFECTIVE_REF_BYPASS_ZERO",
-        "repository": _REPO,
+        "repository": repository,
         "branch": "main",
         "mainSha": expected_main_sha,
         "bypassPullRequestAllowances": 0,
