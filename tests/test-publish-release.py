@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 from zipfile import ZipFile, ZIP_DEFLATED
 
-p=Path(__file__).resolve().parents[1]/"scripts"/"publish-release.py"
+p=Path(__file__).resolve().parents[1]/"tests"/"fixtures"/"historical-scripts"/"publish-release.py"
 sp=importlib.util.spec_from_file_location("publisher",p)
 pub=importlib.util.module_from_spec(sp)
 sp.loader.exec_module(pub)
