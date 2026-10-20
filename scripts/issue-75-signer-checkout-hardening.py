@@ -14,7 +14,10 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-SIGNER = ROOT / ".github/workflows/build-extension-attested.yml"
+# The 5756b3c5 immutable historical Signer must remain an exact fixture:
+# the main-branch source is changed only for FUTURE separately approved pins.
+SIGNER = ROOT / "tests/fixtures/issue-75-original-signer-5756b3c5.yml"
+MAIN_CANDIDATE = ROOT / ".github/workflows/build-extension-attested.yml"
 EVIDENCE = ROOT / "evidence/issue-75/action-roots-signer-hardening-20261017.json"
 EXPECTED_SIGNER = "93a0a7641253735cf5adb845c768981c79f75b46"
 CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"
@@ -69,6 +72,25 @@ def hardened_signer(raw):
          and proposed.count(("uses: actions/checkout@"+CHECKOUT_SHA).encode()) == 5
          and blob(proposed)!=EXPECTED_SIGNER, "unsafe future Signer proposal")
     return proposed
+def verify_main_candidate(main_bytes, historical_bytes):
+    """Check actual main source equals the exact minimal 5-checkout proposal.
+
+    This is a source comparison, not a new authorized signer digest or proof of
+    issued Sigstore certificates, security isolation or Publisher approval.
+    """
+    proposal = hardened_signer(historical_bytes)
+    need(type(main_bytes) is bytes and main_bytes == proposal,
+         "main source does not match immutable minimal checkout-only hardening")
+    return {
+        "mainSourceOnlyCheckoutPersistenceDisabled": 5,
+        "futureSignerSourceBlob": blob(main_bytes),
+        "historicalPinnedSignerBlob": EXPECTED_SIGNER,
+        "actualPublishedSignerPinMigrated": False,
+        "realSignerOidcVerified": False,
+        "publicationAuthorized": False,
+        "goB": "NO_GO", "g4": "NO_GO", "g5": "NO_GO",
+    }
+
 def inspect(evidence, signer_bytes):
     need(type(evidence) is dict and evidence.get("schemaVersion")==1
          and evidence.get("kind")=="ISSUE75_SIGNER_CHECKOUT_ACTION_ROOTS_OFFLINE_NO_GO",
@@ -116,8 +138,10 @@ def inspect(evidence, signer_bytes):
             "goB":"NO_GO","g4":"NO_GO","g5":"NO_GO","publicationAuthorized":False}
 def main():
     try:
-        print(json.dumps(inspect(record(EVIDENCE.read_bytes()), SIGNER.read_bytes()),
-                         sort_keys=True))
+        historical = SIGNER.read_bytes()
+        result = inspect(record(EVIDENCE.read_bytes()), historical)
+        result.update(verify_main_candidate(MAIN_CANDIDATE.read_bytes(), historical))
+        print(json.dumps(result, sort_keys=True))
         return 0
     except (Deny, OSError, ValueError, TypeError, KeyError, UnicodeError) as e:
         print(json.dumps({"decision":"DENY_SIGNER_HARDENING_PROOF",

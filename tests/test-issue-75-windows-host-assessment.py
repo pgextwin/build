@@ -27,8 +27,12 @@ class HostAssessment(TestCase):
                 "b846c8c55e1ffbaab126d4674de9d7dc52376cf0",
             "evidence/issue-75/transitive-dependency-delta-20261017.json":
                 "a8aa5b75972048bfc2e70fcdbdcfd0a799001389",
-            ".github/workflows/build-extension-attested.yml":
+            # Preserve the 5756b3c5 historical Signer exactly as it was.
+            "tests/fixtures/issue-75-original-signer-5756b3c5.yml":
                 "93a0a7641253735cf5adb845c768981c79f75b46",
+            # Only future main-source (not a production caller repin).
+            ".github/workflows/build-extension-attested.yml":
+                "b6dc019eb52930052824026df46e924b321d129e",
         }
         with tempfile.TemporaryDirectory() as directory:
             prefix=directory.replace("\\","/").rstrip("/")+"/"

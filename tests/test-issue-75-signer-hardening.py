@@ -40,6 +40,29 @@ class HardeningTests(TestCase):
         proposed=h.hardened_signer(signer())
         self.assertEqual(proposed.count(b"persist-credentials: false"),5)
         self.assertEqual(h.blob(signer()),h.EXPECTED_SIGNER)
+    def test_current_main_signer_is_only_exact_checkout_hardening_not_live_pin(self):
+        historic=signer()
+        actual=h.MAIN_CANDIDATE.read_bytes()
+        self.assertEqual(h.blob(historic),h.EXPECTED_SIGNER)
+        self.assertEqual(actual,h.hardened_signer(historic))
+        observed=h.verify_main_candidate(actual,historic)
+        self.assertEqual(observed["mainSourceOnlyCheckoutPersistenceDisabled"],5)
+        self.assertFalse(observed["actualPublishedSignerPinMigrated"])
+        self.assertFalse(observed["publicationAuthorized"])
+        self.assertFalse(observed["realSignerOidcVerified"])
+        self.assertEqual((observed["goB"],observed["g4"],observed["g5"]),
+                         ("NO_GO","NO_GO","NO_GO"))
+        for bad in (
+            actual.replace(b"persist-credentials: false",
+                           b"persist-credentials: true",1),
+            actual.replace(b"persist-credentials: false",b"",1),
+            actual + b"\\n# attacker modified a workflow pin\\n",
+            historic,
+        ):
+            with self.subTest(payload=len(bad)):
+                with self.assertRaises(h.Deny):
+                    h.verify_main_candidate(bad,historic)
+
     def test_signed_workflow_root_and_checkout_tamper_denied(self):
         raw=signer()
         cases=[

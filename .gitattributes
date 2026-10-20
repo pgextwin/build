@@ -3,3 +3,4 @@
 /evidence/issue-75/*.json text eol=lf
 /.github/workflows/build-extension-attested.yml text eol=lf
 
+/tests/fixtures/issue-75-original-signer-5756b3c5.yml text eol=lf
