@@ -82,6 +82,9 @@ jobs:
       - name: Validate strict two-snapshot Classic REST-GraphQL composite contract (#75)
         run: python tests/test-classic-composite-protection.py
 
+      - name: Validate independent read-only audit App identity and four-repository scope contract
+        run: python tests/test-issue-75-wave3-auditor-app-get-preflight.py
+
       - name: Validate Wave3 reused Classic REST-GraphQL complete anti-bypass contract (offline only)
         run: python tests/test-issue-75-wave3-classic-composite.py
 
