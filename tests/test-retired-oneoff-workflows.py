@@ -177,6 +177,19 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertIn("python tests/test-fleet-promotion-gate.py", live)
         self.assertIn("python tests/test-fleet-publish-release.py", live)
 
+    def test_unsigned_external_byte_observer_is_offline_only(self):
+        # Prior double-GET evidence and hostile byte/hash tests remain exact,
+        # but their one-shot dependency fetcher is not a live executable path.
+        self.assertFalse((ROOT / "scripts/issue-75-external-byte-probe.py").exists())
+        self.assertTrue((ROOT / "tests/fixtures/historical-scripts/issue-75-external-byte-probe.py").is_file())
+        self.assertTrue((ROOT / "tests/test-issue-75-external-byte-probe.py").is_file())
+        self.assertTrue((ROOT / "tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").is_file())
+        active = (WF / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn("python tests/test-issue-75-external-byte-probe.py", active)
+        self.assertNotIn("python scripts/issue-75-external-byte-probe.py", active)
+        self.assertIn("python tests/test-fleet-publish-release.py", active)
+        self.assertIn("python tests/test-issue-75-signer-hardening.py", active)
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",
