@@ -29,7 +29,10 @@ PILOT_SHA = "98452723fcad2aedafb1c02a210f35950f7e8cf2"
 PUBLISHER_SOURCE_BLOB = "3ae586814b063fefa5c3a554758f13467bb23ea5"
 PUBLISHER_PIN = "455f0ccc667697f600700a6e64bcfd6c57b6a977"
 SIGNER_PIN = "5756b3c5136a8bf4db710016cfe97555f0a71c6d"
-PROMOTE_PATH = "contents/.github/workflows/promote.yml?ref=" + PILOT_SHA
+PROMOTE_PREFIX = "contents/.github/workflows/promote.yml?ref="
+# PILOT_SHA remains the historical 2026-10-18 pilot anchor, NOT a current
+# protected-main HEAD pin. Live HEAD can advance without changing promoter
+# source. The actual workflow bytes MUST still equal PUBLISHER_SOURCE_BLOB.
 
 class Deny(ValueError):
     pass
@@ -113,13 +116,19 @@ def inspect(get, *, signer_raw):
     proposed = hardening.hardened_signer(signer_raw)
     need(hardening.blob(proposed) != hardening.EXPECTED_SIGNER)
     branch1 = get("branches/main")
-    source1 = get(PROMOTE_PATH)
+    need(type(branch1) is dict and branch1.get("protected") is True and
+         type(branch1.get("commit")) is dict)
+    current_sha = branch1["commit"].get("sha")
+    need(type(current_sha) is str and
+         re.fullmatch(r"[0-9a-f]{40}", current_sha) is not None)
+    source_path = PROMOTE_PREFIX + current_sha
+    source1 = get(source_path)
     branch2 = get("branches/main")
-    source2 = get(PROMOTE_PATH)
-    for branch in (branch1, branch2):
-        need(type(branch) is dict and branch.get("protected") is True and
-             type(branch.get("commit")) is dict and
-             branch["commit"].get("sha") == PILOT_SHA)
+    source2 = get(source_path)
+    # Current main can move independently of the historical immutable signer
+    # pin; constrain CURRENT main to double-GET stability and exact source.
+    need(branch2 == branch1 and branch2.get("protected") is True and
+         branch2["commit"].get("sha") == current_sha)
     pins = []
     for entry in (source1, source2):
         need(type(entry) is dict and entry.get("sha") == PUBLISHER_SOURCE_BLOB)
@@ -133,8 +142,9 @@ def inspect(get, *, signer_raw):
         need(len(raw) < 80000)
         classification = classify_source(raw.decode("utf-8"))
         pins.append(classification)
-    need(pins[0] == pins[1])
-    return pins[0]
+    need(source1 == source2 and pins[0] == pins[1])
+    return {**pins[0], "currentProtectedPilotMainSha": current_sha,
+            "historicalPilotAnchorSha": PILOT_SHA}
 
 def report(decision, topology=None):
     output = {
@@ -151,7 +161,8 @@ def report(decision, topology=None):
         "goB": "NO_GO", "g4": "NO_GO", "g5": "NO_GO"}
     if topology is not None:
         output.update(topology)
-        output["pilotMainSha"] = PILOT_SHA
+        output["pilotMainSha"] = topology["currentProtectedPilotMainSha"]
+        output["historicalPilotAnchorSha"] = PILOT_SHA
         output["publisherSourceGitBlob"] = PUBLISHER_SOURCE_BLOB
         output["publisherPin"] = PUBLISHER_PIN
         output["signerPin"] = SIGNER_PIN
@@ -168,7 +179,8 @@ def main():
         result = inspect(
             lambda path: transport.get_json(
                 path, token=token, run_id=run_id, attempt=attempt,
-                sha=PILOT_SHA),
+                sha=(path[len(PROMOTE_PREFIX):] if
+                     path.startswith(PROMOTE_PREFIX) else PILOT_SHA)),
             signer_raw=hardening.SIGNER.read_bytes())
         out = report("ACTIVE_SOURCE_GET4_NEGATIVE_GAPS_CONFIRMED", result)
         out["readerMainSha"] = sha
