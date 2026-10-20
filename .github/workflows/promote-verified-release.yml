@@ -1,7 +1,12 @@
 name: Shared verified manual Windows Release promotion
 
-# Reuse the already-tested Wave 3 manual promotion sequence without changing
-# the existing central/local operator authorization and immutable signer pins.
+# SOURCE-ONLY compatibility preparation. All deployed caller promote.yml files
+# remain pinned to the historical immutable shared workflow SHA. This edit does
+# not enable publication, repin the historical signer, authorize an App/Writer
+# or attest original ZIP/SBOM bytes. The shared operator gate remains fail-closed.
+# Reuse the tested Wave3 first-release source/policy parser and hardened current
+# Publisher source from an immutable build commit; independently accept future
+# deployed signer/publisher pins before any new PUBLISH-capable caller cutover.
 on:
   workflow_call:
     inputs:
@@ -48,7 +53,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pgextwin/build
-          ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977
+          ref: dd4d35186edccfbf39b40d86cecb28380cf210da
           path: .pgextwin-build
           persist-credentials: false
       - name: Require trusted caller repository before parsing inputs
@@ -114,7 +119,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pgextwin/build
-          ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977
+          ref: dd4d35186edccfbf39b40d86cecb28380cf210da
           path: .pgextwin-build
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
