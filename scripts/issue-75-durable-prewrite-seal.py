@@ -103,14 +103,14 @@ def _tag_name(repository, tag):
     # Hashing also avoids path separators and filesystem-length ambiguity.
     need(type(repository) is str and repository in TARGETS)
     need(type(tag) is str and TAG.fullmatch(tag))
-    digest = hashlib.sha256((repository + "\\0" + tag).encode("ascii")).hexdigest()
+    digest = hashlib.sha256((repository + "\0" + tag).encode("ascii")).hexdigest()
     return "tag-" + digest + ".json"
 
 def _tag_bytes(record):
     binding = {"repository": record["repository"],
                "requestId": record["requestId"], "tag": record["tag"]}
     return (json.dumps(binding, sort_keys=True, separators=(",", ":")) +
-            "\\n").encode("ascii")
+            "\n").encode("ascii")
 
 def _create_once(directory, name, raw):
     fd = None
@@ -140,7 +140,7 @@ def _read_once(directory, name):
         need(stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600
              and st.st_uid == os.geteuid() and st.st_nlink == 1)
         raw = os.read(fd, MAX_RECORD + 1)
-        need(0 < len(raw) <= MAX_RECORD and raw.endswith(b"\\n"))
+        need(0 < len(raw) <= MAX_RECORD and raw.endswith(b"\n"))
         return raw
     finally:
         if fd is not None:
