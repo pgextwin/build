@@ -16,6 +16,34 @@ from update_watch_lib import WatchError, detect_extension_update, github_get_jso
 
 HEX_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 MARKER_PREFIX = "pgextwin-candidate:v1"
+FIRST_RELEASE = frozenset({"pgextwin/pgtap", "pgextwin/pg_variables", "pgextwin/pg_store_plans"})
+FIRST_FILE = "config/initial-release-candidate.json"
+
+
+def no_formal_release(repo, fetch):
+    if repo not in FIRST_RELEASE:
+        raise WatchError("initial candidate not allowed outside third wave")
+    releases = fetch("https://api.github.com/repos/" + repo + "/releases?per_page=100")
+    if type(releases) is not list:
+        raise WatchError("formal Release absence cannot be established")
+    return not releases
+
+
+def initial_intent(extension, record):
+    upstream = extension["upstream"]
+    update = record["updates"]
+    if (record.get("firstRelease") is not True or
+            "pgextwin/" + extension["name"] not in FIRST_RELEASE or
+            "perPostgresql" in upstream or len(update) != 1 or
+            update[0].get("initialOnly") is not True or
+            not HEX_SHA.fullmatch(str(upstream.get("commit", ""))) or
+            any(upstream[k] != update[0][k] for k in ("ref", "version", "commit"))):
+        raise WatchError("invalid initial pinned source intent")
+    return {"schemaVersion":1,"kind":"FIRST_RELEASE_PINNED_SOURCE",
+            "repository":"pgextwin/" + extension["name"], "extension":extension["name"],
+            "releasePolicy":"manual-only","candidateId":record["candidateId"],
+            "source":{k:upstream[k] for k in ("repository","ref","version","commit")}}
+
 
 
 def read(path):
@@ -77,6 +105,7 @@ def plan(extension, watch, policy, fetch=api, lifecycle=None):
     # exactly, without changing its ref/version or silently publishing it.
     # Only the automation-owned candidate PR may apply this pinned baseline.
     baseline = False
+    initial = False
     if observation["status"] == "up-to-date":
         series = extension.get("upstream", {}).get("perPostgresql")
         if series is not None:
@@ -86,7 +115,16 @@ def plan(extension, watch, policy, fetch=api, lifecycle=None):
             value = extension["upstream"]
             missing = [(None,value)] if not value.get("commit") else []
         if not missing:
-            return result
+            repo = "pgextwin/" + extension["name"]
+            if repo not in FIRST_RELEASE or not no_formal_release(repo, fetch):
+                return result
+            if "perPostgresql" in extension["upstream"]:
+                raise WatchError("initial candidate requires uniform pinned upstream")
+            value = extension["upstream"]
+            if peel_tag(watch["repository"], value["ref"], fetch) != value["commit"]:
+                raise WatchError("initial upstream pin/tag mismatch")
+            initial = True
+            missing = [(None, value)]
         for major, value in missing:
             pattern = (watch["perPostgresql"][str(major)]["tagPattern"]
                        if major is not None else watch["stableTagPattern"])
@@ -133,14 +171,17 @@ def plan(extension, watch, policy, fetch=api, lifecycle=None):
             "ref": c["ref"], "version": str(c["version"]),
             "commit": peel_tag(watch["repository"], c["ref"], fetch),
             "notes": c.get("url", ""),
-            "pinOnly": baseline,
+            "pinOnly": baseline and not initial,
+            "initialOnly": initial,
         })
     if not result["updates"]:
         return result
     stable = json.dumps(sorted([(x["major"], x["ref"], x["commit"]) for x in result["updates"]],
                                key=lambda x: str(x[0])), separators=(",", ":"))
-    digest = hashlib.sha256((watch["repository"] + "\n" + stable).encode()).hexdigest()[:20]
+    digest = hashlib.sha256((watch["repository"] + "\n" + ("initial-release\n" if initial else "") + stable).encode()).hexdigest()[:20]
     result.update({"candidateId": digest, "branch": "auto-candidate/" + digest, "status": "candidate"})
+    if initial:
+        result["firstRelease"] = True
     return result
 
 
@@ -157,7 +198,13 @@ def apply(extension, record, pin_remaining=False, fetch=api):
             raise WatchError("unsupported PostgreSQL series")
         if target["ref"] != update["oldRef"] or str(target["version"]) != update["oldVersion"]:
             raise WatchError("configured version changed since plan")
-        if update.get("pinOnly") is True:
+        if update.get("initialOnly") is True:
+            if (record.get("firstRelease") is not True or
+                    target.get("commit") != update["commit"] or
+                    update["ref"] != update["oldRef"] or
+                    str(update["version"]) != update["oldVersion"]):
+                raise WatchError("initial candidate cannot modify pinned upstream")
+        elif update.get("pinOnly") is True:
             if target.get("commit") or update["ref"] != update["oldRef"] or str(update["version"]) != update["oldVersion"]:
                 raise WatchError("baseline may only add a missing SHA to exactly the current stable ref")
         elif natural_key(update["version"]) <= natural_key(update["oldVersion"]):
@@ -200,6 +247,16 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
     if config["upstream"]["repository"] != record["repository"]:
         raise WatchError("upstream repository changed")
     changed = apply(config, record, pin_remaining=True)
+    if record.get("firstRelease") is True:
+        if not no_formal_release(repository, api):
+            raise WatchError("formal Release exists; no new first-release candidate")
+        if Path(FIRST_FILE).exists():
+            raise WatchError("initial Release candidate intent already merged")
+        proposal_file = FIRST_FILE
+        proposal = initial_intent(config, record)
+    else:
+        proposal_file = manifest_path
+        proposal = changed
     for update in record["updates"]:
         if peel_tag(record["repository"], update["ref"]) != update["commit"]:
             raise WatchError("upstream tag moved after plan")
@@ -213,15 +270,15 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
         message = execute("git", "log", "-1", "--format=%B", "refs/remotes/origin/" + branch)
         if marker not in message:
             raise WatchError("existing branch is human-owned or otherwise untrusted")
-        actual = json.loads(execute("git", "show", "refs/remotes/origin/" + branch + ":" + manifest_path))
-        if actual != changed:
+        actual = json.loads(execute("git", "show", "refs/remotes/origin/" + branch + ":" + proposal_file))
+        if actual != proposal:
             raise WatchError("existing branch differs from immutable candidate")
     else:
         execute("git", "checkout", "-b", branch)
-        Path(manifest_path).write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+        Path(proposal_file).write_text(json.dumps(proposal, indent=2) + "\n", encoding="utf-8")
         execute("git", "config", "user.name", "github-actions[bot]")
         execute("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
-        execute("git", "add", "--", manifest_path)
+        execute("git", "add", "--", proposal_file)
         execute("git", "commit", "-m", "chore: propose upstream candidate\n\n" + marker)
         execute("git", "push", "--set-upstream", "origin", branch)
     prs = json.loads(execute("gh", "pr", "list", "--repo", repository, "--head", branch, "--state", "all",
@@ -237,6 +294,8 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
         url = prs[0]["url"]
     else:
         body = [marker, "## Automated upstream Windows candidate (NOT a Release)", "",
+                ("FIRST RELEASE: source pins unchanged; sole diff is a new immutable intent file."
+                 if record.get("firstRelease") is True else "Stable upstream version change."),
                 "This PR was created by Step 19 and is draft until reviewed.",
                 "The candidate CI is explicitly dispatched because GITHUB_TOKEN PR CI may await approval.",
                 "No Release, Catalog or Website mutation occurs.", "",
