@@ -35,6 +35,7 @@ class FakeApp:
             ("GET","/app"):{"id":APP},
             ("GET",f"/app/installations/{INSTALL}"):{"id":INSTALL,"app_id":APP,
                 "target_type":"Organization","account":{"login":"pgextwin"},
+                "repository_selection":"selected",
                 "suspended_at":None,"permissions":{"contents":"write","metadata":"read"}},
             ("POST",f"/app/installations/{INSTALL}/access_tokens"):{"token":TOKEN,
                 "expires_at":EXP,"permissions":{"contents":"write","metadata":"read"},
@@ -131,6 +132,8 @@ class PrivateProbes(TestCase):
         self.assertFalse(out["publicationAuthorized"])
         self.assertFalse(out["independentReaderSignerCustodyProven"])
         self.assertEqual(out["goB"],"NO_GO")
+        self.assertTrue(out["scopedTokenRevocation204Observed"])
+        self.assertFalse(out["positivePublisherPrewriteAuthorized"])
         self.assertEqual(out["g4"],"NO_GO")
         self.assertEqual(out["g5"],"NO_GO")
         self.assertNotIn(TOKEN,json.dumps(out))
@@ -148,6 +151,9 @@ class PrivateProbes(TestCase):
             (("GET",f"/app/installations/{INSTALL}"),"target_type","User"),
             (("GET",f"/app/installations/{INSTALL}"),"suspended_at","2026-10-18T06:00:00Z"),
             (("GET",f"/app/installations/{INSTALL}"),"permissions",{"contents":"read"}),
+            (("GET",f"/app/installations/{INSTALL}"),"permissions",{"contents":"write","metadata":"read","issues":"write"}),
+            (("GET",f"/app/installations/{INSTALL}"),"repository_selection","all"),
+            (("GET",f"/app/installations/{INSTALL}"),"repository_selection",None),
             (("POST",f"/app/installations/{INSTALL}/access_tokens"),"token",JWT),
             (("POST",f"/app/installations/{INSTALL}/access_tokens"),"token",""),
             (("POST",f"/app/installations/{INSTALL}/access_tokens"),"repository_selection","all"),
@@ -163,6 +169,57 @@ class PrivateProbes(TestCase):
                 f.responses[key][field]=value
                 with self.assertRaises(w.Deny):run_writer(f)
 
+    def test_platform_app_is_not_independent_writer_before_any_network(self):
+        for app_id in (15368,True,0,-1):
+            with self.subTest(app_id=app_id):
+                f=FakeApp()
+                with self.assertRaises(w.Deny):
+                    w.probe(JWT,app_id=app_id,installation_id=INSTALL,
+                            repository_id=RID,now=NOW,api=f)
+                self.assertEqual(f.calls,[])
+
+    def test_writer_lifetime_bounds_and_revoke_failure_cannot_pass(self):
+        mint=("POST",f"/app/installations/{INSTALL}/access_tokens")
+        for seconds in (30,31,3599,3600,3601,7200):
+            f=FakeApp()
+            f.responses[mint]["expires_at"]=(
+                NOW+timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            with self.subTest(ttl_seconds=seconds):
+                if 30 < seconds <= 3600:
+                    out=run_writer(f)
+                    self.assertTrue(out["scopedTokenRevocation204Observed"])
+                    self.assertEqual(out["expiresWithinSeconds"],seconds)
+                else:
+                    with self.assertRaises(w.Deny):
+                        run_writer(f)
+                self.assertEqual(f.calls[-1][0],"DELETE")
+        for broken in ("lost-delete","revoke-not-ack"):
+            f=FakeApp()
+            if broken=="lost-delete":
+                del f.responses[("DELETE",w.TOKEN_ENDPOINT)]
+            else:
+                f.responses[("DELETE",w.TOKEN_ENDPOINT)]={"revoked":False}
+            with self.subTest(kind=broken), self.assertRaises(w.Deny):
+                run_writer(f)
+            self.assertEqual(f.calls[-1][0],"DELETE")
+            self.assertEqual(f.calls[-1][2],TOKEN)
+
+    def test_app_mint_ambiguous_response_is_not_retried(self):
+        mint=("POST",f"/app/installations/{INSTALL}/access_tokens")
+        for mode in ("lost-response","malformed-response","missing-token"):
+            f=FakeApp()
+            if mode=="lost-response":
+                del f.responses[mint]
+            elif mode=="malformed-response":
+                f.responses[mint]="untrusted-response"
+            else:
+                f.responses[mint]={"repository_selection":"selected"}
+            with self.subTest(mode=mode), self.assertRaises(w.Deny):
+                run_writer(f)
+            self.assertEqual([method for method,*_ in f.calls].count("POST"),1)
+            self.assertNotIn("publicationAuthorized",json.dumps(f.calls[-1][3]))
+            # A lost token response cannot be revoked by token value; record
+            # as unknown. This test does not turn a lost POST into permission.
     def test_writer_expiry_early_late_invalid_and_replay_denied(self):
         bad=[
             (NOW-timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
