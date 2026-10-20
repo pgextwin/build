@@ -162,7 +162,10 @@ def report(decision, topology=None):
         "goB": "NO_GO", "g4": "NO_GO", "g5": "NO_GO"}
     if topology is not None:
         output.update(topology)
-        output["pilotMainSha"] = topology["currentProtectedPilotMainSha"]
+        # Pure static topology fixtures contain no live current-main GET;
+        # never invent a current HEAD from the old historical pilot SHA.
+        if "currentProtectedPilotMainSha" in topology:
+            output["pilotMainSha"] = topology["currentProtectedPilotMainSha"]
         output["historicalPilotAnchorSha"] = PILOT_SHA
         output["publisherSourceGitBlob"] = PUBLISHER_SOURCE_BLOB
         output["publisherPin"] = PUBLISHER_PIN
