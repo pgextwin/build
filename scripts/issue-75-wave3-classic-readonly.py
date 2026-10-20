@@ -92,6 +92,16 @@ class ScopedReader:
             raise Deny("Wave3 scoped authenticated GET failed") from None
 
 
+def require_repo_identity(value, repository):
+    """Single pinned identity check shared by REST and GraphQL collectors."""
+    paths(repository)
+    require(type(value) is dict and type(value.get("id")) is int
+            and value["id"] == TARGETS[repository]
+            and value.get("full_name") == repository
+            and type(value.get("owner")) is dict
+            and value["owner"].get("login") == "pgextwin")
+
+
 def collect(reader, *, repository, expected_main_sha):
     """Two exact raw snapshots; REST omission is a denial, not assumed empty."""
     names = paths(repository)
@@ -100,11 +110,7 @@ def collect(reader, *, repository, expected_main_sha):
     snaps = []
     for _ in range(2):
         repo, branch, classic, rulesets = (reader.get(p) for p in names)
-        require(type(repo) is dict and type(repo.get("id")) is int
-                and repo["id"] == TARGETS[repository]
-                and repo.get("full_name") == repository
-                and type(repo.get("owner")) is dict
-                and repo["owner"].get("login") == "pgextwin")
+        require_repo_identity(repo, repository)
         require(type(rulesets) is list and not rulesets)
         result = rest._validate_snapshot(
             branch, classic, expected_main_sha,
