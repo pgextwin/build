@@ -51,3 +51,27 @@ These are **historical exact-SHA observations**; re-GET before any future mutati
 - Record new positive or negative evidence to Issues #141/#75. If gate evidence is missing, **stop only that privileged release**; nonpublishing CI, documentation and unrelated extension work continue.
 
 **No live credentials, Release, Tag, Catalog/Website/publication policy mutation or PUBLISH request was made by this handoff.**
+
+
+## 2026-10-21 — dormant shared promotion source compatibility preparation
+
+Protected central source proposal changes **only the source copy** of
+`.github/workflows/promote-verified-release.yml`: both gate and Publisher
+checkout references move from the historical 14-only
+`455f0ccc667697f600700a6e64bcfd6c57b6a977` to reviewed build commit
+`dd4d35186edccfbf39b40d86cecb28380cf210da` containing the 17-member identity allowlist, strict
+initial-release bot intent parser and current fail-closed Publisher code.
+The shared Signer `@5756b3c5136a8bf4db710016cfe97555f0a71c6d`
+is unchanged. Its independent live signed/attestation/publisher acceptance
+**has not happened**. This is **not an operational signer/publisher repin**.
+
+Existing `plpgsql_check` and the three Wave3 `promote.yml` callers still
+use their immutable shared workflow `@acd6eb28be6d750e89b626fa4ccd4403e1265cd6`,
+which still points at the 14-only `455f0ccc667697f600700a6e64bcfd6c57b6a977`.
+No local release-promotion flag, central 14-only allowlist, human `PUBLISH`,
+private credentials, workflow dispatch, Tag/Release, Catalog, Website or
+publicly effective promotion behavior changes in this source-only stage.
+A later **separately authorized** Wave3 caller repin requires independent
+Signer/Writer/Publisher source and runtime validation, exact protected PR CI,
+real signing/attestation acceptance, and distinct human per-release PUBLISH;
+never infer that central main alone upgraded pinned callers.
