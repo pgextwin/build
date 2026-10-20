@@ -192,7 +192,7 @@ class ContractTests(TestCase):
         self.assertEqual(json.loads(capture.getvalue())["decision"],
                          "DENY_UNPROVEN_ACTIVE_PINNED_PRINCIPALS")
     def test_no_grants_or_new_credentials_in_trusted_main(self):
-        src=(ROOT/".github/workflows/issue-75-principal-boundaries.yml").read_text()
+        src=(ROOT/"tests/fixtures/historical-workflows/issue-75-principal-boundaries.yml").read_text()
         reader=src.split("  reader:\n",1)[1].split("  signer_denied:\n",1)[0]
         self.assertIn("issue-75-active-principal-custody-readonly.py",reader)
         self.assertIn("persist-credentials: false",reader)
