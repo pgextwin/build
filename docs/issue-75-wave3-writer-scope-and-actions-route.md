@@ -136,6 +136,60 @@ Return classification remains CONTRACT_ONLY with
 `publicationAuthorized=false`, GO B/G4/G5 NO_GO, PUBLISH DENY
 and Wave3 Releases 0/3. No live credential-bearing workflow enabled.
 
+## 2026-10-20 Auditor App GET-only identity and installation scope contract
+
+With the Wave3 Classic and GraphQL *verifier source* complete, the next
+real-world blocker is **not new verification algorithms** but App access:
+normal Chat GET to `branches/main/protection` still independently returns
+HTTP **403** for `pgtap`, `pg_variables` and `pg_store_plans`.
+
+Reusing the existing dormant private Writer's **bounded GitHub GET
+transport only**, `scripts/issue-75-wave3-auditor-app-get-preflight.py`
+offers a private-runtime-only, credential-injected **GET-only** contract:
+
+1. With a supplied authentic App JWT, `GET /app` must match the
+   Work-GUI observed `pgextwin-classic-protection-audit` App ID
+   **5295410** and exact slug.
+2. `GET /app/installations/170837728` must return exact App/Installation
+   identity, organization `pgextwin`, `selected` (not `all`),
+   unsuspended, and only `Administration:read` / `Metadata:read`.
+   Contents, Actions, PR, write grants or other permissions DENY.
+3. With a **separately supplied** installation token,
+   `GET /installation/repositories?per_page=100&page=1` must show
+   exactly the previous `plpgsql_check` pilot and all three pinned
+   Wave3 repository names + immutable numeric IDs, with no extra repos.
+   The actual current GUI inventory was **only plpgsql_check**, so current
+   owner configuration is intentionally rejected until separately
+   authorized selected-repository expansion.
+4. All source calls are `GET` only; the underlying reused transport
+   rejects redirects, pagination, malformed/duplicate keys, HTTP failures
+   and oversized responses. JWT/token and error bodies are never
+   serialized or logged by the contract. No token mint/revoke or actual
+   GraphQL/Classic read is run from public CI. Existing synthetic hostile
+   CI cases attempt overgrant, repo swaps, foreign owners and token leaks.
+
+**Critical proof limitation:** Two caller-supplied independent credentials
+that both produce plausible GETs are **not cryptographically bound** to
+one another by these reads alone. A trusted owner-authorized execution
+path must use genuine JWT-issued token mint/revocation, verify token
+permissions, and complete real Classic+GraphQL effective-rule reads using
+the **same** scoped token before ever claiming an actual independent
+auditor. Therefore this script explicitly sets
+`externalTokenBoundToJwtIssuer=false`,
+`independentHostCredentialIsolationProven=false`,
+`wave3EffectiveClassicProtectionProven=false`,
+`publicationAuthorized=false`, GO B/G4/G5 NO_GO.
+It is not a release-signing, Writer or Publisher gate.
+
+The remaining owner action is narrowly scoped: explicitly authorize the
+existing read-only App **selected repositories** to add only pgtap,
+pg_variables and pg_store_plans (preserving pilot). Do not create a
+new App, broaden to all repositories, expand permissions, expose
+private keys, weaken existing branch rules or add reviewer requirements.
+The normal Chat GitHub connector cannot mutate installations or provide
+Administration:read and must not claim a successful privileged GET until
+an independent actual identity/permission/credentialed check is recorded.
+
 ## Smallest viable authenticated GitHub Actions-only future route (not enabled)
 
 1. **Reader:** retain existing main-only, no-write `issue-75-wave3-actions-readonly.yml`. Job token `contents:read` only, checkout `persist-credentials:false`. Send only trusted run/attempt/source SHA/digest metadata, never a bearer, JWT, OIDC token or key.
