@@ -142,7 +142,7 @@ def inspect(env, api):
         "sourceMainSha": source,
         "targets": result,
         "authMethod": "JOB_SCOPED_READ_TOKEN_GET_ONLY",
-        "source45GitBlobBaselinePreserved": True,
+        "source45GitBlobBaselineRevalidatedByThisJob": False,
         "independentProtectionAdminReaderVerified": False,
         "effectiveClassicGraphqlProtectionVerified": False,
         "readerSignerWriterRuntimeSeparationVerified": False,
