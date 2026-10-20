@@ -5,6 +5,7 @@ effective branch rules, or a publishable authorization.
 """
 from __future__ import annotations
 from copy import deepcopy
+import base64
 import importlib.util
 import io
 from pathlib import Path
@@ -37,12 +38,54 @@ def tests_for(sha):
              "conclusion": "success", "app": {"id": 15368}} for n in names]
     return {"total_count": len(jobs), "check_runs": jobs}
 
+PROMOTION = """name: Promote verified candidate (synthetic fixture only)
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: Type PUBLISH to explicitly authorize
+concurrency:
+  group: synthetic
+permissions:
+  contents: read
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: authorize
+        run: echo DENY
+      - name: pin first
+        with:
+          ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977
+  release_build:
+    needs: authorize
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d
+  publish:
+    needs: [authorize, release_build]
+    name: Check signatures, exact SHA256 and create-only Release ID
+    steps:
+      - with:
+          ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977
+"""
+POLICY = b'{"schemaVersion":1,"enabled":false,"releasePolicy":"manual-dispatch"}\n'
+
+def content_record(path, raw):
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8")
+    return {"type":"file", "path":path, "size":len(raw),
+            "sha":m.git_blob(raw),"encoding":"base64",
+            "content":base64.b64encode(raw).decode("ascii")}
+
 def fixture():
     data = {(m.BUILD, "branches/main"): branch(BASE)}
     for repo, sha in HEADS.items():
         data[(repo, "branches/main")] = branch(sha, True)
         data[(repo, "commits/" + sha + "/check-runs?per_page=100")] = tests_for(sha)
         data[(repo, "releases?per_page=1")] = []
+        data[(repo, "contents/" + m.PROMOTION_FILES[0] + "?ref=" + sha)] = content_record(
+            m.PROMOTION_FILES[0], PROMOTION)
+        data[(repo, "contents/" + m.PROMOTION_FILES[1] + "?ref=" + sha)] = content_record(
+            m.PROMOTION_FILES[1], POLICY)
     return data
 
 class Fake:
@@ -66,9 +109,12 @@ class NegativeWitness(unittest.TestCase):
         report = m.inspect(ENV, api)
         self.assertEqual(report["classification"], "LIVE_THREE_TARGET_METADATA_NEGATIVE_ONLY")
         self.assertEqual(len(report["targets"]), 3)
-        self.assertEqual(len(api.calls), 2 + 3 * 6)
+        self.assertEqual(len(api.calls), 2 + 3 * 10)
         self.assertTrue(all(t["requiredApp15368ChecksObserved"] == 1 and
-                            t["successfulExactHeadWindowsMajors"] == [14,15,16,17,18]
+                            t["successfulExactHeadWindowsMajors"] == [14,15,16,17,18] and
+                            t["disabledManualPromotionPolicyObserved"] is True and
+                            t["legacySignerPublisherPinsObserved"] is True and
+                            t["independentWriterProvisionedByThisWorkflow"] is False
                             for t in report["targets"]))
         for key in ("publishableReceipt", "publicationAuthorized",
                     "readerSignerWriterRuntimeSeparationVerified",
@@ -146,13 +192,103 @@ class NegativeWitness(unittest.TestCase):
             with self.subTest(fault=fault), self.assertRaises(m.Deny):
                 m.inspect(ENV, api)
 
+    def test_current_synthetic_manual_promotion_policy_source_validator(self):
+        self.assertTrue(m.promotion_policy(POLICY))
+        self.assertTrue(m.promotion_workflow(PROMOTION.encode()))
+        invalid_policies = [
+            b'{"schemaVersion":1,"enabled":true,"releasePolicy":"manual-dispatch"}',
+            b'{"schemaVersion":1,"enabled":false,"releasePolicy":"automatic"}',
+            b'{"schemaVersion":1,"enabled":false,"releasePolicy":"manual-dispatch","goB":"GO"}',
+            b'{"schemaVersion":1,"enabled":false,"enabled":true,"releasePolicy":"manual-dispatch"}',
+            b'{"schemaVersion":true,"enabled":false,"releasePolicy":"manual-dispatch"}',
+        ]
+        for invalid in invalid_policies:
+            with self.subTest(policy=invalid[:50]), self.assertRaises(m.Deny):
+                m.promotion_policy(invalid)
+        invalid_sources = [
+            PROMOTION.replace("  workflow_dispatch:", "  push:"),
+            PROMOTION.replace("  workflow_dispatch:", "  workflow_dispatch:\n  push:"),
+            PROMOTION.replace(m.HISTORICAL_SIGNER, "f"*40),
+            PROMOTION.replace(m.HISTORICAL_PUBLISHER, "f"*40),
+            PROMOTION.replace("description: Type PUBLISH", "description: Type GO"),
+            PROMOTION.replace("    needs: [authorize, release_build]", "    needs: release_build"),
+            PROMOTION.replace("  publish:", "  publisher_override:"),
+            PROMOTION + "\non:\n  push:\n",
+        ]
+        for invalid in invalid_sources:
+            with self.subTest(source=invalid[:45]), self.assertRaises(m.Deny):
+                m.promotion_workflow(invalid.encode("utf-8"))
+
+    def test_live_double_get_promotion_source_and_policy_tamper_denied(self):
+        repo = "pgextwin/pgtap"
+        head = HEADS[repo]
+        for kind in ("policyEnable","policyDuplicate","workflowPush","signerRepin",
+                     "publisherRepin","digestMismatch","wrongSha","malformedB64",
+                     "missing","wrongType","wrongSize","secondRead"):
+            data = fixture()
+            key = (repo, "contents/" + m.PROMOTION_FILES[
+                1 if kind.startswith("policy") else 0] + "?ref=" + head)
+            if kind == "policyEnable":
+                data[key] = content_record(m.PROMOTION_FILES[1], POLICY.replace(b"false",b"true"))
+            elif kind == "policyDuplicate":
+                data[key] = content_record(m.PROMOTION_FILES[1],
+                    b'{"schemaVersion":1,"enabled":false,"enabled":false,"releasePolicy":"manual-dispatch"}')
+            elif kind == "workflowPush":
+                data[key] = content_record(m.PROMOTION_FILES[0],
+                    PROMOTION.replace("  workflow_dispatch:","  push:"))
+            elif kind == "signerRepin":
+                data[key] = content_record(m.PROMOTION_FILES[0],
+                    PROMOTION.replace(m.HISTORICAL_SIGNER,"f"*40))
+            elif kind == "publisherRepin":
+                data[key] = content_record(m.PROMOTION_FILES[0],
+                    PROMOTION.replace(m.HISTORICAL_PUBLISHER,"f"*40))
+            elif kind == "digestMismatch":
+                data[key]["sha"] = "0"*40
+            elif kind == "wrongSha":
+                data[key]["path"] = "config/not-promotion.json"
+            elif kind == "malformedB64":
+                data[key]["content"] = "!malformed!"
+            elif kind == "missing":
+                data.pop(key)
+            elif kind == "wrongType":
+                data[key]["type"] = "dir"
+            elif kind == "wrongSize":
+                data[key]["size"] = True
+            elif kind == "secondRead":
+                api = Fake(data)
+                def change(key_, count):
+                    if key_ == key and count == 2:
+                        wrong = deepcopy(data[key])
+                        wrong["sha"] = "0"*40
+                        return wrong
+                    return None
+                api.mutate = change
+                with self.subTest(kind=kind), self.assertRaises(m.Deny):
+                    m.inspect(ENV, api)
+                continue
+            with self.subTest(kind=kind), self.assertRaises((m.Deny,KeyError)):
+                m.inspect(ENV, Fake(data))
+
+    def test_base64_transport_git_blob_and_lf_exactness(self):
+        doc = content_record(m.PROMOTION_FILES[1], POLICY)
+        api = Fake(fixture())
+        repo = "pgextwin/pgtap"
+        api.responses[(repo, "contents/" + m.PROMOTION_FILES[1] + "?ref=" + HEADS[repo])] = doc
+        raw, actual_sha = m.pinned_contents(api, repo, HEADS[repo],m.PROMOTION_FILES[1])
+        self.assertEqual(raw,POLICY)
+        self.assertEqual(actual_sha,m.git_blob(POLICY))
+        with self.assertRaises(m.Deny):
+            m.promotion_policy(POLICY.replace(b"\n",b"\r\n"))
     def test_endpoint_allowlist_never_accepts_dispatch_write_or_cross_repo(self):
         for repo, path in (("pgextwin/build", "actions/workflows/promote.yml/dispatches"),
                            ("pgextwin/pgtap", "releases"),
                            ("pgextwin/pgtap", "git/refs"),
                            ("pgextwin/plpgsql_check", "branches/main"),
                            ("pgextwin/catalog", "releases?per_page=1"),
-                           ("pgextwin/pgtap", "commits/evil/check-runs?per_page=100")):
+                           ("pgextwin/pgtap", "commits/evil/check-runs?per_page=100"),
+                           ("pgextwin/pgtap", "contents/config/release-promotion.json?ref=main"),
+                           ("pgextwin/pgtap", "contents/.github/workflows/promote.yml?ref=bad"),
+                           ("pgextwin/pgtap", "contents/.github/workflows/publish.yml?ref="+"a"*40)):
             with self.subTest(repo=repo,path=path), self.assertRaises(m.Deny):
                 m.allow(repo, path)
 
