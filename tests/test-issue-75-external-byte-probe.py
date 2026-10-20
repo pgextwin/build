@@ -11,7 +11,7 @@ from zipfile import ZipFile
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location(
-    "issue75_external",ROOT/"scripts/issue-75-external-byte-probe.py")
+    "issue75_external",ROOT/"tests/fixtures/historical-scripts/issue-75-external-byte-probe.py")
 p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
 def records():
     return p.load(p.PLAN),p.load(p.ROOT_RECORD),p.load(p.PG)
