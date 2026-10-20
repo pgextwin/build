@@ -15,7 +15,8 @@ class RetiredWorkflows(unittest.TestCase):
     def test_completed_nonpublishing_one_shots_have_no_live_triggers(self):
         for name in ("issue-75-historical-certificate-readonly.yml",
                      "pg_variables-edb-feature-smoke.yml",
-                     "chocolatey-components-benchmark.yml"):
+                     "chocolatey-components-benchmark.yml",
+                     "issue-75-wave3-actions-readonly.yml"):
             with self.subTest(name=name):
                 self.assertFalse((WF / name).exists())
 
@@ -26,6 +27,10 @@ class RetiredWorkflows(unittest.TestCase):
                      "fleet-status.yml", "edb-installer-503-canary.yml"):
             with self.subTest(name=name):
                 self.assertTrue((WF / name).is_file())
+
+    def test_historical_wave3_observer_is_inert_and_still_tested(self):
+        self.assertTrue((ROOT / "tests/fixtures/historical-workflows/issue-75-wave3-actions-readonly.yml").is_file())
+        self.assertTrue((ROOT / "tests/test-issue-75-wave3-actions-readonly.py").is_file())
 
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
