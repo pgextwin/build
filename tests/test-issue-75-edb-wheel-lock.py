@@ -12,10 +12,27 @@ from unittest import TestCase,main,mock
 from zipfile import ZipFile
 ROOT=Path(__file__).resolve().parents[1]
 def mod(name,path):
+    # Compile the unchanged frozen source with its original scripts/ location
+    # as __file__, so historical immutable evidence paths retain their
+    # original meaning after moving the code into inert fixture storage.
     sp=importlib.util.spec_from_file_location(name,ROOT/path)
-    m=importlib.util.module_from_spec(sp);sp.loader.exec_module(m);return m
-w=mod("issue75_wheel","scripts/issue-75-wheel-lock-candidate.py")
-e=mod("issue75_edb","scripts/issue-75-choco-edb-nonexec.py")
+    m=importlib.util.module_from_spec(sp)
+    original=ROOT/"scripts"/Path(path).name
+    m.__file__=str(original)
+    exec(compile((ROOT/path).read_bytes(),str(original),"exec"),m.__dict__)
+    return m
+w=mod("issue75_wheel","tests/fixtures/historical-scripts/issue-75-wheel-lock-candidate.py")
+e=mod("issue75_edb","tests/fixtures/historical-scripts/issue-75-choco-edb-nonexec.py")
+# Preserve exact archived source logic while rebasing historical worktree
+# evidence paths to their original repository locations.
+w.ROOT = ROOT
+w.LOCK = ROOT / "evidence/issue-75/python-wheel-lock-candidate-20261017.json"
+w.SOURCE = ROOT / "evidence/issue-75/external-public-byte-observed-39034789275.json"
+e.ROOT = ROOT
+e.OBS = ROOT / "evidence/issue-75/external-public-byte-observed-39034789275.json"
+e.PG = ROOT / "metadata/postgresql.json"
+e.SOURCE = ROOT / "tests/fixtures/historical-scripts/issue-75-external-byte-probe.py"
+e.RECEIPT = ROOT / "evidence/issue-75/edb-pg14-18-exe-byte-observations-20261017.json"
 def lock():return w.load(w.LOCK)
 def source():return w.SOURCE.read_bytes()
 def synthetic_nupkg(text,expected="postgresql14",version="14.24.0"):

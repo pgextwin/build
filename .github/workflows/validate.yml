@@ -182,8 +182,6 @@ jobs:
       - name: Validate Issue75 inert Chocolatey script analyzer and platform wheel lock
         run: |
           python tests/test-issue-75-edb-wheel-lock.py
-          python scripts/issue-75-choco-edb-nonexec.py --mode static
-          python scripts/issue-75-wheel-lock-candidate.py --mode static
 
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py

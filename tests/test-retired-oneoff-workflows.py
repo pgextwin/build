@@ -190,6 +190,21 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertIn("python tests/test-fleet-publish-release.py", active)
         self.assertIn("python tests/test-issue-75-signer-hardening.py", active)
 
+    def test_historical_ebd_and_wheel_experiments_are_offline_only(self):
+        for name in ("issue-75-choco-edb-nonexec.py",
+                     "issue-75-wheel-lock-candidate.py"):
+            with self.subTest(name=name):
+                self.assertFalse((ROOT / "scripts" / name).exists())
+                self.assertTrue((ROOT / "tests/fixtures/historical-scripts" / name).is_file())
+        self.assertTrue((ROOT / "tests/test-issue-75-edb-wheel-lock.py").is_file())
+        live = (WF / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn("python tests/test-issue-75-edb-wheel-lock.py", live)
+        self.assertNotIn("python scripts/issue-75-choco-edb-nonexec.py", live)
+        self.assertNotIn("python scripts/issue-75-wheel-lock-candidate.py", live)
+        self.assertIn("python tests/test-postgresql-component-only.py", live)
+        self.assertIn("python tests/test-fleet-publish-release.py", live)
+        self.assertIn("python tests/test-issue-75-signer-hardening.py", live)
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",
