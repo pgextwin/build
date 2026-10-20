@@ -56,7 +56,8 @@ def artifact(repo,run_id,name,location):
     return json.loads(found[0].read_text(encoding="utf-8-sig"))
 
 def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle,
-           pr,pr_files,run,watch_run,decision,audit,authorization_mode="manual-dispatch"):
+           pr,pr_files,run,watch_run,decision,audit,authorization_mode="manual-dispatch",
+           first_release_document=None):
     require(repo == "pgextwin/"+str(ext.get("name")) and repo in {
         "pgextwin/"+name for name in ident.UPSTREAMS}, "unsupported fleet repository")
     require(authorization_mode in ("manual-dispatch", "chat-pr-authorization"),
@@ -100,9 +101,24 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
     require(bm is not None and
             "<!-- pgextwin-candidate:v1:"+bm.group(1)+" -->" in (pr.get("body") or ""),
             "candidate branch or ownership marker invalid")
-    require(type(pr_files) is list and len(pr_files)==1
-            and pr_files[0].get("filename")=="config/extension.json",
-            "candidate PR changed files other than extension manifest")
+    if decision.get("firstRelease") is True:
+        allowed = {"pgextwin/pgtap", "pgextwin/pg_variables", "pgextwin/pg_store_plans"}
+        require(repo in allowed and type(pr_files) is list and len(pr_files)==1
+                and pr_files[0].get("filename")=="config/initial-release-candidate.json"
+                and pr_files[0].get("status")=="added",
+                "first Release candidate must add exactly the original intent file")
+        src=ext["upstream"]
+        require("perPostgresql" not in src and type(first_release_document) is dict
+                and first_release_document == {
+                    "schemaVersion":1,"kind":"FIRST_RELEASE_PINNED_SOURCE",
+                    "extension":ext["name"],"repository":repo,
+                    "candidateId":bm.group(1),"releasePolicy":"manual-only",
+                    "source":{k:src[k] for k in ("repository","ref","version","commit")}},
+                "first Release intent does not match merged pinned source")
+    else:
+        require(type(pr_files) is list and len(pr_files)==1
+                and pr_files[0].get("filename")=="config/extension.json",
+                "candidate PR changed files other than extension manifest")
     require(run.get("event")=="workflow_dispatch" and run.get("status")=="completed"
             and run.get("conclusion")=="success" and run.get("head_branch")==branch
             and run.get("head_sha")==pr["head"]["sha"]
@@ -124,6 +140,15 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
     series=ext["upstream"].get("perPostgresql")
     updated=set()
     for u in updates:
+        require(type(u) is dict, "invalid candidate update record")
+        if decision.get("firstRelease") is True:
+            require(u.get("initialOnly") is True and u.get("pinOnly") is not True
+                    and u.get("ref")==u.get("oldRef")
+                    and str(u.get("version"))==str(u.get("oldVersion")),
+                    "initial candidate must keep original version/ref")
+        else:
+            require(u.get("initialOnly") is not True,
+                    "initial candidate flag without first Release authorization")
         require(type(u) is dict and isinstance(u.get("commit"),str)
                 and SHA.fullmatch(u["commit"]), "candidate update not SHA-pinned")
         major=u.get("major")
@@ -208,9 +233,12 @@ def main():
             root=Path(tmp)
             decision=artifact(repo,a.decision_run_id,"candidate-decision",root/"decision")
             audit=artifact(repo,a.candidate_run_id,"candidate-audit",root/"audit")
+        first_file=Path("config/initial-release-candidate.json")
+        first_document=json.loads(first_file.read_text("utf-8")) if first_file.is_file() else None
         receipt=verify(repo,main_sha,a.release_tag,a.confirm_release,
                        os.environ.get("GITHUB_ACTOR",""),policy,fleet,local,ext,
-                       lifecycle,pr,pr_files,run,watch_run,decision,audit)
+                       lifecycle,pr,pr_files,run,watch_run,decision,audit,
+                       first_release_document=first_document)
         Path(a.output).write_text(json.dumps(receipt,indent=2)+"\n",encoding="utf-8")
         print("Fleet manual-only candidate and operator authorization VERIFIED; no Release published.")
         return 0
