@@ -19,7 +19,7 @@ def load(path,name):
     return mod
 
 h=load("scripts/issue-75-signer-checkout-hardening.py","issue75_signer_proposal")
-s=load("scripts/issue-75-signer-sandbox-probe.py","issue75_sandbox")
+s=load("tests/fixtures/historical-scripts/issue-75-signer-sandbox-probe.py","issue75_sandbox")
 def record():return h.record(h.EVIDENCE.read_bytes())
 def signer():return h.SIGNER.read_bytes()
 def check(e):return h.inspect(e,signer())
