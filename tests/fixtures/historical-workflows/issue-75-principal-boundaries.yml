@@ -1,0 +1,61 @@
+name: Issue75 trusted-main nonpublishing principal negative witness
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/issue-75-principal-boundaries.yml
+      - scripts/issue-75-principal-boundaries.py
+      - tests/test-issue-75-principal-boundaries.py
+      - scripts/issue-75-active-principal-custody-readonly.py
+      - tests/test-issue-75-active-principal-custody-readonly.py
+
+# No PR, pull_request_target, dispatch, secrets, artifacts or write-capable job.
+permissions: {}
+
+jobs:
+  reader:
+    name: Issue75 trusted-main Reader authenticated GET-only
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout trusted main without retained GitHub credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read two identical main/run identity snapshots without mutations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue-75-principal-boundaries.py --role reader && python scripts/issue-75-active-principal-custody-readonly.py
+
+  signer_denied:
+    name: Issue75 trusted-main Signer unavailable (no signing or OIDC)
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted main without credential persistence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify no Signer credential was supplied to this step
+        run: python scripts/issue-75-principal-boundaries.py --role signer
+
+  writer_denied:
+    name: Issue75 trusted-main Writer unavailable (no publication token)
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted main without credential persistence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify no Writer credential was supplied to this step
+        run: python scripts/issue-75-principal-boundaries.py --role writer
