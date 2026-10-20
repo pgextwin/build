@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed offline test for actual five-major Chocolatey selected-components pilot."""
+"""Fail-closed offline regression against archived, successful five-major Chocolatey pilot."""
 from pathlib import Path
 import json
 import re
@@ -7,7 +7,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 old = (ROOT / "scripts/install-postgresql.ps1").read_text(encoding="utf-8")
 new = (ROOT / "scripts/install-postgresql-component-only.ps1").read_text(encoding="utf-8")
-workflow = (ROOT / ".github/workflows/chocolatey-components-benchmark.yml").read_text(encoding="utf-8")
+workflow = (ROOT / "tests/fixtures/historical-workflows/chocolatey-components-benchmark.yml").read_text(encoding="utf-8")
 metadata = json.loads((ROOT / "metadata/postgresql.json").read_text(encoding="utf-8"))
 
 # The proven previous PR #110 approach is mandatory and must not disappear.
