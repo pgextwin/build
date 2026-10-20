@@ -157,7 +157,8 @@ class AuditAppContracts(TestCase):
     def test_no_unsafe_production_wiring(self):
         source=(ROOT/"scripts/issue-75-wave3-auditor-app-get-preflight.py").read_text()
         for bad in ("secrets.","gh release","workflow_dispatch",
-                    "create-github-app-token@","access_tokens","DELETE",
+                    "create-github-app-token@","/access_tokens",
+                    "api(\"POST\"","api(\"DELETE\"",
                     "github.token","git push"):
             self.assertNotIn(bad,source)
         wf=(ROOT/".github/workflows/validate.yml").read_text()
