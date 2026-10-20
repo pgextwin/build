@@ -17,7 +17,13 @@ import re
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-REPO = "pgextwin/plpgsql_check"
+REPO = "pgextwin/plpgsql_check"  # historical pilot, retained as default
+WAVE3_REPOS = frozenset((
+    "pgextwin/pgtap",
+    "pgextwin/pg_variables",
+    "pgextwin/pg_store_plans",
+))
+ALLOWED_TARGETS = WAVE3_REPOS | {REPO}
 OWNER = "pgextwin"
 REPO_NAME = "plpgsql_check"
 MAX_RESPONSE = 100_000
@@ -101,7 +107,7 @@ def read_expiry(value, now):
     return int(until.total_seconds())
 
 def probe(app_jwt, *, app_id, installation_id, repository_id, now,
-          api=authenticated_call):
+          repository=REPO, api=authenticated_call):
     """Not used in public CI. Never pass in a Reader token.
 
     Token is ephemeral; only this function sees it. Revocation is attempted
@@ -110,6 +116,8 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
     isolation or authorise release publication.
     """
     need(type(app_jwt) is str and len(app_jwt)>=20)
+    # Exact allowlist: never probe arbitrary orgs or the Catalog-only App target.
+    need(type(repository) is str and repository in ALLOWED_TARGETS)
     need(all(type(v) is int and v>0 for v in
              (app_id,installation_id,repository_id)))
     need(type(now) is datetime and now.tzinfo is not None)
@@ -153,7 +161,7 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
              and type(repos[0]) is dict
              and type(repos[0].get("id")) is int
              and repos[0]["id"]==repository_id
-             and repos[0].get("full_name")==REPO)
+             and repos[0].get("full_name")==repository)
         ttl=read_expiry(minted.get("expires_at"),now)
         view=api("GET",REPOS_ENDPOINT,token)
         need(type(view) is dict
@@ -163,12 +171,12 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
              and len(view["repositories"])==1
              and type(view["repositories"][0]) is dict
              and view["repositories"][0].get("id")==repository_id
-             and view["repositories"][0].get("full_name")==REPO)
+             and view["repositories"][0].get("full_name")==repository)
         # A GET to public repository alone does not establish actual scope.
         # Source is the authenticated JWT-scoped token mint response.
         result={"classification":"PRIVATE_APP_SCOPED_MINT_AND_REVOKE_CONTRACT",
                 "installationId":installation_id,"appId":app_id,
-                "targetRepository":REPO,"expiresWithinSeconds":ttl,
+                "targetRepository":repository,"expiresWithinSeconds":ttl,
                 "independentReaderSignerCustodyProven":False,
                 "publisherPrewriteProven":False,
                 "publicationAuthorized":False,
