@@ -166,6 +166,17 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertIn("python tests/test-issue-75-signer-hardening.py", active)
         self.assertIn("python tests/test-issue-75-private-principal-runtime.py", active)
 
+    def test_historical_wave3_runtime_probe_is_offline_only(self):
+        self.assertFalse((ROOT / "scripts/issue-75-wave3-actions-readonly.py").exists())
+        self.assertTrue((ROOT / "tests/fixtures/historical-scripts/issue-75-wave3-actions-readonly.py").is_file())
+        self.assertTrue((ROOT / "tests/fixtures/historical-workflows/issue-75-wave3-actions-readonly.yml").is_file())
+        self.assertTrue((ROOT / "tests/test-issue-75-wave3-actions-readonly.py").is_file())
+        live = (WF / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn("python tests/test-issue-75-wave3-actions-readonly.py", live)
+        self.assertIn("python tests/test-issue-75-private-principal-runtime.py", live)
+        self.assertIn("python tests/test-fleet-promotion-gate.py", live)
+        self.assertIn("python tests/test-fleet-publish-release.py", live)
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",
