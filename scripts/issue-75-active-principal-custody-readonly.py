@@ -30,6 +30,7 @@ PUBLISHER_SOURCE_BLOB = "3ae586814b063fefa5c3a554758f13467bb23ea5"
 PUBLISHER_PIN = "455f0ccc667697f600700a6e64bcfd6c57b6a977"
 SIGNER_PIN = "5756b3c5136a8bf4db710016cfe97555f0a71c6d"
 PROMOTE_PREFIX = "contents/.github/workflows/promote.yml?ref="
+PROMOTE_PATH = PROMOTE_PREFIX + PILOT_SHA  # historical test/audit reference
 # PILOT_SHA remains the historical 2026-10-18 pilot anchor, NOT a current
 # protected-main HEAD pin. Live HEAD can advance without changing promoter
 # source. The actual workflow bytes MUST still equal PUBLISHER_SOURCE_BLOB.
