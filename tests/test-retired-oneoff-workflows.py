@@ -113,6 +113,20 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertIn("python tests/test-fleet-promotion-policy.py", live)
         self.assertIn("python tests/test-publish-release.py", live)
 
+    def test_unreferenced_legacy_release_entrypoint_is_inert(self):
+        # Only the shared manual promotion route may own the current
+        # signer/publisher flow. The old standalone release workflow can no
+        # longer be called in a new live release but its safety proof remains.
+        self.assertFalse((WF / "release-extension.yml").exists())
+        self.assertTrue((ROOT / "tests/fixtures/historical-workflows/release-extension.yml").is_file())
+        self.assertTrue((WF / "promote-verified-release.yml").is_file())
+        active = (WF / "promote-verified-release.yml").read_text(encoding="utf-8")
+        for phrase in ("fleet-promotion-gate.py", "fleet-publish-release.py",
+                       "build-extension-attested.yml", "candidate_run_id"):
+            self.assertIn(phrase, active)
+        self.assertNotIn("gh release edit", active)
+        self.assertNotIn("release-extension.yml", active)
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",
