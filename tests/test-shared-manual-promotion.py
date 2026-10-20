@@ -24,8 +24,10 @@ class SharedPromotion(unittest.TestCase):
 
     def test_provenance_and_create_only_publisher_preserved(self):
         self.assertIn("build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d", SHARED)
-        self.assertIn("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977", SHARED)
+        self.assertIn("ref: dd4d35186edccfbf39b40d86cecb28380cf210da", SHARED)
         self.assertIn("fleet-publish-release.py", SHARED)
+        # Both authorizer and publisher must use the same immutable future code.
+        self.assertEqual(SHARED.count("ref: dd4d35186edccfbf39b40d86cecb28380cf210da"), 2)
         self.assertIn("promotion-recovery.json", SHARED)
         self.assertIn("promotion-receipt.json", SHARED)
         self.assertIn("attestations: write", SHARED)
