@@ -1,0 +1,56 @@
+name: Daily stable upstream updates for all 17 extensions
+
+on:
+  schedule:
+    # 09:00 JST, matching the central fleet policy; GitHub cron is UTC.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-stable-fleet-watch
+  cancel-in-progress: false
+
+jobs:
+  readonly-fleet:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out protected fleet policy and code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Read-only check of all 17 stable upstreams
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/fleet-upstream-watch.py
+          --policy metadata/automation-fleet.json
+          --output "$RUNNER_TEMP/fleet-upstream-watch.json"
+          --summary "$RUNNER_TEMP/fleet-upstream-watch.md"
+      - name: Summarize stable update coverage
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/fleet-upstream-watch.md" ]; then
+            cat "$RUNNER_TEMP/fleet-upstream-watch.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'INDETERMINATE: fleet scan produced no summary; PUBLISH=DENY.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload auditable read-only snapshot
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fleet-upstream-watch
+          path: |
+            ${{ runner.temp }}/fleet-upstream-watch.json
+            ${{ runner.temp }}/fleet-upstream-watch.md
+          if-no-files-found: error
