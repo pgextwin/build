@@ -40,10 +40,13 @@ jobs:
     steps:
       - name: Check out extension packaging repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check out pgextwin build infrastructure
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
@@ -88,10 +91,13 @@ jobs:
     steps:
       - name: Check out extension packaging repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check out pgextwin build infrastructure
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
@@ -99,6 +105,7 @@ jobs:
       - name: Check out pinned upstream source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           repository: ${{ needs.matrix.outputs.upstream_repository }}
           ref: ${{ matrix.upstreamCommit || matrix.upstreamRef }}
           path: upstream
