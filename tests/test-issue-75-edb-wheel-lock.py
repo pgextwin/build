@@ -12,8 +12,15 @@ from unittest import TestCase,main,mock
 from zipfile import ZipFile
 ROOT=Path(__file__).resolve().parents[1]
 def mod(name,path):
+    # Compile the unchanged frozen source with its original scripts/ location
+    # as __file__, so historical immutable evidence paths retain their
+    # original meaning after moving the code into inert fixture storage.
     sp=importlib.util.spec_from_file_location(name,ROOT/path)
-    m=importlib.util.module_from_spec(sp);sp.loader.exec_module(m);return m
+    m=importlib.util.module_from_spec(sp)
+    original=ROOT/"scripts"/Path(path).name
+    m.__file__=str(original)
+    exec(compile((ROOT/path).read_bytes(),str(original),"exec"),m.__dict__)
+    return m
 w=mod("issue75_wheel","tests/fixtures/historical-scripts/issue-75-wheel-lock-candidate.py")
 e=mod("issue75_edb","tests/fixtures/historical-scripts/issue-75-choco-edb-nonexec.py")
 # Preserve exact archived source logic while rebasing historical worktree
