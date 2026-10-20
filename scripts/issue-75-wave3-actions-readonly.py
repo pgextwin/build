@@ -9,6 +9,9 @@ All successful outputs retain GO B/G4/G5=NO_GO, PUBLISH=DENY.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import hashlib
 import json
 import os
 import re
@@ -23,6 +26,11 @@ MAX_JSON = 2_000_000
 SUMMARY = "Windows required summary"
 ADMISSION = "publication_admission / Observe PR or main event; publication remains DENY"
 REQUIRED = tuple(f"windows / PostgreSQL {i} / Windows x64" for i in range(14, 19))
+HISTORICAL_SIGNER = "5756b3c5136a8bf4db710016cfe97555f0a71c6d"
+HISTORICAL_PUBLISHER = "455f0ccc667697f600700a6e64bcfd6c57b6a977"
+PROMOTION_FILES = (".github/workflows/promote.yml",
+                   "config/release-promotion.json")
+MAX_PROMOTION_FILE = 64_000
 
 class Deny(ValueError):
     pass
@@ -45,7 +53,10 @@ class NoRedirect(HTTPRedirectHandler):
 def allow(repository, path):
     need(repository in (BUILD,) + TARGETS)
     need(path in ("branches/main", "releases?per_page=1") or
-         bool(re.fullmatch(r"commits/[0-9a-f]{40}/check-runs\?per_page=100", path)))
+         bool(re.fullmatch(r"commits/[0-9a-f]{40}/check-runs\?per_page=100", path)) or
+         any(re.fullmatch(r"contents/" + re.escape(name) +
+                              r"\?ref=[0-9a-f]{40}", path)
+             for name in PROMOTION_FILES))
 
 class GetOnly:
     def __init__(self, token, opener=None):
@@ -100,6 +111,88 @@ def checks_for(head, branch, runs):
              (job.get("app") or {}).get("id") == 15368)
     return len(expected)
 
+def git_blob(raw):
+    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") +
+                        b"\0" + raw).hexdigest()
+
+def pinned_contents(api, repo, head, path):
+    need(path in PROMOTION_FILES and type(head) is str and SHA.fullmatch(head))
+    doc = api.get(repo, "contents/" + path + "?ref=" + head)
+    need(type(doc) is dict and doc.get("type") == "file" and
+         doc.get("path") == path and doc.get("encoding") == "base64" and
+         type(doc.get("size")) is int and 0 < doc["size"] <= MAX_PROMOTION_FILE)
+    encoded = doc.get("content")
+    need(type(encoded) is str and len(encoded) < MAX_PROMOTION_FILE * 2)
+    # GitHub wraps base64 in newlines. Refuse non-base64 characters,
+    # unexpected whitespace, padding errors, or ambiguous representations.
+    need(re.fullmatch(r"[A-Za-z0-9+/=\n]+", encoded) is not None)
+    try:
+        raw = base64.b64decode(encoded.replace("\n", ""), validate=True)
+    except (ValueError, binascii.Error):
+        raise Deny("invalid pinned promotion content") from None
+    need(len(raw) == doc["size"] and
+         type(doc.get("sha")) is str and git_blob(raw) == doc["sha"])
+    return raw, doc["sha"]
+
+def promotion_policy(raw):
+    need(type(raw) is bytes and b"\r" not in raw)
+    try:
+        obj = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+    except (UnicodeError, ValueError):
+        raise Deny("invalid local promotion policy") from None
+    need(type(obj) is dict and set(obj) ==
+         {"schemaVersion", "enabled", "releasePolicy"} and
+         type(obj["schemaVersion"]) is int and obj["schemaVersion"] == 1 and
+         obj["enabled"] is False and obj["releasePolicy"] == "manual-dispatch")
+    return True
+
+def promotion_workflow(raw):
+    """Conservative source-level proof of legacy manual-only wiring.
+
+    This is not YAML semantic parsing or a guarantee that a Publisher cannot
+    be reached by some other workflow. A mismatch fails the GET-only witness.
+    """
+    need(type(raw) is bytes and b"\r" not in raw and
+         b"\x00" not in raw and len(raw) <= MAX_PROMOTION_FILE)
+    try:
+        source = raw.decode("utf-8")
+    except UnicodeError:
+        raise Deny("invalid promotion YAML") from None
+    # Restrict event names at the root indentation under the ONE on: block.
+    roots = list(re.finditer(r"(?m)^on:\s*$", source))
+    need(len(roots) == 1)
+    remaining = source[roots[0].end():]
+    next_root = re.search(r"(?m)^[A-Za-z][A-Za-z_-]*:", remaining)
+    events = remaining[:next_root.start()] if next_root else remaining
+    need(re.findall(r"(?m)^  ([A-Za-z_]+):", events) ==
+         ["workflow_dispatch"])
+    signer_line = ("    uses: pgextwin/build/.github/workflows/"
+                   "build-extension-attested.yml@" + HISTORICAL_SIGNER)
+    publisher_line = "          ref: " + HISTORICAL_PUBLISHER
+    need(source.count(signer_line) == 1 and
+         source.count(publisher_line) == 2 and
+         source.count("      confirm_release:") == 1 and
+         source.count("        description: Type PUBLISH") == 1 and
+         source.count("  release_build:") == 1 and
+         source.count("  publish:") == 1 and
+         source.count("  authorize:") == 1 and
+         "    needs: authorize" in source and
+         "    needs: [authorize, release_build]" in source and
+         "    name: Check signatures, exact SHA256 and create-only Release ID" in source)
+    return True
+
+def promotion_boundary(api, repo, head):
+    workflow, workflow_sha = pinned_contents(api, repo, head, PROMOTION_FILES[0])
+    policy, policy_sha = pinned_contents(api, repo, head, PROMOTION_FILES[1])
+    promotion_workflow(workflow)
+    promotion_policy(policy)
+    return {
+        "workflowBlob": workflow_sha,
+        "policyBlob": policy_sha,
+        "legacySignerRef": HISTORICAL_SIGNER,
+        "legacyPublisherRef": HISTORICAL_PUBLISHER,
+    }
+
 def inspect(env, api):
     need(env.get("GITHUB_REPOSITORY") == BUILD and
          env.get("GITHUB_EVENT_NAME") == "push" and
@@ -116,6 +209,7 @@ def inspect(env, api):
         checks_for(head_a, branch_a, runs)
         releases = api.get(repo, "releases?per_page=1")
         need(type(releases) is list and len(releases) <= 1)
+        promotion_a = promotion_boundary(api, repo, head_a)
         # Second independent GET: reject HEAD movement or protection/check drift.
         branch_b, head_b = checked_main(repo, api)
         need(head_b == head_a and branch_a == branch_b)
@@ -123,6 +217,8 @@ def inspect(env, api):
         need(checks_b == runs)
         releases_b = api.get(repo, "releases?per_page=1")
         need(releases_b == releases)
+        promotion_b = promotion_boundary(api, repo, head_b)
+        need(promotion_b == promotion_a)
         result.append({
             "repository": repo, "mainSha": head_a,
             "protectedMainObserved": True,
@@ -130,6 +226,11 @@ def inspect(env, api):
             "successfulExactHeadWindowsMajors": [14, 15, 16, 17, 18],
             "readOnlyAdmissionObserved": True,
             "publicReleasePresent": bool(releases),
+            "disabledManualPromotionPolicyObserved": True,
+            "legacySignerPublisherPinsObserved": True,
+            "promotionPolicyBlob": promotion_a["policyBlob"],
+            "promotionWorkflowBlob": promotion_a["workflowBlob"],
+            "independentWriterProvisionedByThisWorkflow": False,
             "effectiveRulesCryptographicallyProven": False,
             "runtimeSignerIdentityVerified": False,
             "independentWriterVerified": False,
