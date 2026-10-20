@@ -61,6 +61,7 @@ class Reader:
         need(type(path) is str and len(path) < 400)
         patterns = (
             r"branches/main", r"actions/runs/[1-9][0-9]*",
+            r"contents/config/(?:extension|initial-release-candidate)\.json\?ref=[0-9a-f]{40}",
             r"pulls/[1-9][0-9]*(?:/files\?per_page=100)?",
             r"commits/[0-9a-f]{40}(?:/pulls\?per_page=100|/check-runs\?per_page=100)?",
             r"contents/\.github/release-authorizations/v[A-Za-z0-9._-]+-windows\.[1-9][0-9]*\.json\?ref=[0-9a-f]{40}",
@@ -144,26 +145,143 @@ def request_format(api, files, repository, head, branch, pr):
     return "VALID_REQUEST_FORMAT_PUBLICATION_DENIED"
 
 
+
+BOT = "github-actions[bot]"
+FIRST_INTENT = "config/initial-release-candidate.json"
+CANDIDATE_BRANCH = re.compile(r"auto-candidate/([0-9a-f]{20})\Z")
+
+
+def bot(user):
+    return type(user) is dict and user.get("login") == BOT and user.get("type") == "Bot"
+
+
+def exact_json_file(api, path, sha):
+    """Read one pinned Git blob, rejecting changed bytes, duplicates and missing data."""
+    item = api.get("contents/" + path + "?ref=" + sha)
+    need(type(item) is dict and item.get("type") == "file" and item.get("path") == path
+         and item.get("encoding") == "base64" and type(item.get("content")) is str
+         and type(item.get("size")) is int and 0 < item["size"] <= 16384)
+    raw = base64.b64decode(item["content"].replace("\n", ""), validate=True)
+    need(len(raw) == item["size"] and auth.git_blob_sha(raw) == item.get("sha"))
+    doc = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+    need(type(doc) is dict)
+    return doc, item["sha"]
+
+
+def observe_first_candidate(env, event, api, run, branch):
+    """Validate *non-publishing* bot-owned candidate CI; never authorize a Release.
+
+    This is deliberately disjoint from the human-bound PUBLISH authorization
+    observer. Successful observation cannot be reused as an approval receipt.
+    """
+    repo, mode = env["GITHUB_REPOSITORY"], env["GITHUB_EVENT_NAME"]
+    need(mode in {"workflow_dispatch", "pull_request"}
+         and bot(run.get("actor")) and bot(event.get("sender")))
+    attempt = int(env["GITHUB_RUN_ATTEMPT"])
+    need(type(run.get("run_attempt")) is int and run["run_attempt"] == attempt)
+    if mode == "workflow_dispatch":
+        need(attempt == 1 and bot(run.get("triggering_actor")))
+        need(re.fullmatch(r"refs/heads/auto-candidate/[0-9a-f]{20}", env.get("GITHUB_REF", "")))
+        head = env["GITHUB_SHA"]
+        name = env["GITHUB_REF"][len("refs/heads/"):]
+        need(run.get("head_sha") == head and run.get("head_branch") == name)
+        linked = api.get("commits/" + head + "/pulls?per_page=100")
+        need(type(linked) is list)
+        matches = [p for p in linked if type(p) is dict
+                   and (p.get("head") or {}).get("sha") == head
+                   and (p.get("head") or {}).get("ref") == name
+                   and p.get("state") == "open"]
+        need(len(matches) == 1 and auth.positive_int(matches[0].get("number")))
+        number = matches[0]["number"]
+    else:
+        # GitHub's human "Approve workflows to run" reruns an untrusted bot PR
+        # as attempt 2. Only this bot-owned candidate mode accepts that case.
+        need(attempt in (1, 2))
+        if attempt == 1:
+            need(bot(run.get("triggering_actor")))
+        else:
+            need(is_operator(run.get("triggering_actor")))
+        number = event.get("number")
+        need(auth.positive_int(number))
+        need(env.get("GITHUB_REF") == "refs/pull/" + str(number) + "/merge")
+        head = (event.get("pull_request") or {}).get("head", {}).get("sha")
+        need(auth.full_sha(head) and run.get("head_sha") == head)
+        name = run.get("head_branch")
+        need(type(name) is str and CANDIDATE_BRANCH.fullmatch(name))
+    pr = api.get("pulls/" + str(number))
+    need(type(pr) is dict and pr.get("number") == number
+         and pr.get("state") == "open" and pr.get("merged") is False
+         and bot(pr.get("user")) and pr.get("changed_files") == 1
+         and (pr.get("head") or {}).get("sha") == head
+         and pr["head"].get("ref") == name
+         and (pr["head"].get("repo") or {}).get("full_name") == repo
+         and (pr.get("base") or {}).get("ref") == "main"
+         and (pr["base"].get("repo") or {}).get("full_name") == repo)
+    main = (branch.get("commit") or {}).get("sha")
+    need(auth.full_sha(main) and pr["base"].get("sha") == main
+         and branch.get("protected") is True)
+    match = CANDIDATE_BRANCH.fullmatch(name)
+    need(match is not None)
+    digest = match.group(1)
+    files = api.get("pulls/" + str(number) + "/files?per_page=100")
+    need(type(files) is list and len(files) == 1 and type(files[0]) is dict
+         and files[0].get("filename") == FIRST_INTENT
+         and files[0].get("status") == "added")
+    intent, blob = exact_json_file(api, FIRST_INTENT, head)
+    need(files[0].get("sha") == blob
+         and set(intent) == {"schemaVersion", "kind", "repository", "extension",
+                            "releasePolicy", "candidateId", "source"}
+         and type(intent["schemaVersion"]) is int and intent["schemaVersion"] == 1
+         and intent["kind"] == "FIRST_RELEASE_PINNED_SOURCE"
+         and intent["repository"] == repo and intent["extension"] == repo.split("/")[1]
+         and intent["releasePolicy"] == "manual-only" and intent["candidateId"] == digest
+         and type(intent["source"]) is dict
+         and set(intent["source"]) == {"repository", "ref", "version", "commit"}
+         and auth.full_sha(intent["source"]["commit"]))
+    extension, _ = exact_json_file(api, "config/extension.json", main)
+    need(extension.get("name") == intent["extension"]
+         and extension.get("upstream") == intent["source"])
+    commit = api.get("commits/" + head)
+    need(type(commit) is dict and commit.get("sha") == head and bot(commit.get("author"))
+         and (commit.get("commit") or {}).get("message", "").find(
+             "pgextwin-candidate:v1:" + digest) >= 0)
+    need(api.get("branches/main") == branch)
+    return result("VALID_FIRST_CANDIDATE_CI_PUBLICATION_DENIED",
+                  repository=repo, event=mode, candidatePr=number,
+                  candidateHeadSha=head, protectedMainSha=main, runAttempt=attempt,
+                  actor=BOT, candidateId=digest, candidateCIOnly=True)
+
+
 def inspect(env, event, api):
     repo, mode, sha = (env.get(k) for k in ("GITHUB_REPOSITORY", "GITHUB_EVENT_NAME", "GITHUB_SHA"))
     need(repo in TARGETS and mode in {"pull_request", "push", "workflow_dispatch"} and auth.full_sha(sha))
     need(type(event) is dict and (event.get("repository") or {}).get("full_name") == repo)
     need(re.fullmatch(r"[1-9][0-9]*", env.get("GITHUB_RUN_ID", "")) is not None)
-    need(env.get("GITHUB_RUN_ATTEMPT") == "1")
+    need(re.fullmatch(r"[1-9][0-9]*", env.get("GITHUB_RUN_ATTEMPT", "")) is not None)
     run_id = int(env["GITHUB_RUN_ID"])
     actor = env.get("GITHUB_ACTOR")
     run = api.get("actions/runs/" + str(run_id))
     need(type(run) is dict and type(run.get("id")) is int and run["id"] == run_id
-         and type(run.get("run_attempt")) is int and run["run_attempt"] == 1
          and run.get("event") == mode and run.get("path") == ".github/workflows/windows.yml"
          and (run.get("repository") or {}).get("full_name") == repo
-         and (run.get("actor") or {}).get("login") == actor
-         and (run.get("triggering_actor") or {}).get("login") == actor
-         and (event.get("sender") or {}).get("login") == actor)
+         and (run.get("actor") or {}).get("login") == actor)
+    is_candidate = bot(run.get("actor")) and (
+        mode == "workflow_dispatch" and
+        re.fullmatch(r"refs/heads/auto-candidate/[0-9a-f]{20}", env.get("GITHUB_REF", "")) is not None
+        or mode == "pull_request" and
+        re.fullmatch(r"auto-candidate/[0-9a-f]{20}", str(run.get("head_branch", ""))) is not None)
+    if not is_candidate:
+        # Strict human PUBLISH/setup observer is unchanged, including attempt 1.
+        need(env.get("GITHUB_RUN_ATTEMPT") == "1"
+             and type(run.get("run_attempt")) is int and run["run_attempt"] == 1
+             and (run.get("triggering_actor") or {}).get("login") == actor
+             and (event.get("sender") or {}).get("login") == actor)
     branch = api.get("branches/main")
     need(type(branch) is dict and branch.get("protected") is True
          and auth.full_sha((branch.get("commit") or {}).get("sha")))
     main = branch["commit"]["sha"]
+    if is_candidate:
+        return observe_first_candidate(env, event, api, run, branch)
     facts = {"repository": repo, "event": mode, "eventSha": sha, "runId": run_id,
              "runAttempt": 1, "actor": actor, "actorIsAllowedHuman": is_operator(run.get("actor")),
              "protectedMainObserved": True, "requiredChecksAppId": 15368}
