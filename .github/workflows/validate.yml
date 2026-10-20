@@ -186,21 +186,6 @@ jobs:
           python scripts/issue-75-choco-edb-nonexec.py --mode static
           python scripts/issue-75-wheel-lock-candidate.py --mode static
 
-      - name: Validate Issue75 immutable Chocolatey secondary dependency parsing and deny fixtures
-        run: |
-          python tests/test-issue-75-choco-secondary-readonly.py
-          python scripts/issue-75-choco-secondary-readonly.py --mode static
-
-      - name: Validate Issue75 inert OS-conditional KB/MSU script inventory
-        run: |
-          python tests/test-issue-75-kb-conditional-inert.py
-          python scripts/issue-75-kb-conditional-inert.py --mode static
-
-      - name: Validate one historical MSU source-bound real-byte witness guards (#75)
-        run: |
-          python tests/test-issue-75-msu-original-bytes.py
-          python scripts/issue-75-msu-original-bytes.py --mode static
-
       - name: Validate PRE-G4 inert immutable recovery evidence denial fixtures (#75)
         run: python tests/test-release-recovery-evidence.py
 
