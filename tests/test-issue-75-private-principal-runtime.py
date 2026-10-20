@@ -25,7 +25,7 @@ JWT="SYNTHETIC_APP_JWT_NO_LOG_1234567890"
 TOKEN="SYNTHETIC_INSTALLATION_TOKEN_NO_LOG_1234567890"
 INSTALL=120000
 APP=67890
-RID=54321
+RID=1410581312  # actual plpgsql_check immutable GitHub repo ID
 EXP=(NOW+timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 class FakeApp:
@@ -279,10 +279,13 @@ class PrivateProbes(TestCase):
         for target in sorted(w.WAVE3_REPOS):
             with self.subTest(target=target):
                 f=FakeApp()
-                f.responses[mint]["repositories"][0]["full_name"]=target
-                f.responses[listing]["repositories"][0]["full_name"]=target
+                target_id=w.TARGET_REPO_IDS[target]
+                f.responses[mint]["repositories"][0].update(
+                    {"id":target_id,"full_name":target})
+                f.responses[listing]["repositories"][0].update(
+                    {"id":target_id,"full_name":target})
                 out=w.probe(JWT,app_id=APP,installation_id=INSTALL,
-                            repository_id=RID,now=NOW,repository=target,api=f)
+                            repository_id=target_id,now=NOW,repository=target,api=f)
                 self.assertEqual(out["targetRepository"],target)
                 self.assertFalse(out["publicationAuthorized"])
                 self.assertFalse(out["independentReaderSignerCustodyProven"])
@@ -291,12 +294,14 @@ class PrivateProbes(TestCase):
                 for mismatched in ("mint", "listing"):
                     bad=FakeApp()
                     if mismatched=="mint":
-                        bad.responses[listing]["repositories"][0]["full_name"]=target
+                        bad.responses[listing]["repositories"][0].update(
+                            {"id":target_id,"full_name":target})
                     else:
-                        bad.responses[mint]["repositories"][0]["full_name"]=target
+                        bad.responses[mint]["repositories"][0].update(
+                            {"id":target_id,"full_name":target})
                     with self.assertRaises(w.Deny):
                         w.probe(JWT,app_id=APP,installation_id=INSTALL,
-                                repository_id=RID,now=NOW,repository=target,api=bad)
+                                repository_id=target_id,now=NOW,repository=target,api=bad)
                     self.assertEqual(bad.calls[-1][0],"DELETE")
         for target in (
             "pgextwin/catalog", "pgextwin/website",
@@ -309,6 +314,58 @@ class PrivateProbes(TestCase):
                     w.probe(JWT,app_id=APP,installation_id=INSTALL,
                             repository_id=RID,now=NOW,repository=target,api=f)
                 self.assertEqual(f.calls,[])  # no JWT use or token mint
+
+    def test_pre_mint_immutable_real_github_repository_ids(self):
+        self.assertEqual(w.TARGET_REPO_IDS,{
+            "pgextwin/pgtap":1425678353,
+            "pgextwin/pg_variables":1425679720,
+            "pgextwin/pg_store_plans":1425680909,
+            "pgextwin/plpgsql_check":1410581312})
+        self.assertEqual(set(w.TARGET_REPO_IDS),w.ALLOWED_TARGETS)
+        for repo,expected_id in w.TARGET_REPO_IDS.items():
+            for bad_id in (True,0,-1,expected_id+1,RID
+                           if expected_id != RID else 1425678353):
+                f=FakeApp()
+                with self.subTest(repo=repo,id=bad_id),self.assertRaises(w.Deny):
+                    w.probe(JWT,app_id=APP,installation_id=INSTALL,
+                            repository_id=bad_id,now=NOW,repository=repo,api=f)
+                self.assertEqual(f.calls,[]) # preflight must occur before GET or POST
+
+    def test_rest_post_has_json_content_type_and_strict_body_no_network(self):
+        class FakeResponse:
+            status=201
+            headers={}
+            def __enter__(self):return self
+            def __exit__(self,*a):return False
+            def read(self,n):return b'{"token":"SYNTHETIC_BODY_ONLY"}'
+        observed=[]
+        def fake_open(request, timeout):
+            observed.append((request,timeout))
+            return FakeResponse()
+        result=w.authenticated_call("POST",
+            f"/app/installations/{INSTALL}/access_tokens",JWT,
+            {"repository_ids":[RID],"permissions":{"contents":"write"}},
+            opener=fake_open)
+        self.assertEqual(result,{"token":"SYNTHETIC_BODY_ONLY"})
+        self.assertEqual(len(observed),1)
+        req,timeout=observed[0]
+        self.assertEqual(req.get_method(),"POST")
+        self.assertEqual(timeout,20)
+        self.assertEqual(req.get_header("Content-type"),"application/json")
+        self.assertEqual(req.get_header("Accept"),"application/vnd.github+json")
+        self.assertEqual(json.loads(req.data),{
+            "repository_ids":[RID],"permissions":{"contents":"write"}})
+        for malformed in (
+            {"repositories":["pgtap"],"permissions":{"contents":"write"}},
+            {"repository_ids":[RID],"permissions":{"contents":"write"},
+             "unexpected":"silent_scope"},
+            None):
+            with self.subTest(body=malformed),self.assertRaises(w.Deny):
+                w.authenticated_call("POST",
+                    f"/app/installations/{INSTALL}/access_tokens",JWT,
+                    malformed,opener=lambda *_a,**_k:
+                    self.fail("invalid payload should never touch network"))
+        self.assertEqual(len(observed),1)
 
     def test_writer_api_strict_endpoint_and_redirect_with_zero_transport(self):
         for method,path in (
