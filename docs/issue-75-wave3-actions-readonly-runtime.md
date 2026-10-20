@@ -10,6 +10,17 @@ Each output explicitly reports only `LIVE_THREE_TARGET_METADATA_NEGATIVE_ONLY`. 
 
 The old 32+13 Git Blob root ledger, private Signer and Writer dormant verifiers, real-principal acceptance `--mode require-real`, fleet 14-only Publisher, local Promotion disabled, and historical GO A failure are **unchanged**. This new job does *not* repeat cryptographic validation of the 45 blobs; it **reuses** their previous evidence classification.
 
+## 2026-10-20 extension: authenticated exact-HEAD promotion-source negative witness
+
+The existing main/push-only GitHub-hosted read-only Action now performs **two independently fetched GETs per target** of both `config/release-promotion.json?ref=<exact-main-SHA>` and `.github/workflows/promote.yml?ref=<exact-main-SHA>`. Requests are constrained to four additional, SHA-qualified per-target GitHub Contents REST paths only. GitHub REST base64 bytes must decode canonically, match the declared exact file size and independently recomputed Git Blob SHA-1. No new Action permissions, Dispatch, writes, Secret, App or job identities are added.
+
+- The local policy must be the exact `schemaVersion=1`, `enabled=false`, `releasePolicy=manual-dispatch` record; duplicate keys, extra claims, wrong types or enabled promotion DENY.
+- The promotion workflow must retain its sole `workflow_dispatch` event and literal operator `PUBLISH`, the legacy reusable Signer pinned to `@5756b3c5136a8bf4db710016cfe97555f0a71c6d`, two publisher-code checkouts at `455f0ccc667697f600700a6e64bcfd6c57b6a977`, and the expected authorize → release_build → publish dependency source pattern. Any relevant drift DENIES this negative-only observation.
+- The authenticated **second read** must match both file Blob hashes, while the protected main HEAD and CI checks must also be stable. Missing/malformed/paginated/redirected API responses DENY. The JSON output records observed Blob identities and `disabledManualPromotionPolicyObserved=true` but **always** `independentWriterVerified=false`, `publishableReceipt=false`, `publicationAuthorized=false`, GO B/G4/G5 NO_GO.
+- This is a conservative source/text witness, not a complete GitHub YAML event semantics parser, effective Classic/GraphQL administration inspection, real Signer OIDC/Sigstore verification, or independent Writer credential-issued proof. It cannot establish the absence of a separately malicious workflow. It detects drift from this exact previously accepted manual-only configuration in the three current target repositories.
+
+The recent #150 central Signer `main` source hardening is deliberately **not** an active Promotion caller repin: all three existing promote workflows still reference the historic immutable `@5756b3c5...` source. A future positive signed prewrite and controlled repin must have their own accepted real evidence before privilege enablement. No local Promotion is enabled by this test.
+
 ## Current observed permission boundary
 
 From Work's authenticated GUI report at Issue #75 comment 6280683046:
