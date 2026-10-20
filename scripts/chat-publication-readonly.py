@@ -252,6 +252,57 @@ def observe_first_candidate(env, event, api, run, branch):
                   actor=BOT, candidateId=digest, candidateCIOnly=True)
 
 
+def observe_merged_first_candidate(env, event, api, run, branch):
+    """Observe a bot candidate merged to main, without granting publication."""
+    repo, sha = env["GITHUB_REPOSITORY"], env["GITHUB_SHA"]
+    need(branch.get("protected") is True)
+    need(env["GITHUB_EVENT_NAME"] == "push"
+         and env.get("GITHUB_REF") == event.get("ref") == "refs/heads/main"
+         and run.get("head_sha") == event.get("after") == sha
+         and run.get("head_branch") == "main"
+         and (branch.get("commit") or {}).get("sha") == sha
+         and event.get("created") is False and event.get("deleted") is False)
+    commit = api.get("commits/" + sha)
+    need(commit.get("sha") == sha and type(commit.get("parents")) is list
+         and len(commit["parents"]) == 2
+         and commit["parents"][0].get("sha") == event.get("before"))
+    linked = api.get("commits/" + sha + "/pulls?per_page=100")
+    need(type(linked) is list)
+    matches = [p for p in linked if type(p) is dict and p.get("merge_commit_sha") == sha]
+    need(len(matches) == 1)
+    pr = api.get("pulls/" + str(matches[0]["number"]))
+    head = (pr.get("head") or {}).get("sha")
+    name = (pr.get("head") or {}).get("ref")
+    need(pr.get("merged") is True and pr.get("state") == "closed"
+         and pr.get("merge_commit_sha") == sha and bot(pr.get("user"))
+         and pr.get("changed_files") == 1 and auth.full_sha(head)
+         and CANDIDATE_BRANCH.fullmatch(str(name)) is not None
+         and (pr.get("head") or {}).get("repo", {}).get("full_name") == repo
+         and (pr.get("base") or {}).get("ref") == "main"
+         and (pr.get("base") or {}).get("repo", {}).get("full_name") == repo
+         and commit["parents"][1].get("sha") == head)
+    files = api.get("pulls/" + str(pr["number"]) + "/files?per_page=100")
+    need(type(files) is list and len(files) == 1
+         and files[0].get("filename") == FIRST_INTENT and files[0].get("status") == "added")
+    intent, blob = exact_json_file(api, FIRST_INTENT, sha)
+    need(files[0].get("sha") == blob
+         and intent.get("repository") == repo and intent.get("extension") == repo.split("/")[1]
+         and intent.get("kind") == "FIRST_RELEASE_PINNED_SOURCE"
+         and intent.get("releasePolicy") == "manual-only"
+         and intent.get("candidateId") == CANDIDATE_BRANCH.fullmatch(name).group(1))
+    checks = api.get("commits/" + head + "/check-runs?per_page=100")
+    need(type(checks) is dict and type(checks.get("check_runs")) is list
+         and any(c.get("name") == "Windows required summary"
+                 and (c.get("app") or {}).get("id") == 15368
+                 and c.get("head_sha") == head and c.get("conclusion") == "success"
+                 for c in checks["check_runs"]))
+    need(api.get("branches/main") == branch)
+    return result("MERGED_FIRST_CANDIDATE_OBSERVED_PUBLICATION_DENIED",
+                  repository=repo, event="push", protectedMainSha=sha,
+                  candidatePr=pr["number"], candidateHeadSha=head,
+                  candidateCIOnly=True)
+
+
 def inspect(env, event, api):
     repo, mode, sha = (env.get(k) for k in ("GITHUB_REPOSITORY", "GITHUB_EVENT_NAME", "GITHUB_SHA"))
     need(repo in TARGETS and mode in {"pull_request", "push", "workflow_dispatch"} and auth.full_sha(sha))
@@ -282,6 +333,8 @@ def inspect(env, event, api):
     main = branch["commit"]["sha"]
     if is_candidate:
         return observe_first_candidate(env, event, api, run, branch)
+    if mode == "push" and type(event.get("head_commit")) is dict and "Merge pull request" in str(event["head_commit"].get("message", "")):
+        return observe_merged_first_candidate(env, event, api, run, branch)
     facts = {"repository": repo, "event": mode, "eventSha": sha, "runId": run_id,
              "runAttempt": 1, "actor": actor, "actorIsAllowedHuman": is_operator(run.get("actor")),
              "protectedMainObserved": True, "requiredChecksAppId": 15368}

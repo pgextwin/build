@@ -76,6 +76,9 @@ jobs:
       - name: Reject forged or stale first-candidate bot CI and preserve publication DENY
         run: python tests/test-first-candidate-readonly.py
 
+      - name: Reject forged merged bot candidates without authorizing publication
+        run: python tests/test-merged-first-candidate-readonly.py
+
       - name: Validate three-target GitHub-hosted Actions runtime double-GET negative acceptance
         run: python tests/test-issue-75-wave3-actions-readonly.py
 
