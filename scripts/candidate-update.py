@@ -229,6 +229,78 @@ def execute(*args):
     return r.stdout.strip()
 
 
+
+def recover_failed_first_release(record, repository, proposal_file, proposal, marker,
+                                 remote, prs, runs):
+    """Forward-only bot-owned branch repair after a *failed* candidate dispatch.
+
+    Only a fresh human-authorized first-attempt UPDATE on the exact protected
+    main can request recovery. Previous failed run/ZIP/decision evidence remains
+    immutable; never force push, reuse a failed Run ID or grant PUBLISH.
+    """
+    def require(ok, reason):
+        if not ok:
+            raise WatchError("candidate recovery DENIED: " + reason)
+
+    require(repository in FIRST_RELEASE and record.get("firstRelease") is True
+            and proposal_file == FIRST_FILE, "not the 3-repo first-release path")
+    require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+            and os.environ.get("GITHUB_ACTOR") == "ShutenOishi"
+            and os.environ.get("GITHUB_TRIGGERING_ACTOR") == "ShutenOishi"
+            and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
+            "fresh first-attempt human UPDATE required")
+    main_sha = os.environ.get("GITHUB_SHA", "")
+    require(bool(HEX_SHA.fullmatch(main_sha)), "missing exact main SHA")
+    require(len(prs) == 1 and len(runs) == 1 and bool(remote),
+            "one existing owned PR and one failed historical dispatch required")
+    pr, failed = prs[0], runs[0]
+    original = pr.get("headRefOid")
+    branch = record["branch"]
+    require(pr.get("state") == "OPEN" and pr.get("isDraft") is True
+            and (pr.get("author") or {}).get("login") == "github-actions[bot]"
+            and pr.get("headRefName") == branch and pr.get("baseRefName") == "main"
+            and marker in (pr.get("body") or "") and
+            bool(HEX_SHA.fullmatch(str(original))),
+            "candidate PR ownership, branch, draft or HEAD changed")
+    require(re.fullmatch(re.escape(original) + r"\s+refs/heads/" + re.escape(branch), remote.strip()),
+            "remote candidate HEAD differs from bot PR; no overwrite")
+    require(type(failed) is dict and type(failed.get("databaseId")) is int
+            and failed["databaseId"] > 0
+            and failed.get("event") == "workflow_dispatch"
+            and failed.get("status") == "completed"
+            and failed.get("conclusion") == "failure"
+            and failed.get("headSha") == original,
+            "only a genuine failed exact-HEAD dispatch may be recovered")
+    main = json.loads(execute("gh", "api", "repos/" + repository + "/branches/main"))
+    require(type(main) is dict and main.get("protected") is True and
+            (main.get("commit") or {}).get("sha") == main_sha,
+            "current protected main must match fresh human authorization")
+    require(execute("git", "rev-parse", "HEAD") == main_sha,
+            "checkout not on exactly the operator-approved main")
+    require(execute("git", "rev-parse", "refs/remotes/origin/" + branch) == original
+            and execute("git", "log", "-1", "--format=%an", original) == "github-actions[bot]",
+            "remote candidate HEAD must be the original bot-authored commit")
+    # No rebases, force pushes, or replacement of historical candidate bytes.
+    # This merge remains a descendant of the old original candidate commit.
+    execute("git", "checkout", "-B", branch, "refs/remotes/origin/" + branch)
+    execute("git", "config", "user.name", "github-actions[bot]")
+    execute("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
+    execute("git", "merge", "--no-ff", "-m", "chore: refresh immutable candidate base\n\n" + marker, main_sha)
+    new_head = execute("git", "rev-parse", "HEAD")
+    require(bool(HEX_SHA.fullmatch(new_head)) and new_head != original,
+            "candidate base sync did not create a new HEAD")
+    require(execute("git", "diff", "--name-only", main_sha, new_head).strip() == proposal_file,
+            "candidate changed anything other than its immutable intent")
+    require(json.loads(execute("git", "show", "HEAD:" + proposal_file)) == proposal,
+            "candidate intent changed during base sync")
+    # A non-forced push fails if the branch moved concurrently, protecting the
+    # original bot-owned PR and its old forensic record.
+    execute("git", "push", "origin", "HEAD:refs/heads/" + branch)
+    print("RECOVERY: retained failed Run " + str(failed["databaseId"]) +
+          " as FAILURE; new exact-head Windows dispatch " + new_head)
+    execute("gh", "workflow", "run", "windows.yml", "--repo", repository, "--ref", branch)
+
+
 def propose(record, manifest_path, repository, watch_path, policy_path):
     if record.get("status") != "candidate" or repository != os.environ.get("GITHUB_REPOSITORY"):
         raise WatchError("untrusted candidate caller")
@@ -282,7 +354,7 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
         execute("git", "commit", "-m", "chore: propose upstream candidate\n\n" + marker)
         execute("git", "push", "--set-upstream", "origin", branch)
     prs = json.loads(execute("gh", "pr", "list", "--repo", repository, "--head", branch, "--state", "all",
-                            "--limit", "100", "--json", "number,body,state,url"))
+                            "--limit", "100", "--json", "number,body,state,url,author,headRefOid,headRefName,baseRefName,isDraft"))
     if len(prs) > 1:
         raise WatchError("multiple PRs for candidate")
     if prs:
@@ -316,8 +388,20 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
     print("Candidate PR: " + url)
     runs = json.loads(execute("gh", "run", "list", "--repo", repository, "--workflow", "windows.yml",
                               "--branch", branch, "--event", "workflow_dispatch", "--limit", "100",
-                              "--json", "databaseId,event,status,conclusion,url"))
+                              "--json", "databaseId,event,status,conclusion,url,headSha"))
     if runs:
+        # General fleet retains once-only behavior. Only Wave3 first Release
+        # can recover, and only from one failed exact-HEAD dispatch with a
+        # fresh real human UPDATE on protected main.
+        if record.get("firstRelease") is True:
+            if (len(runs) == 1 and runs[0].get("status") == "completed"
+                    and runs[0].get("conclusion") == "success"
+                    and len(prs) == 1 and runs[0].get("headSha") == prs[0].get("headRefOid")):
+                print("Exact candidate Windows dispatch already succeeded; do not repeat")
+                return
+            recover_failed_first_release(record, repository, proposal_file, proposal,
+                                         marker, remote, prs, runs)
+            return
         print("Candidate dispatched previously; no repeat build")
         return
     execute("gh", "workflow", "run", "windows.yml", "--repo", repository, "--ref", branch)

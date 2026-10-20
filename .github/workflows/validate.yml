@@ -43,6 +43,9 @@ jobs:
       - name: Validate Step 19 candidate update fixtures
         run: python tests/test-candidate-update.py
 
+      - name: Deny forged Wave3 failed-candidate recovery and preserve original attempts
+        run: python tests/test-first-release-recovery.py
+
       - name: Verify first-release intent and deny forged candidate/promotion
         run: python tests/test-first-release-candidate.py
 
