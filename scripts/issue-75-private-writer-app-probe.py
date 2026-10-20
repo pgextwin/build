@@ -25,6 +25,10 @@ WAVE3_REPOS = frozenset((
 ))
 ALLOWED_TARGETS = WAVE3_REPOS | {REPO}
 OWNER = "pgextwin"
+# GitHub Actions App resolver / job token cannot be the independent Writer.
+NON_WRITER_APP_IDS = frozenset((15368,))
+MINIMAL_WRITER_PERMISSIONS = (
+    {"contents": "write"}, {"contents": "write", "metadata": "read"})
 REPO_NAME = "plpgsql_check"
 MAX_RESPONSE = 100_000
 API = "https://api.github.com"
@@ -119,7 +123,8 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
     # Exact allowlist: never probe arbitrary orgs or the Catalog-only App target.
     need(type(repository) is str and repository in ALLOWED_TARGETS)
     need(all(type(v) is int and v>0 for v in
-             (app_id,installation_id,repository_id)))
+             (app_id,installation_id,repository_id)) and
+         app_id not in NON_WRITER_APP_IDS)
     need(type(now) is datetime and now.tzinfo is not None)
     now=now.astimezone(timezone.utc)
     try:
@@ -141,8 +146,9 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
          and type(install.get("account")) is dict
          and install["account"].get("login")==OWNER
          and install.get("suspended_at") is None
+         and install.get("repository_selection")=="selected"
          and type(install.get("permissions")) is dict
-         and install["permissions"].get("contents")=="write")
+         and install["permissions"] in MINIMAL_WRITER_PERMISSIONS)
     request={"repository_ids":[repository_id],"permissions":{"contents":"write"}}
     minted=None
     try:
@@ -155,7 +161,7 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
         need(minted.get("repository_selection")=="selected")
         perms=minted.get("permissions")
         need(type(perms) is dict
-             and perms in ({"contents":"write"},{"contents":"write","metadata":"read"}))
+             and perms in MINIMAL_WRITER_PERMISSIONS)
         repos=minted.get("repositories")
         need(type(repos) is list and len(repos)==1
              and type(repos[0]) is dict
@@ -192,4 +198,6 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
                 need(type(revoked) is dict and revoked.get("revoked") is True)
             except Exception:
                 raise Deny("Writer scoped token revocation unconfirmed") from None
+    result["scopedTokenRevocation204Observed"] = True
+    result["positivePublisherPrewriteAuthorized"] = False
     return result
