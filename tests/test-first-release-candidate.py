@@ -103,5 +103,64 @@ class FirstRelease(unittest.TestCase):
         with self.assertRaises((g.Denied,g.ident.Denied)):
             g.verify(**normal)
 
+    def test_all_three_first_releases_share_fail_closed_manual_gate(self):
+        # Synthetic gate proof only: no actual PUBLISH, credentials or Release.
+        for name in ("pgtap", "pg_variables", "pg_store_plans"):
+            with self.subTest(name=name):
+                p = gt.fixture(name)
+                p["decision"]["firstRelease"] = True
+                u = p["decision"]["updates"][0]
+                u.update(initialOnly=True, oldRef=u["ref"], oldVersion=u["version"])
+                p["pr_files"] = [{"filename": "config/initial-release-candidate.json",
+                                  "status": "added"}]
+                source = p["ext"]["upstream"]
+                p["first_release_document"] = {
+                    "schemaVersion": 1, "kind": "FIRST_RELEASE_PINNED_SOURCE",
+                    "extension": name, "repository": "pgextwin/" + name,
+                    "releasePolicy": "manual-only", "candidateId": "f" * 20,
+                    "source": {k: source[k] for k in
+                               ("repository", "ref", "version", "commit")},
+                }
+                receipt = g.verify(**p)
+                self.assertEqual(receipt["authorizationMode"], "manual-dispatch")
+                self.assertEqual(receipt["repository"], "pgextwin/" + name)
+                self.assertEqual(receipt["candidateRunId"], 900)
+                self.assertEqual(receipt["decisionRunId"], 901)
+                self.assertEqual(receipt["majors"], [14, 15, 16, 17, 18])
+                for mutation in ("central", "local", "publish", "bot", "intent",
+                                 "source", "file", "major", "upstream"):
+                    bad = copy.deepcopy(p)
+                    if mutation == "central":
+                        bad["policy"]["allowedRepositories"] = []
+                    elif mutation == "local":
+                        bad["local"]["enabled"] = False
+                    elif mutation == "publish":
+                        bad["confirmation"] = "UPDATE"
+                    elif mutation == "bot":
+                        bad["actor"] = "github-actions[bot]"
+                    elif mutation == "intent":
+                        bad["first_release_document"] = None
+                    elif mutation == "source":
+                        bad["first_release_document"]["source"]["commit"] = "1" * 40
+                    elif mutation == "file":
+                        bad["pr_files"].append(
+                            {"filename": ".github/workflows/promote.yml",
+                             "status": "modified"})
+                    elif mutation == "major":
+                        bad["audit"]["majors"][0]["status"] = "FAILED"
+                    else:
+                        bad["ext"]["upstream"]["repository"] = "untrusted/repo"
+                    with self.subTest(name=name, mutation=mutation):
+                        with self.assertRaises((g.Denied, g.ident.Denied)):
+                            g.verify(**bad)
+
+    def test_three_live_policies_still_require_future_explicit_opt_in(self):
+        import json
+        central = json.loads(
+            (ROOT / "metadata/release-promotion.json").read_text(encoding="utf-8"))
+        self.assertEqual(central["releasePolicy"], "manual-dispatch")
+        for name in ("pgtap", "pg_variables", "pg_store_plans"):
+            self.assertNotIn("pgextwin/" + name, central["allowedRepositories"])
+
 if __name__=="__main__":
     unittest.main()
