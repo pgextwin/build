@@ -55,6 +55,9 @@ jobs:
       - name: Validate 14-extension manual promotion candidate authorization
         run: python tests/test-fleet-promotion-gate.py
 
+      - name: Validate shared four-extension manual signed promotion contract
+        run: python tests/test-shared-manual-promotion.py
+
       - name: Validate inert Chat PR authorization and hostile merge/event fixtures
         run: python tests/test-chat-pr-authorization.py
 
