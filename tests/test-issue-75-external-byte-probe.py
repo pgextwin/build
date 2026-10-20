@@ -13,6 +13,14 @@ ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location(
     "issue75_external",ROOT/"tests/fixtures/historical-scripts/issue-75-external-byte-probe.py")
 p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+# Keep the historical implementation byte-identical. Its original relative
+# evidence paths were anchored at scripts/; rebasing them in the offline test
+# avoids changing frozen witness logic or weakening negative assertions.
+p.ROOT = ROOT
+p.PLAN = ROOT / "evidence/issue-75/external-byte-probe-plan-20261017.json"
+p.ROOT_RECORD = ROOT / "evidence/issue-75/action-roots-signer-hardening-20261017.json"
+p.PG = ROOT / "metadata/postgresql.json"
+p.OBSERVED = ROOT / "evidence/issue-75/external-public-byte-observed-39034789275.json"
 def records():
     return p.load(p.PLAN),p.load(p.ROOT_RECORD),p.load(p.PG)
 def check(a=None):
