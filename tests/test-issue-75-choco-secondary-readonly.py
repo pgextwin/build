@@ -101,7 +101,7 @@ class HostileFixtureTests(TestCase):
         with self.assertRaises(p.Deny):
             p.double_read_package("kb2999226","latest",lambda *args:b"")
     def test_static_job_includes_microsoft_and_kb_without_execution(self):
-        wf=(ROOT/".github/workflows/validate.yml").read_text()
+        wf=(ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         start=wf.index("  issue75_secondary_chocolatey_readonly:")
         end=wf.index("\n  existing_signed_release_readonly:",start)
         sec=wf[start:end]
@@ -134,7 +134,7 @@ class HostileFixtureTests(TestCase):
         self.assertEqual(t["literalDownloadURLs"],{})
         self.assertFalse(q["fullPackageRuntimeDependencyClosure"])
     def test_third_level_source_uses_only_lightweight_archives(self):
-        wf=(ROOT/".github/workflows/validate.yml").read_text()
+        wf=(ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         sec=wf.split("  issue75_secondary_chocolatey_readonly:",1)[1]
         sec=sec.split("\n  existing_signed_release_readonly:",1)[0]
         self.assertIn("--mode further",sec)
@@ -142,7 +142,7 @@ class HostileFixtureTests(TestCase):
         self.assertNotIn("install ",sec)
 
     def test_workflow_job_isolated_and_no_write(self):
-        wf=(ROOT/".github/workflows/validate.yml").read_text()
+        wf=(ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         start=wf.index("  issue75_secondary_chocolatey_readonly:")
         end=wf.index("\n  existing_signed_release_readonly:",start)
         job=wf[start:end]
