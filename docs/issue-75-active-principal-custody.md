@@ -1,3 +1,11 @@
+## 2026-10-20 live current-main drift repair (no gate waiver)
+
+On the protected merge of PR #153, the original three-job principal-boundary workflow [Run39362171745](https://github.com/pgextwin/build/actions/runs/39362171745) exposed a genuine stale-header bug in this **historical** active-source witness. Its Reader first succeeded with `READER_GET4_NEGATIVE_ONLY`; the two independently separated inert Signer and Writer jobs were both SUCCESS with `inertProcessCredentialKeysAbsent=true`. But the additional active-source Reader then returned `DENY_UNPROVEN_ACTIVE_PINNED_PRINCIPALS`: it was incorrectly requiring `pgextwin/plpgsql_check/main` to equal the **old historical pilot anchor** `98452723fcad2aedafb1c02a210f35950f7e8cf2`. Current protected main had advanced to `a89d2e150765c42d447acee1ce04b7f114c4815a` while its actual `promote.yml` Git Blob **remained exactly** `3ae586814b063fefa5c3a554758f13467bb23ea5` and its historical Signer/Publisher references remained unchanged. The first Run FAILURE is retained, not marked SUCCESS.
+
+Minimal correction: the witness now GETs *current* protected main, then GETs `promote.yml` pinned to that exact current SHA; repeats both and rejects HEAD/source divergence. The prior pilot anchor SHA is recorded separately as historical, not used to reject a legitimate later current-main HEAD. Still require the same exact approved `3ae586...` Git Blob and exact legacy `@5756b3c5...` Signer and `455f0ccc...` Publisher identities, old five-checkout Signer gap and `github.token` Writer ambiguity. Updated hostile tests exercise legitimate current-main movement *without source change*, source tampering and second-GET race.
+
+This does **not** authorize the advanced pilot main's new candidates, change any signed workflow, prove independent Reader/Signer/Writer or mark any release gate GO. It merely restores accurate negative-only source observation for a mutable branch whose immutable workflow bytes remain unchanged. If its actual promotion source changes, the witness still fails closed and requires separate review.
+
 # Issue #75 — Active pinned Signer/Publisher source custody GET-only (2026-10-18)
 
 ## Scope: negative runtime-source observation, never authenticated three-principal acceptance
