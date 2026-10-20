@@ -23,6 +23,23 @@ The existing workflow has `permissions: {}` at the root, no `needs`, no job `out
 
 This is still **not sufficient to certify** real Writer identity or real Signer/Writer separation: actual app owner/private-key custody, target-limited installation, credential non-propagation, authenticated denial of undesired repo access, token TTL and remote revoke must be verified by an independently trusted private execution boundary. An installation token's GET response is evidence of its requested repository scope; it is not an independent assertion about the user's role or human PUBLISH authority. Explicit target-limited human PUBLISH and actual signed positive prewrite remain mandatory.
 
+## 2026-10-20 pre-mint repository identity pins (further negative hardening)
+
+Fresh unauthenticated/public REST GETs on `https://api.github.com/repos/<owner>/<name>` rechecked actual repository identities (not repository display strings alone). The private-only Writer probe now rejects a supplied wrong numeric repository ID **before any JWT request, test-token POST or other transport**.
+
+| Exact allowed repo | GitHub immutable repository ID |
+|---|---:|
+| `pgextwin/pgtap` | `1425678353` |
+| `pgextwin/pg_variables` | `1425679720` |
+| `pgextwin/pg_store_plans` | `1425680909` |
+| Legacy pilot `pgextwin/plpgsql_check` | `1410581312` |
+
+A renamed, transferred, deleted or recreated repository may preserve a name while its GitHub repository ID changes: do **not** reissue a token against an unfamiliar new ID. Instead a separately reviewed protected PR must deliberately update the exact pin after independent ownership/security review. The Catalog, Website, central build and unrelated repository IDs are not authorized Writer destinations. Existing all-three release promotion and PUBLISH remain disabled.
+
+The actual GitHub REST POST access-token helper now sends `Content-Type: application/json` explicitly, rather than relying on urllib's form-encoded default for a bytes request body. Offline hostile tests assert the exact POST wire format and ensure malformed authorization payloads, wrong/swapped numeric repo IDs, and mismatched minted/listed repository IDs deny without a network request (for preflight errors) or without publication authority (for post-mint errors). No App JWT or installation token was minted in CI.
+
+This pinned identity evidence is a necessary preauthorization check, **not** proof of the independently owned GitHub App ID or private-key custody, active token scope, unrelated token denial, revocation against GitHub, actual Reader/Signer/Writer credential separation, signed Publisher prewrite, or a valid PUBLISH instruction.
+
 ## Acceptance and follow-up
 
 - **Negative runtime:** the three trusted-main jobs must complete and their raw logs must show `READER_GET4_NEGATIVE_ONLY`, `SIGNER_UNPROVISIONED_NO_WRITE`, `WRITER_UNPROVISIONED_NO_WRITE` with process credential key absence for two inert roles, and all GO flags NO_GO. Main-only path trigger is unchanged; tests prove no cross-job outputs/caches/artifacts/Secrets or credential-bearing permissions.
