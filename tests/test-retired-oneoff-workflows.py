@@ -59,6 +59,34 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertIn("python tests/test-issue-75-private-principal-runtime.py", live)
         self.assertNotIn("pull_request_target:", live)
 
+    def test_unused_vm_experiments_are_not_executable(self):
+        # These five reports never held publication authority; Git history and
+        # the original evidence/docs remain, but runtime experiments are retired.
+        stems = (
+            "issue-75-private-runtime-readiness",
+            "issue-75-work-gui-readiness",
+            "issue-75-private-runtime-options",
+            "issue-75-external-writer-preboot",
+            "issue-75-windows-host-assessment",
+        )
+        live = (WF / "validate.yml").read_text(encoding="utf-8")
+        for stem in stems:
+            with self.subTest(stem=stem):
+                self.assertFalse((ROOT / "scripts" / (stem + ".py")).exists())
+                self.assertFalse((ROOT / "tests" / ("test-" + stem + ".py")).exists())
+                self.assertNotIn(stem + ".py", live)
+        # No release trust elevation and none of the active admission tests
+        # disappear as a side effect of cleanup.
+        for path in ("tests/test-issue-75-private-principal-runtime.py",
+                     "tests/test-issue-75-real-principal-acceptance.py",
+                     "tests/test-issue-75-main-publisher-guard.py",
+                     "tests/test-fleet-promotion-policy.py",
+                     "scripts/fleet-promotion-gate.py",
+                     "scripts/fleet-publish-release.py"):
+            self.assertTrue((ROOT / path).is_file())
+        self.assertIn("python tests/test-fleet-promotion-gate.py", live)
+        self.assertIn("python tests/test-issue-75-real-principal-acceptance.py", live)
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",

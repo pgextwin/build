@@ -170,31 +170,6 @@ jobs:
       - name: Validate Issue75 create-only local prewrite seal and fsync quarantine (NOT Publisher)
         run: python tests/test-issue-75-durable-prewrite-seal.py
 
-      - name: Validate Issue75 connected private-executor GET-only inventory and fail-closed readiness
-        run: |
-          python tests/test-issue-75-private-runtime-readiness.py
-          python scripts/issue-75-private-runtime-readiness.py --mode static
-
-      - name: Validate Issue75 Work GUI reported isolation gaps and negative-only admission
-        run: |
-          python tests/test-issue-75-work-gui-readiness.py
-          python scripts/issue-75-work-gui-readiness.py --mode static
-
-      - name: Validate Issue75 private runtime architecture/authorization fail-closed contract
-        run: |
-          python tests/test-issue-75-private-runtime-options.py
-          python scripts/issue-75-private-runtime-options.py --mode static
-
-      - name: Validate Issue75 external private Writer credentialless preboot and cost hostile contract
-        run: |
-          python tests/test-issue-75-external-writer-preboot.py
-          python scripts/issue-75-external-writer-preboot.py --mode static
-
-      - name: Validate Issue75 Windows 11 host read-only candidate triage and no-secrets hostile contract
-        run: |
-          python tests/test-issue-75-windows-host-assessment.py
-          python scripts/issue-75-windows-host-assessment.py --mode analyze --facts tests/fixtures/issue-75-windows-host-synthetic.json
-
       - name: Validate Issue75 Signer checkout-hardening candidate and pinned Action root inventory
         run: |
           python tests/test-issue-75-signer-hardening.py
