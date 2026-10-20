@@ -255,6 +255,7 @@ def observe_first_candidate(env, event, api, run, branch):
 def observe_merged_first_candidate(env, event, api, run, branch):
     """Observe a bot candidate merged to main, without granting publication."""
     repo, sha = env["GITHUB_REPOSITORY"], env["GITHUB_SHA"]
+    need(branch.get("protected") is True)
     need(env["GITHUB_EVENT_NAME"] == "push"
          and env.get("GITHUB_REF") == event.get("ref") == "refs/heads/main"
          and run.get("head_sha") == event.get("after") == sha
