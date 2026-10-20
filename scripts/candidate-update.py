@@ -253,15 +253,33 @@ def recover_failed_first_release(record, repository, proposal_file, proposal, ma
     require(bool(HEX_SHA.fullmatch(main_sha)), "missing exact main SHA")
     require(len(prs) == 1 and len(runs) == 1 and bool(remote),
             "one existing owned PR and one failed historical dispatch required")
-    pr, failed = prs[0], runs[0]
-    original = pr.get("headRefOid")
+    listed, failed = prs[0], runs[0]
     branch = record["branch"]
-    require(pr.get("state") == "OPEN" and pr.get("isDraft") is True
-            and (pr.get("author") or {}).get("login") == "github-actions[bot]"
-            and pr.get("headRefName") == branch and pr.get("baseRefName") == "main"
-            and marker in (pr.get("body") or "") and
-            bool(HEX_SHA.fullmatch(str(original))),
-            "candidate PR ownership, branch, draft or HEAD changed")
+    number = listed.get("number")
+    require(type(number) is int and number > 0 and listed.get("state") == "OPEN"
+            and marker in (listed.get("body") or ""),
+            "listed candidate PR missing or lacks automation marker")
+    # gh pr list uses the GitHub GraphQL Actor login (which can differ from
+    # REST bot login). Never infer repository bot identity from that display
+    # field. Read authoritative PR metadata via authenticated, read-only REST.
+    pr = json.loads(execute("gh", "api", "repos/" + repository + "/pulls/" + str(number)))
+    head, base, actor = (pr.get("head") or {}), (pr.get("base") or {}), (pr.get("user") or {})
+    original = head.get("sha")
+    require(type(pr) is dict and pr.get("number") == number
+            and pr.get("state") == "open" and pr.get("draft") is True
+            and pr.get("merged") is not True and actor.get("type") == "Bot"
+            and actor.get("login") == "github-actions[bot]"
+            and head.get("ref") == branch and (head.get("repo") or {}).get("full_name") == repository
+            and base.get("ref") == "main" and (base.get("repo") or {}).get("full_name") == repository
+            and marker in (pr.get("body") or "") and bool(HEX_SHA.fullmatch(str(original))),
+            "REST candidate PR ownership, branch, draft or HEAD changed")
+    # Cross-check the one CLI listing's branch and head if supplied, but its
+    # GraphQL author.login is *not* a stable REST bot identity.
+    require(listed.get("headRefOid") in (None, original)
+            and listed.get("headRefName") in (None, branch)
+            and listed.get("baseRefName") in (None, "main")
+            and listed.get("isDraft") in (None, True),
+            "CLI PR listing and REST HEAD/branch disagree")
     require(re.fullmatch(re.escape(original) + r"\s+refs/heads/" + re.escape(branch), remote.strip()),
             "remote candidate HEAD differs from bot PR; no overwrite")
     require(type(failed) is dict and type(failed.get("databaseId")) is int
@@ -271,6 +289,19 @@ def recover_failed_first_release(record, repository, proposal_file, proposal, ma
             and failed.get("conclusion") == "failure"
             and failed.get("headSha") == original,
             "only a genuine failed exact-HEAD dispatch may be recovered")
+    verified_run = json.loads(execute("gh", "api", "repos/" + repository +
+                                      "/actions/runs/" + str(failed["databaseId"])))
+    require(type(verified_run) is dict and verified_run.get("id") == failed["databaseId"]
+            and verified_run.get("event") == "workflow_dispatch"
+            and verified_run.get("status") == "completed"
+            and verified_run.get("conclusion") == "failure"
+            and verified_run.get("run_attempt") == 1
+            and verified_run.get("head_sha") == original
+            and verified_run.get("head_branch") == branch
+            and verified_run.get("path") == ".github/workflows/windows.yml"
+            and (verified_run.get("actor") or {}).get("login") == "github-actions[bot]"
+            and (verified_run.get("repository") or {}).get("full_name") == repository,
+            "REST failed candidate Run identity or immutable conclusion mismatch")
     main = json.loads(execute("gh", "api", "repos/" + repository + "/branches/main"))
     require(type(main) is dict and main.get("protected") is True and
             (main.get("commit") or {}).get("sha") == main_sha,
