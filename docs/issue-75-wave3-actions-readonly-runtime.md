@@ -21,6 +21,18 @@ The existing main/push-only GitHub-hosted read-only Action now performs **two in
 
 The recent #150 central Signer `main` source hardening is deliberately **not** an active Promotion caller repin: all three existing promote workflows still reference the historic immutable `@5756b3c5...` source. A future positive signed prewrite and controlled repin must have their own accepted real evidence before privilege enablement. No local Promotion is enabled by this test.
 
+### Immutable exact-source acceptance (follow-up)
+
+The preceding source predicates are now **supplemented by three independent literal Git Blob SHA pairs**, recorded from the actual authenticated main/push [Run39359805926](https://github.com/pgextwin/build/actions/runs/39359805926), job 118423070280, after the protected #151 merge. Those *GitHub-returned original bytes* were independently hashed by the observer. No source SHA is accepted merely because its YAML/JSON contains a matching phrase.
+
+| Target | promote.yml Git Blob | release-promotion.json Git Blob |
+|---|---|---|
+| pgtap | `d8b2ffe43633831cd7f00dcec2135fbed18eb04a` | `fc354ed9c66fe00b539ba02e0b873b9280e42f90` |
+| pg_variables | `88b7c3131ddf0a667b4947261cf5cf69bc3fe087` | `fc354ed9c66fe00b539ba02e0b873b9280e42f90` |
+| pg_store_plans | `1d4280f7fd1f269a27400b3355feb5845f9ed02b` | `fc354ed9c66fe00b539ba02e0b873b9280e42f90` |
+
+A changed policy or promotion workflow — *including a harmless comment or reformat* — intentionally breaks this negative-only job until a subsequent separately reviewed protected main PR updates the exact accepted baseline. Such breakage is a request for reinspection, not permission to waive a failed run or repin the Publisher. The unit tests use distinct synthetic Blob hashes supplied as a test argument; the production entrypoint always uses these literal real observed baseline pins. The baseline comes from prior read-only attested job logs, **not independent signed authority over effective GitHub administrative protections or Signer/Writer credentials**.
+
 ## Current observed permission boundary
 
 From Work's authenticated GUI report at Issue #75 comment 6280683046:

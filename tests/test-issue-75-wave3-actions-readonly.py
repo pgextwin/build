@@ -88,6 +88,23 @@ def fixture():
             m.PROMOTION_FILES[1], POLICY)
     return data
 
+def fixture_pins():
+    data = fixture()
+    return {
+        repo: {
+            "workflowBlob": data[(repo, "contents/" + m.PROMOTION_FILES[0] +
+                                   "?ref=" + sha)]["sha"],
+            "policyBlob": data[(repo, "contents/" + m.PROMOTION_FILES[1] +
+                                 "?ref=" + sha)]["sha"],
+        }
+        for repo, sha in HEADS.items()
+    }
+
+def inspect(env, api):
+    # Synthetic data never supplies production accepted Git Blob identities.
+    # Actual main() keeps the independent immutable live-evidence constants.
+    return m.inspect(env, api, expected_blobs=fixture_pins())
+
 class Fake:
     def __init__(self, responses):
         self.responses = deepcopy(responses)
@@ -106,7 +123,7 @@ class Fake:
 class NegativeWitness(unittest.TestCase):
     def test_three_realistic_synthetic_rosters_are_always_deny(self):
         api = Fake(fixture())
-        report = m.inspect(ENV, api)
+        report = inspect(ENV, api)
         self.assertEqual(report["classification"], "LIVE_THREE_TARGET_METADATA_NEGATIVE_ONLY")
         self.assertEqual(len(report["targets"]), 3)
         self.assertEqual(len(api.calls), 2 + 3 * 10)
@@ -114,6 +131,7 @@ class NegativeWitness(unittest.TestCase):
                             t["successfulExactHeadWindowsMajors"] == [14,15,16,17,18] and
                             t["disabledManualPromotionPolicyObserved"] is True and
                             t["legacySignerPublisherPinsObserved"] is True and
+                            t["exactHistoricalPromotionBlobPinsObserved"] is True and
                             t["independentWriterProvisionedByThisWorkflow"] is False
                             for t in report["targets"]))
         for key in ("publishableReceipt", "publicationAuthorized",
@@ -129,7 +147,7 @@ class NegativeWitness(unittest.TestCase):
         data = fixture()
         data[("pgextwin/pgtap", "releases?per_page=1")] = [
             {"tag_name": "synthetic-only", "published_at": "fixture"}]
-        out = m.inspect(ENV, Fake(data))
+        out = inspect(ENV, Fake(data))
         self.assertTrue(out["targets"][0]["publicReleasePresent"])
         self.assertFalse(out["publicationAuthorized"])
 
@@ -141,7 +159,7 @@ class NegativeWitness(unittest.TestCase):
                         {"GITHUB_SHA": "main"}):
             env = dict(ENV, **changes)
             with self.subTest(changes=changes), self.assertRaises(m.Deny):
-                m.inspect(env, Fake(fixture()))
+                inspect(env, Fake(fixture()))
 
     def test_tamper_release_or_windows_exact_head_denied(self):
         for corruption in ("wrongApp", "wrongHead", "skipped", "missing18",
@@ -169,7 +187,7 @@ class NegativeWitness(unittest.TestCase):
             else:
                 data[(repo, "branches/main")]["protected"] = False
             with self.subTest(corruption=corruption), self.assertRaises(m.Deny):
-                m.inspect(ENV, Fake(data))
+                inspect(ENV, Fake(data))
 
     def test_tamper_double_get_or_head_race_denied(self):
         for fault in ("target-head", "checks", "releases", "build-head"):
@@ -190,7 +208,61 @@ class NegativeWitness(unittest.TestCase):
                 return None
             api.mutate = change
             with self.subTest(fault=fault), self.assertRaises(m.Deny):
-                m.inspect(ENV, api)
+                inspect(ENV, api)
+
+    def test_production_expected_blobs_are_fresh_authenticated_live_run_ids(self):
+        self.assertEqual(m.EXPECTED_PROMOTION_BLOBS, {
+            "pgextwin/pgtap": {
+                "workflowBlob": "d8b2ffe43633831cd7f00dcec2135fbed18eb04a",
+                "policyBlob": "fc354ed9c66fe00b539ba02e0b873b9280e42f90"},
+            "pgextwin/pg_variables": {
+                "workflowBlob": "88b7c3131ddf0a667b4947261cf5cf69bc3fe087",
+                "policyBlob": "fc354ed9c66fe00b539ba02e0b873b9280e42f90"},
+            "pgextwin/pg_store_plans": {
+                "workflowBlob": "1d4280f7fd1f269a27400b3355feb5845f9ed02b",
+                "policyBlob": "fc354ed9c66fe00b539ba02e0b873b9280e42f90"},
+        })
+        for repo in m.TARGETS:
+            self.assertNotEqual(
+                fixture_pins()[repo]["workflowBlob"],
+                m.EXPECTED_PROMOTION_BLOBS[repo]["workflowBlob"])
+
+    def test_lookalike_policy_or_workflow_with_correct_text_fails_exact_blob(self):
+        f=fixture()
+        for item, variant in (
+            (m.PROMOTION_FILES[0], PROMOTION+"\n# synthetically modified\n"),
+            (m.PROMOTION_FILES[1],
+             POLICY.decode().replace('"enabled":false','"enabled":false ')+"\n"),
+        ):
+            with self.subTest(path=item):
+                data=deepcopy(f)
+                repo="pgextwin/pgtap"
+                key=(repo,"contents/"+item+"?ref="+HEADS[repo])
+                data[key]=content_record(item,variant)
+                # Even if text policy source parser accepts, a trusted
+                # previously pinned digest cannot be replaced by a new hash.
+                self.assertTrue(
+                    m.promotion_workflow(variant.encode()) if item.endswith(".yml")
+                    else m.promotion_policy(variant.encode()))
+                with self.assertRaises(m.Deny):
+                    m.inspect(ENV, Fake(data), expected_blobs=fixture_pins())
+
+    def test_wrong_expected_pins_fail_closed_even_with_matching_files(self):
+        p=fixture_pins()
+        for wrong in ("wrongRepo","wrongBlob","extra","missing","bool"):
+            copies=deepcopy(p)
+            if wrong=="wrongRepo":
+                copies["pgextwin/other"]=copies.pop("pgextwin/pgtap")
+            elif wrong=="wrongBlob":
+                copies["pgextwin/pgtap"]["policyBlob"]="0"*40
+            elif wrong=="extra":
+                copies["pgextwin/pgtap"]["token"]="attacker"
+            elif wrong=="missing":
+                del copies["pgextwin/pgtap"]["policyBlob"]
+            else:
+                copies["pgextwin/pgtap"]["policyBlob"]=True
+            with self.subTest(wrong=wrong), self.assertRaises(m.Deny):
+                m.inspect(ENV, Fake(fixture()), expected_blobs=copies)
 
     def test_current_synthetic_manual_promotion_policy_source_validator(self):
         self.assertTrue(m.promotion_policy(POLICY))
@@ -264,10 +336,10 @@ class NegativeWitness(unittest.TestCase):
                     return None
                 api.mutate = change
                 with self.subTest(kind=kind), self.assertRaises(m.Deny):
-                    m.inspect(ENV, api)
+                    inspect(ENV, api)
                 continue
             with self.subTest(kind=kind), self.assertRaises((m.Deny,KeyError)):
-                m.inspect(ENV, Fake(data))
+                inspect(ENV, Fake(data))
 
     def test_base64_transport_git_blob_and_lf_exactness(self):
         doc = content_record(m.PROMOTION_FILES[1], POLICY)

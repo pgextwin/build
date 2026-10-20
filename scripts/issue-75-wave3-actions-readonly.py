@@ -31,6 +31,24 @@ HISTORICAL_PUBLISHER = "455f0ccc667697f600700a6e64bcfd6c57b6a977"
 PROMOTION_FILES = (".github/workflows/promote.yml",
                    "config/release-promotion.json")
 MAX_PROMOTION_FILE = 64_000
+# Independently recorded from the authenticated successful 39359805926
+# main/push job's actual original-byte GETs, not supplied by target workflows.
+# Changing a target's promotion file requires a separately reviewed protected
+# update to this negative-only observer; a text lookalike is not sufficient.
+EXPECTED_PROMOTION_BLOBS = {
+    "pgextwin/pgtap": {
+        "workflowBlob": "d8b2ffe43633831cd7f00dcec2135fbed18eb04a",
+        "policyBlob": "fc354ed9c66fe00b539ba02e0b873b9280e42f90",
+    },
+    "pgextwin/pg_variables": {
+        "workflowBlob": "88b7c3131ddf0a667b4947261cf5cf69bc3fe087",
+        "policyBlob": "fc354ed9c66fe00b539ba02e0b873b9280e42f90",
+    },
+    "pgextwin/pg_store_plans": {
+        "workflowBlob": "1d4280f7fd1f269a27400b3355feb5845f9ed02b",
+        "policyBlob": "fc354ed9c66fe00b539ba02e0b873b9280e42f90",
+    },
+}
 
 class Deny(ValueError):
     pass
@@ -193,7 +211,7 @@ def promotion_boundary(api, repo, head):
         "legacyPublisherRef": HISTORICAL_PUBLISHER,
     }
 
-def inspect(env, api):
+def inspect(env, api, expected_blobs=EXPECTED_PROMOTION_BLOBS):
     need(env.get("GITHUB_REPOSITORY") == BUILD and
          env.get("GITHUB_EVENT_NAME") == "push" and
          env.get("GITHUB_REF") == "refs/heads/main" and
@@ -202,6 +220,7 @@ def inspect(env, api):
     need(type(source) is str and SHA.fullmatch(source) is not None)
     own_a, sha_a = checked_main(BUILD, api)
     need(sha_a == source)
+    need(type(expected_blobs) is dict and set(expected_blobs) == set(TARGETS))
     result = []
     for repo in TARGETS:
         branch_a, head_a = checked_main(repo, api)
@@ -210,6 +229,12 @@ def inspect(env, api):
         releases = api.get(repo, "releases?per_page=1")
         need(type(releases) is list and len(releases) <= 1)
         promotion_a = promotion_boundary(api, repo, head_a)
+        expected = expected_blobs[repo]
+        need(type(expected) is dict and
+             set(expected) == {"workflowBlob", "policyBlob"} and
+             all(type(v) is str and SHA.fullmatch(v) for v in expected.values()) and
+             promotion_a["workflowBlob"] == expected["workflowBlob"] and
+             promotion_a["policyBlob"] == expected["policyBlob"])
         # Second independent GET: reject HEAD movement or protection/check drift.
         branch_b, head_b = checked_main(repo, api)
         need(head_b == head_a and branch_a == branch_b)
@@ -218,7 +243,9 @@ def inspect(env, api):
         releases_b = api.get(repo, "releases?per_page=1")
         need(releases_b == releases)
         promotion_b = promotion_boundary(api, repo, head_b)
-        need(promotion_b == promotion_a)
+        need(promotion_b == promotion_a and
+             promotion_b["workflowBlob"] == expected["workflowBlob"] and
+             promotion_b["policyBlob"] == expected["policyBlob"])
         result.append({
             "repository": repo, "mainSha": head_a,
             "protectedMainObserved": True,
@@ -228,6 +255,7 @@ def inspect(env, api):
             "publicReleasePresent": bool(releases),
             "disabledManualPromotionPolicyObserved": True,
             "legacySignerPublisherPinsObserved": True,
+            "exactHistoricalPromotionBlobPinsObserved": True,
             "promotionPolicyBlob": promotion_a["policyBlob"],
             "promotionWorkflowBlob": promotion_a["workflowBlob"],
             "independentWriterProvisionedByThisWorkflow": False,
