@@ -21,6 +21,41 @@ The dormant `authenticated_call()` now independently validates every installatio
 
 Synthetic adversarial tests prove only this local no-network POST guard, not real GitHub App possession, private custody, actual live mint/revoke, or a durable replay/UNKNOWN quarantine journal. No runner, permissions, App installation, human PUBLISH or Release is enabled. GO B/G4/G5 remain NO_GO; publication remains DENY.
 
+## 2026-10-20 Work GUI App inventory: explicit pre-JWT exclusion, no new rights
+
+User-completed authenticated Work GUI **GET-only** audit reported these existing
+pgextwin App principals (not a live independent Writer attestation):
+
+| App ID | Work-observed role | Writer status |
+| --- | --- | --- |
+| 15368 | GitHub Actions required-check issuer | Not an independent Writer |
+| 5295410 | `pgextwin-classic-protection-audit`, installation 170837728, selected `plpgsql_check` only, Administration READ / Metadata READ | Read-only protection auditor; no Contents WRITE |
+| 5281285 | `pgextwin-catalog-proposer`, installation 170516730, selected `catalog` only, Contents WRITE / Pull requests WRITE / Metadata READ | Preserve Catalog role; not isolated Wave3 Writer |
+| 5250206 | `pgextwin-catalog-dispatcher`, **not installed**, Actions WRITE / Metadata READ, no Contents WRITE | Conditional conversion candidate **only after separate owner authorization** |
+
+The dormant private Writer `probe()` now rejects each known-ineligible App ID
+**before any authenticated JWT GET or token-mint POST**. The guard does **not**
+approve any other App ID: mocks passing the source contract are not an App
+ownership/permission/custody or release proof. A separately approved conversion
+of the dormant dispatcher (or a new purpose-built Writer) requires a reviewed
+change to this explicit deny baseline **after** actual independently governed
+identity, selected installation, minimum permissions, key storage and protected
+executor are established. Do not silently treat a changed UI configuration
+as permission to mint credentials. The Work report observed no dedicated Writer
+Environment across 21 pgextwin repositories; this does not prove external
+private-host absence.
+
+The owner-authenticated GUI reported that Classic main rules on
+`pgtap` (85048421), `pg_variables` (85048594) and `pg_store_plans`
+(85048748) require PR/strict App15368 summary and disallow administrator
+bypass/force push/deletion; Rulesets are absent. This is **GUI-observed**
+protection, **not** an Administration:read authenticated App GET (the normal
+Chat connector still returns HTTP403 for Classic rules). No Secrets,
+installation grants, Rulesets, branch rules, environment, runner or Release
+were changed.
+
+**GO B/G4/G5 = NO_GO, PUBLISH = DENY, Wave3 formal Releases = 0/3.**
+
 ## Smallest viable authenticated GitHub Actions-only future route (not enabled)
 
 1. **Reader:** retain existing main-only, no-write `issue-75-wave3-actions-readonly.yml`. Job token `contents:read` only, checkout `persist-credentials:false`. Send only trusted run/attempt/source SHA/digest metadata, never a bearer, JWT, OIDC token or key.

@@ -36,8 +36,16 @@ TARGET_REPO_IDS = {
 assert set(TARGET_REPO_IDS) == ALLOWED_TARGETS
 assert len(set(TARGET_REPO_IDS.values())) == len(TARGET_REPO_IDS)
 OWNER = "pgextwin"
-# GitHub Actions App resolver / job token cannot be the independent Writer.
-NON_WRITER_APP_IDS = frozenset((15368,))
+# Explicit DENY for known existing NON-Writer principals. Work's 2026-10-20
+# authenticated GUI audit observed the three pgextwin-owned App IDs below.
+# None is currently authorized as an independent third-wave Writer:
+# 5295410: Classic protection Administration READ (plpgsql_check only)
+# 5281285: Catalog proposer (catalog only, PR WRITE overgrant)
+# 5250206: dormant catalog dispatcher (not installed, Actions WRITE)
+# 15368: GitHub Actions required-check publisher / job token.
+# Dispatcher repurposing is NOT implicit authorization. A separately approved
+# identity/permission change must first update this protected source pin.
+NON_WRITER_APP_IDS = frozenset((15368, 5295410, 5281285, 5250206))
 MINIMAL_WRITER_PERMISSIONS = (
     {"contents": "write"}, {"contents": "write", "metadata": "read"})
 REPO_NAME = "plpgsql_check"
