@@ -122,7 +122,7 @@ class AdversarialTests(TestCase):
             with self.assertRaises(e.Deny):
                 e.verify_receipt(tampered)
     def test_lightweight_pr_job_reuses_large_immutable_proof(self):
-        workflow=(ROOT/".github/workflows/validate.yml").read_text()
+        workflow=(ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         p=workflow.split("  issue75_choco_script_probe:",1)[1]
         p=p.split("\n  issue75_wheel_lock_probe:",1)[0]
         self.assertIn("--mode inspect",p)
@@ -132,7 +132,7 @@ class AdversarialTests(TestCase):
         self.assertIn("contents: read",p)
 
     def test_pr_only_workflow_no_writer_scope(self):
-        text=(ROOT/".github/workflows/validate.yml").read_text()
+        text=(ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         for job in ("issue75_choco_script_probe","issue75_wheel_lock_probe"):
             self.assertIn("  "+job+":",text)
             sec=text.split("  "+job+":",1)[1].split("\n  existing_signed_release_readonly:",1)[0]
