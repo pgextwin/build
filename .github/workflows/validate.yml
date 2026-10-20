@@ -203,6 +203,9 @@ jobs:
       - name: Validate Step 20 aggregated fleet status fixtures
         run: python tests/test-fleet-status.py
 
+      - name: Validate daily 17-extension stable upstream audit (GET only)
+        run: python tests/test-fleet-upstream-watch.py
+
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
