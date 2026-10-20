@@ -201,9 +201,10 @@ class AuditorMintTests(TestCase):
             fake=Fake(models=data)
             with self.subTest(i=i),self.assertRaises(a.Deny):
                 fake.run()
-            if type(data[2].get("token")) is str:
+            if data[2].get("token") == TOKEN:
                 self.assertTrue(fake.revoked)
             else:
+                # Invalid/untrusted token cannot be silently counted as revoked.
                 self.assertFalse(fake.revoked)
 
     def test_denied_revoke_even_if_composite_passes(self):
