@@ -51,9 +51,9 @@ class RetiredWorkflows(unittest.TestCase):
         )
         for job in dead:
             with self.subTest(job=job):
-                self.assertNotIn("\\n  " + job + ":", live)
-                self.assertIn("\\n  " + job + ":", fixture)
-        self.assertIn("  resolver:\\n", live)
+                self.assertNotIn("\n  " + job + ":", live)
+                self.assertIn("\n  " + job + ":", fixture)
+        self.assertIn("  resolver:\n", live)
         self.assertIn("python tests/test-fleet-promotion-gate.py", live)
         self.assertIn("python tests/test-publish-release.py", live)
         self.assertIn("python tests/test-issue-75-private-principal-runtime.py", live)
