@@ -266,9 +266,10 @@ for required in (
     if required not in generator:
         errors.append(f"generate-sbom.ps1: missing canonical source/SBOM setting: {required}")
 
-release_workflow = WORKFLOW_DIR / "release-extension.yml"
+# Keep historical create-only contract checks without an executable old Release route.
+release_workflow = Path("tests/fixtures/historical-workflows/release-extension.yml")
 if not release_workflow.exists():
-    errors.append("release-extension.yml: dedicated release reusable workflow is required")
+    errors.append("archived release-extension.yml: required historical fixture missing")
 else:
     release_text = release_workflow.read_text(encoding="utf-8")
 
@@ -361,7 +362,7 @@ for watch_path in (extension_watch, postgres_watch):
         if "${args[@]}" not in watch_text:
             errors.append(f"{watch_path.name}: shell argv array expansion is required")
 
-for build_name in ("build-extension.yml", "build-extension-attested.yml", "release-extension.yml"):
+for build_name in ("build-extension.yml", "build-extension-attested.yml", "promote-verified-release.yml"):
     build_text = (WORKFLOW_DIR / build_name).read_text(encoding="utf-8")
     if "issues: write" in build_text:
         errors.append(f"{build_name}: issues: write must remain isolated from build/release workflows")
