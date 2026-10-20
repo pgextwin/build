@@ -303,6 +303,51 @@ def observe_merged_first_candidate(env, event, api, run, branch):
                   candidateCIOnly=True)
 
 
+def observe_merged_nonpublishing_pin(env, event, api, run, branch):
+    """Read-only admission for an exact reviewed shared-workflow pin update."""
+    repo, sha = env["GITHUB_REPOSITORY"], env["GITHUB_SHA"]
+    need(branch.get("protected") is True and env.get("GITHUB_REF") == "refs/heads/main"
+         and event.get("ref") == "refs/heads/main" and event.get("after") == sha
+         and (branch.get("commit") or {}).get("sha") == sha
+         and run.get("head_sha") == sha and run.get("head_branch") == "main"
+         and event.get("created") is False and event.get("deleted") is False
+         and is_operator(run.get("actor")) and is_operator(event.get("sender")))
+    commit = api.get("commits/" + sha)
+    parents = commit.get("parents")
+    need(commit.get("sha") == sha and type(parents) is list and len(parents) == 2
+         and parents[0].get("sha") == event.get("before"))
+    linked = api.get("commits/" + sha + "/pulls?per_page=100")
+    need(type(linked) is list)
+    matches = [p for p in linked if type(p) is dict and p.get("merge_commit_sha") == sha]
+    need(len(matches) == 1)
+    pr = api.get("pulls/" + str(matches[0]["number"]))
+    head = (pr.get("head") or {}).get("sha")
+    need(pr.get("merged") is True and pr.get("state") == "closed"
+         and pr.get("merge_commit_sha") == sha and auth.full_sha(head)
+         and parents[1].get("sha") == head and is_operator(pr.get("user"))
+         and is_operator(pr.get("merged_by")) and pr.get("changed_files") == 1
+         and (pr.get("base") or {}).get("ref") == "main"
+         and (pr.get("base") or {}).get("repo", {}).get("full_name") == repo
+         and (pr.get("head") or {}).get("repo", {}).get("full_name") == repo)
+    files = api.get("pulls/" + str(pr["number"]) + "/files?per_page=100")
+    need(type(files) is list and len(files) == 1
+         and files[0].get("filename") == ".github/workflows/windows.yml"
+         and files[0].get("status") == "modified"
+         and type(commit.get("files")) is list and len(commit["files"]) == 1
+         and commit["files"][0].get("filename") == files[0]["filename"]
+         and commit["files"][0].get("sha") == files[0].get("sha"))
+    checks = api.get("commits/" + head + "/check-runs?per_page=100")
+    need(type(checks) is dict and any(
+         c.get("name") == "Windows required summary"
+         and (c.get("app") or {}).get("id") == 15368
+         and c.get("head_sha") == head and c.get("conclusion") == "success"
+         for c in checks.get("check_runs", [])))
+    need(api.get("branches/main") == branch)
+    return result("MERGED_NONPUBLISHING_WORKFLOW_PIN_OBSERVED",
+                  repository=repo, protectedMainSha=sha, pr=pr["number"],
+                  prHeadSha=head, candidateCIOnly=True)
+
+
 def inspect(env, event, api):
     repo, mode, sha = (env.get(k) for k in ("GITHUB_REPOSITORY", "GITHUB_EVENT_NAME", "GITHUB_SHA"))
     need(repo in TARGETS and mode in {"pull_request", "push", "workflow_dispatch"} and auth.full_sha(sha))
@@ -334,7 +379,11 @@ def inspect(env, event, api):
     if is_candidate:
         return observe_first_candidate(env, event, api, run, branch)
     if mode == "push" and type(event.get("head_commit")) is dict and "Merge pull request" in str(event["head_commit"].get("message", "")):
-        return observe_merged_first_candidate(env, event, api, run, branch)
+        linked = api.get("commits/" + sha + "/pulls?per_page=100")
+        need(type(linked) is list and len(linked) == 1)
+        if bot(linked[0].get("user")):
+            return observe_merged_first_candidate(env, event, api, run, branch)
+        return observe_merged_nonpublishing_pin(env, event, api, run, branch)
     facts = {"repository": repo, "event": mode, "eventSha": sha, "runId": run_id,
              "runAttempt": 1, "actor": actor, "actorIsAllowedHuman": is_operator(run.get("actor")),
              "protectedMainObserved": True, "requiredChecksAppId": 15368}

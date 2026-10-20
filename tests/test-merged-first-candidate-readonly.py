@@ -90,5 +90,42 @@ class TestMergedCandidate(unittest.TestCase):
                 with self.assertRaises((m.Denied, ValueError, KeyError, TypeError)):
                     self.check(f)
 
+    def test_human_workflow_pin_merge_stays_nonpublishing(self):
+        env, event, data, run = fixture()
+        pr = data["pulls/7"]
+        pr["user"] = {"login": "ShutenOishi", "type": "User"}
+        pr["merged_by"] = {"login": "ShutenOishi", "type": "User"}
+        pr["head"]["ref"] = "fix/wave3-postmerge-pin-20261021"
+        file = data["pulls/7/files?per_page=100"][0]
+        file.update(filename=".github/workflows/windows.yml", status="modified")
+        data["commits/"+MERGE]["files"] = [deepcopy(file)]
+        run["actor"] = {"login": "ShutenOishi", "type": "User"}
+        event["sender"] = {"login": "ShutenOishi", "type": "User"}
+        output = m.observe_merged_nonpublishing_pin(env, event, Reader(data), run, data["branches/main"])
+        self.assertEqual(output["status"], "MERGED_NONPUBLISHING_WORKFLOW_PIN_OBSERVED")
+        self.assertEqual((output["publication"], output["goB"], output["g4"], output["g5"]),
+                         ("DENY", "NO_GO", "NO_GO", "NO_GO"))
+        self.assertFalse(output["publicationAuthorized"])
+        for change in (
+            lambda: data["branches/main"].update(protected=False),
+            lambda: data["commits/"+MERGE]["parents"][1].update(sha=BASE),
+            lambda: pr["user"].update(login="attacker"),
+            lambda: file.update(filename=".github/release-authorizations/v1-windows.1.json"),
+            lambda: data["commits/"+HEAD+"/check-runs?per_page=100"]["check_runs"][0].update(conclusion="failure"),
+        ):
+            env, event, data, run = fixture()
+            pr = data["pulls/7"]
+            pr["user"] = {"login": "ShutenOishi", "type": "User"}
+            pr["merged_by"] = {"login": "ShutenOishi", "type": "User"}
+            pr["head"]["ref"] = "fix/wave3-postmerge-pin-20261021"
+            file = data["pulls/7/files?per_page=100"][0]
+            file.update(filename=".github/workflows/windows.yml", status="modified")
+            data["commits/"+MERGE]["files"] = [deepcopy(file)]
+            run["actor"] = {"login": "ShutenOishi", "type": "User"}
+            event["sender"] = {"login": "ShutenOishi", "type": "User"}
+            change()
+            with self.assertRaises((m.Denied, ValueError, KeyError, TypeError)):
+                m.observe_merged_nonpublishing_pin(env, event, Reader(data), run, data["branches/main"])
+
 if __name__ == "__main__":
     unittest.main()
