@@ -1,0 +1,21 @@
+# Issue #75 — fsync-backed create-only private prewrite seal (NOT DEPLOYED)
+
+2026-10-20 JST. This is a **real POSIX filesystem primitive**, and adversarial tests use real `open(O_CREAT|O_EXCL)`, `fsync`, `fstat`, strict 0700/0600 owner custody and readback. It is deliberately **not** a Publisher, a deployed crash-recovery journal or an attestation of a private durable runtime.
+
+## Why this narrow stage matters
+
+The existing `scripts/release-recovery-evidence.py` is an inert schema-v2 read-only remote classification contract. It cannot preserve a decision before the first remote write, and passing its test fixtures never authorizes recovery writes. The new `scripts/issue-75-durable-prewrite-seal.py` introduces a self-contained **before-write create-only record** that must be durably committed *before* a future approved Publisher could attempt a tag reservation. It never performs a remote operation and never returns an authorizing receipt.
+
+`seal(path, record)` demands an absolute, nonsymlink owner-only (0700) POSIX directory, rejects symlink parents and GitHub source workspace, strict three-repo allowlist and manifest schema, exactly one run/attempt/source/signer workflow immutable SHA, scoped tag, request digest and bounded ZIP/SPDX SHA256 map. It atomically creates a single `<requestId>.json` with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode 0600; synchronizes the complete file and containing directory. A duplicate request always rejects; a partial write, failed fsync or unknown state **is not removed and cannot be retried**. `inspect` checks same custody, canonical bytes, unique JSON keys and exact request identity, with read-only/nonpublisher output regardless of success.
+
+No input accepts a token, secret, free-form app/private-key field, operator PUBLISH claim, direct GitHub writes or arbitrary repository name. No GH_TOKEN, id-token, token mint, environment declaration, artifact or network call is made. CI exercises the implementation on the Ubuntu resolver, including actual duplicate-create attempts, 0700/0600, symlinks, malformed/smuggled schema, file corruption, canonical JSON, mock `fsync` failure and readback; it does **not** use protected private storage or mint credentials.
+
+## Correct interpretation
+
+- A real successful local `fsync` only proves the storage/syscall accepted synchronization in that specific ephemeral CI filesystem. Standard GitHub-hosted runners are **ephemeral**; the file **will not survive a fresh run**. This code is NOT deployed as production durable persistence and does not satisfy a real crash/restart proof or GO B.
+- An attacker who controls the filesystem/host, a mounted network share with weak durability semantics, or an unapproved executor is outside the guarantees. The private storage trust root, volume ownership, authenticated Signer, distinct App Writer and cross-job isolation remain unproven.
+- On failure, output and API only return fail-closed/quarantine states. A caller must never silently delete/recreate a record, substitute another request ID, infer `retryAuthorized`, or turn a matching offline record into a signed receipt.
+- It does **not** replace or upgrade schema-v2 `release-recovery-evidence.py`. A future approved Publisher adapter must integrate this prewrite primitive with a **genuinely persistent** trusted store, authenticated JIT two-pass GitHub remote GET, create-only tag+Release writes, durable release/asset IDs/hashes, unknown result quarantine, signature and actual POST receipt checks, independent restore/restart testing. No privileged adapter exists in this change.
+- Existing production `promote.yml`, fleet Publisher identities 14, local Release switches disabled, 45 Git Blob historical custody records, original failed GO A, mandatory CI, user PUBLISH gate, Catalog index 14/70 and CLI v0.3.2 verbose are unchanged.
+
+**Verdict:** real *local* create-only persistence foundation and hostile tests PASS only when actual CI succeeds. No live independently durable storage, Writer token, Signer certificate, remote write/restart proof or human PUBLISH authorization. GO B/G4/G5 = NO_GO, formal publication DENY, Chat-only development READY but formal publication NOT_READY.
