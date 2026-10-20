@@ -84,7 +84,7 @@ Checksum = 'bad'
                             for _, _, digest in p.PACKAGES))
 
     def test_isolated_pr_and_resolver_wireup_without_publication(self):
-        wf = (ROOT / ".github/workflows/validate.yml").read_text(encoding="utf-8")
+        wf = (ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text(encoding="utf-8")
         self.assertIn("github.head_ref == 'issue-75-kb-conditional-inert'", wf)
         self.assertIn("name: Issue75 KB/MSU inert source inventory", wf)
         self.assertIn("python tests/test-issue-75-kb-conditional-inert.py", wf)

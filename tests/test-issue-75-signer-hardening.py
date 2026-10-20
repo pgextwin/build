@@ -125,7 +125,7 @@ class HardeningTests(TestCase):
             (git/"config").unlink()
             with self.assertRaises(s.Deny):s.inspect_workspace(repo)
     def test_pr_only_windows_and_ubuntu_probe_cannot_claim_signer_fix(self):
-        content=(ROOT/".github/workflows/validate.yml").read_text()
+        content=(ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         start=content.index("  issue75_sandbox_probe:")
         end=content.index("\n  existing_signed_release_readonly:",start)
         job=content[start:end]

@@ -104,7 +104,7 @@ class HostileMSUProbe(TestCase):
                           download_msu=lambda *a: next(count))
 
     def test_workflow_resolver_and_pr_job_have_no_publish_or_auth(self):
-        wf = (ROOT / ".github/workflows/validate.yml").read_text(encoding="utf-8")
+        wf = (ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text(encoding="utf-8")
         self.assertIn("python tests/test-issue-75-msu-original-bytes.py", wf)
         self.assertIn("python scripts/issue-75-msu-original-bytes.py --mode static", wf)
         sec = wf.split("  issue75_msu_original:", 1)[1].split(

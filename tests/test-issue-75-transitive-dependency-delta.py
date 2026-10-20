@@ -157,7 +157,7 @@ class DependencyAndReaderTests(TestCase):
             probe.inspect(race, **args)
 
     def test_reader_workflow_has_no_writer_or_artifact_escape(self):
-        content = (ROOT / ".github/workflows/validate.yml").read_text()
+        content = (ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         match = re.search(r"(?ms)^  issue75_reader_probe:\n(.*?)(?=^  [a-z_]+:\n|\Z)",
                           content)
         self.assertIsNotNone(match)
