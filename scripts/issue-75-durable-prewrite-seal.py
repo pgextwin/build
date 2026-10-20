@@ -98,8 +98,56 @@ def _name(request_id):
     need(type(request_id) is str and SHA256.fullmatch(request_id))
     return request_id + ".json"
 
+def _tag_name(repository, tag):
+    # Unique by the target repository AND release tag, regardless of requestId.
+    # Hashing also avoids path separators and filesystem-length ambiguity.
+    need(type(repository) is str and repository in TARGETS)
+    need(type(tag) is str and TAG.fullmatch(tag))
+    digest = hashlib.sha256((repository + "\0" + tag).encode("ascii")).hexdigest()
+    return "tag-" + digest + ".json"
+
+def _tag_bytes(record):
+    binding = {"repository": record["repository"],
+               "requestId": record["requestId"], "tag": record["tag"]}
+    return (json.dumps(binding, sort_keys=True, separators=(",", ":")) +
+            "\n").encode("ascii")
+
+def _create_once(directory, name, raw):
+    fd = None
+    try:
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                     os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+                     dir_fd=directory)
+        os.fchmod(fd, 0o600)
+        offset = 0
+        while offset < len(raw):
+            written = os.write(fd, raw[offset:])
+            need(type(written) is int and written > 0)
+            offset += written
+        os.fsync(fd)
+        os.fsync(directory)
+    finally:
+        # Never unlink or replace an ambiguous partial write.
+        if fd is not None:
+            os.close(fd)
+
+def _read_once(directory, name):
+    fd = None
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     dir_fd=directory)
+        st = os.fstat(fd)
+        need(stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600
+             and st.st_uid == os.geteuid() and st.st_nlink == 1)
+        raw = os.read(fd, MAX_RECORD + 1)
+        need(0 < len(raw) <= MAX_RECORD and raw.endswith(b"\n"))
+        return raw
+    finally:
+        if fd is not None:
+            os.close(fd)
+
 def seal(path, record):
-    """Create-once/fsync record. Uncertain writes remain quarantined.
+    """Create-once/fsync tag claim followed by request record, no remote write.
 
     A successful return proves only local filesystem operations; caller must
     independently prove a truly durable trusted private filesystem. No action
@@ -107,60 +155,45 @@ def seal(path, record):
     """
     raw = validated(record)
     directory = _directory(path)
-    fd = None
+    tag_bytes = _tag_bytes(record)
     try:
-        fd = os.open(_name(record["requestId"]),
-                     os.O_WRONLY | os.O_CREAT | os.O_EXCL |
-                     os.O_NOFOLLOW | os.O_CLOEXEC,
-                     0o600, dir_fd=directory)
-        os.fchmod(fd, 0o600)
-        offset = 0
-        while offset < len(raw):
-            n = os.write(fd, raw[offset:])
-            need(type(n) is int and n > 0)
-            offset += n
-        os.fsync(fd)
-        os.fsync(directory)
+        # First reserve (repository, tag); a distinct requestId can NEVER
+        # bypass the lock after a crash or an uncertain remote write.
+        _create_once(directory, _tag_name(record["repository"], record["tag"]),
+                     tag_bytes)
+        # If this fails after tag reservation, preserve the orphaned tag claim.
+        # Its only safe interpretation is quarantine, not automatic recovery.
+        _create_once(directory, _name(record["requestId"]), raw)
     except Exception:
-        # Never unlink a possibly partially persisted reservation. Another
-        # attempt must see O_EXCL failure and treat it as UNKNOWN_QUARANTINE.
-        raise Deny("prewrite seal missing/duplicate/uncertain: quarantine") from None
+        raise Deny("tag/request duplicate or uncertain local write: quarantine") from None
     finally:
-        if fd is not None:
-            os.close(fd)
         os.close(directory)
     return {
         "classification": "LOCAL_CREATE_ONLY_SEAL_NOT_PUBLICATION_AUTHORITY",
         "requestId": record["requestId"],
         "recordSha256": hashlib.sha256(raw).hexdigest(),
+        "tagClaimSha256": hashlib.sha256(tag_bytes).hexdigest(),
         "publicationAuthorized": False, "mutationAuthorized": False,
         "retryAuthorized": False, "goB": "NO_GO", "g4": "NO_GO", "g5": "NO_GO",
     }
 
 def inspect(path, request_id):
-    """Nonpublishing inspection: duplicate JSON/symlink/extra bytes deny."""
+    """Read-only pairwise tag-claim/request binding; never permits a retry."""
     directory = _directory(path)
-    fd = None
     try:
-        fd = os.open(_name(request_id),
-                     os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                     dir_fd=directory)
-        mode = os.fstat(fd)
-        need(stat.S_ISREG(mode.st_mode) and stat.S_IMODE(mode.st_mode) == 0o600)
-        need(mode.st_uid == os.geteuid() and mode.st_nlink == 1)
-        raw = os.read(fd, MAX_RECORD + 1)
-        need(0 < len(raw) <= MAX_RECORD and raw.endswith(b"\n"))
+        raw = _read_once(directory, _name(request_id))
         record = json.loads(raw.decode("ascii"), object_pairs_hook=unique)
         need(validated(record) == raw and record["requestId"] == request_id)
+        claim = _read_once(directory, _tag_name(record["repository"], record["tag"]))
+        need(claim == _tag_bytes(record))
         return {
             "classification": "LOCAL_READ_ONLY_SEAL_NO_REMOTE_VERIFICATION",
             "recordSha256": hashlib.sha256(raw).hexdigest(),
+            "tagClaimSha256": hashlib.sha256(claim).hexdigest(),
             "publicationAuthorized": False, "mutationAuthorized": False,
             "retryAuthorized": False, "goB": "NO_GO", "g4": "NO_GO", "g5": "NO_GO",
         }
     except Exception:
-        raise Deny("prewrite seal read untrusted: quarantine") from None
+        raise Deny("tag claim/request binding untrusted: quarantine") from None
     finally:
-        if fd is not None:
-            os.close(fd)
         os.close(directory)
