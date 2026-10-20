@@ -13,7 +13,7 @@ import unittest
 from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("issue75_wave3_readonly", ROOT / "scripts/issue-75-wave3-actions-readonly.py")
+spec = importlib.util.spec_from_file_location("issue75_wave3_readonly", ROOT / "tests/fixtures/historical-scripts/issue-75-wave3-actions-readonly.py")
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 BASE = "a" * 40
@@ -380,7 +380,7 @@ class NegativeWitness(unittest.TestCase):
                           "actions: write", "issues: write", "secrets.", "gh release",
                           "workflow_dispatch:", "pull_request_target:"):
             self.assertNotIn(forbidden, workflow)
-        script = (ROOT / "scripts/issue-75-wave3-actions-readonly.py").read_text()
+        script = (ROOT / "tests/fixtures/historical-scripts/issue-75-wave3-actions-readonly.py").read_text()
         self.assertNotIn("POST", script)
         self.assertNotIn("DELETE", script)
         self.assertTrue((ROOT / "evidence/issue-75/critical-pin-closure-20261017.json").exists())
