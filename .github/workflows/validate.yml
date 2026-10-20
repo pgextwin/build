@@ -43,6 +43,9 @@ jobs:
       - name: Validate Step 19 candidate update fixtures
         run: python tests/test-candidate-update.py
 
+      - name: Verify first-release intent and deny forged candidate/promotion
+        run: python tests/test-first-release-candidate.py
+
       - name: Validate Step 21 verified promotion denial fixtures
         run: python tests/test-promotion-gate.py
 
