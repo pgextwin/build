@@ -1,0 +1,27 @@
+name: Issue75 third-wave Actions-only GET witness (nonpublishing)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  wave3-getonly:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout protected exact main without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Independent double-GET three target protected heads and check runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -I scripts/issue-75-wave3-actions-readonly.py --mode observe
+          echo 'LIVE_TARGET_GET_EVIDENCE_ONLY=PASS GO_B=NO_GO G4=NO_GO G5=NO_GO PUBLISH=DENY'
