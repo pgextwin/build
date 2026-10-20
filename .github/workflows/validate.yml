@@ -82,6 +82,9 @@ jobs:
       - name: Validate strict two-snapshot Classic REST-GraphQL composite contract (#75)
         run: python tests/test-classic-composite-protection.py
 
+      - name: Validate Wave3 reused Classic REST-GraphQL complete anti-bypass contract (offline only)
+        run: python tests/test-issue-75-wave3-classic-composite.py
+
       - name: Validate Phase C shared candidate and PR provenance binding (synthetic only)
         run: python tests/test-chat-pr-phase-c-join.py
 

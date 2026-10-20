@@ -99,6 +99,43 @@ separately reviewed GraphQL supplement. **No publication authority is
 derived from this code or the GUI baseline.** GO B/G4/G5 NO_GO,
 PUBLISH DENY, Wave3 formal Releases 0/3.
 
+## 2026-10-20 Wave3 REST omission: reusing proven pilot GraphQL composite
+
+The previously tested `plpgsql_check` implementation
+`classic-composite-protection.py::_verified_rest_snapshot` and
+`classic-graphql-bypass.py::validate_effective_ref_bypass_zero`
+now accept **optional** exact repository and required-status-check policy
+arguments, preserving original `plpgsql_check` defaults unchanged. New
+`issue-75-wave3-classic-composite.py` invokes those original verifier
+primitives for each pinned Wave3 repository and the single App15368
+`Windows required summary` check.
+
+The new scoped reader reuses the previous four-Wave3-GET allowlist and
+its token/transport; `POST /graphql` sends **only** a pinned, pure query
+for the allowlisted repository with the *same* supplied token.
+No GraphQL mutation, token mint, credentials creation or publication
+logic is added. Each of **two** snapshots captures the pinned repository
+identity, main SHA, Classic REST rule, empty Rulesets, and actual
+effective-`refs/heads/main` GraphQL rule ID, exact target OID, zero
+`bypassPullRequestAllowances`, `restrictsPushes=false`, zero
+`pushAllowances`; the raw snapshots must remain identical. Only an
+**omitted** REST bypass/restrictions field may be supplemented after a
+valid independent GraphQL zero/unrestricted result. Explicit malformed,
+null, overgrant, incomplete connection, nonzero actor, HTTP failure,
+status-source spoofing, field mismatch, race or stale SHA always denies.
+
+Existing pilot tests still run in App15368 required CI, plus a new
+`test-issue-75-wave3-classic-composite.py` exercises all three repository
+IDs, the omitted-vs-explicit REST distinction, read-only GraphQL
+transport, wrong target/rules/actor counts, source drift, and unsafe
+requests. **A passing mocked fixture does not prove genuine GitHub
+App installation Administration:read or actual Classic effective
+permissions**: real App5295410 installation170837728 still lacks
+these three repositories pending separate owner authorization.
+Return classification remains CONTRACT_ONLY with
+`publicationAuthorized=false`, GO B/G4/G5 NO_GO, PUBLISH DENY
+and Wave3 Releases 0/3. No live credential-bearing workflow enabled.
+
 ## Smallest viable authenticated GitHub Actions-only future route (not enabled)
 
 1. **Reader:** retain existing main-only, no-write `issue-75-wave3-actions-readonly.yml`. Job token `contents:read` only, checkout `persist-credentials:false`. Send only trusted run/attempt/source SHA/digest metadata, never a bearer, JWT, OIDC token or key.

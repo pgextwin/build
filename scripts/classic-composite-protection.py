@@ -102,10 +102,13 @@ class CompositeReader:
         return value
 
 
-def _verified_rest_snapshot(branch, protection, graphql_response, expected_sha):
+def _verified_rest_snapshot(branch, protection, graphql_response, expected_sha, *,
+                            repository=rest.REPOSITORY,
+                            required_contexts=rest.REQUIRED_CONTEXTS):
     # Verify independent evidence before permitting the sole omission fallback.
     proof = graphql.validate_effective_ref_bypass_zero(
-        graphql_response, expected_main_sha=expected_sha)
+        graphql_response, expected_main_sha=expected_sha,
+        repository=repository)
     if (proof.get("status") != "VERIFIED_EFFECTIVE_REF_BYPASS_ZERO"
             or proof.get("mainSha") != expected_sha
             or proof.get("publishableReceipt") is not False):
@@ -154,7 +157,9 @@ def _verified_rest_snapshot(branch, protection, graphql_response, expected_sha):
         # Explicit malformed/nonempty actor restrictions remain unchanged and
         # are always subject to the original REST policy validator.
         push_source = "REST_EXPLICIT_UNRESTRICTED"
-    verified = rest._validate_snapshot(branch, normalized, expected_sha)
+    verified = rest._validate_snapshot(
+        branch, normalized, expected_sha,
+        required_contexts=required_contexts, repository=repository)
     return verified, source, push_source
 
 
