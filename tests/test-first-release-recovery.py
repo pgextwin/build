@@ -31,8 +31,17 @@ ENV = {"GITHUB_REPOSITORY": REPO, "GITHUB_REF": "refs/heads/main",
        "GITHUB_SHA": MAIN, "GH_TOKEN": "testing-never-real"}
 PR = {"number": 7, "body": MARKER, "state": "OPEN", "isDraft": True,
       "url": "https://github.com/pgextwin/pgtap/pull/7",
-      "author": {"login": "github-actions[bot]"}, "headRefOid": OLD,
+      # GraphQL author.login may be app/github-actions, not REST github-actions[bot].
+      "author": {"login": "app/github-actions"}, "headRefOid": OLD,
       "headRefName": BRANCH, "baseRefName": "main"}
+REST_PR = {"number": 7, "body": MARKER, "state": "open", "draft": True,
+           "merged": False, "user": {"login": "github-actions[bot]", "type": "Bot"},
+           "head": {"ref": BRANCH, "sha": OLD, "repo": {"full_name": REPO}},
+           "base": {"ref": "main", "repo": {"full_name": REPO}}}
+REST_FAILED = {"id": 39437592613, "event": "workflow_dispatch",
+               "status": "completed", "conclusion": "failure", "run_attempt": 1,
+               "head_sha": OLD, "head_branch": BRANCH, "path": ".github/workflows/windows.yml",
+               "actor": {"login": "github-actions[bot]"}, "repository": {"full_name": REPO}}
 FAILED = {"databaseId": 39437592613, "event": "workflow_dispatch",
           "status": "completed", "conclusion": "failure", "headSha": OLD}
 
@@ -41,6 +50,8 @@ def command_responses():
     return {
        ("gh","api","repos/"+REPO+"/branches/main"):
          '{"protected":true,"commit":{"sha":"'+MAIN+'"}}',
+       ("gh","api","repos/"+REPO+"/pulls/7"): __import__("json").dumps(REST_PR),
+       ("gh","api","repos/"+REPO+"/actions/runs/39437592613"): __import__("json").dumps(REST_FAILED),
        ("git","rev-parse","HEAD"): MAIN,
        ("git","rev-parse","refs/remotes/origin/"+BRANCH): OLD,
        ("git","log","-1","--format=%an",OLD): "github-actions[bot]",
@@ -94,6 +105,10 @@ class TestFirstReleaseRecovery(TestCase):
     def test_legitimate_exact_failed_candidate_fresh_human_update(self):
         self.run_case(good=True)
 
+    def test_graphql_display_login_does_not_serve_as_rest_identity(self):
+        # The actual bot author must be authenticated by REST user.login/type.
+        self.run_case(good=True)
+
     def test_forged_update_retry_and_old_head_denied(self):
         changes = [
           lambda r,p,u,e: e.update(GITHUB_ACTOR="github-actions[bot]"),
@@ -103,7 +118,6 @@ class TestFirstReleaseRecovery(TestCase):
           lambda r,p,u,e: e.update(GITHUB_SHA="notsha"),
           lambda r,p,u,e: r.update(firstRelease=False),
           lambda r,p,u,e: p.update(isDraft=False),
-          lambda r,p,u,e: p["author"].update(login="attacker"),
           lambda r,p,u,e: p.update(headRefOid="e"*40),
           lambda r,p,u,e: p.update(state="CLOSED"),
           lambda r,p,u,e: p.update(headRefName="auto-candidate/other"),
@@ -122,6 +136,19 @@ class TestFirstReleaseRecovery(TestCase):
 
     def test_protected_main_and_immutable_diff_and_bot_commit_fail_closed(self):
         failures = [
+          {("gh","api","repos/"+REPO+"/pulls/7"): '{"number":7,"state":"open"}'},
+          {("gh","api","repos/"+REPO+"/pulls/7"):
+             __import__("json").dumps(dict(REST_PR, user={"login":"attacker","type":"User"}))},
+          {("gh","api","repos/"+REPO+"/pulls/7"):
+             __import__("json").dumps(dict(REST_PR, draft=False))},
+          {("gh","api","repos/"+REPO+"/pulls/7"):
+             __import__("json").dumps(dict(REST_PR, body="wrong marker"))},
+          {("gh","api","repos/"+REPO+"/actions/runs/39437592613"):
+             __import__("json").dumps(dict(REST_FAILED, conclusion="success"))},
+          {("gh","api","repos/"+REPO+"/actions/runs/39437592613"):
+             __import__("json").dumps(dict(REST_FAILED, run_attempt=2))},
+          {("gh","api","repos/"+REPO+"/actions/runs/39437592613"):
+             __import__("json").dumps(dict(REST_FAILED, head_sha="e"*40))},
           {("gh","api","repos/"+REPO+"/branches/main"):
              '{"protected":false,"commit":{"sha":"'+MAIN+'"}}'},
           {("gh","api","repos/"+REPO+"/branches/main"):
