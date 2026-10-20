@@ -1,0 +1,36 @@
+# Issue #75 — GitHub-hosted Actions-only third-wave runtime GET witness
+
+2026-10-20. Scope: **live metadata-only negative observation**. This is the next safe engineering step after Work PRs #144/#145, three real Windows #4/#3/#4, Catalog #138/#139, Website #38. No previous successful CI is rerun.
+
+## Actual new capability
+
+On a protected **build/main push only**, the workflow `.github/workflows/issue-75-wave3-actions-readonly.yml` checks out that exact commit with no persistent credentials and a job-scoped `contents:read` token; it double-GETs the actual current protected `main`, the exact-head App15368 Windows required summary and five PG14–18 jobs plus existing nonpublisher admission check, and the first public Release page in each of `pgtap`, `pg_variables` and `pg_store_plans`. It repeats GETs for all three and rejects a changed snapshot, pagination, skipped/failed/missing required checks, non-protected head, wrong App ID, bad JSON, moved SHA and unexpected endpoint.
+
+Each output explicitly reports only `LIVE_THREE_TARGET_METADATA_NEGATIVE_ONLY`. Even if a real Release is later observed, neither its bytes/signatures nor PUBLISH approval are inferred. Inactive/authentication-failed GET causes the Action to fail; a successful run cannot turn a fake witness into a Publisher receipt. The script has a strict HTTPS GitHub GET allowlist and no POST, release, Workflow Dispatch, issuer, JWT, token exchange, environment mutation, tag or PR write.
+
+The old 32+13 Git Blob root ledger, private Signer and Writer dormant verifiers, real-principal acceptance `--mode require-real`, fleet 14-only Publisher, local Promotion disabled, and historical GO A failure are **unchanged**. This new job does *not* repeat cryptographic validation of the 45 blobs; it **reuses** their previous evidence classification.
+
+## Current observed permission boundary
+
+From Work's authenticated GUI report at Issue #75 comment 6280683046:
+
+- GitHub-hosted Actions can run the current read-only job without a new App, Secret, runner, plan or budget. Standard separate hosted jobs are useful for process separation but are **not alone proof** of independent credential ownership, cross-job nonpropagation or a privately governed Writer. `github.token` is not a separate Release Writer; Catalog proposer is limited to Catalog and the Classic auditor is limited to plpgsql_check.
+- Build, catalog and target extensions have no configured Environment; no independently authorized private credential runtime was proven. No live Signer OIDC or independent GitHub App installation Writer was minted or verified.
+- Branch `protected:true` and required check metadata can be observed with public REST GET, but they are **not** a fresh target-by-target effective Classic/GraphQL plus admin-authorized proof. Existing plpgsql_check-only Administration-read auditor cannot be silently reused for the three targets. The per-target strict rules must be independently verified with an appropriately scoped Administration:read principal before any future release privilege is enabled.
+
+## Conditional Actions-only route, *not deployed*
+
+A narrowly scoped, explicitly authorized GitHub App may eventually be installed only on the three selected extension repositories. For a **test-only** independently authenticated Writer, minimum GitHub permissions require Metadata READ plus Contents WRITE on exactly the selected target; a separate private key/credential custody owner and restricted Environment or otherwise genuinely isolated authorized execution is needed. A short-lived installation access token must be independently verified for installation/source/repository identity, actual effective permissions, TTL <= 3600 seconds and reliable revocation. No credential is minted by this PR.
+
+A separate, authorized Signer role must prove genuine issued OIDC Sigstore X.509 workflow/repository/ref/SHA/attempt, actual original signed ZIP + SPDX byte hashes, trust roots and SLSA/SPDX predicates with independently pinned verifiers; the actual pinned signer checkout credential-persistence gaps must be remediated in a separately accepted cutover. The Writer must not receive the Signer OIDC token or untrusted PR code. Establish a real signed Publisher-positive prewrite in a trusted attempt-scoped job plus independently persistent schema-v2 crash-safe tag/asset journal and fail-closed replay/422 handling before considering GO B.
+
+Any GitHub-hosted Actions-only solution must demonstrate custody and separate effective authorization, not merely job isolation by naming separate YAML jobs. If protected Environments, an independent principal, private key storage and effective rules cannot be provided using existing approved resources, stop only the privileged phase and specify the exact new App/Secret/host/plan and approval. No expanded permissions, provisioning or budget has been authorized.
+
+## Remains NOT_READY
+
+- GO B = NO_GO (no independent Writer + signer positive/custody + recovery)
+- G4 = NO_GO (no target-bound human PUBLISH, fresh effective protection audit, or eligible candidate receipt)
+- G5 = NO_GO (third-wave signed Release 0/3, public ZIPs not attested)
+- Publisher = DENY, original 14 allowlist unchanged; Catalog remains actual 14/70 and CLI v0.3.2 verbose remains unchanged.
+
+Future real UPDATE and individual PUBLISH each require their own separate explicit user instruction. The first eligible signed published third-wave Release, Catalog verified protected PR and Japanese/English Website E2E cannot be claimed from this witness.

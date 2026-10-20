@@ -61,6 +61,9 @@ jobs:
       - name: Validate third-wave GET-only PR/push admission and no-Writer boundary
         run: python tests/test-chat-publication-readonly.py
 
+      - name: Validate three-target GitHub-hosted Actions runtime double-GET negative acceptance
+        run: python tests/test-issue-75-wave3-actions-readonly.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
