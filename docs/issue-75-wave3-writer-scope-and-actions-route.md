@@ -190,6 +190,58 @@ The normal Chat GitHub connector cannot mutate installations or provide
 Administration:read and must not claim a successful privileged GET until
 an independent actual identity/permission/credentialed check is recorded.
 
+## 2026-10-20 Work-selected scope update and read-only App token path
+
+A **later, separate Work conversation** reported that the owner-authenticated
+GUI saved the existing `pgextwin-classic-protection-audit` App
+(ID **5295410** / Installation **170837728**) with **Only select
+repositories** retained and exactly four selected members:
+`plpgsql_check`, `pgtap`, `pg_variables`, `pg_store_plans`.
+It also reported post-save GUI reread and unchanged
+`Administration READ` / `Metadata READ`. This is a **reported Work
+GUI observation**, not independently refetched by current connected GitHub
+API. The older 03:56 UTC Work inventory file describes the *prior*
+single-member state; it is not proof that later changes did not happen.
+A full saved-after screenshot/export is not available to this GitHub source
+commit. Do not repeat the owner installation edit based solely on the
+normal Chat connector's 403; that token is a **different GitHub App**.
+
+After prior #158 exact Classic REST, #159 reused `plpgsql_check`
+GraphQL effective-ref proof and #160 App GET-only identity/scope contracts,
+the next **dormant** building block is
+`scripts/issue-75-wave3-auditor-read-mint-probe.py`. It **reuses**
+the existing nonpublishing private Writer's bounded GitHub App JWT GET
+identity checks, expiry, single-target issuance and guaranteed DELETE
+revocation pattern, and calls the existing #159 same-token read-only
+Classic+GraphQL composite verifier. Unlike Writer, this helper rejects
+all contents/write access and token requests outside one pinned third-wave
+repository. The only possible installation POST request is fixed to
+`/app/installations/170837728/access_tokens` with exactly one of
+pgtap/pg_variables/pg_store_plans *numeric IDs* and
+`{"permissions":{"administration":"read"}}`.
+The effective token must report exactly `administration:read` and
+`metadata:read`, only one selected target, and TTL between 30 seconds
+and one hour. A GET using the minted token must prove the same
+one-repository visibility, then 2x Classic REST+GraphQL proof runs on
+the same short-lived token. DELETE `/installation/token` must succeed,
+including after composite/identity failure; failed revoke is DENY and
+requires private quarantine. An ambiguous POST result lost in flight
+must not be blindly retried; remote token might have been issued and
+is not safely revocable without knowing its value.
+
+**No real mint in public CI.** This is a private-executor-only function
+without CLI, workflow trigger, token source, App private key, signer,
+Publisher/Tag/Release or Secrets. The synthetic fixtures test exact
+issuer/installation/permission/repo pins, denied write-scope, token leaks,
+expiry/issuer mismatch, revoked-on-failure, fail-closed 403 and UNKNOWN
+transport, using App15368 required CI. Even an eventual real positive
+GET proves only that particular token and read-only protection check,
+**not** reader/signer/writer runtime isolation, true Sigstore provenance,
+crash-safe Publisher or a target's explicit PUBLISH authorization.
+The helper always returns `credentialCustodyIndependentlyProven=false`,
+`publisherPrewriteAuthorized=false`, `publicationAuthorized=false`,
+GO B/G4/G5 NO_GO. Existing formal Releases remain 0/3.
+
 ## Smallest viable authenticated GitHub Actions-only future route (not enabled)
 
 1. **Reader:** retain existing main-only, no-write `issue-75-wave3-actions-readonly.yml`. Job token `contents:read` only, checkout `persist-credentials:false`. Send only trusted run/attempt/source SHA/digest metadata, never a bearer, JWT, OIDC token or key.
