@@ -147,6 +147,25 @@ class RetiredWorkflows(unittest.TestCase):
                      "release-authorization.py"):
             self.assertTrue((ROOT / "scripts" / code).is_file())
 
+    def test_historical_credential_and_host_probes_only_as_inert_fixtures(self):
+        # Historically pin-scoped read-only probes have no current executable
+        # Workflow consumer. Keep original witness bytes and hostile checks.
+        names = ("issue-75-signer-sandbox-probe.py",
+                 "issue-75-windows-host-readonly.ps1")
+        for name in names:
+            with self.subTest(name=name):
+                self.assertFalse((ROOT / "scripts" / name).exists())
+                self.assertTrue((ROOT / "tests/fixtures/historical-scripts" / name).is_file())
+        for required in ("scripts/issue-75-private-signer-verify.py",
+                         "scripts/issue-75-private-writer-app-probe.py",
+                         "scripts/issue-75-real-principal-acceptance.py",
+                         "tests/test-issue-75-signer-hardening.py",
+                         "tests/test-issue-75-private-principal-runtime.py"):
+            self.assertTrue((ROOT / required).is_file())
+        active = (WF / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn("python tests/test-issue-75-signer-hardening.py", active)
+        self.assertIn("python tests/test-issue-75-private-principal-runtime.py", active)
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",
