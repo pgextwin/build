@@ -24,6 +24,17 @@ WAVE3_REPOS = frozenset((
     "pgextwin/pg_store_plans",
 ))
 ALLOWED_TARGETS = WAVE3_REPOS | {REPO}
+# Immutable GitHub REST GET /repos/<owner>/<name> identity snapshot from
+# 2026-10-20, checked before any app JWT request or token mint. A transferred,
+# renamed or recreated repo is denied until a separately reviewed pin update.
+TARGET_REPO_IDS = {
+    "pgextwin/pgtap": 1425678353,
+    "pgextwin/pg_variables": 1425679720,
+    "pgextwin/pg_store_plans": 1425680909,
+    "pgextwin/plpgsql_check": 1410581312,
+}
+assert set(TARGET_REPO_IDS) == ALLOWED_TARGETS
+assert len(set(TARGET_REPO_IDS.values())) == len(TARGET_REPO_IDS)
 OWNER = "pgextwin"
 # GitHub Actions App resolver / job token cannot be the independent Writer.
 NON_WRITER_APP_IDS = frozenset((15368,))
@@ -77,11 +88,16 @@ def authenticated_call(method, path, credential, payload=None, *,
     else:
         need(payload is None)
         data = None
-    req=Request(API+path,data=data,method=method,headers={
+    headers = {
         "Accept":"application/vnd.github+json",
         "X-GitHub-Api-Version":"2026-03-10",
         "Authorization":"Bearer "+credential,
-        "User-Agent":"pgextwin-issue75-private-writer-proof"})
+        "User-Agent":"pgextwin-issue75-private-writer-proof"}
+    if method == "POST":
+        # urllib otherwise uses application/x-www-form-urlencoded by default
+        # for a bytes body, which is not this GitHub REST JSON contract.
+        headers["Content-Type"] = "application/json"
+    req=Request(API+path,data=data,method=method,headers=headers)
     call=opener or build_opener(NoRedirect()).open
     try:
         with call(req,timeout=20) as r:
@@ -114,6 +130,10 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
           repository=REPO, api=authenticated_call):
     """Not used in public CI. Never pass in a Reader token.
 
+    The repository ID comes from a separately checked, protected source pin,
+    not merely the caller's requested numeric ID. All identity checks before
+    GET /app MUST pass before the JWT or any POST is used.
+
     Token is ephemeral; only this function sees it. Revocation is attempted
     in finally. Revocation failure DENIES (no false success), and must be
     quarantined by the future private operator. This does NOT prove job
@@ -124,7 +144,8 @@ def probe(app_jwt, *, app_id, installation_id, repository_id, now,
     need(type(repository) is str and repository in ALLOWED_TARGETS)
     need(all(type(v) is int and v>0 for v in
              (app_id,installation_id,repository_id)) and
-         app_id not in NON_WRITER_APP_IDS)
+         app_id not in NON_WRITER_APP_IDS and
+         repository_id == TARGET_REPO_IDS[repository])
     need(type(now) is datetime and now.tzinfo is not None)
     now=now.astimezone(timezone.utc)
     try:
