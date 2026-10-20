@@ -82,6 +82,9 @@ jobs:
       - name: Validate strict two-snapshot Classic REST-GraphQL composite contract (#75)
         run: python tests/test-classic-composite-protection.py
 
+      - name: Validate dormant single-target auditor Administration READ token issuer and revocation hostile contract
+        run: python tests/test-issue-75-wave3-auditor-read-mint-probe.py
+
       - name: Validate independent read-only audit App identity and four-repository scope contract
         run: python tests/test-issue-75-wave3-auditor-app-get-preflight.py
 
