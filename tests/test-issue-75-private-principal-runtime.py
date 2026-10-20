@@ -210,6 +210,49 @@ class PrivateProbes(TestCase):
         with self.assertRaises(w.Deny):run_writer(f)
         self.assertEqual(len(f.calls),1)
 
+    def test_wave_three_independent_writer_scope_is_explicit_and_single_repo(self):
+        # Entirely synthetic: each target must be bound to BOTH authenticated
+        # mint evidence and token-scoped /installation/repositories response.
+        mint=("POST",f"/app/installations/{INSTALL}/access_tokens")
+        listing=("GET",w.REPOS_ENDPOINT)
+        self.assertEqual(w.WAVE3_REPOS, {
+            "pgextwin/pgtap", "pgextwin/pg_variables",
+            "pgextwin/pg_store_plans",
+        })
+        for target in sorted(w.WAVE3_REPOS):
+            with self.subTest(target=target):
+                f=FakeApp()
+                f.responses[mint]["repositories"][0]["full_name"]=target
+                f.responses[listing]["repositories"][0]["full_name"]=target
+                out=w.probe(JWT,app_id=APP,installation_id=INSTALL,
+                            repository_id=RID,now=NOW,repository=target,api=f)
+                self.assertEqual(out["targetRepository"],target)
+                self.assertFalse(out["publicationAuthorized"])
+                self.assertFalse(out["independentReaderSignerCustodyProven"])
+                self.assertEqual(out["goB"],"NO_GO")
+                self.assertEqual(f.calls[-1][0],"DELETE")
+                for mismatched in ("mint", "listing"):
+                    bad=FakeApp()
+                    if mismatched=="mint":
+                        bad.responses[listing]["repositories"][0]["full_name"]=target
+                    else:
+                        bad.responses[mint]["repositories"][0]["full_name"]=target
+                    with self.assertRaises(w.Deny):
+                        w.probe(JWT,app_id=APP,installation_id=INSTALL,
+                                repository_id=RID,now=NOW,repository=target,api=bad)
+                    self.assertEqual(bad.calls[-1][0],"DELETE")
+        for target in (
+            "pgextwin/catalog", "pgextwin/website",
+            "someone/pgtap", "pgextwin/PgTap", "pgextwin/pgtap/",
+            "pgextwin/../pgtap", "", None, True, 7,
+        ):
+            with self.subTest(invalid=target):
+                f=FakeApp()
+                with self.assertRaises(w.Deny):
+                    w.probe(JWT,app_id=APP,installation_id=INSTALL,
+                            repository_id=RID,now=NOW,repository=target,api=f)
+                self.assertEqual(f.calls,[])  # no JWT use or token mint
+
     def test_writer_api_strict_endpoint_and_redirect_with_zero_transport(self):
         for method,path in (
             ("PUT","/releases"),("POST","/repos/pgextwin/plpgsql_check/releases"),
