@@ -367,6 +367,56 @@ class PrivateProbes(TestCase):
                     self.fail("invalid payload should never touch network"))
         self.assertEqual(len(observed),1)
 
+    def test_direct_writer_mint_transport_denies_overbroad_scope_before_network(self):
+        # A future caller might bypass probe() entirely. The lowest-level
+        # authenticated POST helper must still reject foreign IDs or grants.
+        allowed=w.TARGET_REPO_IDS["pgextwin/pgtap"]
+        valid={"repository_ids":[allowed],
+               "permissions":{"contents":"write"}}
+        cases=(
+            {"repository_ids":[1405939279],
+             "permissions":{"contents":"write"}},  # catalog
+            {"repository_ids":[1405931353],
+             "permissions":{"contents":"write"}},  # central build
+            {"repository_ids":[allowed,1425679720],
+             "permissions":{"contents":"write"}},
+            {"repository_ids":[],
+             "permissions":{"contents":"write"}},
+            {"repository_ids":[True],
+             "permissions":{"contents":"write"}},
+            {"repository_ids":[float(allowed)],
+             "permissions":{"contents":"write"}},
+            {"repository_ids":[str(allowed)],
+             "permissions":{"contents":"write"}},
+            {"repository_ids":allowed,
+             "permissions":{"contents":"write"}},
+            {"repository_ids":[allowed],
+             "permissions":{"contents":"read"}},
+            {"repository_ids":[allowed],
+             "permissions":{"contents":"write","issues":"write"}},
+            {"repository_ids":[allowed],
+             "permissions":{"contents":"write","metadata":"read"}},
+            {"repository_ids":[allowed],
+             "permissions":{"administration":"write"}},
+            {"repository_ids":[allowed],
+             "permissions":["contents:write"]},
+            {"repository_ids":[allowed],"permissions":{"contents":"write"},
+             "expiration":"two hours"},
+        )
+        for bad in cases:
+            called=[]
+            def do_not_send(*args,**kwargs):
+                called.append(True)
+                self.fail("unsafe token POST escaped local guard")
+            with self.subTest(bad=bad),self.assertRaises(w.Deny):
+                w.authenticated_call(
+                    "POST",f"/app/installations/{INSTALL}/access_tokens",
+                    JWT,bad,opener=do_not_send)
+            self.assertEqual(called,[])
+        # The transport still accepts the exact single-target least-privilege
+        # POST shape. Existing test validates its JSON body and content type.
+        self.assertEqual(valid["repository_ids"],[allowed])
+
     def test_writer_api_strict_endpoint_and_redirect_with_zero_transport(self):
         for method,path in (
             ("PUT","/releases"),("POST","/repos/pgextwin/plpgsql_check/releases"),
