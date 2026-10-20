@@ -162,13 +162,13 @@ class GateTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             location=Path(tmp)
             shutil.copyfile(frozen,location/"fleet-promotion-gate.py")
-            shutil.copyfile(ROOT/"scripts"/"fleet-release-identity.py",
+            shutil.copyfile(ROOT/"tests"/"fixtures"/"issue-75-pre-g4"/"fleet-release-identity.py",
                             location/"fleet-release-identity.py")
             spec=importlib.util.spec_from_file_location(
                 "issue75_frozen_gate",location/"fleet-promotion-gate.py")
             legacy=importlib.util.module_from_spec(spec)
             spec.loader.exec_module(legacy)
-            # The executed identity helper is immutable between old and current pins.
+            # Historic 14-extension identity remains byte-identical to pre-G4; current\n            # live helper may grow with new explicitly gated fleet entries.
             ident_bytes=(location/"fleet-release-identity.py").read_bytes()
             identity=hashlib.sha1(b"blob "+str(len(ident_bytes)).encode()+
                                   b"\0"+ident_bytes).hexdigest()
