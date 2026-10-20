@@ -118,15 +118,50 @@ class ContractTests(TestCase):
         self.assertEqual(calls,["branches/main",m.PROMOTE_PATH]*2)
         self.assertFalse(v["distinctWriterInstallationPrincipalVerified"])
         self.assertFalse(v["signerOIDCIdentityVerified"])
+    def test_live_current_main_head_moves_but_historical_promoter_blob_same(self):
+        obj,branch=fake()
+        current="a89d2e150765c42d447acee1ce04b7f114c4815a"
+        branch["commit"]["sha"]=current
+        paths=[]
+        def get(path):
+            paths.append(path)
+            return copy.deepcopy(branch if path=="branches/main" else obj)
+        with mock.patch.object(m.transport,"workflow_pins",
+              return_value={"publisherPin":m.PUBLISHER_PIN,
+                            "signerPin":m.SIGNER_PIN,
+                            "workflowBlob":m.PUBLISHER_SOURCE_BLOB}):
+            v=m.inspect(get,signer_raw=m.hardening.SIGNER.read_bytes())
+        self.assertEqual(paths,["branches/main",m.PROMOTE_PREFIX+current]*2)
+        self.assertEqual(v["currentProtectedPilotMainSha"],current)
+        self.assertEqual(v["historicalPilotAnchorSha"],m.PILOT_SHA)
+        self.assertFalse(v["distinctWriterInstallationPrincipalVerified"])
+
+    def test_live_branch_head_race_is_fail_closed(self):
+        obj,branch=fake()
+        count=[0]
+        def get(path):
+            if path=="branches/main":
+                count[0]+=1
+                b=copy.deepcopy(branch)
+                if count[0]==2:
+                    b["commit"]["sha"]="f"*40
+                return b
+            return copy.deepcopy(obj)
+        with mock.patch.object(m.transport,"workflow_pins",
+              return_value={"publisherPin":m.PUBLISHER_PIN,
+                            "signerPin":m.SIGNER_PIN,
+                            "workflowBlob":m.PUBLISHER_SOURCE_BLOB}):
+            with self.assertRaises(m.Deny):
+                m.inspect(get,signer_raw=m.hardening.SIGNER.read_bytes())
+
     def test_get_race_source_tamper_and_signer_bytes_deny(self):
         with mock.patch.object(m.transport,"workflow_pins",
               return_value={"publisherPin":m.PUBLISHER_PIN,
                             "signerPin":m.SIGNER_PIN,
                             "workflowBlob":m.PUBLISHER_SOURCE_BLOB}):
-            for case in ("changedblob","changedhead","unprotected","race","truncated","signer"):
+            for case in ("changedblob","unprotected","race","truncated","signer"):
                 obj,branch=fake();count=[0]
                 if case=="changedblob":obj["sha"]="f"*40
-                if case=="changedhead":branch["commit"]["sha"]="f"*40
                 if case=="unprotected":branch["protected"]=False
                 if case=="truncated":obj["content"]="%%%notbase64%%%"
                 signed=bytearray(m.hardening.SIGNER.read_bytes())
