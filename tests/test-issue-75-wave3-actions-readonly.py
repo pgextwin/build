@@ -370,8 +370,8 @@ class NegativeWitness(unittest.TestCase):
         self.assertEqual(m.denied()["publicationAuthorized"], False)
         self.assertNotIn("token", str(m.denied()).lower())
 
-    def test_workflow_nonpublishing_main_only_and_preexisting_45_blob_reused(self):
-        workflow = (ROOT / ".github/workflows/issue-75-wave3-actions-readonly.yml").read_text()
+    def test_historical_workflow_nonpublishing_and_source_pin_reused(self):
+        workflow = (ROOT / "tests/fixtures/historical-workflows/issue-75-wave3-actions-readonly.yml").read_text()
         for mandatory in ("branches: [main]", "github.event_name == 'push'",
                           "contents: read", "persist-credentials: false",
                           "scripts/issue-75-wave3-actions-readonly.py"):
