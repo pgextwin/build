@@ -127,6 +127,26 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertNotIn("gh release edit", active)
         self.assertNotIn("release-extension.yml", active)
 
+    def test_old_single_extension_publishers_only_exist_as_inert_fixtures(self):
+        # Two deprecated plpgsql-only scripts are not referenced by any
+        # present-day extension promotion workflow; do not restore them to
+        # executable shared build scripts. Preserve historic hostile tests.
+        for file in ("promotion-gate.py", "publish-release.py"):
+            with self.subTest(file=file):
+                self.assertFalse((ROOT / "scripts" / file).exists())
+                self.assertTrue((ROOT / "tests/fixtures/historical-scripts" / file).is_file())
+        live = (WF / "validate.yml").read_text(encoding="utf-8")
+        for test in ("test-promotion-gate.py", "test-publish-release.py",
+                     "test-fleet-promotion-gate.py", "test-fleet-publish-release.py"):
+            self.assertIn("python tests/" + test, live)
+        active = (WF / "promote-verified-release.yml").read_text(encoding="utf-8")
+        self.assertIn("fleet-promotion-gate.py", active)
+        self.assertIn("fleet-publish-release.py", active)
+        for code in ("fleet-promotion-gate.py", "fleet-publish-release.py",
+                     "fleet-release-identity.py", "issue-75-publisher-preflight.py",
+                     "release-authorization.py"):
+            self.assertTrue((ROOT / "scripts" / code).is_file())
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",
