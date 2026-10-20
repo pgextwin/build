@@ -87,6 +87,32 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertIn("python tests/test-fleet-promotion-gate.py", live)
         self.assertIn("python tests/test-issue-75-real-principal-acceptance.py", live)
 
+    def test_obsolete_vendor_kb_msu_auxiliary_experiments_retired(self):
+        # Keep genuine present-day installer and signatory checks, not obsolete
+        # Windows 7 / historical vendor package probes in every protected PR.
+        stems = (
+            "issue-75-choco-secondary-readonly",
+            "issue-75-kb-conditional-inert",
+            "issue-75-msu-original-bytes",
+        )
+        live = (WF / "validate.yml").read_text(encoding="utf-8")
+        for stem in stems:
+            with self.subTest(stem=stem):
+                self.assertFalse((ROOT / "scripts" / (stem + ".py")).exists())
+                self.assertFalse((ROOT / "tests" / ("test-" + stem + ".py")).exists())
+                self.assertNotIn(stem + ".py", live)
+        for path in ("docs/issue-75-chocolatey-secondary-closure.md",
+                     "docs/issue-75-kb-conditional-inert.md",
+                     "docs/issue-75-msu-original-bytes.md",
+                     "scripts/install-postgresql.ps1",
+                     "tests/test-postgresql-minimal-install.py",
+                     "tests/test-postgresql-component-only.py"):
+            with self.subTest(path=path):
+                self.assertTrue((ROOT / path).is_file())
+        self.assertIn("python tests/test-issue-75-private-principal-runtime.py", live)
+        self.assertIn("python tests/test-fleet-promotion-policy.py", live)
+        self.assertIn("python tests/test-publish-release.py", live)
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
                      "scripts/issue-75-historical-certificate-readonly.py",
