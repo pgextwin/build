@@ -1,5 +1,12 @@
 # Chat-first minimal Release operation (14 extensions)
 
+> **2026-10-20 third-wave setup:** [read-only Chat PR / main-push admission](issue-75-chat-only-readonly-setup.md)
+> removes Dispatch from **nonpublishing validation** for pgtap / pg_variables /
+> pg_store_plans. It does not replace the historical manual Release route or
+> enable a push Publisher. GO B/G4/G5 remain NO-GO; **Chat-only formal Release
+> NOT_READY** until the real independent Writer, effective-rule, signed-Publisher
+> and per-Release human PUBLISH gates are independently accepted.
+
 > Active product-scope decision, 2026-10-12. Detailed validation and recovery instructions remain in [step23-manual-queue.md](step23-manual-queue.md); acceptance evidence is tracked in [build issue #61](https://github.com/pgextwin/build/issues/61). This document narrows *routine operator work*; it does not relax security or declare unproven automations complete.
 
 ## 日本語: ふだんは「公開して」の一度の指示を目指す

@@ -1,0 +1,29 @@
+name: Third-wave read-only publication admission (never Publisher)
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  observe:
+    name: Observe PR or main event; publication remains DENY
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      checks: read
+    steps:
+      - name: Checkout only immutable shared verifier, never caller code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-publication
+          persist-credentials: false
+      - name: Independently read current GitHub metadata and deny publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -I .pgextwin-publication/scripts/chat-publication-readonly.py
