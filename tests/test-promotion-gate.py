@@ -6,7 +6,7 @@ import copy
 import unittest
 from unittest.mock import patch
 
-p = Path(__file__).resolve().parents[1] / "scripts" / "promotion-gate.py"
+p = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "historical-scripts" / "promotion-gate.py"
 spec = importlib.util.spec_from_file_location("promotion_gate", p)
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
