@@ -169,13 +169,27 @@ class PrivateProbes(TestCase):
                 f.responses[key][field]=value
                 with self.assertRaises(w.Deny):run_writer(f)
 
-    def test_platform_app_is_not_independent_writer_before_any_network(self):
-        for app_id in (15368,True,0,-1):
+    def test_known_unapproved_gui_apps_are_not_writer_before_any_network(self):
+        # Real owned App IDs were observed in the authorized Work GUI audit;
+        # neither the installed auditor/proposer nor the dormant dispatcher
+        # has an approved independent Wave3 Writer identity today.
+        self.assertEqual(w.NON_WRITER_APP_IDS,
+                         frozenset((15368,5295410,5281285,5250206)))
+        for app_id in (*sorted(w.NON_WRITER_APP_IDS),True,0,-1):
             with self.subTest(app_id=app_id):
                 f=FakeApp()
                 with self.assertRaises(w.Deny):
                     w.probe(JWT,app_id=app_id,installation_id=INSTALL,
                             repository_id=RID,now=NOW,api=f)
+                self.assertEqual(f.calls,[])  # no JWT GET / token POST
+        for repository in sorted(w.WAVE3_REPOS):
+            # A correct Wave3 target ID does not override the deny list.
+            with self.subTest(repository=repository):
+                f=FakeApp()
+                with self.assertRaises(w.Deny):
+                    w.probe(JWT,app_id=5250206,installation_id=INSTALL,
+                            repository_id=w.TARGET_REPO_IDS[repository],
+                            now=NOW,repository=repository,api=f)
                 self.assertEqual(f.calls,[])
 
     def test_writer_lifetime_bounds_and_revoke_failure_cannot_pass(self):
