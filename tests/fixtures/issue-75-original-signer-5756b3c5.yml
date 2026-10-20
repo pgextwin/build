@@ -1,0 +1,311 @@
+name: Build and attest PostgreSQL extension for Windows
+
+on:
+  workflow_call:
+    inputs:
+      extension_config_path:
+        description: Path to the extension manifest in the caller repository
+        required: false
+        type: string
+        default: config/extension.json
+      test_contract_path:
+        description: Path to the Test Contract v2 document in the caller repository
+        required: false
+        type: string
+        default: config/test-contract.json
+    outputs:
+      extension_name:
+        description: Extension name resolved from the caller manifest
+        value: ${{ jobs.matrix.outputs.extension_name }}
+      upstream_repository:
+        description: Upstream repository resolved from the caller manifest
+        value: ${{ jobs.matrix.outputs.upstream_repository }}
+
+jobs:
+  matrix:
+    name: Resolve extension and PostgreSQL matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.meta.outputs.matrix }}
+      extension_name: ${{ steps.meta.outputs.extension_name }}
+      upstream_repository: ${{ steps.meta.outputs.upstream_repository }}
+      upstream_mode: ${{ steps.meta.outputs.upstream_mode }}
+      upstream_ref: ${{ steps.meta.outputs.upstream_ref }}
+      upstream_version: ${{ steps.meta.outputs.upstream_version }}
+      verify_upstream_license: ${{ steps.meta.outputs.verify_upstream_license }}
+      license_files: ${{ steps.meta.outputs.license_files }}
+
+    steps:
+      - name: Check out extension packaging repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out pgextwin build infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+
+      - name: Set up Python for Test Contract validation
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Validate Test Contract v2
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+          python ".pgextwin-build/scripts/validate-test-contract.py" \
+            --schema ".pgextwin-build/schema/test-contract.schema.json" \
+            --contract "${{ inputs.test_contract_path }}" \
+            --extension-config "${{ inputs.extension_config_path }}" \
+            --repository-root "."
+
+      - name: Resolve maintained PostgreSQL versions
+        id: meta
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/resolve-matrix.ps1" `
+            -ExtensionConfigPath "${{ inputs.extension_config_path }}" `
+            -PostgreSqlConfigPath ".pgextwin-build/metadata/postgresql.json"
+
+  build:
+    name: PostgreSQL ${{ matrix.major }} / Windows x64
+    needs: matrix
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+
+    steps:
+      - name: Check out extension packaging repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out pgextwin build infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+
+      - name: Check out pinned upstream source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.matrix.outputs.upstream_repository }}
+          ref: ${{ matrix.upstreamCommit || matrix.upstreamRef }}
+          path: upstream
+
+      - name: Verify upstream license files match packaging repository
+        if: needs.matrix.outputs.verify_upstream_license == 'true'
+        shell: pwsh
+        env:
+          PGEXTWIN_LICENSE_FILES: ${{ toJSON(matrix.licenseFiles) }}
+        run: |
+          $licenseFiles = $env:PGEXTWIN_LICENSE_FILES | ConvertFrom-Json
+
+          foreach ($licenseFile in @($licenseFiles)) {
+            $repositoryPath = [string]$licenseFile.repositoryPath
+            $upstreamPath = Join-Path "upstream" ([string]$licenseFile.upstreamPath)
+
+            if (-not (Test-Path $repositoryPath)) {
+              throw "Configured packaging-repository license file was not found: $repositoryPath"
+            }
+
+            if (-not (Test-Path $upstreamPath)) {
+              throw "Configured upstream license file was not found: $upstreamPath"
+            }
+
+            $repositoryHash = (Get-FileHash $repositoryPath -Algorithm SHA256).Hash
+            $upstreamHash = (Get-FileHash $upstreamPath -Algorithm SHA256).Hash
+
+            if ($repositoryHash -ne $upstreamHash) {
+              throw "License file '$repositoryPath' differs from upstream '$($licenseFile.upstreamPath)'."
+            }
+          }
+
+      - name: Install PostgreSQL ${{ matrix.major }}
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/install-postgresql.ps1" `
+            -Major ([int]"${{ matrix.major }}") `
+            -ChocolateyPackage "${{ matrix.chocolateyPackage }}" `
+            -ChocolateyVersion "${{ matrix.chocolateyVersion }}" `
+            -TestPort ([int]"${{ matrix.testPort }}")
+
+      - name: Build extension
+        shell: pwsh
+        run: |
+          & ".\\windows\\ci\\build.ps1" `
+            -PgRoot $env:PGROOT `
+            -UpstreamDir (Join-Path $PWD "upstream")
+
+      - name: Install extension into test PostgreSQL
+        shell: pwsh
+        run: |
+          & ".\\windows\\ci\\install.ps1" `
+            -PgRoot $env:PGROOT `
+            -UpstreamDir (Join-Path $PWD "upstream")
+
+      - name: Functional smoke test
+        shell: pwsh
+        run: |
+          & ".\\windows\\ci\\smoke-test.ps1" `
+            -PgRoot $env:PGROOT `
+            -PgPort ([int]$env:PGPORT) `
+            -PostgreSqlMajor ([int]"${{ matrix.major }}")
+
+      - name: Package Windows binary
+        shell: pwsh
+        run: |
+          & ".\\windows\\ci\\package.ps1" `
+            -UpstreamDir (Join-Path $PWD "upstream") `
+            -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" `
+            -UpstreamRef "${{ matrix.upstreamRef }}" `
+            -UpstreamVersion "${{ matrix.upstreamVersion }}" `
+            -PostgreSqlMajor ([int]"${{ matrix.major }}") `
+            -PostgreSqlMinor "${{ matrix.minor }}"
+
+      - name: Finalize and validate package metadata
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/finalize-package.ps1" -ExtensionName "${{ needs.matrix.outputs.extension_name }}" -UpstreamDir (Join-Path $PWD "upstream") -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" -UpstreamRef "${{ matrix.upstreamRef }}" -UpstreamVersion "${{ matrix.upstreamVersion }}" -PostgreSqlMajor ([int]"${{ matrix.major }}") -PostgreSqlTestedVersion "${{ matrix.minor }}" -ChocolateyPackage "${{ matrix.chocolateyPackage }}" -ChocolateyPackageVersion "${{ matrix.chocolateyVersion }}" -PackagingRepository "${{ github.repository }}" -BuildRepository "${{ job.workflow_repository }}" -BuildCommit "${{ job.workflow_sha }}" -ReusableWorkflow ".github/workflows/build-extension-attested.yml" -BuildMode "release-attested" -WorkflowRunId ([long]"${{ github.run_id }}") -WorkflowRunAttempt ([int]"${{ github.run_attempt }}") -WorkflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" -WorkflowEvent "${{ github.event_name }}" -WorkflowRef "${{ github.ref }}"
+
+          python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install the package metadata schema validator." }
+
+          $zipFiles = @(Get-ChildItem -Path "dist" -Filter "*.zip" -File)
+          if ($zipFiles.Count -ne 1) { throw "Expected exactly one final ZIP for metadata validation, found $($zipFiles.Count)." }
+          python ".pgextwin-build/scripts/validate-package-metadata.py" --schema ".pgextwin-build/schema/package-info.schema.json" --zip $zipFiles[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Final PACKAGE-INFO.json schema validation failed." }
+
+      - name: Install checksum-pinned Syft
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/install-syft.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Syft installation failed." }
+
+      - name: Generate SPDX 2.3 SBOM
+        id: sbom
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/generate-sbom.ps1" `
+            -SyftPath (Join-Path $PWD ".pgextwin-tools\syft\syft.exe") `
+            -ExtensionName "${{ needs.matrix.outputs.extension_name }}" `
+            -ExtensionVersion "${{ matrix.upstreamVersion }}"
+          if ($LASTEXITCODE -ne 0) { throw "SBOM generation failed." }
+
+          $zipFiles = @(Get-ChildItem -Path "dist" -Filter "*.zip" -File)
+          $sbomFiles = @(Get-ChildItem -Path "dist" -Filter "*.spdx.json" -File)
+          if ($zipFiles.Count -ne 1) { throw "Expected exactly one final ZIP after SBOM generation, found $($zipFiles.Count)." }
+          if ($sbomFiles.Count -ne 1) { throw "Expected exactly one SPDX JSON after SBOM generation, found $($sbomFiles.Count)." }
+          "zip_path=dist/$($zipFiles[0].Name)" >> $env:GITHUB_OUTPUT
+          "sbom_path=dist/$($sbomFiles[0].Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Validate SPDX 2.3 SBOM
+        shell: pwsh
+        run: |
+          python ".pgextwin-build/scripts/validate-sbom.py" `
+            --sbom "${{ steps.sbom.outputs.sbom_path }}" `
+            --zip "${{ steps.sbom.outputs.zip_path }}" `
+            --expected-extension "${{ needs.matrix.outputs.extension_name }}" `
+            --expected-version "${{ matrix.upstreamVersion }}" `
+            --expected-tool-version "1.54.1"
+          if ($LASTEXITCODE -ne 0) { throw "SPDX SBOM validation failed." }
+
+      - name: Install checksum-pinned Grype
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/install-grype.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Grype installation failed." }
+
+      - name: Scan validated SPDX SBOM for known vulnerabilities
+        shell: pwsh
+        run: |
+          & ".pgextwin-build/scripts/scan-vulnerabilities.ps1" `
+            -GrypePath ".pgextwin-tools\grype\grype.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Vulnerability scan failed operationally." }
+
+      - name: Validate and summarize vulnerability report
+        shell: pwsh
+        run: |
+          $reportFiles = @(Get-ChildItem -Path "dist" -Filter "*.vulnerabilities.json" -File)
+          if ($reportFiles.Count -ne 1) { throw "Expected exactly one vulnerability JSON for validation, found $($reportFiles.Count)." }
+
+          python ".pgextwin-build/scripts/validate-vulnerability-report.py" `
+            --report $reportFiles[0].FullName `
+            --sbom "${{ steps.sbom.outputs.sbom_path }}" `
+            --zip "${{ steps.sbom.outputs.zip_path }}" `
+            --expected-extension "${{ needs.matrix.outputs.extension_name }}" `
+            --expected-scanner-version "0.120.1" `
+            --postgresql-major "${{ matrix.major }}" `
+            --summary-file $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) { throw "Vulnerability report validation failed." }
+      - name: Generate build provenance attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.sbom.outputs.zip_path }}
+
+      - name: Generate SBOM attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.sbom.outputs.zip_path }}
+          sbom-path: ${{ steps.sbom.outputs.sbom_path }}
+
+      - name: Verify build provenance attestation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PGEXTWIN_SIGNER_WORKFLOW: ${{ job.workflow_repository }}/.github/workflows/build-extension-attested.yml
+        run: |
+          gh attestation verify "${{ steps.sbom.outputs.zip_path }}" `
+            --repo $env:GITHUB_REPOSITORY `
+            --signer-workflow $env:PGEXTWIN_SIGNER_WORKFLOW
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub build provenance attestation verification failed."
+          }
+
+      - name: Verify SBOM attestation and predicate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PGEXTWIN_SIGNER_WORKFLOW: ${{ job.workflow_repository }}/.github/workflows/build-extension-attested.yml
+        run: |
+          $verificationJson = & gh attestation verify "${{ steps.sbom.outputs.zip_path }}" `
+            --repo $env:GITHUB_REPOSITORY `
+            --signer-workflow $env:PGEXTWIN_SIGNER_WORKFLOW `
+            --predicate-type "https://spdx.dev/Document/v2.3" `
+            --format json
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub SPDX SBOM attestation verification failed."
+          }
+
+          $verificationPath = Join-Path $env:RUNNER_TEMP "pgextwin-sbom-attestation.json"
+          $verificationJson | Set-Content -Path $verificationPath -Encoding utf8
+
+          python ".pgextwin-build/scripts/verify-sbom-attestation.py" `
+            --verification-json $verificationPath `
+            --sbom "${{ steps.sbom.outputs.sbom_path }}" `
+            --zip "${{ steps.sbom.outputs.zip_path }}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Verified SBOM attestation predicate does not match the generated SPDX JSON."
+          }
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.matrix.outputs.extension_name }}-pg${{ matrix.major }}-windows-x64
+          path: |
+            dist/*.zip
+            dist/*.spdx.json
+            dist/*.vulnerabilities.json
+          if-no-files-found: error
