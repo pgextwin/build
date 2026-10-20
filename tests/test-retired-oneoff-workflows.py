@@ -205,9 +205,23 @@ class RetiredWorkflows(unittest.TestCase):
         self.assertIn("python tests/test-fleet-publish-release.py", live)
         self.assertIn("python tests/test-issue-75-signer-hardening.py", live)
 
+    def test_completed_historical_certificate_observer_is_offline_only(self):
+        self.assertFalse((ROOT / "scripts/issue-75-historical-certificate-readonly.py").exists())
+        self.assertTrue((ROOT / "tests/fixtures/historical-scripts/issue-75-historical-certificate-readonly.py").is_file())
+        self.assertTrue((ROOT / "tests/test-issue-75-historical-certificate-readonly.py").is_file())
+        self.assertFalse((WF / "issue-75-historical-certificate-readonly.yml").exists())
+        validate = (WF / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn("python tests/test-issue-75-historical-certificate-readonly.py", validate)
+        self.assertIn("python tests/test-fleet-publish-release.py", validate)
+        self.assertIn("python tests/test-issue-75-signer-hardening.py", validate)
+        for name in ("promote-verified-release.yml",
+                     "build-extension-attested.yml", "candidate-update.yml",
+                     "verify-candidate.yml", "edb-installer-503-canary.yml"):
+            self.assertTrue((WF / name).is_file())
+
     def test_historic_certificate_and_install_tests_preserved(self):
         for path in ("tests/test-issue-75-historical-certificate-readonly.py",
-                     "scripts/issue-75-historical-certificate-readonly.py",
+                     "tests/fixtures/historical-scripts/issue-75-historical-certificate-readonly.py",
                      "tests/test-postgresql-component-only.py",
                      "scripts/install-postgresql-component-only.ps1"):
             with self.subTest(path=path):

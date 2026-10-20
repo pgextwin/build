@@ -6,11 +6,15 @@ from pathlib import Path
 from unittest import TestCase, main, mock
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location(
-    "issue75_live_certificate",
-    ROOT / "scripts/issue-75-historical-certificate-readonly.py")
+# Preserve the exact original historical source while executing it only
+# inside this offline hostile test. A virtual original __file__ maintains the
+# original module-relative evidence imports without changing frozen bytes.
+SOURCE = ROOT / "tests/fixtures/historical-scripts/issue-75-historical-certificate-readonly.py"
+ORIGINAL = ROOT / "scripts/issue-75-historical-certificate-readonly.py"
+spec = importlib.util.spec_from_file_location("issue75_live_certificate", SOURCE)
 m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
+m.__file__ = str(ORIGINAL)
+exec(compile(SOURCE.read_bytes(), str(ORIGINAL), "exec"), m.__dict__)
 
 URI = f"https://github.com/{m.public.REPO}/actions/runs/{m.RUN_ID}/attempts/1"
 NAME = m.public.STEM.format(14) + ".zip"
