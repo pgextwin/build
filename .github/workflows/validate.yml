@@ -58,6 +58,9 @@ jobs:
       - name: Validate inert Chat PR authorization and hostile merge/event fixtures
         run: python tests/test-chat-pr-authorization.py
 
+      - name: Validate third-wave GET-only PR/push admission and no-Writer boundary
+        run: python tests/test-chat-publication-readonly.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 

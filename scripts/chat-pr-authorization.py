@@ -62,17 +62,18 @@ def git_blob_sha(content):
     return hashlib.sha1(b"blob " + str(len(content)).encode("ascii") + b"\0" + content).hexdigest()
 
 
-def verify_approval(authorization_json, *, repository, event, pr, pr_files, commit,
-                    ci, effective_rules, allowed_operators):
-    """Validate GitHub API snapshots obtained independently by a trusted runner.
+def parse_authorization(authorization_json, *, repository, allowed_operators):
+    """Validate exact request syntax; this NEVER establishes authorization.
 
-    Returns attested *context*, NOT a promotion receipt. Only an independent
-    candidate evidence verifier may combine this with a promotion receipt.
+    Shared by offline approval checks and the read-only PR/main observer.
+    A valid file is not a signed receipt or an independently verified PUBLISH.
     """
     # Parse the exact committed JSON, rather than trusting an unrelated request
     # object supplied by a caller. Future live runners must fetch these commit,
     # PR-file and blob snapshots independently from GitHub, never from PR inputs.
     require(type(authorization_json) is str, "authorization JSON must be raw UTF-8 text")
+    require(0 < len(authorization_json.encode("utf-8")) <= 16384,
+            "authorization JSON is empty or oversized")
     try:
         request = json.loads(authorization_json, object_pairs_hook=_unique_keys)
     except (ValueError, TypeError) as e:
@@ -99,6 +100,16 @@ def verify_approval(authorization_json, *, repository, event, pr, pr_files, comm
     require(human(operator) and type(allowed_operators) in (set, frozenset)
             and operator in allowed_operators,
             "no explicit allowed human operator")
+    return request
+
+
+def verify_approval(authorization_json, *, repository, event, pr, pr_files, commit,
+                    ci, effective_rules, allowed_operators):
+    """Validate independently fetched snapshots; return context, never a receipt."""
+    request = parse_authorization(authorization_json, repository=repository,
+                                 allowed_operators=allowed_operators)
+    repo, tag = request["repository"], request["releaseTag"]
+    operator, parent = request["operatorLogin"], request["packagingMainSha"]
     require(type(event) is dict and event.get("ref") == "refs/heads/main"
             and (event.get("repository") or {}).get("full_name") == repo
             and event.get("before") == parent and full_sha(event.get("after"))
