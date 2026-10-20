@@ -15,6 +15,12 @@ The dormant `scripts/issue-75-private-writer-app-probe.py` previously bound its 
 
 Tests use synthetic JWTs/tokens and injected API responses. Their success never proves a new Writer exists, that the declared App is independent of Reader/Signer, or that live revocation and job-to-job nonpropagation occurred. A minted-token response lost before capture remains an unresolved remote-state ambiguity; fail closed and quarantine, never retry blindly.
 
+## 2026-10-20 transport-boundary defense-in-depth (nonpublishing)
+
+The dormant `authenticated_call()` now independently validates every installation-token mint POST payload before opening any HTTP transport. Even a future caller accidentally bypassing `probe()` cannot use this helper to POST arbitrary repository IDs (including Catalog/Website/build), multiple targets, bool/coerced IDs, or any permission beyond exactly `{"contents":"write"}`. Only one of the pinned immutable target repository IDs is accepted; `probe()` still binds the ID to the exact target name and authenticates the minted/listed identity and revocation. The historical plpgsql_check pilot target remains allowlisted strictly for backward compatibility and **is not a third-wave release authorization**.
+
+Synthetic adversarial tests prove only this local no-network POST guard, not real GitHub App possession, private custody, actual live mint/revoke, or a durable replay/UNKNOWN quarantine journal. No runner, permissions, App installation, human PUBLISH or Release is enabled. GO B/G4/G5 remain NO_GO; publication remains DENY.
+
 ## Smallest viable authenticated GitHub Actions-only future route (not enabled)
 
 1. **Reader:** retain existing main-only, no-write `issue-75-wave3-actions-readonly.yml`. Job token `contents:read` only, checkout `persist-credentials:false`. Send only trusted run/attempt/source SHA/digest metadata, never a bearer, JWT, OIDC token or key.
