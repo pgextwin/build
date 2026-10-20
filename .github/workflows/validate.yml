@@ -73,6 +73,9 @@ jobs:
       - name: Validate single-repo Classic protection audit deny contract (#75)
         run: python tests/test-classic-protection-audit.py
 
+      - name: Validate Wave3 per-repo Classic read-only protection and no-bypass deny contract
+        run: python tests/test-issue-75-wave3-classic-readonly.py
+
       - name: Validate strict GraphQL effective-ref bypass-zero proof fixtures (#75)
         run: python tests/test-classic-graphql-bypass.py
 

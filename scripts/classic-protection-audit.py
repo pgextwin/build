@@ -109,7 +109,11 @@ def _no_bypass(reviews):
             "PR bypass actor status absent or nonempty")
 
 
-def _validate_snapshot(branch, protection, expected_sha):
+def _validate_snapshot(branch, protection, expected_sha, *,
+                       required_contexts=REQUIRED_CONTEXTS,
+                       repository=REPOSITORY):
+    # Policy can be specialized for another reviewed repository without
+    # weakening the plpgsql_check eight-context default.
     require(type(expected_sha) is str and SHA.fullmatch(expected_sha) is not None,
             "expected main SHA is not a full hexadecimal object ID")
     require(type(branch) is dict and
@@ -124,22 +128,22 @@ def _validate_snapshot(branch, protection, expected_sha):
             "required up-to-date status checks (strict) are missing")
     contexts = checks.get("contexts")
     rules = checks.get("checks")
-    require(type(contexts) is list and len(contexts) == len(REQUIRED_CONTEXTS)
+    require(type(contexts) is list and len(contexts) == len(required_contexts)
             and all(type(c) is str for c in contexts)
-            and set(contexts) == REQUIRED_CONTEXTS,
+            and set(contexts) == required_contexts,
             "required status contexts are missing, duplicated or unexpected")
-    require(type(rules) is list and len(rules) == len(REQUIRED_CONTEXTS),
+    require(type(rules) is list and len(rules) == len(required_contexts),
             "App-bound required status checks are incomplete")
     verified = set()
     for rule in rules:
         require(type(rule) is dict and type(rule.get("context")) is str
                 and type(rule.get("app_id")) is int
                 and rule["app_id"] == ACTIONS_APP_ID
-                and rule["context"] in REQUIRED_CONTEXTS
+                and rule["context"] in required_contexts
                 and rule["context"] not in verified,
                 "required check has a wrong name, duplicate, or untrusted App")
         verified.add(rule["context"])
-    require(verified == REQUIRED_CONTEXTS,
+    require(verified == required_contexts,
             "App-bound check list differs from expected Classic policy")
     if "enforcement_level" in checks:
         require(checks["enforcement_level"] == "everyone",
@@ -169,18 +173,18 @@ def _validate_snapshot(branch, protection, expected_sha):
     require(type(summary) is dict and summary.get("enforcement_level") == "everyone",
             "branch summary does not prove required checks for everyone")
     summary_rules = summary.get("checks")
-    require(type(summary_rules) is list and len(summary_rules) == len(REQUIRED_CONTEXTS)
-            and {r.get("context") for r in summary_rules if type(r) is dict} == REQUIRED_CONTEXTS
+    require(type(summary_rules) is list and len(summary_rules) == len(required_contexts)
+            and {r.get("context") for r in summary_rules if type(r) is dict} == required_contexts
             and all(type(r) is dict and type(r.get("app_id")) is int
                     and r["app_id"] == ACTIONS_APP_ID for r in summary_rules),
             "branch summary disagrees on App-bound checks")
     return {
         "schemaVersion": 1,
         "status": "VERIFIED_CLASSIC_READ_ONLY",
-        "repository": REPOSITORY,
+        "repository": repository,
         "branch": "main",
         "mainSha": expected_sha,
-        "requiredChecks": sorted(REQUIRED_CONTEXTS),
+        "requiredChecks": sorted(required_contexts),
         "requiredChecksAppId": ACTIONS_APP_ID,
         "strict": True,
         "pullRequestRequired": True,

@@ -56,6 +56,49 @@ were changed.
 
 **GO B/G4/G5 = NO_GO, PUBLISH = DENY, Wave3 formal Releases = 0/3.**
 
+## 2026-10-20 Wave3 Classic effective-rule REST-only readiness (NOT AUTHENTICATED)
+
+New dormant `scripts/issue-75-wave3-classic-readonly.py` reuses the
+existing plpgsql_check `classic-protection-audit.py::_validate_snapshot`
+without altering the pilot's eight-context default policy. The Wave3-specific
+policy requires exactly one `Windows required summary` GitHub Actions
+App **15368** check, strict latest-main enforcement, PR required with
+zero required approvals, admin enforcement, zero bypass users/teams/apps,
+no force push, no deletion, and no actor restriction override.
+
+For each of the exact three pinned repositories (GitHub numeric IDs
+1425678353/1425679720/1425680909), the preparatory reader permits **GET**
+of only the target's repository identity, protected `branches/main`,
+`branches/main/protection` and
+`rulesets?includes_parents=true`. It takes two identical four-endpoint
+snapshots and requires an empty Ruleset list; stale main SHA, swapped
+repository ID, all missing/unknown fields, 403, duplicates, pagination,
+mutation, response drift, extra/bypassed status contexts, or forced deletion
+**DENY**. Raw credential values are never returned or logged.
+
+This is an intentionally **REST-only, narrow policy contract**. The real
+Classic REST endpoint can omit bypass allowance fields; such a response
+stays DENY pending a separately reviewed and independently authenticated
+effective-ref GraphQL extension. No fixture, owner GUI screenshot or public
+`protected=true` claims live App authentication. The existing Work GUI
+identified the owner-controlled read-only audit App **5295410**, installation
+**170837728**, selected only `plpgsql_check`. It is NOT provisioned on
+the three Wave3 repos. `collect()` therefore always reports
+`auditorIdentityIndependentlyAuthenticated=false`,
+`effectiveRulesAuthenticatedByIndependentApp=false`,
+`publicationAuthorized=false` even on passing injected snapshots.
+`tests/test-issue-75-wave3-classic-readonly.py` runs only synthetic tests
+in existing required CI; no App scope changes, JWT token, Secret, GitHub
+credential or privileged job are introduced.
+
+After separate explicit owner approval, an isolated genuine App-issued
+Admin READ + Metadata READ installation token scoped to selected target(s)
+must independently verify App/installation identity and exact run provenance.
+A future trusted nonpublishing job can then perform these reads and any
+separately reviewed GraphQL supplement. **No publication authority is
+derived from this code or the GUI baseline.** GO B/G4/G5 NO_GO,
+PUBLISH DENY, Wave3 formal Releases 0/3.
+
 ## Smallest viable authenticated GitHub Actions-only future route (not enabled)
 
 1. **Reader:** retain existing main-only, no-write `issue-75-wave3-actions-readonly.yml`. Job token `contents:read` only, checkout `persist-credentials:false`. Send only trusted run/attempt/source SHA/digest metadata, never a bearer, JWT, OIDC token or key.
