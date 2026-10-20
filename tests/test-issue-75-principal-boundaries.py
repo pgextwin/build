@@ -127,6 +127,49 @@ class BoundaryTests(TestCase):
                     with self.assertRaises(p.Deny):
                         p.inspect(role, x, lambda _: self.fail("GET"))
 
+    def test_inert_role_rejects_secret_named_variables_even_when_empty(self):
+        # Do not read or log secret VALUES. An empty injected variable still
+        # means credential custody/environment isolation was not demonstrated.
+        names = (
+            "GH_TOKEN", "GITHUB_TOKEN", "GH_APP_PRIVATE_KEY", "GH_APP_JWT",
+            "GITHUB_APP_TOKEN", "GITHUB_INSTALLATION_TOKEN",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL",
+            "SIGSTORE_ID_TOKEN", "COSIGN_PASSWORD", "COSIGN_PRIVATE_KEY",
+            "AWS_SECRET_ACCESS_KEY", "AZURE_CLIENT_SECRET",
+            "GOOGLE_APPLICATION_CREDENTIALS", "PGEXTWIN_WRITER_CREDENTIAL",
+            "CUSTOM_CLIENT_SECRET", "SYNTHETIC_API_TOKEN",
+            "FAKE_PRIVATE_KEY", "UNKNOWN_PASSWORD", "UNSAFE_SECRET",
+            "gIthUb_InstallatIon_Token",
+        )
+        for role in ("signer", "writer"):
+            for name in names:
+                with self.subTest(role=role,key=name):
+                    e=env(role)
+                    e[name]=""
+                    with self.assertRaises(p.Deny):
+                        p.inspect(role,e,lambda _: self.fail("no real GET"))
+                    e[name]="SYNTHETIC_TOKEN_MUST_NOT_APPEAR_IN_OUTPUT"
+                    with self.assertRaises(p.Deny):
+                        p.inspect(role,e,lambda _: self.fail("no real GET"))
+            out=p.inspect(role,env(role),lambda _: self.fail("no real GET"))
+            self.assertTrue(out["inertProcessCredentialKeysAbsent"])
+            self.assertFalse(out["crossRoleTokenDistinctnessVerified"])
+            self.assertFalse(out["publicationAuthorized"])
+
+    def test_runtime_denial_sanitizes_injected_credential_value(self):
+        for role in ("signer","writer"):
+            dirty=env(role)
+            dirty["GITHUB_APP_PRIVATE_KEY"]="SECRET_KEY_SHOULD_NEVER_BE_ECHOED"
+            capture=io.StringIO()
+            with mock.patch.dict(os.environ,dirty,clear=True), \
+                 mock.patch("sys.argv",["main","--role",role]), \
+                 redirect_stdout(capture):
+                result=p.main()
+            self.assertEqual(result,2)
+            self.assertNotIn("SECRET_KEY_SHOULD_NEVER_BE_ECHOED",
+                             capture.getvalue())
+            self.assertEqual(json.loads(capture.getvalue())["goB"],"NO_GO")
+
     def test_allowlist_malformed_json_duplicate_keys_and_redirect_deny(self):
         self.assertFalse(p.SHA.fullmatch("x"*40))
         with self.assertRaises(p.Deny):
@@ -184,6 +227,11 @@ class BoundaryTests(TestCase):
             self.assertNotIn("secrets.", job)
             self.assertNotIn("contents: write", job)
             self.assertNotIn("id-token: write", job)
+            for forbidden in ("needs:", "outputs:", "GITHUB_OUTPUT",
+                              "GITHUB_ENV", "upload-artifact", "download-artifact",
+                              "actions/cache@", "GH_APP_TOKEN:", "GITHUB_APP_",
+                              "secrets.", "gh release", "gh api", "gh workflow run"):
+                self.assertNotIn(forbidden, job)
         self.assertIn("actions: read", blocks["reader"])
         self.assertEqual(text.count("GH_TOKEN:"), 1)
         self.assertIn("--role reader", blocks["reader"])
