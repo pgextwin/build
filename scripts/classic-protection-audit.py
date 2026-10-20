@@ -110,7 +110,7 @@ def _no_bypass(reviews):
 
 
 def _validate_snapshot(branch, protection, expected_sha, *,
-                       required_contexts=required_contexts,
+                       required_contexts=REQUIRED_CONTEXTS,
                        repository=REPOSITORY):
     # Policy can be specialized for another reviewed repository without
     # weakening the plpgsql_check eight-context default.
