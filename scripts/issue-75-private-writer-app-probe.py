@@ -83,7 +83,14 @@ def authenticated_call(method, path, credential, payload=None, *,
     permitted(method,path)
     need(type(credential) is str and len(credential) >= 20)
     if method == "POST":
+        # Defense in depth at the last transport boundary: callers must not
+        # bypass probe() preflight and mint for arbitrary repos or permissions.
         need(type(payload) is dict and set(payload)=={"repository_ids","permissions"})
+        ids=payload["repository_ids"]
+        need(type(ids) is list and len(ids)==1
+             and type(ids[0]) is int and ids[0] in TARGET_REPO_IDS.values())
+        need(type(payload["permissions"]) is dict
+             and payload["permissions"]=={"contents":"write"})
         data = json.dumps(payload,separators=(",",":")).encode("utf-8")
     else:
         need(payload is None)
