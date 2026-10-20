@@ -99,7 +99,7 @@ class PublicByteHostileTests(TestCase):
             (Path(path)/"fake_setup.py").write_text("print('must never execute')")
             with self.assertRaises(p.Deny):p.wheel_inventory(path)
     def test_pr_isolation_no_tokens_no_writer_no_artifacts(self):
-        y=(ROOT/".github/workflows/validate.yml").read_text()
+        y=(ROOT/"tests/fixtures/historical-workflows/validate-issue75-pr-oneoffs.yml").read_text()
         part=y.split("  issue75_public_byte_probe:",1)[1].split("\n  existing_signed_release_readonly:",1)[0]
         for required in ("github.event_name == 'pull_request'",
                          "github.head_ref == 'issue-75-external-byte-closure-probe'",
