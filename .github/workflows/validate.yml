@@ -178,7 +178,6 @@ jobs:
       - name: Validate bounded public Action bundle, PyPI wheel and Chocolatey archive plan (#75)
         run: |
           python tests/test-issue-75-external-byte-probe.py
-          python scripts/issue-75-external-byte-probe.py --mode static
 
       - name: Validate Issue75 inert Chocolatey script analyzer and platform wheel lock
         run: |

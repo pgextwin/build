@@ -22,7 +22,7 @@ from zipfile import ZipFile
 ROOT=Path(__file__).resolve().parents[1]
 OBS=ROOT/"evidence/issue-75/external-public-byte-observed-39034789275.json"
 PG=ROOT/"metadata/postgresql.json"
-SOURCE=ROOT/"scripts/issue-75-external-byte-probe.py"
+SOURCE=ROOT/"tests/fixtures/historical-scripts/issue-75-external-byte-probe.py"
 spec=importlib.util.spec_from_file_location("public_byte_readonly",SOURCE)
 base=importlib.util.module_from_spec(spec);spec.loader.exec_module(base)
 SHA64=re.compile(r"[a-fA-F0-9]{64}\Z")
