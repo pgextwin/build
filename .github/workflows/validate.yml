@@ -149,6 +149,9 @@ jobs:
       - name: Validate Issue75 dormant private Signer crypto and Writer App issuance/revocation hostile contract
         run: python tests/test-issue-75-private-principal-runtime.py
 
+      - name: Validate Issue75 create-only local prewrite seal and fsync quarantine (NOT Publisher)
+        run: python tests/test-issue-75-durable-prewrite-seal.py
+
       - name: Validate Issue75 connected private-executor GET-only inventory and fail-closed readiness
         run: |
           python tests/test-issue-75-private-runtime-readiness.py
