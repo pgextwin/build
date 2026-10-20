@@ -21,6 +21,35 @@ WORKFLOW = ".github/workflows/issue-75-principal-boundaries.yml"
 ROLE_JOBS = {"reader": "reader", "signer": "signer_denied", "writer": "writer_denied"}
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 INT = re.compile(r"[1-9][0-9]*\Z")
+# Inspect only environment VARIABLE NAMES in credentialless inert jobs. Never
+# emit/compare their values, including malformed or attacker supplied tokens.
+# This observes only the environment of this process, NOT other jobs/contexts.
+CREDENTIAL_KEYS = frozenset({
+    "GH_TOKEN", "GITHUB_TOKEN", "GITHUB_APP_TOKEN",
+    "GH_APP_TOKEN", "GH_APP_PRIVATE_KEY", "GITHUB_APP_PRIVATE_KEY",
+    "APP_PRIVATE_KEY", "PRIVATE_KEY", "GITHUB_APP_JWT",
+    "GH_APP_JWT", "INSTALLATION_TOKEN", "GH_INSTALLATION_TOKEN",
+    "GITHUB_INSTALLATION_TOKEN", "SIGSTORE_ID_TOKEN", "COSIGN_PASSWORD",
+    "COSIGN_PRIVATE_KEY", "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    "ACTIONS_ID_TOKEN_REQUEST_URL", "AWS_SECRET_ACCESS_KEY",
+    "AZURE_CLIENT_SECRET", "GOOGLE_APPLICATION_CREDENTIALS",
+})
+CREDENTIAL_KEY_ENDINGS = ("_TOKEN", "_PRIVATE_KEY", "_CLIENT_SECRET",
+                          "_PASSWORD", "_CREDENTIALS", "_SECRET")
+CREDENTIAL_KEY_PREFIXES = ("GH_APP_", "GITHUB_APP_", "SIGSTORE_",
+                           "COSIGN_", "ACTIONS_ID_TOKEN_", "PGEXTWIN_WRITER_")
+
+def inert_credential_keys_absent(env):
+    need(type(env) is dict or hasattr(env, "keys"))
+    # Determine presence by names only. Do not stringify or expose values.
+    for name in env:
+        need(type(name) is str)
+        key = name.upper()
+        need(key not in CREDENTIAL_KEYS and
+             not key.startswith(CREDENTIAL_KEY_PREFIXES) and
+             not key.endswith(CREDENTIAL_KEY_ENDINGS))
+    return True
+
 
 class Deny(ValueError):
     pass
@@ -100,11 +129,14 @@ def report(role, decision, *, run_id=None, sha=None):
 def inspect(role, env, get):
     sha, run_id, attempt = context(env, role)
     if role != "reader":
-        need(not env.get("GH_TOKEN") and not env.get("GITHUB_TOKEN"))
-        # These jobs may access the ephemeral built-in github.token context in
-        # principle; no App/Signer/Writer credential is acquired or used here.
-        return report(role, role.upper() + "_UNPROVISIONED_NO_WRITE",
-                      run_id=run_id, sha=sha)
+        inert_credential_keys_absent(env)
+        # Presence-only process environment test. GitHub token contexts can
+        # still be resolved by the host platform; this is NOT a real custody
+        # or token-distinctness proof.
+        out = report(role, role.upper() + "_UNPROVISIONED_NO_WRITE",
+                     run_id=run_id, sha=sha)
+        out["inertProcessCredentialKeysAbsent"] = True
+        return out
     need(bool(env.get("GH_TOKEN")))
     path = "actions/runs/" + str(run_id)
     # Independent repeated GETs: compare only stable identity fields of a
