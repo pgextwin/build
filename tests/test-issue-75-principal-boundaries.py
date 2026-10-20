@@ -201,7 +201,7 @@ class BoundaryTests(TestCase):
         self.assertFalse(value["publicationAuthorized"])
 
     def test_static_trusted_main_only_nonpublishing_roles(self):
-        text = (ROOT/".github/workflows/issue-75-principal-boundaries.yml").read_text()
+        text = (ROOT/"tests/fixtures/historical-workflows/issue-75-principal-boundaries.yml").read_text()
         self.assertIn("  push:\n    branches:\n      - main", text)
         self.assertIn("permissions: {}", text)
         self.assertNotIn("pull_request:", text)
