@@ -181,7 +181,7 @@ class MainGuardOffline(TestCase):
                 with self.assertRaises(p.guard.Deny):
                     p.guard.verified_claims(duplicate, **kwargs)
                 crossed = copy.deepcopy(real_shape)
-                crossed["verificationResult"]["signature"]["certificate"]["githubWorkflowSHA"] = "a"*40
+                crossed["verificationResult"]["signature"]["certificate"]["githubWorkflowSHA"] = "f"*40
                 with self.assertRaises(p.guard.Deny):
                     p.guard.verified_claims(json.dumps([crossed]), **kwargs)
 
