@@ -204,7 +204,7 @@ def main():
             f.write("mode=" + mode + "\n")
         print("SCHEDULED_FLEET_CANDIDATE=" + mode + "; PUBLISH=DENY")
         return 0
-    except (Denied, OSError, subprocess.TimeoutExpired, TypeError, KeyError) as exc:
+    except (Denied, OSError, subprocess.TimeoutExpired, TypeError, KeyError, ValueError) as exc:
         print("SCHEDULED_FLEET_CANDIDATE=DENY; " + type(exc).__name__,
               file=sys.stderr)
         return 2
