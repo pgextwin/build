@@ -95,3 +95,83 @@ dispatcher. A dedicated Catalog-only Actions WRITE app must be separately
 approved, installed and positively authenticated before setting the flag.
 This source-only fix neither installs an App nor changes an active caller.
 The current 3 Wave3 release candidates remain PUBLISH DENY, no Release/Tag.
+
+## 2026-10-21 — final 17/17 UPDATE closure and formal Release boundary (live GET)
+
+This section is a **new live observation**, superseding historical SHAs above
+*only for the scope explicitly listed here*. It is neither approval to change
+Release policies nor a PUBLISH instruction.
+
+### Protected merge and postmerge — all accepted, no rerun required
+
+The 17-extension automatic UPDATE refactor is present on all protected main
+branches, and all 17 corresponding native main/push CI runs completed
+SUCCESS. The *last* three reviewed first-Release repositories are:
+
+| Extension | Exact protected main SHA | Actual main/push Windows run |
+| --- | --- | --- |
+| pgtap | `988bb997a2ed9ac83679a9eac9c7f2475a3b1347` | [39558315509](https://github.com/pgextwin/pgtap/actions/runs/39558315509) |
+| pg_variables | `c522e63b5867ed65e0037b4c09719c98eb414b8d` | [39558265615](https://github.com/pgextwin/pg_variables/actions/runs/39558265615) |
+| pg_store_plans | `382426d6df7e060f72b8c058a503cdca88021fbe` | [39558370902](https://github.com/pgextwin/pg_store_plans/actions/runs/39558370902) |
+
+Each actual `event=push`, `head_branch=main` run had PostgreSQL 14–18
+**5/5 SUCCESS**, the App15368 `Windows required summary` SUCCESS and
+nonpublishing `publication_admission` SUCCESS. The latest protected
+`update-watch.yml` uses the scheduled central verifier at
+`39a329fb5e7c7f801eef3a23688fdd76cce8b2ac` and has no operator
+`confirm_update` or manual `workflow_dispatch`. This does **not** prove
+the first successful real cron-to-candidate PR end-to-end operation.
+[Immutable completion report](https://github.com/pgextwin/build/issues/141#issuecomment-6310607813).
+
+### Formal Release readiness — still DENY, exact unresolved gates
+
+- Fresh public GitHub Release GET returns **0/3** for these repositories;
+  per-repo `config/release-promotion.json` still has `enabled=false`
+  and `manual-dispatch`. The central
+  `metadata/release-promotion.json` still allowlists 14 only.
+- Fresh authenticated GET to each Wave3
+  `/branches/main/protection` returns **403**
+  (`Resource not accessible by integration`): no independent
+  effective-Classic-protection proof from this connector. Public
+  `/rulesets` returns an empty array; do not infer absence of Classic
+  protection or permission to bypass it. The exact repo identities are
+  pgtap `1425678353`, pg_variables `1425679720` and
+  pg_store_plans `1425680909`.
+- Actual immutable Signer used by the historical shared publication
+  `build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d`
+  has **five checkout occurrences, zero `persist-credentials:false`**
+  declarations. The current central Signer source has the improved
+  checkout pattern, but an unpinned source edit does not repair an old
+  immutable caller, nor independently prove live X.509/Sigstore identity.
+  Do **not** repin the live Signer before protected transitive provenance,
+  signed-byte validation and independent credential isolation acceptance.
+- Separately governed credential custody, scoped Release Writer GitHub App,
+  real mint/revocation and live Publisher positive prewrite/recovery are
+  unaccepted. GitHub `GITHUB_TOKEN` contents:write in an existing workflow
+  is **not** evidence of independent Writer custody.
+- No separately authorized human `PUBLISH` for these specific Releases;
+  GO B/G4/G5 remain **NO_GO**. An UPDATE request, successful candidate,
+  protected merge or signed Catalog verifier cannot substitute for it.
+
+### Minimum subsequent execution, without repeating completed work
+
+1. Use the already selected `pgextwin-classic-protection-audit` App
+   with Administration:read to independently prove **effective** protected
+   main on the three pinned repository IDs. Preserve permissions and
+   installation selection; a 403 via the normal Chat connector is not proof.
+2. Independently accept actual immutable Signer provenance/ZIP and SPDX
+   signatures, credential isolation and scoped separately governed Release
+   Writer/Pubisher issuance and revocation. Reuse the existing negative
+   tests and Publisher prewrite/recovery contracts, do not create new
+   experimental pipelines, and do not relax mandatory protection.
+3. Only upon **all** existing release gates and a distinct user `PUBLISH`
+   for an exact named/tagged candidate: use the existing manual create-only
+   promotion route. Otherwise stop **only** the privileged publication.
+4. For each actually published and verified official Release, use the
+   **existing** independent signed Release verifier in Catalog, create a
+   protected one-record PR, require exact-head CI, verify CLI public
+   downloads and the EN/JA Website. Never seed Catalog from unsigned
+   candidate ZIPs.
+
+This checkpoint creates **no** live credential, App, Secret, Environment,
+promotion flag, Release, tag, Catalog record, or PUBLISH authorization.
