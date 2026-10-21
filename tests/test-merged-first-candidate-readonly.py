@@ -90,6 +90,47 @@ class TestMergedCandidate(unittest.TestCase):
                 with self.assertRaises((m.Denied, ValueError, KeyError, TypeError)):
                     self.check(f)
 
+    def test_exact_shared_readonly_update_wrapper_can_be_observed_without_publish(self):
+        expected_blob = "2d64faa10025dd65adc005bd8f3be3bbadf60802"
+        for name in ("pgtap", "pg_variables", "pg_store_plans"):
+            env, event, data, run = fixture()
+            repo = "pgextwin/" + name
+            env["GITHUB_REPOSITORY"] = repo
+            pr = data["pulls/7"]
+            pr["user"] = {"login": "ShutenOishi", "type": "User"}
+            pr["merged_by"] = {"login": "ShutenOishi", "type": "User"}
+            pr["head"]["ref"] = "refactor/shared-operator-readonly-20261021"
+            pr["head"]["repo"]["full_name"] = repo
+            pr["base"]["repo"]["full_name"] = repo
+            file = data["pulls/7/files?per_page=100"][0]
+            file.update(filename=".github/workflows/update-watch.yml",
+                        sha=expected_blob, status="modified")
+            data["commits/" + MERGE]["files"] = [deepcopy(file)]
+            run["actor"] = {"login": "ShutenOishi", "type": "User"}
+            event["sender"] = {"login": "ShutenOishi", "type": "User"}
+            output = m.observe_merged_nonpublishing_pin(
+                env, event, Reader(data), run, data["branches/main"])
+            self.assertEqual(output["status"],
+                             "MERGED_NONPUBLISHING_WORKFLOW_PIN_OBSERVED")
+            self.assertEqual(output["publication"], "DENY")
+            self.assertEqual((output["goB"], output["g4"], output["g5"]),
+                             ("NO_GO",) * 3)
+            self.assertFalse(output["publicationAuthorized"])
+            for mutate in (
+                lambda f,d: f.update(sha="0" * 40),
+                lambda f,d: f.update(filename=".github/workflows/promote.yml"),
+                lambda f,d: f.update(status="added"),
+                lambda f,d: d["commits/" + MERGE]["files"].append(deepcopy(f)),
+                lambda f,d: d["commits/" + HEAD + "/check-runs?per_page=100"]["check_runs"][0].update(conclusion="failure"),
+                lambda f,d: d["branches/main"].update(protected=False),
+            ):
+                bad = deepcopy(data)
+                changed = bad["pulls/7/files?per_page=100"][0]
+                mutate(changed, bad)
+                with self.subTest(repo=repo, mutation=str(mutate)), self.assertRaises((m.Denied, ValueError, KeyError, TypeError)):
+                    m.observe_merged_nonpublishing_pin(
+                        env, event, Reader(bad), run, bad["branches/main"])
+
     def test_human_workflow_pin_merge_stays_nonpublishing(self):
         env, event, data, run = fixture()
         pr = data["pulls/7"]
