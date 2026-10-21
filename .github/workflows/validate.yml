@@ -221,6 +221,9 @@ jobs:
       - name: Validate daily 17-extension stable upstream audit (GET only)
         run: python tests/test-fleet-upstream-watch.py
 
+      - name: Deny forged scheduled candidate snapshots and preserve manual PUBLISH
+        run: python tests/test-scheduled-fleet-candidate.py
+
       - name: Validate extension manifest schema
         run: python tests/test-extension-schema.py
 
