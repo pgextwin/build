@@ -11,15 +11,18 @@ spec = importlib.util.spec_from_file_location(
 recovery = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(recovery)
 
-TAG = "v2.10.15-windows.1"  # only a synthetic, never reserved or published
+TAG = "v1.3.4-windows.1"  # Wave3 synthetic, never reserved or published
 SHA = "a" * 40
 DIGEST = "b" * 64
+REQUEST_ID = "d" * 64
+REPOSITORY = "pgextwin/pgtap"
 
 
 def evidence(stage="DRAFT_VERIFIED"):
     return {
         "schemaVersion": 2, "state": stage, "tag": TAG, "runId": 101,
-        "commit": SHA,
+        "attempt": 1, "requestId": REQUEST_ID,
+        "repository": REPOSITORY, "commit": SHA,
         "reservation": {
             "outcome": "CREATED", "httpStatus": 201,
             "ref": "refs/tags/" + TAG, "objectSha": SHA,
@@ -80,6 +83,54 @@ class RecoveryTests(TestCase):
                 result = classify(record)
             self.assertEqual(result["classification"], "UNKNOWN_QUARANTINE")
             self.assert_nonpublishing(result)
+
+    def test_attempt_request_and_repository_are_mandatory_before_acceptance(self):
+        baseline = classify()
+        self.assertEqual(baseline["classification"], "CONSISTENT_READ_ONLY")
+        self.assert_nonpublishing(baseline)
+        for missing in ("attempt", "requestId", "repository"):
+            record = evidence()
+            record.pop(missing)
+            with self.subTest(missing=missing):
+                result = classify(record)
+                self.assertEqual(result["classification"], "UNKNOWN_QUARANTINE")
+                self.assert_nonpublishing(result)
+        for field, bad in (
+            ("attempt", 0), ("attempt", -1), ("attempt", 1001),
+            ("attempt", True), ("attempt", "1"), ("attempt", None),
+            ("requestId", "x" * 64), ("requestId", "a" * 63),
+            ("requestId", "A" * 64), ("requestId", 42),
+            ("repository", "pgextwin/catalog"), ("repository", "pgextwin/build"),
+            ("repository", "pgextwin/plpgsql_check"),
+            ("repository", "pgextwin/pgtap/"), ("repository", True),
+        ):
+            record = evidence()
+            record[field] = bad
+            with self.subTest(field=field, bad=bad):
+                result = classify(record)
+                self.assertEqual(result["classification"], "UNKNOWN_QUARANTINE")
+                self.assert_nonpublishing(result)
+
+    def test_exact_wave3_scope_and_attempted_replay_still_no_retry(self):
+        self.assertEqual(recovery.WAVE3_REPOS, {
+            "pgextwin/pgtap", "pgextwin/pg_variables",
+            "pgextwin/pg_store_plans",
+        })
+        for repo in sorted(recovery.WAVE3_REPOS):
+            with self.subTest(repo=repo):
+                record = evidence()
+                record["repository"] = repo
+                self.assertEqual(classify(record)["classification"],
+                                 "CONSISTENT_READ_ONLY")
+                self.assert_nonpublishing(classify(record))
+                # A different valid attempt may classify as consistent offline,
+                # but this is not evidence it came from GitHub and NEVER
+                # authorizes a second POST or Release mutation.
+                record["attempt"] = 2
+                result = classify(record)
+                self.assertEqual(result["classification"], "CONSISTENT_READ_ONLY")
+                self.assertFalse(result["retryAuthorized"])
+                self.assertFalse(result["publicationAuthorized"])
 
     def test_lost_post_response_422_429_and_bad_reservation_are_unknown(self):
         mutations = [
