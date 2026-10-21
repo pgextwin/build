@@ -1,13 +1,14 @@
 name: Shared verified manual Windows Release promotion
 
-# SOURCE-ONLY 17-fleet compatibility preparation. Existing per-repository
-# promote.yml callers remain pinned to their previous immutable workflows;
-# 13 legacy promoters and plpgsql_check's shared promoter remain unchanged.
-# This change does not enable publication, repin a signer, authorize an App/Writer
-# or attest original ZIP/SBOM bytes. The shared operator gate remains fail-closed.
-# Reuse the tested Wave3 first-release source/policy parser and hardened current
-# Publisher source from an immutable build commit; independently accept future
-# deployed signer/publisher pins before any new PUBLISH-capable caller cutover.
+# Shared four-caller verified Promotion source (plpgsql_check and Wave3 three).
+# The deployed plpgsql_check caller still pins build@5425225ea858f8c0165421902c3e66c6c9205f60;
+# the deployed Wave3 callers pin build@3b040b660702b8645f60d5f43516e3263e4fa8b6.
+# The other 13 released callers use the distinct production legacy shared workflow.
+# Changing this file on build/main does not update immutable deployed callers.
+# A 17-repository identity list is NOT a 17-repository publication authorization:
+# central 14-only policy, local Wave3 enabled=false and manual PUBLISH still deny.
+# The newer gate/Publisher must not be assumed runtime-equivalent to the proven
+# legacy publisher without independent signed-runtime and custody acceptance.
 on:
   workflow_call:
     inputs:
