@@ -11,8 +11,8 @@ on:
         required: true
     outputs:
       mode:
-        description: candidate, read-only, or none (never publication)
-        value: ${{ jobs.scheduled.outputs.mode || jobs.manual_readonly.outputs.mode }}
+        description: candidate or none (never publication)
+        value: ${{ jobs.scheduled.outputs.mode }}
 
 permissions:
   contents: read
@@ -52,14 +52,3 @@ jobs:
           echo "Scheduled upstream candidate preflight: ${VERIFIED_MODE:-DENY}" >> "$GITHUB_STEP_SUMMARY"
           echo "Formal Release and PUBLISH are never authorized by this workflow." >> "$GITHUB_STEP_SUMMARY"
 
-  manual_readonly:
-    name: Optional explicit GET-only debug; never a candidate
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    permissions:
-      contents: read
-    uses: pgextwin/build/.github/workflows/operator-update-readonly.yml@33853f3a4381bfc2d984fad371e5ba5c768595a5
-    with:
-      dry_run: true
-      confirm_update: ""
-      expected_main_sha: ""
-      detector_sha: ${{ inputs.detector_sha }}
