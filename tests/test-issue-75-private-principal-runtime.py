@@ -20,6 +20,23 @@ def load(path,name):
 
 s=load("scripts/issue-75-private-signer-verify.py","private_signer")
 w=load("scripts/issue-75-private-writer-app-probe.py","private_writer")
+PINNED_SOURCES={
+    "plpgsql_check":("okbob/plpgsql_check","v2.10.15","2.10.15",
+                     "0ac96adc13b34d071c4be8ba0ec4f73e6e7520f5"),
+    "pgtap":("theory/pgtap","v1.3.4","1.3.4",
+             "968eb53a33114e83042b3bdb0c664b5b80cf8bdf"),
+    "pg_variables":("postgrespro/pg_variables","v1.2.1","1.2.1",
+                    "1d1bfe26a5e2eec6dda761565e1307d679b1072b"),
+    "pg_store_plans":("ossc-db/pg_store_plans","1.10","1.10",
+                      "e802804d4d2763ad3b32fc8fcf9f218c61cc475f"),
+}
+
+def pinned_config(extension):
+    upstream, ref, version, commit=PINNED_SOURCES[extension]
+    return {"name":extension,"upstream":{
+        "repository":upstream,"ref":ref,"version":version,"commit":commit},
+        "postgresql":{"majors":[14,15,16,17,18]}}
+
 NOW=datetime(2026,10,18,6,0,tzinfo=timezone.utc)
 JWT="SYNTHETIC_APP_JWT_NO_LOG_1234567890"
 TOKEN="SYNTHETIC_INSTALLATION_TOKEN_NO_LOG_1234567890"
@@ -139,6 +156,8 @@ class PrivateProbes(TestCase):
                         with self.assertRaises(s.Deny):
                             s.verify_pair(z,sp,packaging_sha="a"*40,
                                           run_id=12345,attempt=1,
+                                          extension_config=pinned_config(ext),
+                                          pg_major=18,
                                           repository=target,gh_runner=should_not_run)
                 self.assertEqual(invoked,[])
                 # The exact pair advances to an independent gh crypto call,
@@ -150,9 +169,64 @@ class PrivateProbes(TestCase):
                 with self.assertRaises(s.Deny):
                     s.verify_pair(good,sbom,packaging_sha="a"*40,
                                   run_id=12345,attempt=1,
+                                  extension_config=pinned_config(ext),
+                                  pg_major=18,
                                   repository=repo,gh_runner=forged_verify)
                 self.assertEqual(len(forged),1)
                 self.assertEqual(forged[0][forged[0].index("--repo")+1],repo)
+
+    def test_canonical_pinned_source_ref_major_and_commit_gate_crypto(self):
+        # A syntactically valid wrong version is denied even when ZIP and
+        # SPDX have perfectly matching (but untrusted) names.
+        for extension, (_upstream, ref, _version, _commit) in PINNED_SOURCES.items():
+            with self.subTest(extension=extension), tempfile.TemporaryDirectory() as root:
+                repo="pgextwin/"+extension
+                good=Path(root)/(extension+"-"+ref+"-pg18-windows-x64.zip")
+                spdx=Path(root)/(extension+"-"+ref+"-pg18-windows-x64.spdx.json")
+                good.write_bytes(b"no real signature")
+                spdx.write_text('{"spdxVersion":"SPDX-2.3"}')
+                config=pinned_config(extension)
+                self.assertEqual(s.identity.asset_stem(config,18),good.name[:-4])
+                calls=[]
+                def never_run(*args,**kwargs):
+                    calls.append(True)
+                    self.fail("mismatched source passed to gh crypto")
+                bad_configurations=[]
+                for field,value in (
+                    ("name","pg_bigm"),("name",None),
+                    ("upstream",{}),
+                ):
+                    c=pinned_config(extension)
+                    c[field]=value
+                    bad_configurations.append(c)
+                for key,value in (("repository","wrong-owner/wrong-repo"),
+                                  ("ref","v999.9.9"),
+                                  ("version","x.y"),("commit","f"*39)):
+                    c=pinned_config(extension)
+                    c["upstream"][key]=value
+                    bad_configurations.append(c)
+                for c in bad_configurations:
+                    with self.assertRaises(s.Deny):
+                        s.verify_pair(good,spdx,packaging_sha="a"*40,
+                                      run_id=12345,attempt=1,repository=repo,
+                                      extension_config=c,pg_major=18,
+                                      gh_runner=never_run)
+                for bad_major in (19,13,True,"18",None):
+                    with self.assertRaises(s.Deny):
+                        s.verify_pair(good,spdx,packaging_sha="a"*40,
+                                      run_id=12345,attempt=1,repository=repo,
+                                      extension_config=config,pg_major=bad_major,
+                                      gh_runner=never_run)
+                wrong_zip=Path(root)/(extension+"-v999.9-pg18-windows-x64.zip")
+                wrong_spdx=Path(root)/(extension+"-v999.9-pg18-windows-x64.spdx.json")
+                wrong_zip.write_bytes(b"wrong version, but matching names")
+                wrong_spdx.write_text('{"spdxVersion":"SPDX-2.3"}')
+                with self.assertRaises(s.Deny):
+                    s.verify_pair(wrong_zip,wrong_spdx,packaging_sha="a"*40,
+                                  run_id=12345,attempt=1,repository=repo,
+                                  extension_config=config,pg_major=18,
+                                  gh_runner=never_run)
+                self.assertEqual(calls,[])
 
     def test_crypto_transport_requires_actual_zero_exit_and_bounded_json(self):
         args=s.command(Path("/tmp/trusted.zip"),packaging_sha="a"*40,
@@ -174,8 +248,8 @@ class PrivateProbes(TestCase):
 
     def test_crypto_forged_verified_json_does_not_generate_go_or_receipt(self):
         with tempfile.TemporaryDirectory() as folder:
-            zip_file=Path(folder)/"plpgsql_check-pg18-windows-x64.zip"
-            sbom_file=Path(folder)/"plpgsql_check-pg18-windows-x64.spdx.json"
+            zip_file=Path(folder)/"plpgsql_check-v2.10.15-pg18-windows-x64.zip"
+            sbom_file=Path(folder)/"plpgsql_check-v2.10.15-pg18-windows-x64.spdx.json"
             zip_file.write_bytes(b"synthetic ZIP, not genuine")
             sbom_file.write_text('{"spdxVersion":"SPDX-2.3"}')
             calls=[]
@@ -187,12 +261,16 @@ class PrivateProbes(TestCase):
                         "issuer":s.ISSUER}}}}]))
             with self.assertRaises(s.Deny):
                 s.verify_pair(zip_file,sbom_file,packaging_sha="a"*40,
-                              run_id=12345,attempt=1,gh_runner=runner)
+                              run_id=12345,attempt=1,
+                              extension_config=pinned_config("plpgsql_check"),
+                              pg_major=18,gh_runner=runner)
             self.assertEqual(len(calls),1)
             for issue in (0,True,"1",2):
                 with self.assertRaises(s.Deny):
                     s.verify_pair(zip_file,sbom_file,packaging_sha="a"*40,
-                                  run_id=12345,attempt=issue,gh_runner=runner)
+                                  run_id=12345,attempt=issue,
+                                  extension_config=pinned_config("plpgsql_check"),
+                                  pg_major=18,gh_runner=runner)
         self.assertNotIn("publicationAuthorized\": true",str(calls))
 
     def test_runtime_signer_has_no_authorizing_entrypoint(self):
