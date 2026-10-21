@@ -28,7 +28,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.event.repository.name }}-human-release-promotion
+  group: shared-legacy-${{ github.event.repository.name }}-human-release-promotion
   cancel-in-progress: false
 
 permissions:

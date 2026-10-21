@@ -34,7 +34,9 @@ class SharedPromotion(unittest.TestCase):
         shared = (ROOT / ".github/workflows/promote-legacy-verified-release.yml").read_text()
         self.assertIn("  workflow_call:", shared)
         self.assertNotIn("  workflow_dispatch:", shared)
-        self.assertIn("group: ${{ github.event.repository.name }}-human-release-promotion", shared)
+        self.assertIn("group: shared-legacy-${{ github.event.repository.name }}-human-release-promotion", shared)
+        # Never reuse the caller's inherited concurrency group in a nested workflow.
+        self.assertNotIn("group: ${{ github.event.repository.name }}-human-release-promotion\\n", shared)
         self.assertEqual(shared.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2)
         self.assertEqual(
             shared.split("jobs:\n", 1)[1].replace(
