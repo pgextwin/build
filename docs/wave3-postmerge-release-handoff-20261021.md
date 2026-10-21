@@ -75,3 +75,23 @@ A later **separately authorized** Wave3 caller repin requires independent
 Signer/Writer/Publisher source and runtime validation, exact protected PR CI,
 real signing/attestation acceptance, and distinct human per-release PUBLISH;
 never infer that central main alone upgraded pinned callers.
+
+
+## 2026-10-21 — avoid accidental opt-in to Catalog Actions dispatch
+
+In the **dormant shared promotion source** only, downstream `catalog_sync`
+now requires both explicit
+`PGEXTWIN_CATALOG_DISPATCH_ENABLED=true` **and** the
+`PGEXTWIN_CATALOG_APP_CLIENT_ID` variable. A mere client ID is insufficient
+to run a write-capable cross-repository `workflow_dispatch`.
+`catalog_not_configured` reports blocked when either is absent. Only the
+already existing `pgextwin/catalog` dispatch workflow receives the
+extension/tag inputs; it must independently re-download verified published
+Release bytes and create a protected record proposal after signed checks.
+
+The **existing Catalog proposer** uses scoped Contents/Pull requests WRITE
+inside Catalog to create one record PR; it is **not** an Actions WRITE
+dispatcher. A dedicated Catalog-only Actions WRITE app must be separately
+approved, installed and positively authenticated before setting the flag.
+This source-only fix neither installs an App nor changes an active caller.
+The current 3 Wave3 release candidates remain PUBLISH DENY, no Release/Tag.
