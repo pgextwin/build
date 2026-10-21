@@ -128,20 +128,35 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def api(url, token):
-    need(url.startswith(HOST) and "\n" not in url and "\r" not in url, "untrusted API host")
-    request = Request(url, headers={
-        "Authorization": "Bearer " + token,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }, method="GET")
+    need(url.startswith(HOST) and "\n" not in url and "\r" not in url,
+         "untrusted API host")
+
+    def request_json(credential):
+        headers = {"Accept": "application/vnd.github+json",
+                   "X-GitHub-Api-Version": "2022-11-28"}
+        if credential:
+            headers["Authorization"] = "Bearer " + credential
+        request = Request(url, headers=headers, method="GET")
+        try:
+            with build_opener(NoRedirect()).open(request, timeout=20) as response:
+                need(response.status == 200, "GitHub HTTP failure")
+                raw = response.read(2 * 1024 * 1024 + 1)
+                need(len(raw) <= 2 * 1024 * 1024, "GitHub response too large")
+                return strict_json(raw.decode("utf-8"))
+        except (HTTPError, URLError, OSError, ValueError, UnicodeError):
+            raise Denied("GitHub GET unavailable") from None
+
     try:
-        with build_opener(NoRedirect()).open(request, timeout=20) as response:
-            need(response.status == 200, "GitHub HTTP failure")
-            raw = response.read(2 * 1024 * 1024 + 1)
-            need(len(raw) <= 2 * 1024 * 1024, "GitHub response too large")
-            return strict_json(raw.decode("utf-8"))
-    except (HTTPError, URLError, OSError, ValueError, UnicodeError):
-        raise Denied("authenticated GitHub GET unavailable") from None
+        return request_json(token)
+    except Denied:
+        # This is a PUBLIC repository. Caller-scoped GITHUB_TOKEN is not
+        # authorized to read build's cross-repo Actions endpoints by default.
+        # GET public metadata anonymously rather than seeking Actions:read
+        # privileges, but only for the exact fixed central build repository.
+        # The full protected-main/immutable-run/17-row checks still apply.
+        if url.startswith(HOST + BUILD + "/"):
+            return request_json(None)
+        raise
 
 
 def replay_live_fleet(token):
