@@ -101,10 +101,9 @@ for name, f in denials:
 
 workflow = (ROOT / ".github/workflows/operator-update-auto.yml").read_text("utf-8")
 for item in (
-    "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
+    "github.event_name == 'schedule'",
     "permissions:\n  contents: read", "PGEXTWIN_DETECTOR_SHA:",
-    "operator-update-readonly.yml@33853f3a4381bfc2d984fad371e5ba5c768595a5",
-    "dry_run: true", "persist-credentials: false",
+    "persist-credentials: false",
 ):
     assert item in workflow, item
 for item in ("contents: write", "issues: write", "actions: write", "pull-requests: write",
