@@ -51,6 +51,13 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("repositories: catalog", SHARED)
         self.assertIn("needs: publish", SHARED)
         self.assertIn("CATALOG_SYNC=BLOCKED_APP_CONFIGURATION", SHARED)
+        self.assertIn("vars.PGEXTWIN_CATALOG_DISPATCH_ENABLED == 'true' && vars.PGEXTWIN_CATALOG_APP_CLIENT_ID != ''", SHARED)
+        self.assertIn("vars.PGEXTWIN_CATALOG_DISPATCH_ENABLED != 'true' || vars.PGEXTWIN_CATALOG_APP_CLIENT_ID == ''", SHARED)
+        self.assertNotIn("if: ${{ vars.PGEXTWIN_CATALOG_APP_CLIENT_ID != '' }}", SHARED)
+        self.assertIn("permission-actions: write", SHARED)
+        self.assertNotIn("permission-contents: write", SHARED)
+        self.assertNotIn("permission-pull-requests: write", SHARED)
+        self.assertIn("Requires separately authorized PGEXTWIN_CATALOG_DISPATCH_ENABLED=true", SHARED)
         self.assertNotIn("PGEXTWIN_CATALOG_APP_PRIVATE_KEY", SHARED)
         for action in re.findall(r"(?m)^\s*(?:- )?uses:\s+([^\s#]+)", SHARED):
             self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")

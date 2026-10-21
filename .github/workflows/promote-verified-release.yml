@@ -151,10 +151,14 @@ jobs:
           path: ${{ runner.temp }}/promotion-recovery.json
           if-no-files-found: warn
 
+  # An available client ID alone is never permission to dispatch another
+  # repository's workflow. A dedicated catalog-scoped Actions:write dispatch
+  # App must be separately installed and explicitly enabled. The existing
+  # catalog proposal App (Contents/Pull requests write) is not equivalent.
   catalog_sync:
     name: Independently propose published Release to Catalog (optional existing App)
     needs: publish
-    if: ${{ vars.PGEXTWIN_CATALOG_APP_CLIENT_ID != '' }}
+    if: ${{ vars.PGEXTWIN_CATALOG_DISPATCH_ENABLED == 'true' && vars.PGEXTWIN_CATALOG_APP_CLIENT_ID != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -180,10 +184,11 @@ jobs:
   catalog_not_configured:
     name: Report independent Catalog ingestion is not configured
     needs: publish
-    if: ${{ vars.PGEXTWIN_CATALOG_APP_CLIENT_ID == '' }}
+    if: ${{ vars.PGEXTWIN_CATALOG_DISPATCH_ENABLED != 'true' || vars.PGEXTWIN_CATALOG_APP_CLIENT_ID == '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Flag missing opt-in without claiming Catalog completion
         run: |
           echo "::warning::Verified Release published, Catalog integration not configured."
           echo "CATALOG_SYNC=BLOCKED_APP_CONFIGURATION" >> "$GITHUB_STEP_SUMMARY"
+          echo "Requires separately authorized PGEXTWIN_CATALOG_DISPATCH_ENABLED=true and catalog-only Actions:write App; never reuse the catalog proposer App." >> "$GITHUB_STEP_SUMMARY"
