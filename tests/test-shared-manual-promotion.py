@@ -337,3 +337,48 @@ class SharedPromotion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_both_shared_release_backends_keep_one_explicit_operator_contract(self):
+        # Runtime authorization equivalence is NOT inferred: these two backends
+        # intentionally pin different gate/Publisher implementations.
+        legacy = (ROOT / ".github/workflows/promote-legacy-verified-release.yml").read_text(
+            encoding="utf-8")
+        for source in (legacy, SHARED):
+            self.assertIn("  workflow_call:", source)
+            self.assertNotIn("  workflow_dispatch:", source)
+            self.assertEqual(source.count("required: true"), 5)
+            for field in ("candidate_pr", "candidate_run_id", "decision_run_id",
+                          "release_tag", "confirm_release"):
+                self.assertIn(field + ":", source)
+                self.assertIn("${{ inputs." + field + " }}", source)
+            for required in (
+                "github.ref == 'refs/heads/main'",
+                "fleet-promotion-gate.py",
+                "--confirm-release",
+                "--local-policy config/release-promotion.json",
+                "needs: [authorize, release_build]",
+                "build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+                "fleet-publish-release.py",
+                "promotion-receipt.json",
+                "promotion-recovery.json",
+                "attestations: write",
+                "attestations: read",
+                "cancel-in-progress: false",
+                "persist-credentials: false",
+            ):
+                with self.subTest(runtime="legacy" if source is legacy else "verified",
+                                  guard=required):
+                    self.assertIn(required, source)
+            for forbidden in ("  schedule:", "pull_request_target:",
+                              "secrets: inherit", "gh release delete",
+                              "--clobber", "cancel-in-progress: true"):
+                self.assertNotIn(forbidden, source)
+        self.assertEqual(
+            legacy.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2)
+        self.assertEqual(
+            SHARED.count("ref: dd4d35186edccfbf39b40d86cecb28380cf210da"), 2)
+        self.assertNotIn(
+            "ref: dd4d35186edccfbf39b40d86cecb28380cf210da", legacy)
+        self.assertNotIn(
+            "ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977", SHARED)
