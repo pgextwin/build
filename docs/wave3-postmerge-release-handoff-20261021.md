@@ -161,7 +161,7 @@ the first successful real cron-to-candidate PR end-to-end operation.
    installation selection; a 403 via the normal Chat connector is not proof.
 2. Independently accept actual immutable Signer provenance/ZIP and SPDX
    signatures, credential isolation and scoped separately governed Release
-   Writer/Pubisher issuance and revocation. Reuse the existing negative
+   Writer/Publisher issuance and revocation. Reuse the existing negative
    tests and Publisher prewrite/recovery contracts, do not create new
    experimental pipelines, and do not relax mandatory protection.
 3. Only upon **all** existing release gates and a distinct user `PUBLISH`
