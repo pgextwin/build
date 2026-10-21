@@ -38,11 +38,44 @@ class SharedPromotion(unittest.TestCase):
         self.assertNotIn("secrets: inherit", SHARED)
         self.assertNotIn("runs-on: self-hosted", SHARED)
 
-    def test_only_the_four_intended_packaging_repositories_can_call(self):
-        for name in ("plpgsql_check", "pgtap", "pg_variables", "pg_store_plans"):
-            self.assertIn("pgextwin/" + name, SHARED)
+    def test_exact_seventeen_fleet_identity_list_is_not_publish_permission(self):
+        import json
+        from pathlib import Path
+
+        names = ("pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit",
+                 "set_user", "pg_repack", "pg_ivm", "pg_qualstats",
+                 "plpgsql_check", "orafce", "hypopg", "wal2json",
+                 "pg_partman", "pg_stat_monitor", "pgtap",
+                 "pg_variables", "pg_store_plans")
+        expected = {"pgextwin/" + n for n in names}
+        match = re.search(r'(?m)^\\s*(pgextwin/[a-z0-9_|]+)\\)\\s*;;$', SHARED)
+        self.assertIsNotNone(match, "exact, closed case statement required")
+        observed = match.group(1).split("|")
+        self.assertEqual(set(observed), expected)
+        self.assertEqual(len(observed), len(expected))
         self.assertIn("DENY unknown promotion caller", SHARED)
         self.assertIn("github.event.repository.name }}-pg*-windows-x64", SHARED)
+
+        policy = json.loads((ROOT / "metadata/release-promotion.json").read_text())
+        self.assertEqual(policy["schemaVersion"], 1)
+        self.assertEqual(policy["releasePolicy"], "manual-dispatch")
+        self.assertEqual(len(policy["allowedRepositories"]), 14)
+        self.assertEqual(set(policy["allowedRepositories"]),
+                         expected - {"pgextwin/pgtap", "pgextwin/pg_variables",
+                                     "pgextwin/pg_store_plans"})
+        self.assertIn("--local-policy config/release-promotion.json", SHARED)
+        self.assertIn("--confirm-release", SHARED)
+        self.assertIn("needs: [authorize, release_build]", SHARED)
+
+    def test_negative_guard_can_never_be_wildcard_or_runtime_approval(self):
+        self.assertNotIn("pgextwin/*", SHARED)
+        self.assertNotIn("secrets: inherit", SHARED)
+        self.assertNotIn("releasePolicy: automatic", SHARED)
+        self.assertNotIn("  workflow_dispatch:", SHARED)
+        self.assertIn("if: github.ref == 'refs/heads/main'", SHARED)
+        self.assertIn("fleet-promotion-gate.py", SHARED)
+        self.assertIn("build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d", SHARED)
+
 
     def test_signed_catalog_sync_is_postpublish_only(self):
         self.assertIn("uses: actions/create-github-app-token@", SHARED)
