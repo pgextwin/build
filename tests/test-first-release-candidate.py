@@ -154,13 +154,15 @@ class FirstRelease(unittest.TestCase):
                         with self.assertRaises((g.Denied, g.ident.Denied)):
                             g.verify(**bad)
 
-    def test_three_live_policies_still_require_future_explicit_opt_in(self):
+    def test_three_live_policies_require_operator_only_promotion(self):
         import json
         central = json.loads(
             (ROOT / "metadata/release-promotion.json").read_text(encoding="utf-8"))
         self.assertEqual(central["releasePolicy"], "manual-dispatch")
         for name in ("pgtap", "pg_variables", "pg_store_plans"):
-            self.assertNotIn("pgextwin/" + name, central["allowedRepositories"])
+            self.assertIn("pgextwin/" + name, central["allowedRepositories"])
+        # This only permits an explicitly confirmed human Release; the real
+        # CLI gate still refuses missing candidate, local opt-in or PUBLISH.
 
 if __name__=="__main__":
     unittest.main()

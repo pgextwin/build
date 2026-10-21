@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""14-member operator-only formal Release; automatic publication remains DENY."""
+"""17-member operator-only formal Release; automatic publication remains DENY."""
 import json
 from pathlib import Path
 import unittest
@@ -11,19 +11,19 @@ STAGED=["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]
 THIRD=["pgtap","pg_variables","pg_store_plans"]
 
 class PolicyTests(unittest.TestCase):
-    def test_exact_fourteen_repository_operator_publish_allowlist(self):
+    def test_exact_seventeen_repository_operator_publish_allowlist(self):
         p=json.loads((ROOT/"metadata/release-promotion.json").read_text())
         f=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
         self.assertEqual(p["schemaVersion"],1)
         self.assertEqual(p["releasePolicy"],"manual-dispatch")
-        self.assertEqual(set(p["allowedRepositories"]),{"pgextwin/"+x for x in ORIGINAL+STAGED})
+        self.assertEqual(set(p["allowedRepositories"]),{"pgextwin/"+x for x in ORIGINAL+STAGED+THIRD})
         self.assertEqual(len(p["allowedRepositories"]),len(set(p["allowedRepositories"])))
         self.assertEqual(f["releasePolicy"],"manual-only")
         entries={e["repository"]:e for e in f["entries"]}
         self.assertEqual(len(entries),17)
-        self.assertEqual(set(entries),set(p["allowedRepositories"])|{"pgextwin/"+x for x in THIRD})
-        # Completing the Windows build does not itself authorize the third-wave Releases.
-        self.assertTrue({"pgextwin/"+x for x in THIRD}.isdisjoint(p["allowedRepositories"]))
+        self.assertEqual(set(entries),set(p["allowedRepositories"]))
+        # This enablement admits only human-confirmed PUBLISH; build success alone
+        # never authorizes publication, and automated Release remains prohibited.
         for name in ORIGINAL+STAGED:
             e=entries["pgextwin/"+name]
             self.assertEqual(e["mode"],"BUILD")

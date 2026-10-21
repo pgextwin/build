@@ -95,10 +95,9 @@ class SharedPromotion(unittest.TestCase):
         policy = json.loads((ROOT / "metadata/release-promotion.json").read_text())
         self.assertEqual(policy["schemaVersion"], 1)
         self.assertEqual(policy["releasePolicy"], "manual-dispatch")
-        self.assertEqual(len(policy["allowedRepositories"]), 14)
+        self.assertEqual(len(policy["allowedRepositories"]), 17)
         self.assertEqual(set(policy["allowedRepositories"]),
-                         expected - {"pgextwin/pgtap", "pgextwin/pg_variables",
-                                     "pgextwin/pg_store_plans"})
+                         expected)
         self.assertIn("--local-policy config/release-promotion.json", SHARED)
         self.assertIn("--confirm-release", SHARED)
         self.assertIn("needs: [authorize, release_build]", SHARED)
@@ -234,7 +233,8 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("needs: [authorize, release_build]", SHARED)
         policy = json.loads((ROOT / "metadata/release-promotion.json").read_text())
         self.assertEqual(set(policy["allowedRepositories"]),
-                         {"pgextwin/" + n for n in thirteen | {"plpgsql_check"}})
+                         {"pgextwin/" + n for n in thirteen | {"plpgsql_check",
+                             "pgtap", "pg_variables", "pg_store_plans"}})
 
     def test_legacy_parity_fixture_hostile_removal_would_be_detected(self):
         legacy = (ROOT / "tests/fixtures/issue-75-legacy-promotion-normalized.txt"
