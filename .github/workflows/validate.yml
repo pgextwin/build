@@ -40,6 +40,9 @@ jobs:
       - name: Validate update watch fixtures
         run: python tests/test-update-watch.py
 
+      - name: Validate shared 17-extension operator UPDATE and read-only security gate
+        run: python tests/test-operator-update-readonly.py
+
       - name: Validate Step 19 candidate update fixtures
         run: python tests/test-candidate-update.py
 
