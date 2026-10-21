@@ -9,6 +9,25 @@ SHARED = (ROOT / ".github/workflows/promote-verified-release.yml").read_text(enc
 
 
 class SharedPromotion(unittest.TestCase):
+    def test_shared_job_labels_match_pinned_publisher_runtime_snapshot(self):
+        preflight = (ROOT / "scripts/issue-75-publisher-preflight.py").read_text(
+            encoding="utf-8")
+        for symbol, label in (
+            ("AUTHORIZE", "Verify manual operator confirmation and immutable candidate evidence"),
+            ("BUILD", "Fresh attested Windows maintained PG14–18 build from validated main"),
+            ("PUBLISH", "Verify signatures and SHA; create-only formal publication"),
+        ):
+            self.assertIn(symbol + ' = "' + label + '"', preflight)
+            self.assertIn("name: " + label, SHARED)
+        for label in (
+            "Dispatch signed Release Catalog PR generation with short-lived App token",
+            "Flag post-release Catalog dispatch as blocked (not falsely successful)",
+        ):
+            self.assertIn('"' + label + '"', preflight)
+            self.assertIn("name: " + label, SHARED)
+        self.assertIn("guard.validate_snapshot(",
+                      (ROOT / "scripts/fleet-publish-release.py").read_text())
+
     def test_manual_gate_is_not_bypassed(self):
         self.assertIn("workflow_call:", SHARED)
         self.assertNotIn("  workflow_dispatch:", SHARED)
