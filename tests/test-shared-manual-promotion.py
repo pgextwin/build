@@ -334,11 +334,6 @@ class SharedPromotion(unittest.TestCase):
         self.assertEqual(ledger["deploymentMode"], "NO_CONSUMER_CALLER_REPIN")
         self.assertEqual(hist["runtimeGate"], "BLOCKED")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_both_shared_release_backends_keep_one_explicit_operator_contract(self):
         # Runtime authorization equivalence is NOT inferred: these two backends
         # intentionally pin different gate/Publisher implementations.
@@ -382,3 +377,9 @@ if __name__ == "__main__":
             "ref: dd4d35186edccfbf39b40d86cecb28380cf210da", legacy)
         self.assertNotIn(
             "ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977", SHARED)
+
+
+
+if __name__ == "__main__":
+    unittest.main()
+
