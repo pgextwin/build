@@ -39,7 +39,7 @@ permissions:
 
 jobs:
   authorize:
-    name: Verify central and local manual PUBLISH and immutable evidence
+    name: Verify manual operator confirmation and immutable candidate evidence
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -96,7 +96,7 @@ jobs:
           if-no-files-found: error
 
   release_build:
-    name: Rebuild signed Windows x64 binary and SBOM from verified current main
+    name: Fresh attested Windows maintained PG14–18 build from validated main
     needs: authorize
     permissions:
       contents: read
@@ -109,7 +109,7 @@ jobs:
       test_contract_path: config/test-contract.json
 
   publish:
-    name: Check signatures, exact SHA256 and create-only Release ID
+    name: Verify signatures and SHA; create-only formal publication
     needs: [authorize, release_build]
     runs-on: ubuntu-latest
     permissions:
@@ -160,7 +160,7 @@ jobs:
   # App must be separately installed and explicitly enabled. The existing
   # catalog proposal App (Contents/Pull requests write) is not equivalent.
   catalog_sync:
-    name: Independently propose published Release to Catalog (optional existing App)
+    name: Dispatch signed Release Catalog PR generation with short-lived App token
     needs: publish
     if: ${{ vars.PGEXTWIN_CATALOG_DISPATCH_ENABLED == 'true' && vars.PGEXTWIN_CATALOG_APP_CLIENT_ID != '' }}
     runs-on: ubuntu-latest
@@ -186,7 +186,7 @@ jobs:
             -f extension="$EXTENSION" -f release_tag="$RELEASE_TAG"
 
   catalog_not_configured:
-    name: Report independent Catalog ingestion is not configured
+    name: Flag post-release Catalog dispatch as blocked (not falsely successful)
     needs: publish
     if: ${{ vars.PGEXTWIN_CATALOG_DISPATCH_ENABLED != 'true' || vars.PGEXTWIN_CATALOG_APP_CLIENT_ID == '' }}
     runs-on: ubuntu-latest
