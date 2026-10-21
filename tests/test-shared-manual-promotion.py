@@ -226,7 +226,7 @@ class SharedPromotion(unittest.TestCase):
                             .read_text(encoding="utf-8"))
         record = ledger["sharedHistoricalSource"]
         raw = (ROOT / "tests/fixtures/issue-75-historical-shared-promotion.txt").read_bytes()
-        blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\\0" + raw).hexdigest()
+        blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
         self.assertEqual(blob, "1a87339fdf93d093aea0c976d7627ce9d8860eb1")
         self.assertEqual(record["verifiedSameWorkflowBlobSha"], blob)
         self.assertEqual(record["plpgsqlCheckPin"],
