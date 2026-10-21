@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private-only Signer cryptographic verification adapter; not a Publisher.
+"""Private-only four-caller Signer cryptographic verifier; not a Publisher.
 
 Never invoked by public CI. A future authorized private runtime MUST use real
 subprocess.run. Existing Issue75 X509/ZIP/attempt policy is reused. A mocked
@@ -22,7 +22,17 @@ _spec.loader.exec_module(preflight)
 ISSUER = "https://token.actions.githubusercontent.com"
 SIGNER = "pgextwin/build/.github/workflows/build-extension-attested.yml"
 SIGNER_SHA = "5756b3c5136a8bf4db710016cfe97555f0a71c6d"
-REPO = "pgextwin/plpgsql_check"
+REPO = "pgextwin/plpgsql_check"  # backward-compatible original pilot
+TARGET_REPOSITORIES = frozenset((
+    "pgextwin/plpgsql_check", "pgextwin/pgtap",
+    "pgextwin/pg_variables", "pgextwin/pg_store_plans",
+))
+# Only these four deployed shared-Promotion callers are covered by this
+# dormant, nonpublishing verifier. Runtime signer acceptance is NOT_PROVEN.
+ASSET_NAME = re.compile(
+    r"[a-z][a-z0-9_]*(?:-v[0-9][A-Za-z0-9.+_-]*)?"
+    r"-pg(?:14|15|16|17|18)-windows-x64\.zip\Z"
+)
 PREDICATES = (preflight.PROVENANCE, preflight.SPDX)
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 MAX_ATTEST_STDOUT = 1_000_000
@@ -49,13 +59,14 @@ def sha256_file(path):
             digest.update(block)
     return digest.hexdigest()
 
-def command(artifact, *, packaging_sha, predicate):
+def command(artifact, *, packaging_sha, predicate, repository=REPO):
+    need(type(repository) is str and repository in TARGET_REPOSITORIES)
     need(isinstance(artifact, Path) and artifact.is_absolute())
     need(type(packaging_sha) is str and bool(SHA40.fullmatch(packaging_sha)))
     need(predicate in PREDICATES)
     return [
         "gh", "attestation", "verify", str(artifact),
-        "--repo", REPO, "--signer-workflow", SIGNER,
+        "--repo", repository, "--signer-workflow", SIGNER,
         "--signer-digest", SIGNER_SHA, "--source-digest", packaging_sha,
         "--source-ref", "refs/heads/main",
         "--cert-oidc-issuer", ISSUER,
@@ -78,16 +89,21 @@ def invoke_crypto(argv, *, runner=subprocess.run):
         raise Deny("cryptographic verifier failed or unavailable") from None
 
 def verify_pair(zip_file, sbom_file, *, packaging_sha, run_id, attempt,
-                gh_runner=subprocess.run):
+                repository=REPO, gh_runner=subprocess.run):
     """Nonpublishing, future-private runtime entrypoint. No CLI or workflow."""
     try:
+        need(type(repository) is str and repository in TARGET_REPOSITORIES)
         need(type(packaging_sha) is str and bool(SHA40.fullmatch(packaging_sha)))
         need(type(run_id) is int and run_id > 0)
         need(type(attempt) is int and attempt == 1)
         regular(zip_file, MAX_ZIP)
         regular(sbom_file, MAX_SBOM)
-        need(zip_file.name.startswith("plpgsql_check-pg") and
-             zip_file.name.endswith("-windows-x64.zip"))
+        # The archive and SPDX must belong to the exact same allowlisted
+        # extension, release version and supported PG major before gh runs.
+        extension = repository.split("/", 1)[1]
+        need(bool(ASSET_NAME.fullmatch(zip_file.name)) and
+             zip_file.name.startswith(extension + "-") and
+             sbom_file.name == zip_file.name[:-4] + ".spdx.json")
         digest = sha256_file(zip_file)
         with sbom_file.open("rb") as f:
             raw = f.read(MAX_SBOM + 1)
@@ -98,15 +114,17 @@ def verify_pair(zip_file, sbom_file, *, packaging_sha, run_id, attempt,
         for predicate in PREDICATES:
             stdout = invoke_crypto(
                 command(zip_file, packaging_sha=packaging_sha,
-                        predicate=predicate), runner=gh_runner)
+                        predicate=predicate, repository=repository),
+                runner=gh_runner)
             preflight.verified_claims(
-                stdout, predicate=predicate, repo=REPO,
+                stdout, predicate=predicate, repo=repository,
                 packaging_sha=packaging_sha, run_id=run_id,
                 attempt=attempt, zip_name=zip_file.name,
                 zip_digest=digest, sbom=sbom)
         return {
             "classification": "SIGNER_CRYPTO_PROCESS_AND_PIN_POLICY_PASSED",
             "verifiedArtifactSha256": digest,
+            "targetRepository": repository,
             "signerPinnedWorkflow": SIGNER,
             "signerPinnedSha": SIGNER_SHA,
             "attempt": attempt,
