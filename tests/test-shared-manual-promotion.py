@@ -37,9 +37,9 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("group: ${{ github.event.repository.name }}-human-release-promotion", shared)
         self.assertEqual(shared.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2)
         self.assertEqual(
-            shared.split("jobs:\\n", 1)[1].replace(
+            shared.split("jobs:\n", 1)[1].replace(
                 "${{ github.event.repository.name }}", "__EXTENSION__"),
-            legacy.split("jobs:\\n", 1)[1])
+            legacy.split("jobs:\n", 1)[1])
         self.assertNotIn("pgextwin/*", shared)
         self.assertNotIn("secrets: inherit", shared)
 
