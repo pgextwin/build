@@ -9,6 +9,11 @@ import re
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# Exact Wave3 scope only; this is a read-only classifier, never a Publisher.
+WAVE3_REPOS = frozenset((
+    "pgextwin/pgtap", "pgextwin/pg_variables",
+    "pgextwin/pg_store_plans",
+))
 TAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 STAGES = frozenset({
     "TAG_RESERVED", "DRAFT_STAGED", "DRAFT_VERIFIED",
@@ -35,8 +40,18 @@ def _valid_record(record):
             or record["state"] not in STAGES):
         return False
     tag, commit = record.get("tag"), record.get("commit")
+    # A stage name, tag and runId alone cannot bind a crash/replay to the
+    # exact original nonpublishing prewrite attempt. These fields mirror the
+    # existing local seal's immutable (requestId, repository, runId, attempt).
+    # Remote run/attempt authenticity is STILL NOT independently proven here.
+    request_id = record.get("requestId")
+    attempt = record.get("attempt")
+    repo = record.get("repository")
     if (type(tag) is not str or not TAG.fullmatch(tag)
             or type(commit) is not str or not SHA40.fullmatch(commit)
+            or type(repo) is not str or repo not in WAVE3_REPOS
+            or type(request_id) is not str or not SHA256.fullmatch(request_id)
+            or type(attempt) is not int or not 1 <= attempt <= 1000
             or type(record.get("runId")) is not int or record["runId"] <= 0):
         return False
     reservation = record.get("reservation")
@@ -107,8 +122,10 @@ def classify_recovery_evidence(record, snapshots):
 
     Caller must obtain separate authenticated, complete GET observations and
     archive raw responses. This pure function cannot attest their origin.
-    A lost POST response, 422, 429, timeout, partial Draft, lost recovery write,
+    Missing/forged original requestId, Wave3 repository, runId or run attempt,
+    a lost POST response, 422, 429, timeout, partial Draft, lost recovery write,
     missing Release ID, inconsistent ref/assets or replay is UNKNOWN/quarantined.
+    Two caller-supplied snapshots do NOT authenticate GitHub or permit writes.
     """
     if not _valid_record(record):
         return _result(False, "missing or invalid persisted immutable evidence")
