@@ -1,0 +1,84 @@
+name: Issue75 temporary public Release Sigstore witness (PR-only)
+on:
+  pull_request:
+    paths:
+      - .github/workflows/issue75-independent-public-sigstore.yml
+permissions:
+  contents: read
+jobs:
+  independent_release_sigstore:
+    name: Public Release ZIP/SPDX SHA and original Signer X509 proof (READ only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pure immutable signer preflight (credentials disabled)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download published Release ZIP and SPDX bytes, not Actions archives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/issue75-public"
+          gh release download v2.10.15-windows.1 --repo pgextwin/plpgsql_check \
+            --pattern 'plpgsql_check-v2.10.15-pg*-windows-x64.zip' \
+            --pattern 'plpgsql_check-v2.10.15-pg*-windows-x64.spdx.json' \
+            --dir "$RUNNER_TEMP/issue75-public"
+      - name: Independently verify all 10 public bytes and 10 genuine GitHub Sigstore statements
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, importlib.util, json, os, pathlib, subprocess
+          ROOT = pathlib.Path.cwd()
+          FOLDER = pathlib.Path(os.environ['RUNNER_TEMP']) / 'issue75-public'
+          REPO = 'pgextwin/plpgsql_check'
+          SIGNER = 'pgextwin/build/.github/workflows/build-extension-attested.yml'
+          SIGNER_SHA = '5756b3c5136a8bf4db710016cfe97555f0a71c6d'
+          SOURCE_SHA = 'c5b759074db6c8713f8aebed873eb6be8e64513d'
+          RUN_ID = 39186943339
+          EXPECTED = {
+              14: ('7f7ddc79178f009c5074bb3bf4058437863ad7751ac59e9eab2284e7863e9515', '383b1198172bfb91e6e90686b6d0ce69cf6b6d126decab2be2e0cdfb60b3a1df'),
+              15: ('e7c55cf66e4c0064aaaf920201714a9b96ccd6d6aae928d83716df31deff3fe9', '053a770ece75f37226f5127931f4950d7f8b88113e02fff8e7b7588315f6715b'),
+              16: ('8d7824948f2e2ec46b068886242e5e5fe22fa76a1249f6930fccb0306ba4f0c2', '325f52271a7d29fce75e279ce85dc15bcc4a148d475bab772656764d14369f9d'),
+              17: ('726ea6cdd5fcf7a825c3d6db44849ac42785bbe8c8e7c1dd4b1f9e8dca204456', 'ac6931b2b6bb02a7bbcb8c28e93b3ce00b7ad749bdaa57ebb47a1cd160c940e4'),
+              18: ('2d5951746f12fdbda71f8b1cb380640c1a0332e40958e509193ddb6598ab946e', 'fa4681d16d500c426cb30a64b619755492dcd15dc924f2fa3fa113ec0e9c1410'),
+          }
+          spec = importlib.util.spec_from_file_location('issue75_public_preflight', ROOT/'scripts/issue-75-publisher-preflight.py')
+          preflight = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(preflight)
+          actual = {p.name for p in FOLDER.iterdir()}
+          want = set()
+          for major in EXPECTED:
+              stem = f'plpgsql_check-v2.10.15-pg{major}-windows-x64'
+              want.update((stem+'.zip', stem+'.spdx.json'))
+          assert actual == want, 'public assets incomplete or unexpected'
+          for major, (zip_sha, sbom_sha) in sorted(EXPECTED.items()):
+              stem = f'plpgsql_check-v2.10.15-pg{major}-windows-x64'
+              z, s = FOLDER/(stem+'.zip'), FOLDER/(stem+'.spdx.json')
+              assert z.is_file() and s.is_file() and not z.is_symlink() and not s.is_symlink()
+              assert hashlib.sha256(z.read_bytes()).hexdigest() == zip_sha, 'public ZIP SHA256 mismatch'
+              assert hashlib.sha256(s.read_bytes()).hexdigest() == sbom_sha, 'public SPDX SHA256 mismatch'
+              sbom = json.loads(s.read_text(encoding='utf-8-sig'), object_pairs_hook=preflight._unique)
+              assert sbom['spdxVersion'] == 'SPDX-2.3'
+              for predicate in (preflight.PROVENANCE, preflight.SPDX):
+                  args = ['gh','attestation','verify',str(z),'--repo',REPO,
+                          '--signer-workflow',SIGNER,'--signer-digest',SIGNER_SHA,
+                          '--source-digest',SOURCE_SHA,'--source-ref','refs/heads/main',
+                          '--cert-oidc-issuer','https://token.actions.githubusercontent.com',
+                          '--predicate-type',predicate,'--deny-self-hosted-runners',
+                          '--format','json']
+                  proc = subprocess.run(args,capture_output=True,text=True,timeout=120,check=False)
+                  assert proc.returncode == 0, f'Sigstore verification failed: PG{major} {predicate}'
+                  preflight.verified_claims(proc.stdout,predicate=predicate,repo=REPO,
+                                            packaging_sha=SOURCE_SHA,run_id=RUN_ID,
+                                            attempt=1,zip_name=z.name,zip_digest=zip_sha,sbom=sbom)
+                  print(f'PG{major} {predicate}: CRYPTO_VERIFIED (actual public asset, original signer, signed source/run/attempt)')
+          print('PUBLIC_RELEASE_BYTE_SHA256=10/10; INDEPENDENT_SIGSTORE=10/10; AUTHORIZE_PUBLISH=FALSE; GO_B_G4_G5=NO_GO')
+          PY
