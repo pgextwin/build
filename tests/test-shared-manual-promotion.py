@@ -28,6 +28,21 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("guard.validate_snapshot(",
                       (ROOT / "scripts/fleet-publish-release.py").read_text())
 
+    def test_legacy_thirteen_central_source_matches_proven_release_body(self):
+        # Exact old production job body; no deployed caller pin changes.
+        legacy = (ROOT / "tests/fixtures/issue-75-legacy-promotion-normalized.txt").read_text()
+        shared = (ROOT / ".github/workflows/promote-legacy-verified-release.yml").read_text()
+        self.assertIn("  workflow_call:", shared)
+        self.assertNotIn("  workflow_dispatch:", shared)
+        self.assertIn("group: ${{ github.event.repository.name }}-human-release-promotion", shared)
+        self.assertEqual(shared.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2)
+        self.assertEqual(
+            shared.split("jobs:\n", 1)[1].replace(
+                "${{ github.event.repository.name }}", "__EXTENSION__"),
+            legacy.split("jobs:\n", 1)[1])
+        self.assertNotIn("pgextwin/*", shared)
+        self.assertNotIn("secrets: inherit", shared)
+
     def test_manual_gate_is_not_bypassed(self):
         self.assertIn("workflow_call:", SHARED)
         self.assertNotIn("  workflow_dispatch:", SHARED)
