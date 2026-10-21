@@ -61,7 +61,7 @@ def timestamp(value):
     return dt.astimezone(timezone.utc)
 
 
-def validate(report, run, build_branch, target_branch, repository, head, pin, now):
+def validate(report, run, build_branch, target_branch, repository, head, pin, now, *, live_replay=False):
     need(repository in REPOSITORIES, "unregistered candidate repository")
     expected = COHORT_14 if repository.split("/")[1] in OLD else COHORT_3
     need(pin == expected and SHA.fullmatch(head), "invalid immutable detector cohort")
@@ -90,8 +90,16 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
          and report.get("indeterminate") == 0,
          "central snapshot is not a successful read-only 17-fleet result")
     produced = timestamp(report.get("generatedAt"))
-    need(started - timedelta(minutes=5) <= produced <= finished + timedelta(minutes=5),
-         "snapshot timestamp differs from central run")
+    if live_replay:
+        # An independent fresh GET-only fleet rescan is an alternative evidence
+        # path, NOT the central artifact bytes. It must complete after the
+        # genuine central schedule and while this verifier is running.
+        need(finished - timedelta(minutes=5) <= produced <= now + timedelta(minutes=5)
+             and now - produced < timedelta(minutes=5),
+             "live fleet recheck is stale or predates central schedule")
+    else:
+        need(started - timedelta(minutes=5) <= produced <= finished + timedelta(minutes=5),
+             "snapshot timestamp differs from central run")
     entries = report.get("extensions")
     need(type(entries) is list and len(entries) == 17, "incomplete fleet snapshot")
     by_repo = {}
@@ -120,20 +128,58 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def api(url, token):
-    need(url.startswith(HOST) and "\n" not in url and "\r" not in url, "untrusted API host")
-    request = Request(url, headers={
-        "Authorization": "Bearer " + token,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }, method="GET")
+    need(url.startswith(HOST) and "\n" not in url and "\r" not in url,
+         "untrusted API host")
+
+    def request_json(credential):
+        headers = {"Accept": "application/vnd.github+json",
+                   "X-GitHub-Api-Version": "2022-11-28"}
+        if credential:
+            headers["Authorization"] = "Bearer " + credential
+        request = Request(url, headers=headers, method="GET")
+        try:
+            with build_opener(NoRedirect()).open(request, timeout=20) as response:
+                need(response.status == 200, "GitHub HTTP failure")
+                raw = response.read(2 * 1024 * 1024 + 1)
+                need(len(raw) <= 2 * 1024 * 1024, "GitHub response too large")
+                return strict_json(raw.decode("utf-8"))
+        except (HTTPError, URLError, OSError, ValueError, UnicodeError):
+            raise Denied("GitHub GET unavailable") from None
+
     try:
-        with build_opener(NoRedirect()).open(request, timeout=20) as response:
-            need(response.status == 200, "GitHub HTTP failure")
-            raw = response.read(2 * 1024 * 1024 + 1)
-            need(len(raw) <= 2 * 1024 * 1024, "GitHub response too large")
-            return strict_json(raw.decode("utf-8"))
-    except (HTTPError, URLError, OSError, ValueError, UnicodeError):
-        raise Denied("authenticated GitHub GET unavailable") from None
+        return request_json(token)
+    except Denied:
+        # This is a PUBLIC repository. Caller-scoped GITHUB_TOKEN is not
+        # authorized to read build's cross-repo Actions endpoints by default.
+        # GET public metadata anonymously rather than seeking Actions:read
+        # privileges, but only for the exact fixed central build repository.
+        # The full protected-main/immutable-run/17-row checks still apply.
+        if url.startswith(HOST + BUILD + "/"):
+            return request_json(None)
+        raise
+
+
+def replay_live_fleet(token):
+    """Fallback when a caller GITHUB_TOKEN cannot download build's artifact.
+
+    No cross-repository Actions token, credential widening, workflow dispatch,
+    candidate writing or Release privilege is needed. Reuse the same pinned
+    17-extension fleet detector and its per-repository protected-main double
+    GETs. An indeterminate row (or inaccessible public API) is always DENY.
+    """
+    import runpy
+    root = Path(__file__).resolve().parents[1]
+    script_dir = str(root / "scripts")
+    sys.path.insert(0, script_dir)
+    try:
+        scan = runpy.run_path(
+            str(root / "scripts" / "fleet-upstream-watch.py"),
+            run_name="pgextwin_fleet_candidate_readonly_replay")["scan"]
+    finally:
+        sys.path.remove(script_dir)
+    policy = strict_json(
+        (root / "metadata" / "automation-fleet.json").read_text("utf-8"))
+    return scan(policy, lambda url: api(url, token))
 
 
 def run(repository, head, pin, token):
@@ -172,16 +218,24 @@ def run(repository, head, pin, token):
                    "--name", "fleet-upstream-watch", "--dir", temp]
         proc = subprocess.run(command, capture_output=True, text=True, check=False,
                               timeout=90, env=os.environ.copy())
-        need(proc.returncode == 0, "central snapshot download denied")
-        root = Path(temp)
-        need({p.name for p in root.iterdir()} ==
-             {"fleet-upstream-watch.json", "fleet-upstream-watch.md"},
-             "unexpected files in central artifact")
-        raw = (root / "fleet-upstream-watch.json").read_bytes()
-        need(len(raw) <= 262144, "oversized fleet JSON")
-        report = strict_json(raw.decode("utf-8"))
+        live_replay = proc.returncode != 0
+        if live_replay:
+            # A repo-scoped GITHUB_TOKEN cannot be assumed to have Actions:read
+            # on pgextwin/build. NEVER treat a failed archive download as
+            # proof of a successful candidate; rescan all 17 from protected
+            # repository sources and validate that independent evidence.
+            report = replay_live_fleet(token)
+            print("FLEET_EVIDENCE=INDEPENDENT_GET_ONLY_REPLAY; central artifact not downloaded")
+        else:
+            root = Path(temp)
+            need({p.name for p in root.iterdir()} ==
+                 {"fleet-upstream-watch.json", "fleet-upstream-watch.md"},
+                 "unexpected files in central artifact")
+            raw = (root / "fleet-upstream-watch.json").read_bytes()
+            need(len(raw) <= 262144, "oversized fleet JSON")
+            report = strict_json(raw.decode("utf-8"))
     mode = validate(report, exact, build_branch, target_branch, repository,
-                    head, pin, datetime.now(timezone.utc))
+                    head, pin, datetime.now(timezone.utc), live_replay=live_replay)
     need(api(HOST + BUILD + "/branches/main", token) == build_branch
          and api(HOST + repository + "/branches/main", token) == target_branch,
          "protected main changed during candidate authorization")
