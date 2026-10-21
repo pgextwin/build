@@ -1,0 +1,65 @@
+name: Protected scheduled candidate gate using completed fleet snapshot
+
+# Scheduled events run only the GET verifier below. No token with write scope
+# ever reaches this workflow. Candidate PR writing remains in the caller's
+# pre-existing, immutable SHA-pinned candidate-update reusable workflow.
+on:
+  workflow_call:
+    inputs:
+      detector_sha:
+        type: string
+        required: true
+    outputs:
+      mode:
+        description: candidate, read-only, or none (never publication)
+        value: ${{ jobs.scheduled.outputs.mode || jobs.manual_readonly.outputs.mode }}
+
+permissions:
+  contents: read
+
+jobs:
+  scheduled:
+    name: Authenticate newest completed central 17-fleet scan
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.verify.outputs.mode }}
+    steps:
+      - name: Check out only this immutable central verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-automation
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Verify central completed/success daily scan, 17 rows, exact main and candidate-only status
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PGEXTWIN_DETECTOR_SHA: ${{ inputs.detector_sha }}
+        run: python .pgextwin-automation/scripts/verify-scheduled-fleet-candidate.py
+      - name: Report candidate-only scheduled result
+        if: ${{ always() }}
+        env:
+          VERIFIED_MODE: ${{ steps.verify.outputs.mode }}
+        run: |
+          echo "Scheduled upstream candidate preflight: ${VERIFIED_MODE:-DENY}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Formal Release and PUBLISH are never authorized by this workflow." >> "$GITHUB_STEP_SUMMARY"
+
+  manual_readonly:
+    name: Optional explicit GET-only debug; never a candidate
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+    uses: pgextwin/build/.github/workflows/operator-update-readonly.yml@33853f3a4381bfc2d984fad371e5ba5c768595a5
+    with:
+      dry_run: true
+      confirm_update: ""
+      expected_main_sha: ""
+      detector_sha: ${{ inputs.detector_sha }}
