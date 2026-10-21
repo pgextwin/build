@@ -14,7 +14,10 @@
     "pgextwin/wal2json",
     "pgextwin/pg_partman",
     "pgextwin/pg_stat_monitor",
-    "pgextwin/orafce"
+    "pgextwin/orafce",
+    "pgextwin/pgtap",
+    "pgextwin/pg_variables",
+    "pgextwin/pg_store_plans"
   ],
   "releasePolicy": "manual-dispatch"
 }
