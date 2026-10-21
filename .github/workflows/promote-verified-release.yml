@@ -2,7 +2,7 @@ name: Shared verified manual Windows Release promotion
 
 # SOURCE-ONLY 17-fleet compatibility preparation. Existing per-repository
 # promote.yml callers remain pinned to their previous immutable workflows;
-# production 14 still use their established local signed Release pipeline.
+# 13 legacy promoters and plpgsql_check's shared promoter remain unchanged.
 # This change does not enable publication, repin a signer, authorize an App/Writer
 # or attest original ZIP/SBOM bytes. The shared operator gate remains fail-closed.
 # Reuse the tested Wave3 first-release source/policy parser and hardened current
