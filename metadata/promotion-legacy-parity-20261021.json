@@ -88,5 +88,23 @@
   "runtimeSignerWriterPublisherAcceptance": "NOT_PROVEN",
   "releaseAdmission": "UNCHANGED_ORIGINAL_14_ONLY",
   "wave3Publication": "DENY",
-  "publishableReceipt": false
+  "publishableReceipt": false,
+  "sharedHistoricalSource": {
+    "classification": "TWO_PIN_REFS_SAME_IMMUTABLE_GIT_BLOB_NOT_RUNTIME_AUTHORIZATION",
+    "plpgsqlCheckPin": "5425225ea858f8c0165421902c3e66c6c9205f60",
+    "wave3Pin": "acd6eb28be6d750e89b626fa4ccd4403e1265cd6",
+    "verifiedSameWorkflowBlobSha": "1a87339fdf93d093aea0c976d7627ce9d8860eb1",
+    "legacyPublisherSourcePin": "455f0ccc667697f600700a6e64bcfd6c57b6a977",
+    "currentCentralSharedWorkflowBlobSha": "c220f906bb71d5fddd1564f5df60caca45e1a075",
+    "futureSharedGatePublisherSourcePin": "dd4d35186edccfbf39b40d86cecb28380cf210da",
+    "identicalBytesAreNotExecutionIdentity": true,
+    "deployedCallerPinsChanged": false,
+    "newSharedRuntimeAccepted": false,
+    "staticPolicyMode": "original14-manual-dispatch",
+    "wave3PUBLISH": "DENY",
+    "catalogDispatchExplicitOptInInFutureSharedSource": true,
+    "historicalCatalogDispatchAppIdentityAccepted": false,
+    "noSignedProductionSignerAttestationAccepted": true,
+    "runtimeGate": "BLOCKED"
+  }
 }
