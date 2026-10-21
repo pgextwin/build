@@ -77,6 +77,64 @@ class PrivateProbes(TestCase):
             with self.assertRaises(s.Deny):
                 s.command(path,packaging_sha=sha,predicate=predicate)
 
+    def test_four_original_signer_caller_targets_are_exact_and_fail_closed(self):
+        self.assertEqual(s.TARGET_REPOSITORIES, {
+            "pgextwin/plpgsql_check", "pgextwin/pgtap",
+            "pgextwin/pg_variables", "pgextwin/pg_store_plans",
+        })
+        for repo in sorted(s.TARGET_REPOSITORIES):
+            path=Path("/tmp/" + repo.split("/")[1] + "-v1.2.3-pg18-windows-x64.zip")
+            cmd=s.command(path,packaging_sha="a"*40,
+                          predicate=s.preflight.SPDX,repository=repo)
+            self.assertEqual(cmd[cmd.index("--repo")+1],repo)
+            self.assertEqual(cmd[cmd.index("--signer-digest")+1],s.SIGNER_SHA)
+            self.assertEqual(cmd[cmd.index("--cert-oidc-issuer")+1],s.ISSUER)
+        for bad in ("pgextwin/catalog", "pgextwin/build", "pgextwin/website",
+                    "pgextwin/PgTap", "attacker/pgtap", "", None, True):
+            with self.subTest(repo=bad),self.assertRaises(s.Deny):
+                s.command(Path("/tmp/test.zip"),packaging_sha="a"*40,
+                          predicate=s.preflight.SPDX,repository=bad)
+
+    def test_wave3_cross_repo_zip_spdx_and_pg_binding_rejected_before_crypto(self):
+        for repo in ("pgextwin/pgtap", "pgextwin/pg_variables",
+                     "pgextwin/pg_store_plans"):
+            with self.subTest(repo=repo), tempfile.TemporaryDirectory() as folder:
+                ext=repo.split("/")[1]
+                good=Path(folder)/(ext+"-v1.2.3-pg18-windows-x64.zip")
+                sbom=Path(folder)/(ext+"-v1.2.3-pg18-windows-x64.spdx.json")
+                good.write_bytes(b"synthetic unsigned ZIP")
+                sbom.write_text('{"spdxVersion":"SPDX-2.3"}')
+                invoked=[]
+                def should_not_run(*args,**kwargs):
+                    invoked.append(True)
+                    self.fail("cross-asset mismatch reached credentialed verifier")
+                bad_names=[
+                    ("pgextwin/plpgsql_check",good,sbom),
+                    (repo,Path(folder)/("other-v1.2.3-pg18-windows-x64.zip"),sbom),
+                    (repo,good,Path(folder)/(ext+"-v9.9-pg18-windows-x64.spdx.json")),
+                    (repo,good,Path(folder)/(ext+"-v1.2.3-pg17-windows-x64.spdx.json")),
+                    (repo,Path(folder)/(ext+"-v1.2.3-pg19-windows-x64.zip"),sbom),
+                ]
+                for target,z,sp in bad_names:
+                    with self.subTest(target=target,zip=z.name,sbom=sp.name):
+                        with self.assertRaises(s.Deny):
+                            s.verify_pair(z,sp,packaging_sha="a"*40,
+                                          run_id=12345,attempt=1,
+                                          repository=target,gh_runner=should_not_run)
+                self.assertEqual(invoked,[])
+                # The exact pair advances to an independent gh crypto call,
+                # whose mocked zero-exit forged JSON is still denied.
+                forged=[]
+                def forged_verify(argv,**kwargs):
+                    forged.append(argv)
+                    return SimpleNamespace(returncode=0,stdout="[]")
+                with self.assertRaises(s.Deny):
+                    s.verify_pair(good,sbom,packaging_sha="a"*40,
+                                  run_id=12345,attempt=1,
+                                  repository=repo,gh_runner=forged_verify)
+                self.assertEqual(len(forged),1)
+                self.assertEqual(forged[0][forged[0].index("--repo")+1],repo)
+
     def test_crypto_transport_requires_actual_zero_exit_and_bounded_json(self):
         args=s.command(Path("/tmp/trusted.zip"),packaging_sha="a"*40,
                        predicate=s.preflight.SPDX)
@@ -98,7 +156,7 @@ class PrivateProbes(TestCase):
     def test_crypto_forged_verified_json_does_not_generate_go_or_receipt(self):
         with tempfile.TemporaryDirectory() as folder:
             zip_file=Path(folder)/"plpgsql_check-pg18-windows-x64.zip"
-            sbom_file=Path(folder)/"test.spdx.json"
+            sbom_file=Path(folder)/"plpgsql_check-pg18-windows-x64.spdx.json"
             zip_file.write_bytes(b"synthetic ZIP, not genuine")
             sbom_file.write_text('{"spdxVersion":"SPDX-2.3"}')
             calls=[]
