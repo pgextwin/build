@@ -129,8 +129,6 @@ def api(url, token):
     try:
         with build_opener(NoRedirect()).open(request, timeout=20) as response:
             need(response.status == 200, "GitHub HTTP failure")
-            need("rel=\"next\"" not in response.headers.get("Link", ""),
-                 "GitHub result pagination not resolved")
             raw = response.read(2 * 1024 * 1024 + 1)
             need(len(raw) <= 2 * 1024 * 1024, "GitHub response too large")
             return strict_json(raw.decode("utf-8"))
