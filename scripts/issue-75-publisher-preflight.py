@@ -170,9 +170,22 @@ def verified_claims(raw, *, predicate, repo, packaging_sha,
                     for s in subjects):
                 found.append(item)
     require(len(found) == 1, "missing/duplicate verified ZIP digest predicate")
+    # Modern gh attestation verify --format json returns both the signed
+    # attestation bundle and its cryptographically verified result. The
+    # preexisting offline pure shape guard accepts ONLY verificationResult;
+    # project the verified claim after rejecting unexpected envelope fields.
+    # The caller must still enforce an actual zero-exit gh cryptographic run.
+    item = found[0]
+    require(set(item) in ({"verificationResult"},
+                           {"attestation", "verificationResult"}),
+            "unexpected gh verified attestation envelope")
+    if "attestation" in item:
+        require(type(item["attestation"]) is dict and bool(item["attestation"]),
+                "empty/malformed cryptographic attestation bundle")
     try:
         pin.proof_statement(
-            found[0], predicate, repo=repo, sha=packaging_sha,
+            {"verificationResult": item["verificationResult"]},
+            predicate, repo=repo, sha=packaging_sha,
             signer_sha=SIGNER_SHA, run_id=run_id, attempt=attempt,
             event="workflow_dispatch", zip_name=zip_name,
             zip_digest=zip_digest, sbom=sbom)
