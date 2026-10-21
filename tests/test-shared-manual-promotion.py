@@ -96,5 +96,127 @@ class SharedPromotion(unittest.TestCase):
             self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$")
 
 
+    def test_legacy_thirteen_source_parity_snapshot_is_not_a_publish_grant(self):
+        import json
+
+        inventory = json.loads(
+            (ROOT / "metadata/promotion-legacy-parity-20261021.json")
+            .read_text(encoding="utf-8")
+        )
+        legacy = (ROOT / "tests/fixtures/issue-75-legacy-promotion-normalized.txt"
+                  ).read_text(encoding="utf-8")
+        thirteen = {
+            "pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user",
+            "pg_repack", "pg_ivm", "pg_qualstats", "orafce", "hypopg",
+            "wal2json", "pg_partman", "pg_stat_monitor",
+        }
+        four = {"plpgsql_check", "pgtap", "pg_variables", "pg_store_plans"}
+        self.assertEqual(inventory["schemaVersion"], 1)
+        self.assertEqual(inventory["classification"],
+                         "READ_ONLY_SOURCE_PARITY_INVENTORY_NOT_LIVE_RELEASE_ATTESTATION")
+        self.assertEqual(inventory["deploymentMode"], "NO_CONSUMER_CALLER_REPIN")
+        self.assertEqual(inventory["runtimeSignerWriterPublisherAcceptance"],
+                         "NOT_PROVEN")
+        self.assertEqual(inventory["wave3Publication"], "DENY")
+        self.assertEqual(inventory["releaseAdmission"],
+                         "UNCHANGED_ORIGINAL_14_ONLY")
+        self.assertIs(inventory["publishableReceipt"], False)
+        self.assertEqual(inventory["workflowPath"], ".github/workflows/promote.yml")
+        self.assertEqual(inventory["legacyReferenceRepository"], "pgextwin/pg_bigm")
+        self.assertEqual(len(inventory["legacy"]), 13)
+        self.assertEqual(len(inventory["shared"]), 4)
+        self.assertEqual(
+            {x["repository"] for x in inventory["legacy"]},
+            {"pgextwin/" + n for n in thirteen},
+        )
+        self.assertEqual(
+            {x["repository"] for x in inventory["shared"]},
+            {"pgextwin/" + n for n in four},
+        )
+        blobs = inventory["legacy"] + inventory["shared"]
+        self.assertEqual(len({x["workflowBlobSha"] for x in blobs}), 17)
+        for record in blobs:
+            self.assertRegex(record["workflowBlobSha"], r"^[0-9a-f]{40}$")
+        pins = {x["repository"]: x["sharedWorkflowPin"]
+                for x in inventory["shared"]}
+        self.assertEqual(
+            pins["pgextwin/plpgsql_check"],
+            "5425225ea858f8c0165421902c3e66c6c9205f60",
+        )
+        for n in ("pgtap", "pg_variables", "pg_store_plans"):
+            self.assertEqual(pins["pgextwin/" + n],
+                             "acd6eb28be6d750e89b626fa4ccd4403e1265cd6d")
+
+        self.assertEqual(legacy.count("__EXTENSION__"), 2)
+        self.assertNotIn("pg_bigm", legacy)
+        required = (
+            "  workflow_dispatch:", "candidate_pr:", "candidate_run_id:",
+            "decision_run_id:", "release_tag:", "confirm_release:",
+            "github.ref == 'refs/heads/main'", "fleet-promotion-gate.py",
+            "--confirm-release", "--local-policy config/release-promotion.json",
+            "needs: [authorize, release_build]", "fleet-publish-release.py",
+            "promotion-receipt.json", "promotion-recovery.json",
+            "id-token: write", "attestations: write", "attestations: read",
+            "build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+            "persist-credentials: false",
+        )
+        for marker in required:
+            with self.subTest(required=marker):
+                self.assertIn(marker, legacy)
+        for forbidden in ("  schedule:", "pull_request_target:", "secrets: inherit",
+                          "gh release delete", "--clobber", "cancel-in-progress: true"):
+            self.assertNotIn(forbidden, legacy)
+        self.assertEqual(
+            legacy.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2
+        )
+        self.assertEqual(
+            inventory["legacyGatePublisherCommit"],
+            "455f0ccc667697f600700a6e64bcfd6c57b6a977",
+        )
+        self.assertEqual(
+            inventory["legacySignerCommit"],
+            "5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+        )
+        self.assertEqual(
+            inventory["sharedPublisherCandidateCommit"],
+            "dd4d35186edccfbf39b40d86cecb28380cf210da",
+        )
+        for n in thirteen:
+            with self.subTest(legacy=n):
+                restored = legacy.replace("__EXTENSION__", n)
+                self.assertIn("group: " + n + "-human-release-promotion", restored)
+                self.assertIn("pattern: " + n + "-pg*-windows-x64", restored)
+                self.assertEqual(restored.replace(n, "__EXTENSION__"), legacy)
+
+        # Two different immutable publisher-source commits are *not* accepted
+        # as interchangeable merely because manual gates look alike.
+        self.assertNotEqual(inventory["legacyGatePublisherCommit"],
+                            inventory["sharedPublisherCandidateCommit"])
+        self.assertIn("fleet-promotion-gate.py", SHARED)
+        self.assertIn("fleet-publish-release.py", SHARED)
+        self.assertIn("--confirm-release", SHARED)
+        self.assertIn("needs: [authorize, release_build]", SHARED)
+        policy = json.loads((ROOT / "metadata/release-promotion.json").read_text())
+        self.assertEqual(set(policy["allowedRepositories"]),
+                         {"pgextwin/" + n for n in thirteen | {"plpgsql_check"}})
+
+    def test_legacy_parity_fixture_hostile_removal_would_be_detected(self):
+        legacy = (ROOT / "tests/fixtures/issue-75-legacy-promotion-normalized.txt"
+                  ).read_text(encoding="utf-8")
+        must = (
+            "--confirm-release",
+            "--local-policy config/release-promotion.json",
+            "build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d",
+            "fleet-publish-release.py",
+            "needs: [authorize, release_build]",
+        )
+        for marker in must:
+            with self.subTest(marker=marker):
+                hostile = legacy.replace(marker, "REPLACED_UNTRUSTED", 1)
+                self.assertNotIn(marker, hostile)
+                self.assertFalse(all(x in hostile for x in must))
+
+
+
 if __name__ == "__main__":
     unittest.main()
