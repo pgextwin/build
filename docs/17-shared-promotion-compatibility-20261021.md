@@ -9,12 +9,14 @@ Do not rerun those completed workflows.
 
 ## Live architecture inventory
 
-- Original 14 packaging repositories have independent 143-line `.github/workflows/promote.yml`
-  invoking the approved legacy central gate and Publisher source
+- The 13 legacy-promoter repositories among the original 14 published extensions
+  have independent 143-line `.github/workflows/promote.yml` files invoking the
+  approved legacy central gate and Publisher source
   `build@455f0ccc667697f600700a6e64bcfd6c57b6a977` and signed builder
   `build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d`.
   These 14 existing Release assets and Catalog records remain untouched.
-- `plpgsql_check` and `pgtap`, `pg_variables`, `pg_store_plans` have thin
+- The remaining original released extension, `plpgsql_check`, and the three
+  Wave3 repositories `pgtap`, `pg_variables`, `pg_store_plans` have thin
   `promote.yml` callers pinned to historical shared immutable commits
   (`5425225ea858f8c0165421902c3e66c6c9205f60` and
   `acd6eb28be6d750e89b626fa4ccd4403e1265cd6`, respectively).
