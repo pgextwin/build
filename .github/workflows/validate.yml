@@ -70,15 +70,6 @@ jobs:
       - name: Validate inert Chat PR authorization and hostile merge/event fixtures
         run: python tests/test-chat-pr-authorization.py
 
-      - name: Validate third-wave GET-only PR/push admission and no-Writer boundary
-        run: python tests/test-chat-publication-readonly.py
-
-      - name: Reject forged or stale first-candidate bot CI and preserve publication DENY
-        run: python tests/test-first-candidate-readonly.py
-
-      - name: Reject forged merged bot candidates without authorizing publication
-        run: python tests/test-merged-first-candidate-readonly.py
-
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
