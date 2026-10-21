@@ -39,11 +39,15 @@ report = {
     "extensions": rows,
 }
 def check(document=report, event=run, bbranch=None, target=None, repository=repo,
-          head=good_sha, pin=m.COHORT_3):
+          head=good_sha, pin=m.COHORT_3, live_replay=False):
     return m.validate(document, event, bbranch or branch(build_sha),
-                      target or branch(good_sha), repository, head, pin, now)
+                      target or branch(good_sha), repository, head, pin, now,
+                      live_replay=live_replay)
 
 assert check() == "candidate"
+# The independent fresh GET-only replay is not the central ZIP; it must
+# maintain the same protected-main, 17-row, candidate-only contract.
+assert check(live_replay=True) == "candidate"
 none = deepcopy(report)
 for entry in none["extensions"]:
     if entry["repository"] == repo:
@@ -51,6 +55,7 @@ for entry in none["extensions"]:
         entry["updates"] = []
 none["updatesDetected"] = 0
 assert check(none) == "none"
+assert check(none, live_replay=True) == "none"
 
 denials = []
 for name, target, key, value in (
@@ -91,6 +96,18 @@ denials.append(("unprotected main", lambda: check(target={"protected": False, "c
 denials.append(("detector branch swap", lambda: check(pin=m.COHORT_14)))
 denials.append(("unregistered repository", lambda: check(repository="pgextwin/evil")))
 denials.append(("caller SHA drift", lambda: check(head="d" * 40)))
+replay_early = deepcopy(report)
+replay_early["generatedAt"] = iso(old - timedelta(minutes=10))
+denials.append(("replayed fleet result predates central schedule",
+                lambda: check(replay_early, live_replay=True)))
+replay_future = deepcopy(report)
+replay_future["generatedAt"] = iso(now + timedelta(minutes=6))
+denials.append(("replayed fleet result lies in future",
+                lambda: check(replay_future, live_replay=True)))
+replay_bad = deepcopy(report)
+replay_bad["extensions"][1]["status"] = "INDETERMINATE"
+denials.append(("replayed fleet row indeterminate",
+                lambda: check(replay_bad, live_replay=True)))
 for name, f in denials:
     try:
         f()
@@ -109,5 +126,10 @@ for item in (
 for item in ("contents: write", "issues: write", "actions: write", "pull-requests: write",
              "secrets.", "PUBLISH=ALLOW", "gh release ", "build-extension-attested"):
     assert item not in workflow, item
-print("PASS: immutable 17-repo daily snapshot candidate-only gate plus",
+source = (ROOT / "scripts/verify-scheduled-fleet-candidate.py").read_text("utf-8")
+for item in ("def replay_live_fleet(", "FLEET_EVIDENCE=INDEPENDENT_GET_ONLY_REPLAY",
+             "live_replay=live_replay", "PUBLISH=DENY"):
+    assert item in source, item
+assert "contents: write" not in workflow
+print("PASS: 17-repo schedule proof and distinct GET-only replay plus",
       len(denials), "hostile cases; no Release token or PUBLISH")
