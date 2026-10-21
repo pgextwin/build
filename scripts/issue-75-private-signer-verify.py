@@ -29,8 +29,10 @@ TARGET_REPOSITORIES = frozenset((
 ))
 # Only these four deployed shared-Promotion callers are covered by this
 # dormant, nonpublishing verifier. Runtime signer acceptance is NOT_PROVEN.
+# Actual upstream refs are not uniformly v-prefixed: pg_store_plans uses 1.10.
+# The immutable fleet-release-identity.asset_stem retains authoritative names.
 ASSET_NAME = re.compile(
-    r"[a-z][a-z0-9_]*(?:-v[0-9][A-Za-z0-9.+_-]*)?"
+    r"[a-z][a-z0-9_]*(?:-v?[0-9][A-Za-z0-9.+_-]*)?"
     r"-pg(?:14|15|16|17|18)-windows-x64\.zip\Z"
 )
 PREDICATES = (preflight.PROVENANCE, preflight.SPDX)

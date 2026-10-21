@@ -82,8 +82,16 @@ class PrivateProbes(TestCase):
             "pgextwin/plpgsql_check", "pgextwin/pgtap",
             "pgextwin/pg_variables", "pgextwin/pg_store_plans",
         })
+        observed_refs={
+            "plpgsql_check":"v2.10.15",
+            "pgtap":"v1.3.4",
+            "pg_variables":"v1.2.1",
+            "pg_store_plans":"1.10",
+        }
         for repo in sorted(s.TARGET_REPOSITORIES):
-            path=Path("/tmp/" + repo.split("/")[1] + "-v1.2.3-pg18-windows-x64.zip")
+            ref=observed_refs[repo.split("/")[1]]
+            path=Path("/tmp/" + repo.split("/")[1] + "-" + ref + "-pg18-windows-x64.zip")
+            self.assertIsNotNone(s.ASSET_NAME.fullmatch(path.name))
             cmd=s.command(path,packaging_sha="a"*40,
                           predicate=s.preflight.SPDX,repository=repo)
             self.assertEqual(cmd[cmd.index("--repo")+1],repo)
@@ -100,20 +108,31 @@ class PrivateProbes(TestCase):
                      "pgextwin/pg_store_plans"):
             with self.subTest(repo=repo), tempfile.TemporaryDirectory() as folder:
                 ext=repo.split("/")[1]
-                good=Path(folder)/(ext+"-v1.2.3-pg18-windows-x64.zip")
-                sbom=Path(folder)/(ext+"-v1.2.3-pg18-windows-x64.spdx.json")
+                ref={"pgtap":"v1.3.4",
+                     "pg_variables":"v1.2.1",
+                     "pg_store_plans":"1.10"}[ext]
+                good=Path(folder)/(ext+"-"+ref+"-pg18-windows-x64.zip")
+                sbom=Path(folder)/(ext+"-"+ref+"-pg18-windows-x64.spdx.json")
                 good.write_bytes(b"synthetic unsigned ZIP")
                 sbom.write_text('{"spdxVersion":"SPDX-2.3"}')
                 invoked=[]
                 def should_not_run(*args,**kwargs):
                     invoked.append(True)
                     self.fail("cross-asset mismatch reached credentialed verifier")
+                foreign=Path(folder)/("other-v1.2.3-pg18-windows-x64.zip")
+                wrong_ver=Path(folder)/(ext+"-v9.9-pg18-windows-x64.spdx.json")
+                wrong_major=Path(folder)/(ext+"-"+ref+"-pg17-windows-x64.spdx.json")
+                pg19=Path(folder)/(ext+"-"+ref+"-pg19-windows-x64.zip")
+                foreign.write_bytes(b"wrong extension")
+                wrong_ver.write_text('{"spdxVersion":"SPDX-2.3"}')
+                wrong_major.write_text('{"spdxVersion":"SPDX-2.3"}')
+                pg19.write_bytes(b"unsupported major")
                 bad_names=[
                     ("pgextwin/plpgsql_check",good,sbom),
-                    (repo,Path(folder)/("other-v1.2.3-pg18-windows-x64.zip"),sbom),
-                    (repo,good,Path(folder)/(ext+"-v9.9-pg18-windows-x64.spdx.json")),
-                    (repo,good,Path(folder)/(ext+"-v1.2.3-pg17-windows-x64.spdx.json")),
-                    (repo,Path(folder)/(ext+"-v1.2.3-pg19-windows-x64.zip"),sbom),
+                    (repo,foreign,sbom),
+                    (repo,good,wrong_ver),
+                    (repo,good,wrong_major),
+                    (repo,pg19,sbom),
                 ]
                 for target,z,sp in bad_names:
                     with self.subTest(target=target,zip=z.name,sbom=sp.name):
