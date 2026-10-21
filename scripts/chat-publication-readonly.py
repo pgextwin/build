@@ -344,10 +344,18 @@ def observe_merged_nonpublishing_pin(env, event, api, run, branch):
         "pgextwin/pg_variables": "33c2b10227886aa2869ccba8d6f6e390ed3b4432",
         "pgextwin/pg_store_plans": "1b11c44d463a9bfd2c451b52aaee7e7e577f09ef",
     }
+    # Exact main blobs independently read after protected scheduled-verifier
+    # pin-only PRs. This does NOT authorize Release, PUBLISH or signer changes.
+    scheduled_verifier_blobs = {
+        "pgextwin/pgtap": "dd42121cbcb8e14e92dfab822bb63ca9c092f573",
+        "pgextwin/pg_variables": "61c515a1f491a921688aae8ecca5d1e6e4c99cb5",
+        "pgextwin/pg_store_plans": "dd42121cbcb8e14e92dfab822bb63ca9c092f573",
+    }
     file = files[0] if type(files) is list and len(files) == 1 else {}
     allow_known_update = (file.get("filename") == ".github/workflows/update-watch.yml"
                           and file.get("sha") in
-                          {known_readonly_blob, exact_daily_blobs[repo]})
+                          {known_readonly_blob, exact_daily_blobs[repo],
+                           scheduled_verifier_blobs[repo]})
     need(type(files) is list and len(files) == 1
          and (files[0].get("filename") == ".github/workflows/windows.yml"
               or allow_known_update)

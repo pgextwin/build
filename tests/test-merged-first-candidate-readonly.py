@@ -173,6 +173,52 @@ class TestMergedCandidate(unittest.TestCase):
                     m.observe_merged_nonpublishing_pin(
                         env, event, Reader(bad), run, bad["branches/main"])
 
+    def test_exact_20261021_scheduled_verifier_pin_is_nonpublishing(self):
+        # Independently GET-verified actual postmerge blobs, not a wildcard pin.
+        # Other-repo SHA, arbitrary SHA, and modified file path fail closed.
+        verified = {
+            "pgtap": "dd42121cbcb8e14e92dfab822bb63ca9c092f573",
+            "pg_variables": "61c515a1f491a921688aae8ecca5d1e6e4c99cb5",
+            "pg_store_plans": "dd42121cbcb8e14e92dfab822bb63ca9c092f573",
+        }
+        for name, expected in verified.items():
+            env, event, data, run = fixture()
+            repository = "pgextwin/" + name
+            env["GITHUB_REPOSITORY"] = repository
+            pr = data["pulls/7"]
+            pr["user"] = {"login": "ShutenOishi", "type": "User"}
+            pr["merged_by"] = {"login": "ShutenOishi", "type": "User"}
+            pr["head"]["ref"] = "fix/scheduled-verifier-public-readonly-fallback-20261021"
+            pr["head"]["repo"]["full_name"] = repository
+            pr["base"]["repo"]["full_name"] = repository
+            file = data["pulls/7/files?per_page=100"][0]
+            file.update(filename=".github/workflows/update-watch.yml",
+                        sha=expected, status="modified")
+            data["commits/" + MERGE]["files"] = [deepcopy(file)]
+            run["actor"] = {"login": "ShutenOishi", "type": "User"}
+            event["sender"] = {"login": "ShutenOishi", "type": "User"}
+            output = m.observe_merged_nonpublishing_pin(
+                env, event, Reader(data), run, data["branches/main"])
+            self.assertEqual(output["status"], "MERGED_NONPUBLISHING_WORKFLOW_PIN_OBSERVED")
+            self.assertEqual((output["publication"], output["goB"], output["g4"], output["g5"]),
+                             ("DENY", "NO_GO", "NO_GO", "NO_GO"))
+            self.assertFalse(output["publicationAuthorized"])
+            self.assertFalse(output["publishableReceipt"])
+            self.assertFalse(output["mutationsEnabled"])
+            wrong_sha = next(v for k, v in verified.items() if v != expected)
+            for forged, wrong_path in ((wrong_sha, False), ("0" * 40, False),
+                                       (expected, True)):
+                bad = deepcopy(data)
+                changed = bad["pulls/7/files?per_page=100"][0]
+                changed["sha"] = forged
+                if wrong_path:
+                    changed["filename"] = ".github/workflows/promote.yml"
+                bad["commits/" + MERGE]["files"] = [deepcopy(changed)]
+                with self.subTest(repo=repository, sha=forged, path=changed["filename"]):
+                    with self.assertRaises((m.Denied, ValueError, KeyError, TypeError)):
+                        m.observe_merged_nonpublishing_pin(
+                            env, event, Reader(bad), run, bad["branches/main"])
+
     def test_human_workflow_pin_merge_stays_nonpublishing(self):
         env, event, data, run = fixture()
         pr = data["pulls/7"]
