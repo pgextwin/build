@@ -1,6 +1,8 @@
-# SOURCE-ONLY 13 legacy manual Release common body. No live callers repinned.
-# Preserves old deployed 455f0ccc gate/publisher + 5756b3c5 signer.
-# Never bypass per-repo manual PUBLISH, central 14 Allowlist or Wave3 DENY.
+# Shared manual Release runtime for the 13 original legacy Promotion callers.
+# All 13 protected callers now pin the immutable build@51b5bf5c93740bbeae49763bbc7b04fd9f187e72;
+# editing this file on build/main does not move those fixed caller pins.
+# Preserve approved 455f0ccc gate/Publisher, 5756b3c5 Signer, explicit manual
+# PUBLISH and central 14-only admission; Wave3 remains DENY.
 name: Shared legacy manual Windows Release promotion
 
 on:
