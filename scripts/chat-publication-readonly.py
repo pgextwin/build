@@ -330,8 +330,17 @@ def observe_merged_nonpublishing_pin(env, event, api, run, branch):
          and (pr.get("base") or {}).get("repo", {}).get("full_name") == repo
          and (pr.get("head") or {}).get("repo", {}).get("full_name") == repo)
     files = api.get("pulls/" + str(pr["number"]) + "/files?per_page=100")
+    # Immutable, previously reviewed READ-ONLY update-watch wrapper cutover.
+    # Only the exactly audited 17-member delegation blob is accepted; an
+    # arbitrary update-watch edit still fails closed. Existing windows.yml
+    # single-file pin acceptance is preserved without changes.
+    approved_update_watch_blob = "2d64faa10025dd65adc005bd8f3be3bbadf60802"
+    file = files[0] if type(files) is list and len(files) == 1 else {}
+    allow_known_update = (file.get("filename") == ".github/workflows/update-watch.yml"
+                          and file.get("sha") == approved_update_watch_blob)
     need(type(files) is list and len(files) == 1
-         and files[0].get("filename") == ".github/workflows/windows.yml"
+         and (files[0].get("filename") == ".github/workflows/windows.yml"
+              or allow_known_update)
          and files[0].get("status") == "modified"
          and type(commit.get("files")) is list and len(commit["files"]) == 1
          and commit["files"][0].get("filename") == files[0]["filename"]
