@@ -145,7 +145,7 @@ class SharedPromotion(unittest.TestCase):
         )
         for n in ("pgtap", "pg_variables", "pg_store_plans"):
             self.assertEqual(pins["pgextwin/" + n],
-                             "acd6eb28be6d750e89b626fa4ccd4403e1265cd6d")
+                             "acd6eb28be6d750e89b626fa4ccd4403e1265cd6")
 
         self.assertEqual(legacy.count("__EXTENSION__"), 2)
         self.assertNotIn("pg_bigm", legacy)
