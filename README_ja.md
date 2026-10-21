@@ -6,6 +6,15 @@
 
 このリポジトリでは、各拡張機能リポジトリから利用するReusable Workflow、PostgreSQL対応バージョン情報、共通hook仕様を管理します。
 
+## 17拡張の保守運用を簡素化する方針（2026-10-22）
+
+今後は、実際のビルド・更新候補・署名・SHA256・正式公開ゲートと必須CIを優先し、過去の調査用・模擬実証用の重複検査を現役CIから外します。過去のSigstore独立監査・否定試験はGit履歴と[Issue #75](https://github.com/pgextwin/build/issues/75)・[Issue #141](https://github.com/pgextwin/build/issues/141)に証跡を保管します。検査を削ることは正式公開の認可を得たことを意味しません。
+
+- 共通ビルド・候補検出は17拡張で利用します。正式公開は現在、13件の個別Promotionと4件の共通Promotion呼出しが混在しています。共通化は既存14件の稼働中Releaseを変更せず段階的に進めます。
+- CIの検証ステップは過去の一回限りの実証31件を除去して73件から42件に整理しました。署名付きReleaseのソース固定、真正性、SHA256、PGメジャー別成果物、候補認可、Publisherのcreate-only、既存の保護CIは残します。
+- 第3弾 `pgtap`、`pg_variables`、`pg_store_plans` は `config/release-promotion.json` の `enabled=false` を維持し、中央の正式公開許可リストも従来の14件だけです。個別の適正な認可が成立するまで、Release、Catalog、Websiteへの正式公開を開始しません。
+- 従来の9時READ-only監査、失敗履歴、保護ブランチ、`PUBLISH DENY` および `GO B/G4/G5 NO_GO` を変更しません。
+
 ## 現在の運用：14拡張の候補キューと手動の検証済みRelease
 
 **全14拡張**で、上流の安定版更新検出（UTC 00:00 / JST 09:00）、コミットSHA固定の**Draft候補PR**、Windows CI、機械可読な候補検証を共通化しました。中央 `metadata/automation-fleet.json` は **14件とも `BUILD` / `candidateEnabled=true`** です。候補準備は自動実行できますが、**候補のマージと正式Releaseは別々の明示的な操作**です。
