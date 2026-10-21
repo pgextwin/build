@@ -131,6 +131,48 @@ class TestMergedCandidate(unittest.TestCase):
                     m.observe_merged_nonpublishing_pin(
                         env, event, Reader(bad), run, bad["branches/main"])
 
+    def test_exact_wave3_scheduled_candidate_wrapper_is_nonpublishing(self):
+        # The per-repo SHA map is intentionally closed: an arbitrary,
+        # cross-repository, future, or publication-altering blob is rejected.
+        expected_blobs = {
+            "pgtap": "1b11c44d463a9bfd2c451b52aaee7e7e577f09ef",
+            "pg_variables": "33c2b10227886aa2869ccba8d6f6e390ed3b4432",
+            "pg_store_plans": "1b11c44d463a9bfd2c451b52aaee7e7e577f09ef",
+        }
+        for name, expected in expected_blobs.items():
+            env, event, data, run = fixture()
+            repository = "pgextwin/" + name
+            env["GITHUB_REPOSITORY"] = repository
+            pr = data["pulls/7"]
+            pr["user"] = {"login": "ShutenOishi", "type": "User"}
+            pr["merged_by"] = {"login": "ShutenOishi", "type": "User"}
+            pr["head"]["ref"] = "feat/auto-candidate-fleet-20261021"
+            pr["head"]["repo"]["full_name"] = repository
+            pr["base"]["repo"]["full_name"] = repository
+            file = data["pulls/7/files?per_page=100"][0]
+            file.update(filename=".github/workflows/update-watch.yml",
+                        sha=expected, status="modified")
+            data["commits/" + MERGE]["files"] = [deepcopy(file)]
+            run["actor"] = {"login": "ShutenOishi", "type": "User"}
+            event["sender"] = {"login": "ShutenOishi", "type": "User"}
+            output = m.observe_merged_nonpublishing_pin(
+                env, event, Reader(data), run, data["branches/main"])
+            self.assertEqual(output["status"], "MERGED_NONPUBLISHING_WORKFLOW_PIN_OBSERVED")
+            self.assertEqual((output["publication"], output["goB"], output["g4"], output["g5"]),
+                             ("DENY", "NO_GO", "NO_GO", "NO_GO"))
+            self.assertFalse(output["publicationAuthorized"])
+            invalid = {"0" * 40, "1" * 40,
+                       "1b11c44d463a9bfd2c451b52aaee7e7e577f09ef",
+                       "33c2b10227886aa2869ccba8d6f6e390ed3b4432"}
+            invalid.discard(expected)
+            for forged in invalid:
+                bad = deepcopy(data)
+                bad["pulls/7/files?per_page=100"][0]["sha"] = forged
+                bad["commits/" + MERGE]["files"][0]["sha"] = forged
+                with self.subTest(repo=repository, forged=forged), self.assertRaises((m.Denied, ValueError, KeyError, TypeError)):
+                    m.observe_merged_nonpublishing_pin(
+                        env, event, Reader(bad), run, bad["branches/main"])
+
     def test_human_workflow_pin_merge_stays_nonpublishing(self):
         env, event, data, run = fixture()
         pr = data["pulls/7"]
