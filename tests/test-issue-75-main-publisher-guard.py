@@ -148,6 +148,43 @@ class MainGuardOffline(TestCase):
                 result = p.check_assets(folder, ext, receipt, COMMIT, RUN, lifecycle)
                 return result, api.call_count, gh.call_args_list
 
+    def test_real_gh_envelope_projects_verified_result_only_fail_closed(self):
+        # Verified GitHub CLI current JSON has both attestation bundle and
+        # verificationResult; this is offline mocked SHAPE, not Sigstore.
+        with tempfile.TemporaryDirectory() as directory:
+            z = Path(directory) / "plpgsql_check-pg18-windows-x64.zip"
+            z.write_bytes(b"synthetic untrusted ZIP, not a signed release")
+            digest = p.digest(z)
+            sbom = {"spdxVersion": "SPDX-2.3"}
+            for kind in (p.guard.PROVENANCE, p.guard.SPDX):
+                item = json.loads(certificate(kind, z))[0]
+                real_shape = copy.deepcopy(item)
+                real_shape["attestation"] = {"bundle": {"synthetic": True}}
+                kwargs = dict(predicate=kind, repo=REPO, packaging_sha=COMMIT,
+                              run_id=RUN, attempt=1, zip_name=z.name,
+                              zip_digest=digest, sbom=sbom)
+                # Projection retains the exact original certificate and
+                # signature claims; cannot turn mocks into authority.
+                p.guard.verified_claims(json.dumps([real_shape]), **kwargs)
+                p.guard.verified_claims(json.dumps([item]), **kwargs)
+                for bad in (
+                    {**real_shape, "extraField": "untrusted"},
+                    {**real_shape, "attestation": None},
+                    {**real_shape, "attestation": {}},
+                    {**real_shape, "attestation": []},
+                    {**real_shape, "verificationResult": "forged"},
+                ):
+                    with self.subTest(kind=kind, bad=str(bad)[:40]):
+                        with self.assertRaises(p.guard.Deny):
+                            p.guard.verified_claims(json.dumps([bad]), **kwargs)
+                duplicate = json.dumps([real_shape, copy.deepcopy(real_shape)])
+                with self.assertRaises(p.guard.Deny):
+                    p.guard.verified_claims(duplicate, **kwargs)
+                crossed = copy.deepcopy(real_shape)
+                crossed["verificationResult"]["signature"]["certificate"]["githubWorkflowSHA"] = "a"*40
+                with self.assertRaises(p.guard.Deny):
+                    p.guard.verified_claims(json.dumps([crossed]), **kwargs)
+
     def test_active_manual_root_in_progress_and_all_pg_signatures_mock_positive(self):
         got, api, signed = self.invoke()
         self.assertEqual(len(got), 15)
