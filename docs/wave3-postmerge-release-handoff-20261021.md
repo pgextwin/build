@@ -175,3 +175,39 @@ the first successful real cron-to-candidate PR end-to-end operation.
 
 This checkpoint creates **no** live credential, App, Secret, Environment,
 promotion flag, Release, tag, Catalog record, or PUBLISH authorization.
+
+## 2026-10-22 — latest owner-approved minimum for the 17-extension manual Release route
+
+**This section supersedes the older unimplemented extra prepublication
+witness requirements above, without changing historical evidence.** The
+owner has explicitly decided that separate independent Administration-read
+auditor token ceremonies, external Writer/Publisher App custody, and an
+additional off-runner durable recovery journal are **not required for
+the existing GitHub Actions manual Release to function**. Those mechanisms
+are not exercised by the deployed publisher. Do not block routine signed
+Release solely to re-prove them or create new App/Secret infrastructure.
+
+Functional and existing mandatory safeguards remain: protected PR/main and
+required CI; exactly named repository admission plus locally enabled
+manual policy; a genuine human main `workflow_dispatch` with explicit
+`confirm_release=PUBLISH`; merged bot candidate, matching decision
+artifact and audited PG14–18 Windows matrix; actual fresh SHA-pinned
+Signer and authenticated SLSA/SPDX evidence; original asset SHA256;
+scoped GitHub Actions `contents:write` publisher permission; and
+create-only tag/Release behavior with fail-closed refusal of any reserved,
+duplicate, or partially published tag. The existing recovery artifact is
+retained. No new separate Writer, external journal or parallel
+verification pipeline is a functional prerequisite.
+
+The central 17-member *operator-only* allowlist and each local Wave3
+`enabled=true` must themselves pass protected PR, required CI, merge
+and postmerge before an individual manual dispatch can become eligible.
+These flags are permission to attempt the existing signed manual route,
+**not a PUBLISH input**, not proof of signature checks, and not a claim
+that any new Release, Catalog, CLI, or Website publication occurred.
+
+Prior GO B/G4/G5 NO_GO judgments describe the earlier, stricter
+acceptance policy and remain accurate historical records. They must not
+be relabelled PASS or discarded. Any authorization workflow still
+denying release must not be bypassed: correct its policy through protected
+review instead of ignoring it. Public release is a separate run.
