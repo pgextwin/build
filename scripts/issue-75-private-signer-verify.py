@@ -18,6 +18,10 @@ _spec = importlib.util.spec_from_file_location(
     "issue75_existing_preflight", ROOT / "issue-75-publisher-preflight.py")
 preflight = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(preflight)
+_fleet_spec = importlib.util.spec_from_file_location(
+    "issue75_reused_fleet_release_identity", ROOT / "fleet-release-identity.py")
+identity = importlib.util.module_from_spec(_fleet_spec)
+_fleet_spec.loader.exec_module(identity)
 
 ISSUER = "https://token.actions.githubusercontent.com"
 SIGNER = "pgextwin/build/.github/workflows/build-extension-attested.yml"
@@ -91,21 +95,30 @@ def invoke_crypto(argv, *, runner=subprocess.run):
         raise Deny("cryptographic verifier failed or unavailable") from None
 
 def verify_pair(zip_file, sbom_file, *, packaging_sha, run_id, attempt,
-                repository=REPO, gh_runner=subprocess.run):
+                extension_config, pg_major, repository=REPO,
+                gh_runner=subprocess.run):
     """Nonpublishing, future-private runtime entrypoint. No CLI or workflow."""
     try:
         need(type(repository) is str and repository in TARGET_REPOSITORIES)
         need(type(packaging_sha) is str and bool(SHA40.fullmatch(packaging_sha)))
         need(type(run_id) is int and run_id > 0)
         need(type(attempt) is int and attempt == 1)
+        extension = repository.split("/", 1)[1]
+        # Reuse the established fleet identity; never accept a self-invented
+        # ZIP/SBOM version merely because both filenames agree.
+        # The caller must independently authenticate extension_config as a
+        # protected, pinned source at the exact reviewed packaging commit.
+        need(type(extension_config) is dict and
+             extension_config.get("name") == extension and
+             type(pg_major) is int and pg_major in identity.ALLOWED_MAJORS)
+        stem = identity.asset_stem(extension_config, pg_major)
         regular(zip_file, MAX_ZIP)
         regular(sbom_file, MAX_SBOM)
-        # The archive and SPDX must belong to the exact same allowlisted
-        # extension, release version and supported PG major before gh runs.
-        extension = repository.split("/", 1)[1]
+        # The exact canonical ref can be v-prefixed or not (pg_store_plans
+        # 1.10); enforce the independently reviewed configuration's true stem.
         need(bool(ASSET_NAME.fullmatch(zip_file.name)) and
-             zip_file.name.startswith(extension + "-") and
-             sbom_file.name == zip_file.name[:-4] + ".spdx.json")
+             zip_file.name == stem + ".zip" and
+             sbom_file.name == stem + ".spdx.json")
         digest = sha256_file(zip_file)
         with sbom_file.open("rb") as f:
             raw = f.read(MAX_SBOM + 1)
@@ -127,6 +140,7 @@ def verify_pair(zip_file, sbom_file, *, packaging_sha, run_id, attempt,
             "classification": "SIGNER_CRYPTO_PROCESS_AND_PIN_POLICY_PASSED",
             "verifiedArtifactSha256": digest,
             "targetRepository": repository,
+            "sourceAssetStem": stem,
             "signerPinnedWorkflow": SIGNER,
             "signerPinnedSha": SIGNER_SHA,
             "attempt": attempt,
