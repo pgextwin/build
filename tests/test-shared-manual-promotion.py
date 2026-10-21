@@ -218,5 +218,86 @@ class SharedPromotion(unittest.TestCase):
 
 
 
+    def test_two_deployed_shared_pins_are_one_byte_identical_inert_blob(self):
+        import hashlib
+        import json
+
+        ledger = json.loads((ROOT / "metadata/promotion-legacy-parity-20261021.json")
+                            .read_text(encoding="utf-8"))
+        record = ledger["sharedHistoricalSource"]
+        raw = (ROOT / "tests/fixtures/issue-75-historical-shared-promotion.txt").read_bytes()
+        blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes([0]) + raw).hexdigest()
+        self.assertEqual(blob, "1a87339fdf93d093aea0c976d7627ce9d8860eb1")
+        self.assertEqual(record["verifiedSameWorkflowBlobSha"], blob)
+        self.assertEqual(record["plpgsqlCheckPin"],
+                         "5425225ea858f8c0165421902c3e66c6c9205f60")
+        self.assertEqual(record["wave3Pin"],
+                         "acd6eb28be6d750e89b626fa4ccd4403e1265cd6")
+        self.assertNotEqual(record["plpgsqlCheckPin"], record["wave3Pin"])
+        self.assertIs(record["identicalBytesAreNotExecutionIdentity"], True)
+        self.assertIs(record["deployedCallerPinsChanged"], False)
+        self.assertIs(record["newSharedRuntimeAccepted"], False)
+        self.assertIs(record["noSignedProductionSignerAttestationAccepted"], True)
+        self.assertEqual(record["runtimeGate"], "BLOCKED")
+        self.assertEqual(record["wave3PUBLISH"], "DENY")
+        self.assertEqual(record["legacyPublisherSourcePin"],
+                         "455f0ccc667697f600700a6e64bcfd6c57b6a977")
+        self.assertEqual(record["futureSharedGatePublisherSourcePin"],
+                         "dd4d35186edccfbf39b40d86cecb28380cf210da")
+        self.assertNotEqual(record["legacyPublisherSourcePin"],
+                            record["futureSharedGatePublisherSourcePin"])
+        self.assertEqual(record["classification"],
+                         "TWO_PIN_REFS_SAME_IMMUTABLE_GIT_BLOB_NOT_RUNTIME_AUTHORIZATION")
+
+        historical = raw.decode("utf-8")
+        self.assertIn("workflow_call:", historical)
+        self.assertIn("fleet-promotion-gate.py", historical)
+        self.assertIn("fleet-publish-release.py", historical)
+        self.assertIn("if: github.ref == 'refs/heads/main'", historical)
+        self.assertIn("--confirm-release", historical)
+        self.assertIn("needs: [authorize, release_build]", historical)
+        self.assertIn("build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d", historical)
+        self.assertEqual(
+            historical.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2
+        )
+        self.assertNotIn("releasePolicy: automatic", historical)
+        self.assertNotIn("secrets: inherit", historical)
+        self.assertNotIn("pull_request_target:", historical)
+        self.assertNotIn("--clobber", historical)
+
+        # Historical catalog trigger used mere client-ID presence. The proposed
+        # shared source now has a *separate* opt-in. The older behavior must
+        # not be treated as production-equivalent or silently reinstated.
+        self.assertIn("vars.PGEXTWIN_CATALOG_APP_CLIENT_ID != ''", historical)
+        self.assertNotIn("PGEXTWIN_CATALOG_DISPATCH_ENABLED", historical)
+        self.assertIn("vars.PGEXTWIN_CATALOG_DISPATCH_ENABLED == 'true'", SHARED)
+        self.assertIs(record["catalogDispatchExplicitOptInInFutureSharedSource"], True)
+        self.assertIs(record["historicalCatalogDispatchAppIdentityAccepted"], False)
+
+        # Exact historical shared identity list is only four. The current
+        # central source expanded to 17 but actual 14-only publisher
+        # authorization and three disabled local Wave3 policies remain.
+        for n in ("plpgsql_check", "pgtap", "pg_variables", "pg_store_plans"):
+            self.assertIn("pgextwin/" + n, historical)
+        self.assertNotIn("pgextwin/pg_bigm|pgextwin/pg_cron", historical)
+        self.assertIn("pgextwin/pg_bigm|pgextwin/pg_cron", SHARED)
+        self.assertEqual(ledger["releaseAdmission"], "UNCHANGED_ORIGINAL_14_ONLY")
+        self.assertIs(ledger["publishableReceipt"], False)
+
+    def test_historical_shared_shadow_cannot_grant_publication(self):
+        import json
+        ledger = json.loads((ROOT / "metadata/promotion-legacy-parity-20261021.json")
+                            .read_text(encoding="utf-8"))
+        hist = ledger["sharedHistoricalSource"]
+        for field in ("deployedCallerPinsChanged", "newSharedRuntimeAccepted",
+                      "historicalCatalogDispatchAppIdentityAccepted"):
+            with self.subTest(field=field):
+                self.assertIs(hist[field], False)
+        self.assertEqual(ledger["runtimeSignerWriterPublisherAcceptance"],
+                         "NOT_PROVEN")
+        self.assertEqual(ledger["deploymentMode"], "NO_CONSUMER_CALLER_REPIN")
+        self.assertEqual(hist["runtimeGate"], "BLOCKED")
+
+
 if __name__ == "__main__":
     unittest.main()
