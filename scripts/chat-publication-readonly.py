@@ -334,10 +334,20 @@ def observe_merged_nonpublishing_pin(env, event, api, run, branch):
     # Only the exactly audited 17-member delegation blob is accepted; an
     # arbitrary update-watch edit still fails closed. Existing windows.yml
     # single-file pin acceptance is preserved without changes.
-    approved_update_watch_blob = "2d64faa10025dd65adc005bd8f3be3bbadf60802"
+    # A reviewed, immutable Wave3 scheduled candidate wrapper is not a
+    # publication authorization. Accept only the exact audited blob for each
+    # named repository, and retain the previous GET-only wrapper grandfathered
+    # during the normal protected Windows observer pin transition.
+    known_readonly_blob = "2d64faa10025dd65adc005bd8f3be3bbadf60802"
+    exact_daily_blobs = {
+        "pgextwin/pgtap": "1b11c44d463a9bfd2c451b52aaee7e7e577f09ef",
+        "pgextwin/pg_variables": "33c2b10227886aa2869ccba8d6f6e390ed3b4432",
+        "pgextwin/pg_store_plans": "1b11c44d463a9bfd2c451b52aaee7e7e577f09ef",
+    }
     file = files[0] if type(files) is list and len(files) == 1 else {}
     allow_known_update = (file.get("filename") == ".github/workflows/update-watch.yml"
-                          and file.get("sha") == approved_update_watch_blob)
+                          and file.get("sha") in
+                          {known_readonly_blob, exact_daily_blobs[repo]})
     need(type(files) is list and len(files) == 1
          and (files[0].get("filename") == ".github/workflows/windows.yml"
               or allow_known_update)
