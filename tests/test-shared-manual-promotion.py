@@ -48,7 +48,7 @@ class SharedPromotion(unittest.TestCase):
                  "pg_partman", "pg_stat_monitor", "pgtap",
                  "pg_variables", "pg_store_plans")
         expected = {"pgextwin/" + n for n in names}
-        match = re.search(r'(?m)^\s*(pgextwin/[a-z0-9_|]+)\)\s*;;, SHARED)
+        match = re.search(r'(?m)^\s*(pgextwin/[a-z0-9_|]+)\)\s*;;$', SHARED)
         self.assertIsNotNone(match, "exact, closed case statement required")
         observed = match.group(1).split("|")
         self.assertEqual(set(observed), expected)
