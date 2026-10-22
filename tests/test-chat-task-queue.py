@@ -55,7 +55,8 @@ class HourlyQueueTests(unittest.TestCase):
                          {"pgextwin/orafce": "PREPARE_CANDIDATE",
                           "pgextwin/pg_hint_plan": "REVIEW_CANDIDATE"})
         self.assertIs(result["formalReleasePermitted"], False)
-        self.assertNotIn("PUBLISH", json.dumps(result))
+        self.assertTrue(all(x["action"] in {"PREPARE_CANDIDATE", "REVIEW_CANDIDATE", "INVESTIGATE_CI", "INVESTIGATE_EVIDENCE"} for x in result["actions"]))
+        self.assertFalse(any("releaseTag" in x or "confirmRelease" in x for x in result["actions"]))
 
     def test_failed_ci_or_incomplete_observation_must_not_pass(self):
         state = snapshot()
