@@ -1,14 +1,9 @@
 name: Shared verified manual Windows Release promotion
 
-# Shared four-caller verified Promotion source (plpgsql_check and Wave3 three).
-# The deployed plpgsql_check caller still pins build@5425225ea858f8c0165421902c3e66c6c9205f60;
-# the deployed Wave3 callers pin build@3b040b660702b8645f60d5f43516e3263e4fa8b6.
-# The other 13 released callers use the distinct production legacy shared workflow.
-# Changing this file on build/main does not update immutable deployed callers.
-# A 17-repository identity list is NOT a 17-repository publication authorization:
-# central 14-only policy, local Wave3 enabled=false and manual PUBLISH still deny.
-# The newer gate/Publisher must not be assumed runtime-equivalent to the proven
-# legacy publisher without independent signed-runtime and custody acceptance.
+# Shared manually confirmed Promotion. Live central and local policies must
+# explicitly admit the caller. The authorizer accepts the existing candidate
+# builder's exact version-named evidence; the proven attested builder and
+# create-only Publisher retain their existing immutable pins.
 on:
   workflow_call:
     inputs:
@@ -55,12 +50,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pgextwin/build
-          ref: dd4d35186edccfbf39b40d86cecb28380cf210da
+          ref: cc9b9a856b780303053ef636fa82008d6587cdb4
           path: .pgextwin-build
           persist-credentials: false
       # This is ONLY a caller identity boundary, NOT an authorization grant.
-      # The separate central 14-only promotion policy plus per-repo enabled
-      # gate remain authoritative. Wave3 remains enabled=false and PUBLISH DENY.
+      # Live central manual-dispatch policy plus per-repo enabled gate remain
+      # authoritative; this closed identity list alone grants no publication.
       - name: Require trusted caller repository before parsing inputs
         shell: bash
         env:

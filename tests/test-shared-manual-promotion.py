@@ -62,8 +62,13 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d", SHARED)
         self.assertIn("ref: dd4d35186edccfbf39b40d86cecb28380cf210da", SHARED)
         self.assertIn("fleet-publish-release.py", SHARED)
-        # Both authorizer and publisher must use the same immutable future code.
-        self.assertEqual(SHARED.count("ref: dd4d35186edccfbf39b40d86cecb28380cf210da"), 2)
+        # Fix only candidate evidence parsing. Keep the existing Publisher and
+        # attested signer immutable; no new runtime or publication gate.
+        authorize=SHARED.split("  authorize:\n",1)[1].split("  release_build:\n",1)[0]
+        publish=SHARED.split("  publish:\n",1)[1].split("  catalog_sync:\n",1)[0]
+        self.assertIn("ref: cc9b9a856b780303053ef636fa82008d6587cdb4",authorize)
+        self.assertIn("ref: dd4d35186edccfbf39b40d86cecb28380cf210da",publish)
+        self.assertEqual(SHARED.count("ref: dd4d35186edccfbf39b40d86cecb28380cf210da"), 1)
         self.assertIn("promotion-recovery.json", SHARED)
         self.assertIn("promotion-receipt.json", SHARED)
         self.assertIn("attestations: write", SHARED)
@@ -372,7 +377,9 @@ class SharedPromotion(unittest.TestCase):
         self.assertEqual(
             legacy.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2)
         self.assertEqual(
-            SHARED.count("ref: dd4d35186edccfbf39b40d86cecb28380cf210da"), 2)
+            SHARED.count("ref: dd4d35186edccfbf39b40d86cecb28380cf210da"), 1)
+        self.assertEqual(
+            SHARED.count("ref: cc9b9a856b780303053ef636fa82008d6587cdb4"), 1)
         self.assertNotIn(
             "ref: dd4d35186edccfbf39b40d86cecb28380cf210da", legacy)
         self.assertNotIn(
