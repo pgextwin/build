@@ -142,6 +142,16 @@ def render(state):
         success=(s["lastSuccessfulCandidate"] or {}).get("packagingCommit") or "—"
         lines.append("| "+s["extension"]+" | "+s["mode"]+" | "+watch+" | "+candidate.replace("|","/")[:70]+
                      " | "+queue+" | "+s["lastCandidateStatus"]+" | "+success+" |")
+    queue=state.get("hourlyChatQueue")
+    if queue is not None:
+        lines.extend(["", "## Hourly Chat task queue (nonpublishing)", "",
+                      "This queue is observational; every PR or CI action needs fresh GitHub GET."])
+        for task in queue["actions"]:
+            lines.append("- "+task["repository"]+": "+task["action"]+
+                         " — "+task["reason"])
+        if not queue["actions"]:
+            lines.append("- No pending nonpublishing action detected.")
+        lines.append("Formal Release authorization: **DENY**. A schedule is never PUBLISH.")
     lines.extend(["","Latest run failures and missing artifacts remain visible even if an older candidate passed.",
                   "No item in this report authorizes merging a PR or publishing binaries.",
                   "Machine-readable state is attached to this Actions run. This status job never publishes binaries."])
@@ -163,6 +173,10 @@ def main():
     results=[one(entry,lifecycle) for entry in policy["entries"]]
     status={"schemaVersion":1,"generatedAt":datetime.now(timezone.utc).isoformat(),
             "policyRelease":"manual-only","extensions":results}
+    task_spec=spec_from_file_location("hourly_chat_task", Path(__file__).with_name("chat-task-queue.py"))
+    task_module=module_from_spec(task_spec)
+    task_spec.loader.exec_module(task_module)
+    status["hourlyChatQueue"]=task_module.plan(policy,status)
     Path(args.json).write_text(json.dumps(status,indent=2)+"\n")
     Path(args.markdown).write_text(render(status))
     errors=[s["extension"] for s in results if s["errors"]]
