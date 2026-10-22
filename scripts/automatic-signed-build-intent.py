@@ -31,7 +31,7 @@ def require(ok, reason):
         raise Denied(reason)
 
 
-def plan(*, witness, decision, manifest, lifecycle, fleet, central_policy, local_candidate_policy,
+def plan(*, witness, decision, pr, manifest, lifecycle, fleet, central_policy, local_candidate_policy,
          today=None):
     """Check exact machine-readable joins, returning only a nonpublishing plan.
 
@@ -84,6 +84,16 @@ def plan(*, witness, decision, manifest, lifecycle, fleet, central_policy, local
             and type(witness.get("candidateHeadSha")) is str
             and SHA.fullmatch(witness["candidateHeadSha"]),
             "real protected-merge witness identity is incomplete")
+    require(type(pr) is dict and type(pr.get("number")) is int
+            and pr["number"] == witness["candidatePr"]
+            and pr.get("state") == "closed" and pr.get("merged") is True
+            and pr.get("draft") is False
+            and pr.get("merge_commit_sha") == witness["mainMergeSha"]
+            and (pr.get("head") or {}).get("sha") == witness["candidateHeadSha"]
+            and (pr.get("head") or {}).get("ref") == witness.get("candidateBranch")
+            and (pr.get("base") or {}).get("ref") == "main"
+            and (pr.get("user") or {}).get("login") == "github-actions[bot]",
+            "merged candidate PR does not match protected native witness")
     for forbidden in ("signedArtifactsVerified", "publishableReceipt",
                       "publicationAuthorized", "automaticReleaseEnabled"):
         require(witness.get(forbidden) is False,
