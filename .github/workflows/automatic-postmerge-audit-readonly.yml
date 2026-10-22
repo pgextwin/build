@@ -49,6 +49,33 @@ jobs:
           path: ${{ runner.temp }}/native-merged-candidate-observation.json
           if-no-files-found: error
           retention-days: 30
+      # This optional second stage authenticates the original scheduled
+      # decision without changing the existing native postmerge witness.
+      # Incomplete/expired origin is DENY for this stage, never a release permit.
+      - name: Bind original scheduled candidate decision to genuine main (NONPUBLISHING)
+        id: original_decision
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/automatic-signed-build-intent-live.py \
+            --build-root .pgextwin-build \
+            --witness "$RUNNER_TEMP/native-merged-candidate-observation.json" \
+            --out "$RUNNER_TEMP/automatic-signed-build-intent.json"
+      - name: Preserve independently bound scheduled decision for future signed-build auditing
+        if: steps.original_decision.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: automatic-signed-build-intent-nonpublishing
+          path: ${{ runner.temp }}/automatic-signed-build-intent.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Record missing original decision as ineligible, not authorized
+        if: steps.original_decision.outcome == 'failure'
+        run: |
+          echo 'Original scheduled decision missing or failed independent binding: NO signed-build intent, NO PUBLISH.' >> "$GITHUB_STEP_SUMMARY"
       - name: Explain that signature and publication are NOT authorized
         if: success()
         run: |
