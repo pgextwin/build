@@ -118,6 +118,33 @@ def valid_gh(*args):
 
 
 class MainGuardOffline(TestCase):
+    def test_actual_shared_workflow_job_prefix_preserves_all_identity_guards(self):
+        # Observed GitHub GET for pgTAP Run 39708246303 uses this exact
+        # wrapper prefix; it is a display namespace, not another job identity.
+        g=p.guard
+        run,page=evidence([14,15,16,17,18])
+        args=dict(repo=REPO,sha=COMMIT,run_id=RUN,attempt=1,
+                  majors=[14,15,16,17,18])
+        direct=g.validate_snapshot(run,page,**args)
+        shared=copy.deepcopy(page)
+        for item in shared["jobs"]:
+            item["name"]=g.WRAPPER_PREFIX+item["name"]
+        self.assertEqual(g.validate_snapshot(run,shared,**args),direct)
+        for variant in ("unknown-prefix","double-prefix","mixed","sha","attempt","failed","duplicate"):
+            bad=copy.deepcopy(shared)
+            item=bad["jobs"][0]
+            if variant=="unknown-prefix": item["name"]="Untrusted / "+item["name"]
+            elif variant=="double-prefix": item["name"]=g.WRAPPER_PREFIX+item["name"]
+            elif variant=="mixed": item["name"]=g.AUTHORIZE
+            elif variant=="sha": item["head_sha"]="f"*40
+            elif variant=="attempt": item["run_attempt"]=2
+            elif variant=="failed": item["conclusion"]="failure"
+            else:
+                bad["jobs"].append(copy.deepcopy(item))
+                bad["total_count"]+=1
+            with self.subTest(variant=variant),self.assertRaises(g.Deny):
+                g.validate_snapshot(run,bad,**args)
+
     def invoke(self, *, distort=None, signed=None, mutate_pkg=None, env=None,
                api_failure=None):
         ext, lifecycle, receipt = oldtests.fixture()

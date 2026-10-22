@@ -26,6 +26,7 @@ AUTHORIZE = "Verify manual operator confirmation and immutable candidate evidenc
 BUILD = "Fresh attested Windows maintained PG14–18 build from validated main"
 RESOLVE = BUILD + " / Resolve extension and PostgreSQL matrix"
 PUBLISH = "Verify signatures and SHA; create-only formal publication"
+WRAPPER_PREFIX = "Invoke shared exact-SHA manual signed promotion / "
 DOWNSTREAM = {
     "Dispatch signed Release Catalog PR generation with short-lived App token",
     "Flag post-release Catalog dispatch as blocked (not falsely successful)",
@@ -106,16 +107,24 @@ def validate_snapshot(run, page, *, repo, sha, run_id, attempt, majors):
         BUILD + f" / PostgreSQL {m} / Windows x64" for m in majors}
     allowed = expected | DOWNSTREAM
     seen = {}
+    wrappers = set()
     for job in page["jobs"]:
+        require(type(job) is dict and type(job.get("name")) is str,
+                "missing job name")
+        raw_name = job["name"]
+        wrapped = raw_name.startswith(WRAPPER_PREFIX)
+        name = raw_name[len(WRAPPER_PREFIX):] if wrapped else raw_name
+        wrappers.add(wrapped)
         require(type(job) is dict and positive(job.get("id"))
                 and type(job.get("name")) is str
-                and job["name"] not in seen and job["name"] in allowed
+                and name not in seen and name in allowed
                 and positive(job.get("run_id")) and job["run_id"] == run_id
                 and positive(job.get("run_attempt"))
                 and job["run_attempt"] == attempt
                 and job.get("head_sha") == sha,
                 "unknown/duplicate/cross-run/cross-attempt job")
-        seen[job["name"]] = job
+        seen[name] = job
+    require(len(wrappers) == 1, "mixed direct/shared job identity")
     require(expected <= set(seen), "missing authorize/resolve/signed PG matrix/publish job")
     for name in expected - {PUBLISH}:
         require(seen[name].get("status") == "completed"
