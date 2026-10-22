@@ -25,7 +25,22 @@ def eligible(ext, lifecycle, today):
         raise ValueError("no eligible PostgreSQL major")
     return result
 
-def one(folder, ext, major, runid, branch_sha, branch):
+def one(folder, ext, major, runid, branch_sha, branch, *,
+        event="workflow_dispatch", merge_sha=None, pr_number=None):
+    # PR CI checks out refs/pull/N/merge, not the exact candidate head.
+    # This synthetic commit must be independently resolved by a trusted
+    # GitHub GET caller; never take the value from a PR's own input.
+    if event not in {"workflow_dispatch", "pull_request"}:
+        raise ValueError("unsupported candidate event")
+    if event == "pull_request":
+        if (not isinstance(merge_sha,str) or not SHA.fullmatch(merge_sha)
+                or type(pr_number) is not int or pr_number <= 0):
+            raise ValueError("missing authenticated GitHub PR merge SHA/number")
+        expected_commit, expected_ref = merge_sha, f"refs/pull/{pr_number}/merge"
+    else:
+        if merge_sha is not None or pr_number is not None:
+            raise ValueError("dispatch candidate cannot accept PR merge identity")
+        expected_commit, expected_ref = branch_sha, "refs/heads/"+branch
     files=list(folder.iterdir())
     zips=list(folder.glob("*.zip"))
     sboms=list(folder.glob("*.spdx.json"))
@@ -48,10 +63,10 @@ def one(folder, ext, major, runid, branch_sha, branch):
         (pkg.get("upstream",{}).get("version"),str(source["version"])),
         (pkg.get("upstream",{}).get("commit"),source["commit"]),
         (pkg.get("source",{}).get("packagingRepository"),"pgextwin/"+ext["name"]),
-        (pkg.get("source",{}).get("packagingCommit"),branch_sha),
+        (pkg.get("source",{}).get("packagingCommit"),expected_commit),
         (pkg.get("workflowRun",{}).get("id"),runid),
-        (pkg.get("workflowRun",{}).get("event"),"workflow_dispatch"),
-        (pkg.get("workflowRun",{}).get("ref"),"refs/heads/"+branch)
+        (pkg.get("workflowRun",{}).get("event"),event),
+        (pkg.get("workflowRun",{}).get("ref"),expected_ref)
     ]
     if any(actual!=expected for actual,expected in checks):
         raise ValueError("package identity / SHA / major / run does not match candidate manifest")
@@ -65,7 +80,8 @@ def one(folder, ext, major, runid, branch_sha, branch):
             "zipSha256":hashlib.sha256(zips[0].read_bytes()).hexdigest(),
             "zip":zips[0].name,"sbom":sboms[0].name,"grype":reports[0].name}
 
-def audit(root, ext, lifecycle, runid, branch_sha, branch, matrix_result, today):
+def audit(root, ext, lifecycle, runid, branch_sha, branch, matrix_result, today,
+          *, event="workflow_dispatch", merge_sha=None, pr_number=None):
     if not SHA.fullmatch(branch_sha) or not OWNED.fullmatch(branch):
         raise ValueError("invalid candidate commit or branch")
     majors=eligible(ext,lifecycle,today)
@@ -75,11 +91,13 @@ def audit(root, ext, lifecycle, runid, branch_sha, branch, matrix_result, today)
         try:
             if not folder.is_dir():
                 raise ValueError("missing PG-major Actions artifact")
-            items.append(one(folder,ext,major,runid,branch_sha,branch))
+            items.append(one(folder,ext,major,runid,branch_sha,branch,
+                             event=event,merge_sha=merge_sha,pr_number=pr_number))
         except (ValueError,OSError,KeyError,TypeError) as e:
             items.append({"major":major,"status":"FAILED","error":str(e)})
     status="VERIFIED" if matrix_result=="success" and all(x["status"]=="SUCCESS" for x in items) else "FAILED"
     return {"schemaVersion":1,"extension":ext["name"],"runId":runid,"branch":branch,
+            "originEvent":event,
             "branchSha":branch_sha,"matrixResult":matrix_result,"status":status,"majors":items}
 
 def gh(*argv):
@@ -129,6 +147,10 @@ def main():
     for field in ("extension","lifecycle","repo","branch","sha","matrix-result","output"):
         p.add_argument("--"+field,required=True)
     p.add_argument("--run-id",required=True,type=int)
+    p.add_argument("--event",choices=("workflow_dispatch","pull_request"),
+                   default="workflow_dispatch")
+    p.add_argument("--merge-sha")
+    p.add_argument("--pr",type=int)
     args=p.parse_args()
     report={"schemaVersion":1,"status":"FAILED","extension":"unknown","runId":args.run_id,
             "branch":args.branch,"branchSha":args.sha,"matrixResult":args.matrix_result,"majors":[]}
@@ -140,7 +162,8 @@ def main():
         with tempfile.TemporaryDirectory() as temp:
             gh("run","download",str(args.run_id),"--repo",args.repo,"--dir",temp)
             report=audit(Path(temp),ext,lifecycle,args.run_id,args.sha,args.branch,
-                         args.matrix_result,date.today())
+                         args.matrix_result,date.today(),event=args.event,
+                         merge_sha=args.merge_sha,pr_number=args.pr)
     except (ValueError,OSError,KeyError,TypeError) as e:
         report["error"]=str(e)
         print("Candidate audit FAILED CLOSED: "+str(e),file=sys.stderr)

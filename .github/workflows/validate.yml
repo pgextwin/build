@@ -79,6 +79,12 @@ jobs:
       - name: Verify native authenticated main-push candidate provenance denies forgeries
         run: python tests/test-automatic-candidate-merge-observer.py
 
+      - name: Verify backward-compatible dispatched candidate and new immutable PR candidate ZIP audits
+        run: |
+          python tests/test-verify-candidate.py
+          python tests/test-pr-candidate-artifacts.py
+          python tests/test-native-pr-candidate-audit.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
