@@ -34,8 +34,10 @@ class TestUnattendedPolicy(unittest.TestCase):
         p["mode"] = "UNATTENDED"
         for key in p["controls"]:
             p["controls"][key] = True
-        with self.assertRaises(module.PolicyDenied):
-            module.evaluate(p, f)
+        result = module.evaluate(p, f)
+        self.assertEqual(result["status"], "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED")
+        self.assertEqual(len(result["eligibleRepositories"]), 17)
+        self.assertFalse(result["automaticPublicationAuthorized"])
 
     def test_observe_mode_cannot_merge_or_publish(self):
         for flag in module.AUTOMATIC_CONTROLS:
@@ -73,19 +75,14 @@ class TestUnattendedPolicy(unittest.TestCase):
     def test_even_full_static_policy_never_authorizes_release(self):
         p, f = self.fixtures()
         p["mode"] = "UNATTENDED"
-        # Historical static single-pilot denial fixture: five new candidate
-        # lanes are OFF, other non-pilot original lanes are WATCH.
-        staged={"pgextwin/"+n for n in (
-            "hypopg","wal2json","pg_partman","pg_stat_monitor","orafce","pgtap","pg_variables","pg_store_plans")}
-        for entry in f["entries"]:
-            if entry["repository"] != module.PILOT:
-                entry["mode"] = "OFF" if entry["repository"] in staged else "WATCH"
-                entry["candidateEnabled"] = False
+        # The complete existing fleet may pass the static preflight, but
+        # never becomes automatically authorized to sign or publish.
         for key in p["controls"]:
             p["controls"][key] = True
         result = module.evaluate(p, f)
         self.assertEqual(result["status"], "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED")
         self.assertFalse(result["automaticPublicationAuthorized"])
+        self.assertEqual(len(result["eligibleRepositories"]), 17)
 
     def test_eight_staged_members_are_strictly_off_or_explicit_build(self):
         for repo in ("hypopg","wal2json","pg_partman","pg_stat_monitor","orafce","pgtap","pg_variables","pg_store_plans"):
@@ -123,6 +120,14 @@ class TestUnattendedPolicy(unittest.TestCase):
         p, f = self.fixtures()
         p["mode"]="UNATTENDED"
         for key in p["controls"]: p["controls"][key]=True
+        result=module.evaluate(p, f)
+        self.assertEqual(result["status"], "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED")
+        self.assertFalse(result["automaticPublicationAuthorized"])
+        p, f = self.fixtures()
+        p["mode"] = "UNATTENDED"
+        for key in p["controls"]: p["controls"][key] = True
+        f["entries"][0]["mode"] = "WATCH"
+        f["entries"][0]["candidateEnabled"] = False
         with self.assertRaises(module.PolicyDenied):
             module.evaluate(p, f)
 
