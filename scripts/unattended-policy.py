@@ -104,19 +104,23 @@ def evaluate(policy, fleet):
         return {"schemaVersion": 1, "status": "OBSERVE_ONLY",
                 "repository": PILOT, "automaticPublicationAuthorized": False,
                 "reason": "Manual approval and publishing remain mandatory."}
-    # A BUILD entry is not authorization to publish. Preserve the Step 22
-    # single-repository unattended pilot constraint independently from the
-    # Step 23 nine-repository manual-only candidate queue.
-    require(all(x["mode"] != "BUILD" and x["candidateEnabled"] is False
-                for x in entries if x["repository"] != PILOT),
-            "unattended mode forbids non-pilot BUILD targets")
+    # The historical one-repository pilot restriction is no longer an
+    # authorization gate: all 17 candidates already use the same protected
+    # BUILD lane. Requiring the other 16 to turn OFF would disable a proven
+    # safe stage without improving signing or Publisher authenticity.
+    # Require a COMPLETE fleet here; static policy still never authorizes
+    # a Release or bypasses runtime/provenance/Signer/Publisher checks.
+    require(all(x["mode"] == "BUILD" and x["candidateEnabled"] is True
+                for x in entries),
+            "unattended mode requires the complete 17-repository BUILD fleet")
     require(all(controls.values()),
             "unattended mode requires every defense-in-depth control")
     # Never issue an authorization token. Only independently validated
     # candidate, fresh attestation, source/license, Grype and scoped App
     # evidence may open a separate future runtime execution gate.
     return {"schemaVersion": 1, "status": "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED",
-            "repository": PILOT, "automaticPublicationAuthorized": False,
+            "repository": PILOT, "eligibleRepositories": sorted(names),
+            "automaticPublicationAuthorized": False,
             "reason": "Static configuration cannot authorize a Release."}
 
 
