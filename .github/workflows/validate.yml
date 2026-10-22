@@ -67,6 +67,9 @@ jobs:
       - name: Validate 17-caller shared Promotion and 13 legacy source parity (nonpublishing)
         run: python tests/test-shared-manual-promotion.py
 
+      - name: Validate 17-extension hourly Chat task queue and nonpublishing policy
+        run: python tests/test-chat-task-queue.py
+
       - name: Validate inert Chat PR authorization and hostile merge/event fixtures
         run: python tests/test-chat-pr-authorization.py
 
