@@ -102,8 +102,8 @@ def bind(*, repository, event, witness, fleet, central_policy, lifecycle,
          api=github, download=original_file, today=None):
     """Join protected main witness -> scheduled origin -> original decision.
 
-    Scanning is bounded to a complete 100-run GitHub listing. A missing/expired
-    origin is DENY, not approval. An older identical candidate is valid only
+    Scan the most recent 100 runs; older unrelated runs are not an additional
+    approval gate. A missing/expired origin is DENY, not approval. An older identical candidate is valid only
     after the complete SHA/version decision is checked against main pins.
     """
     require(type(repository) is str and REPO.fullmatch(repository)
@@ -130,10 +130,12 @@ def bind(*, repository, event, witness, fleet, central_policy, lifecycle,
                           "config/candidate-build.json")
     inventory = api(repository, "actions/runs?per_page=100")
     require(type(inventory) is dict and type(inventory.get("total_count")) is int
-            and 0 <= inventory["total_count"] < 100
+            and inventory["total_count"] >= 0
             and type(inventory.get("workflow_runs")) is list
-            and len(inventory["workflow_runs"]) == inventory["total_count"],
-            "scheduled run list missing, duplicated or truncated; do not guess origin")
+            and 0 < len(inventory["workflow_runs"]) <= 100
+            and len(inventory["workflow_runs"]) <= inventory["total_count"]
+            and len({x.get("id") for x in inventory["workflow_runs"] if type(x) is dict}) == len(inventory["workflow_runs"]),
+            "recent scheduled run listing is missing, malformed or duplicated")
     merged_at = pr.get("merged_at")
     require(type(merged_at) is str and merged_at
             and type(pr.get("created_at")) is str,
