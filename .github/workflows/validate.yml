@@ -85,6 +85,9 @@ jobs:
           python tests/test-pr-candidate-artifacts.py
           python tests/test-native-pr-candidate-audit.py
 
+      - name: Deny forged cross-run native candidate audit evidence before signing
+        run: python tests/test-bind-native-candidate-audit.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
