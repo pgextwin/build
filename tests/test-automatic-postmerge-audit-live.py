@@ -98,6 +98,7 @@ class NativePostmergeLiveTests(unittest.TestCase):
         if mutate: mutate(event,dicts,context,audit)
         def api(repo,endpoint):
             if repo!=REPO: raise AssertionError("unexpected repo")
+            if endpoint not in dicts: raise mod.Denied("unrecognized moved GitHub endpoint")
             return deepcopy(dicts[endpoint])
         def retrieve(run,a):
             self.assertEqual(run["id"],AUDIT)
