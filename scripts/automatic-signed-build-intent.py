@@ -46,7 +46,8 @@ def plan(*, witness, decision, pr, manifest, lifecycle, fleet, central_policy, l
             and decision.get("extension") == manifest["name"]
             and decision.get("repository") == manifest["upstream"].get("repository"),
             "exact extension/repository/upstream identity mismatch")
-    require(type(fleet) is dict and fleet.get("schemaVersion") == 1
+    require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int
+            and fleet["schemaVersion"] == 1
             and fleet.get("releasePolicy") == "manual-only"
             and type(fleet.get("entries")) is list
             and len(fleet["entries"]) == len(ident.UPSTREAMS)
@@ -59,18 +60,23 @@ def plan(*, witness, decision, pr, manifest, lifecycle, fleet, central_policy, l
             and entries[0].get("releasePolicy") == "manual-only",
             "central candidate policy not preserved")
     require(type(central_policy) is dict
-            and central_policy.get("schemaVersion") == 1
+            and type(central_policy.get("schemaVersion")) is int
+            and central_policy["schemaVersion"] == 1
             and central_policy.get("releasePolicy") == "manual-dispatch"
             and type(central_policy.get("allowedRepositories")) is list
             and len(central_policy["allowedRepositories"]) == len(ident.UPSTREAMS)
             and set(central_policy["allowedRepositories"])
                 == {"pgextwin/" + n for n in ident.UPSTREAMS},
             "existing manual Release authorization must remain unchanged")
-    require(local_candidate_policy == {"schemaVersion": 1, "enabled": True,
-                                       "releasePolicy": "manual-only",
-                                       "workflow": "windows.yml"},
+    require(type(local_candidate_policy) is dict
+            and type(local_candidate_policy.get("schemaVersion")) is int
+            and type(local_candidate_policy.get("enabled")) is bool
+            and local_candidate_policy == {"schemaVersion": 1, "enabled": True,
+                                           "releasePolicy": "manual-only",
+                                           "workflow": "windows.yml"},
             "local candidate policy not the established manual-only contract")
-    require(witness.get("schemaVersion") == 1
+    require(type(witness.get("schemaVersion")) is int
+            and witness["schemaVersion"] == 1
             and witness.get("status") == "MERGED_NATIVE_CANDIDATE_NONPUBLISHING"
             and type(witness.get("candidatePr")) is int and witness["candidatePr"] > 0
             and type(witness.get("candidateCiRunId")) is int
