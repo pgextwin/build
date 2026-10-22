@@ -2,6 +2,10 @@ name: Verify actual candidate main-push and original native artifact (NONPUBLISH
 
 on:
   workflow_call:
+    outputs:
+      verified_signed_build_intent:
+        description: Exact original candidate evidence bound; only permits a fresh attested build, never a Release
+        value: ${{ jobs.observe.outputs.verified_signed_build_intent }}
 
 permissions:
   contents: read
@@ -16,6 +20,8 @@ jobs:
           github.event.deleted == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      verified_signed_build_intent: ${{ steps.intent_result.outputs.allowed }}
     permissions:
       contents: read
       actions: read
@@ -72,6 +78,15 @@ jobs:
           path: ${{ runner.temp }}/automatic-signed-build-intent.json
           if-no-files-found: error
           retention-days: 30
+      # A true output is tightly coupled to the success of BOTH the real
+      # original decision binding and the uploaded immutable audit artifacts.
+      # This is a BUILD intent only, never a signed-artifact or Release receipt.
+      - name: Mark verified candidate for fresh attested build only
+        id: intent_result
+        if: steps.original_decision.outcome == 'success'
+        shell: bash
+        run: |
+          echo 'allowed=true' >> "$GITHUB_OUTPUT"
       - name: Record missing original decision as ineligible, not authorized
         if: steps.original_decision.outcome == 'failure'
         run: |
