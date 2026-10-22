@@ -88,6 +88,9 @@ jobs:
       - name: Deny forged cross-run native candidate audit evidence before signing
         run: python tests/test-bind-native-candidate-audit.py
 
+      - name: Reject forged live GitHub Run, PR and real downloaded audit bytes
+        run: python tests/test-bind-native-candidate-audit-live.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
