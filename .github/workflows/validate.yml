@@ -91,6 +91,9 @@ jobs:
       - name: Reject forged live GitHub Run, PR and real downloaded audit bytes
         run: python tests/test-bind-native-candidate-audit-live.py
 
+      - name: Reject invalid protected merge to native audit links before signed release
+        run: python tests/test-automatic-postmerge-audit-bridge.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
