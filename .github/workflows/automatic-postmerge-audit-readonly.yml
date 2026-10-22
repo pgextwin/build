@@ -1,0 +1,55 @@
+name: Verify actual candidate main-push and original native artifact (NONPUBLISHING)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    name: Authenticate protected candidate merge from real GitHub bytes
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          github.event.created == false &&
+          github.event.deleted == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Checkout immutable shared observer, not candidate code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+          persist-credentials: false
+      - name: Set up Python only for read-only evidence matching
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Bind actual protected main-push to exact prior native audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/automatic-postmerge-audit-live.py \
+            --build-root .pgextwin-build \
+            --out "$RUNNER_TEMP/native-merged-candidate-observation.json"
+      - name: Preserve nonpublishing witness, never PUBLISH
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-merged-candidate-observation
+          path: ${{ runner.temp }}/native-merged-candidate-observation.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Explain that signature and publication are NOT authorized
+        if: success()
+        run: |
+          echo 'AUTHENTICATED_NATIVE_MERGED_CANDIDATE; NO signing, no PUBLISH, no Release, no tag, no Catalog mutation.' >> "$GITHUB_STEP_SUMMARY"
