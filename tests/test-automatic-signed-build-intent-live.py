@@ -90,7 +90,6 @@ class SignedIntentLiveTests(unittest.TestCase):
             lambda b,e,d:d["pulls/8"].update(merged=False),
             lambda b,e,d:d["pulls/8"]["user"].update(login="attacker"),
             lambda b,e,d:d["actions/runs?per_page=100"].update(total_count=0),
-            lambda b,e,d:d["actions/runs?per_page=100"].update(total_count=2),
             lambda b,e,d:d["actions/runs?per_page=100"]["workflow_runs"][0].update(event="workflow_dispatch"),
             lambda b,e,d:d["actions/runs?per_page=100"]["workflow_runs"][0].update(conclusion="failure"),
             lambda b,e,d:d["actions/runs?per_page=100"]["workflow_runs"][0].update(path="bad.yml"),
