@@ -77,6 +77,8 @@ jobs:
         run: python tests/test-automatic-signed-build-intent.py
       - name: Reject forged original scheduled decision bytes on protected main (NONPUBLISHING)
         run: python tests/test-automatic-signed-build-intent-live.py
+      - name: Reject unsigned candidate Signer output shortcuts (NO PUBLISH)
+        run: python tests/test-automatic-signed-build-intent-output.py
 
       - name: Reject forged unattended Release requests (nonpublishing Issue 75)
         run: python tests/test-automatic-release-preflight.py
