@@ -178,13 +178,19 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
             "incomplete/duplicated candidate major audit")
     for item in items:
         major=item["major"]; stem=ident.asset_stem(ext,major)
+        # Normal candidate builders use the source version in filenames;
+        # attested Release builders use the full source ref. Both bind to the
+        # same SHA-pinned source above. Require one consistent exact triplet.
+        candidate_stem=f"{ext['name']}-{sources[major]['version']}-pg{major}-windows-x64"
+        filenames=(item.get("zip"),item.get("sbom"),item.get("grype"))
+        expected_names={tuple(s+suffix for suffix in
+                             (".zip",".spdx.json",".vulnerabilities.json"))
+                        for s in (stem,candidate_stem)}
         require(item.get("status")=="SUCCESS"
                 and item.get("sourceSha")==sources[major]["commit"]
                 and isinstance(item.get("zipSha256"),str)
                 and HASH.fullmatch(item["zipSha256"])
-                and item.get("zip")==stem+".zip"
-                and item.get("sbom")==stem+".spdx.json"
-                and item.get("grype")==stem+".vulnerabilities.json",
+                and filenames in expected_names,
                 "candidate ZIP, SPDX, Grype or source SHA mismatch")
     receipt = {
         "schemaVersion":1,"status":("VERIFIED_MANUAL_DISPATCH" if authorization_mode=="manual-dispatch"
