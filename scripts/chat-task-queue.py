@@ -25,7 +25,7 @@ def require(condition, reason):
 
 def plan(policy, snapshot):
     """Return reviewable tasks, never an authorization or publication receipt."""
-    require(type(policy) is dict and policy.get("schemaVersion") == 1
+    require(type(policy) is dict and type(policy.get("schemaVersion")) is int and policy.get("schemaVersion") == 1
             and policy.get("releasePolicy") == "manual-only",
             "central fleet is not manual-only")
     entries = policy.get("entries")
@@ -41,7 +41,7 @@ def plan(policy, snapshot):
                 and entry.get("mode") in {"BUILD", "WATCH", "OFF"},
                 "unknown, duplicate or non-manual fleet entry")
         by_repo[entry["repository"]] = entry
-    require(type(snapshot) is dict and snapshot.get("schemaVersion") == 1
+    require(type(snapshot) is dict and type(snapshot.get("schemaVersion")) is int and snapshot.get("schemaVersion") == 1
             and snapshot.get("policyRelease") == "manual-only",
             "untrusted fleet status or publication policy")
     rows = snapshot.get("extensions")
