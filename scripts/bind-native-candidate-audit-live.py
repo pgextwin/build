@@ -120,7 +120,7 @@ def validate_live(*, repo, pr_number, ci_id, audit_id, artifact_id,
 
 
 def strictly_read_audit(path):
-    require(type(path) is Path and path.is_dir(), "missing downloaded artifact directory")
+    require(isinstance(path, Path) and path.is_dir(), "missing downloaded artifact directory")
     entries = list(path.iterdir())
     require(len(entries) == 2 and {p.name for p in entries} == JSON_FILES
             and all(p.is_file() and not p.is_symlink()
