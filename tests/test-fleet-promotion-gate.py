@@ -97,6 +97,36 @@ class GateTests(unittest.TestCase):
             with self.subTest(change=str(mutate)),self.assertRaises((gate.Denied,gate.ident.Denied)):
                 self.check(x)
 
+    def test_version_named_candidate_evidence_keeps_exact_source_identity(self):
+        # The real pgTAP Run 39501699629 audit uses pgtap-1.3.4-...,
+        # although its immutable upstream ref is v1.3.4. Reuse that evidence.
+        for name in gate.ident.UPSTREAMS:
+            with self.subTest(extension=name):
+                x=fixture(name)
+                for item in x["audit"]["majors"]:
+                    source=gate.ident.sources(x["ext"])[item["major"]]
+                    stem=f"{name}-{source['version']}-pg{item['major']}-windows-x64"
+                    item.update(zip=stem+".zip",sbom=stem+".spdx.json",
+                                grype=stem+".vulnerabilities.json")
+                self.assertEqual(self.check(x)["candidateRunId"],900)
+                for mutation in ("source", "digest", "version", "major", "mixed", "path"):
+                    bad=deepcopy(x); item=bad["audit"]["majors"][0]
+                    if mutation=="source": item["sourceSha"]="0"*40
+                    elif mutation=="digest": item["zipSha256"]="short"
+                    elif mutation=="version": item["zip"]=name+"-0.0-pg14-windows-x64.zip"
+                    elif mutation=="major": item["zip"]=item["zip"].replace("-pg14-","-pg15-")
+                    elif mutation=="mixed": item["sbom"]="unrelated.spdx.json"
+                    else: item["zip"]="../"+item["zip"]
+                    with self.subTest(mutation=mutation),self.assertRaises(gate.Denied):
+                        self.check(bad)
+
+    def test_candidate_filename_conventions_cannot_be_mixed(self):
+        x=fixture("pgtap")
+        item=x["audit"]["majors"][0]
+        item["zip"]=item["zip"].replace("-v2.10.14-","-2.10.14-")
+        with self.assertRaises(gate.Denied):
+            self.check(x)
+
     def test_tampered_candidate_and_artifacts_fail_closed(self):
         examples=[
             lambda x:x["pr"].update(merged=False),
