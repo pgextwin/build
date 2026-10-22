@@ -89,7 +89,7 @@ class SignedIntentLiveTests(unittest.TestCase):
             lambda b,e,d:d["pulls/8"].update(merged_at=None),
             lambda b,e,d:d["pulls/8"].update(merged=False),
             lambda b,e,d:d["pulls/8"]["user"].update(login="attacker"),
-            lambda b,e,d:d["actions/runs?per_page=100"].update(total_count=100),
+            lambda b,e,d:d["actions/runs?per_page=100"].update(total_count=0),
             lambda b,e,d:d["actions/runs?per_page=100"].update(total_count=2),
             lambda b,e,d:d["actions/runs?per_page=100"]["workflow_runs"][0].update(event="workflow_dispatch"),
             lambda b,e,d:d["actions/runs?per_page=100"]["workflow_runs"][0].update(conclusion="failure"),
@@ -111,8 +111,11 @@ class SignedIntentLiveTests(unittest.TestCase):
             with self.subTest(case=i),self.assertRaises((live.Denied,live.intent.Denied,ValueError)):
                 self.execute(case)
 
+    def test_a_large_historical_run_count_does_not_block_recent_verified_origins(self):
+        self.assertEqual(self.execute(lambda b,e,d:d["actions/runs?per_page=100"].update(total_count=500))["originalDecisionRunId"],RUN)
+
     def test_fail_closed_on_incomplete_schedule_inventory(self):
-        for n in (99,100,101):
+        for n in (-1,0,"invalid"):
             with self.subTest(n=n):
                 with self.assertRaises(live.Denied):
                     self.execute(lambda b,e,d: d["actions/runs?per_page=100"].update(total_count=n))
