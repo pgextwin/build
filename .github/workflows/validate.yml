@@ -73,6 +73,9 @@ jobs:
       - name: Validate inert Chat PR authorization and hostile merge/event fixtures
         run: python tests/test-chat-pr-authorization.py
 
+      - name: Reject forged unattended Release requests (nonpublishing Issue 75)
+        run: python tests/test-automatic-release-preflight.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
