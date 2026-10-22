@@ -76,6 +76,9 @@ jobs:
       - name: Reject forged unattended Release requests (nonpublishing Issue 75)
         run: python tests/test-automatic-release-preflight.py
 
+      - name: Verify native authenticated main-push candidate provenance denies forgeries
+        run: python tests/test-automatic-candidate-merge-observer.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
