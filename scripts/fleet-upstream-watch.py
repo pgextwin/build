@@ -87,7 +87,7 @@ def scan(registry, fetch):
 
 def markdown(report):
     rows = ["## pgextwin 17-extension stable upstream watch", "",
-            "Read-only daily audit; no source update, candidate PR, Release, or publication authorization.",
+            "Read-only hourly audit; no source update, candidate PR, Release, or publication authorization.",
             "", "| Extension | Upstream | Status |",
             "| --- | --- | --- |"]
     for item in report["extensions"]:

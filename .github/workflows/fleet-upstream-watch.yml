@@ -1,9 +1,9 @@
-name: Daily stable upstream updates for all 17 extensions
+name: Hourly stable upstream updates for all 17 extensions
 
 on:
   schedule:
-    # 09:00 JST, matching the central fleet policy; GitHub cron is UTC.
-    - cron: "0 0 * * *"
+    # Every hour at :00 JST/UTC; GitHub Actions may dispatch late.
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 permissions:

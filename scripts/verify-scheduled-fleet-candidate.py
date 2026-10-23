@@ -2,7 +2,7 @@
 """Read an authentic completed central fleet watch before scheduled candidate creation.
 
 This program never writes a GitHub resource. It can only output mode=candidate
-when the daily central BUILD scan reported a specific pinned repository update.
+when the hourly central BUILD scan reported a specific pinned repository update.
 The existing local candidate-update workflow independently resolves and rechecks
 the stable upstream commit before creating a draft PR. Never authorizes PUBLISH.
 """
@@ -100,7 +100,7 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
     started = timestamp(run.get("created_at"))
     finished = timestamp(run.get("updated_at"))
     need(started <= finished <= now + timedelta(minutes=5)
-         and now - started < timedelta(hours=36), "central run expired or clock invalid")
+         and now - started < timedelta(hours=3), "central run expired or clock invalid")
     need(type(report) is dict and report.get("schemaVersion") == 1
          and report.get("scope") == "STABLE_UPSTREAM_GET_ONLY"
          and report.get("publication") == "DENY"

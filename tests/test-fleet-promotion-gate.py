@@ -56,7 +56,7 @@ def fixture(name="plpgsql_check"):
     return dict(repo=repo,main_sha=SHA,tag=tag,confirmation="PUBLISH",
         actor="HumanOperator",policy={"schemaVersion":1,"allowedRepositories":[repo],
                 "releasePolicy":"manual-dispatch"},
-        fleet={"releasePolicy":"manual-only","scheduleUtc":"0 0 * * *","entries":[
+        fleet={"releasePolicy":"manual-only","scheduleUtc":"0 * * * *","entries":[
                 {"repository":repo,"mode":"BUILD","candidateEnabled":True,
                  "releasePolicy":"manual-only"}]},
         local={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-dispatch"},
@@ -207,7 +207,9 @@ class GateTests(unittest.TestCase):
                 for extension in ("plpgsql_check","pg_bigm","pgaudit"):
                     with self.subTest(extension=extension):
                         item=fixture(extension)
-                        old=legacy.verify(**deepcopy(item))
+                        historical=deepcopy(item)
+                        historical["fleet"]["scheduleUtc"]="0 0 * * *"
+                        old=legacy.verify(**historical)
                         new=gate.verify(**deepcopy(item))
                         self.assertEqual(old,new)
                         self.assertEqual(old["status"],"VERIFIED_MANUAL_DISPATCH")
@@ -233,8 +235,13 @@ class GateTests(unittest.TestCase):
                     change(item)
                     with self.subTest(deny=title):
                         for impl in (legacy,gate):
+                            trial=deepcopy(item)
+                            if impl is legacy:
+                                # Frozen pre-G4 source remains unchanged; only
+                                # its historical daily input fixture differs.
+                                trial["fleet"]["scheduleUtc"]="0 0 * * *"
                             with self.assertRaises((impl.Denied,impl.ident.Denied)):
-                                impl.verify(**deepcopy(item))
+                                impl.verify(**trial)
                 chat=fixture()
                 chat["authorization_mode"]="chat-pr-authorization"
                 with self.assertRaises(TypeError):

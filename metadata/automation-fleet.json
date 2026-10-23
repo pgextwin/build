@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "scheduleUtc": "0 0 * * *",
+  "scheduleUtc": "0 * * * *",
   "releasePolicy": "manual-only",
   "entries": [
     {
       "repository": "pgextwin/pg_bigm",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -16,7 +16,7 @@
       "repository": "pgextwin/pg_cron",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -25,7 +25,7 @@
       "repository": "pgextwin/pg_hint_plan",
       "mode": "BUILD",
       "strategy": "github-releases-per-postgresql",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -34,7 +34,7 @@
       "repository": "pgextwin/pgaudit",
       "mode": "BUILD",
       "strategy": "github-releases-per-postgresql",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -43,7 +43,7 @@
       "repository": "pgextwin/set_user",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -52,7 +52,7 @@
       "repository": "pgextwin/pg_repack",
       "mode": "BUILD",
       "strategy": "github-tags",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -61,7 +61,7 @@
       "repository": "pgextwin/pg_ivm",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -70,7 +70,7 @@
       "repository": "pgextwin/pg_qualstats",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -79,7 +79,7 @@
       "repository": "pgextwin/plpgsql_check",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
@@ -88,7 +88,7 @@
       "repository": "pgextwin/hypopg",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
@@ -97,7 +97,7 @@
       "repository": "pgextwin/wal2json",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
@@ -106,7 +106,7 @@
       "repository": "pgextwin/pg_partman",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
@@ -115,7 +115,7 @@
       "repository": "pgextwin/pg_stat_monitor",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
@@ -124,7 +124,7 @@
       "repository": "pgextwin/orafce",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
@@ -133,7 +133,7 @@
       "repository": "pgextwin/pgtap",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
@@ -142,7 +142,7 @@
       "repository": "pgextwin/pg_variables",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
@@ -151,7 +151,7 @@
       "repository": "pgextwin/pg_store_plans",
       "mode": "BUILD",
       "strategy": "github-releases",
-      "scheduleUtc": "0 0 * * *",
+      "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "manual-only",
       "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"

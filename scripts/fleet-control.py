@@ -21,8 +21,8 @@ def validate(registry):
         raise WatchError("unsupported fleet policy fields")
     if type(registry["schemaVersion"]) is not int or registry["schemaVersion"] != 1:
         raise WatchError("unsupported fleet schema version")
-    if registry["scheduleUtc"] != "0 0 * * *" or registry["releasePolicy"] != "manual-only":
-        raise WatchError("fleet must use daily UTC 00:00 and manual releases")
+    if registry["scheduleUtc"] != "0 * * * *" or registry["releasePolicy"] != "manual-only":
+        raise WatchError("fleet must use hourly UTC minute 00 and manual releases")
     entries = registry["entries"]
     if not isinstance(entries, list) or not entries:
         raise WatchError("fleet registry must contain entries")
