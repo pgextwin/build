@@ -38,8 +38,25 @@ class SharedPromotion(unittest.TestCase):
         # Never reuse the caller's inherited concurrency group in a nested workflow.
         self.assertNotIn("group: ${{ github.event.repository.name }}-human-release-promotion\\n", shared)
         self.assertEqual(shared.count("ref: 455f0ccc667697f600700a6e64bcfd6c57b6a977"), 2)
+        # Historical signed/manual Publisher body is preserved byte-for-byte.
+        # The only allowed new insertion is the read-only prewrite guard block,
+        # which must run BEFORE the exact unmodified frozen Publisher step.
+        first = shared.index("      # An independently pinned, READ-ONLY risk check")
+        last = shared.index(
+            "      - name: Verify signed binaries and publish only the fresh exact Release ID",
+            first)
+        inserted = shared[first:last]
+        self.assertIn("ref: ${{ job.workflow_sha }}", inserted)
+        self.assertIn("scripts/formal-publisher-grype-preflight.py", inserted)
+        self.assertIn("--lifecycle .pgextwin-build/metadata/postgresql.json", inserted)
+        self.assertIn("--dist dist", inserted)
+        self.assertNotIn("continue-on-error:", inserted)
+        self.assertNotIn("GH_TOKEN", inserted)
+        self.assertNotIn("contents: write", inserted)
+        self.assertEqual(inserted.count("- name: Deny blocked or untrustworthy Grype"), 1)
+        preserved = shared[:first] + shared[last:]
         self.assertEqual(
-            shared.split("jobs:\n", 1)[1].replace(
+            preserved.split("jobs:\n", 1)[1].replace(
                 "${{ github.event.repository.name }}", "__EXTENSION__"),
             legacy.split("jobs:\n", 1)[1])
         self.assertNotIn("pgextwin/*", shared)
