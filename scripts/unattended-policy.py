@@ -31,7 +31,7 @@ AUTOMATIC_CONTROLS = {
 }
 REQUIRED_MAJOR_VERSIONS = [15, 16, 17, 18]
 PILOT = "pgextwin/plpgsql_check"
-SCHEDULE = "0 0 * * *"
+SCHEDULE = "0 * * * *"
 
 
 class PolicyDenied(ValueError):
