@@ -93,3 +93,84 @@ jobs:
             ${{ runner.temp }}/automatic-release-tag-proposal-nonpublishing.json
           if-no-files-found: error
           retention-days: 30
+
+  # A second GitHub-hosted job with a separately scoped read-only job token
+  # must re-download ORIGINAL signed artifacts and run the REAL gh Sigstore
+  # verification again. Neither the first job's JSON nor this job grants PUBLISH.
+  publisher_second_opinion:
+    name: Independently reverify signed candidate before future Publisher (NO PUBLISH)
+    needs: signed_audit
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          github.event.created == false &&
+          github.event.deleted == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - name: Checkout exact candidate packaging main without persisted token
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout immutable independent shared verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Download first signed audit from prior independent GitHub job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: automatic-signed-candidate-audit-nonpublishing
+          path: ${{ runner.temp }}/original-signed-audit
+      - name: Download original immutable candidate decision from THIS run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: automatic-signed-build-intent-nonpublishing
+          path: ${{ runner.temp }}/original-decision
+      - name: Redownload untouched attested ZIP, SPDX and Grype from THIS run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ github.event.repository.name }}-pg*-windows-x64
+          path: ${{ runner.temp }}/independent-signed-dist
+          merge-multiple: true
+      - name: Verify fresh ZIP/SPDX/Grype Sigstore in separate job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/automatic-signed-candidate-audit.py \
+            --dist "$RUNNER_TEMP/independent-signed-dist" \
+            --manifest config/extension.json \
+            --lifecycle .pgextwin-build/metadata/postgresql.json \
+            --intent "$RUNNER_TEMP/original-decision/automatic-signed-build-intent.json" \
+            --output "$RUNNER_TEMP/independent-signed-candidate-audit.json"
+      - name: Require signed bytes, scanner risks and exact Run attempt equal original
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/independent-signed-publisher-preflight.py \
+            --first "$RUNNER_TEMP/original-signed-audit/automatic-signed-candidate-audit.json" \
+            --second "$RUNNER_TEMP/independent-signed-candidate-audit.json" \
+            --manifest config/extension.json \
+            --lifecycle .pgextwin-build/metadata/postgresql.json \
+            --output "$RUNNER_TEMP/independent-signed-publisher-preflight.json"
+          echo 'Second real gh verification matched original digest/Run/attempt; still PUBLISH_DENY.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve second opinion as nonpublishing proof only
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: independent-signed-publisher-preflight-nonpublishing
+          path: |
+            ${{ runner.temp }}/independent-signed-candidate-audit.json
+            ${{ runner.temp }}/independent-signed-publisher-preflight.json
+          if-no-files-found: error
+          retention-days: 30

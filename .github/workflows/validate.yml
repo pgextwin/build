@@ -86,6 +86,9 @@ jobs:
       - name: Verify signed automatic candidate digest/Sigstore origin denial fixtures
         run: python tests/test-automatic-signed-candidate-audit.py
 
+      - name: Deny forged cross-job Sigstore Publisher second opinion (NO PUBLISH)
+        run: python tests/test-independent-signed-publisher-preflight.py
+
       - name: Block unfiltered Grype high/critical/unknown findings before unattended Publisher
         run: python tests/test-automatic-grype-publisher-policy.py
 
