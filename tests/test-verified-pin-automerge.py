@@ -26,7 +26,7 @@ def fixture():
             "mergeable":True, "mergeable_state":"clean",
             "user":{"login":"ShutenOishi"},
             "head":{"sha":HEAD, "ref":"auto-pin/central-schedule", "repo":{"full_name":REPO}},
-            "base":{"ref":"main", "repo":{"full_name":REPO}}},
+            "base":{"ref":"main", "sha":OLD, "repo":{"full_name":REPO}}},
         files=[{"filename":PATH, "status":"modified", "changes":2,
                 "patch":"@@ -24,1 +24,1 @@\n"
                         "-    uses: "+lib.SHARED+"@"+OLD+"\n"
@@ -41,7 +41,7 @@ def fixture():
         checks=checks,
         metadata={"full_name":REPO, "allow_auto_merge":True,
                   "allow_squash_merge":True},
-        main={"name":"main","protected":True},
+        main={"name":"main","protected":True,"commit":{"sha":OLD}},
         central={"commit":{"sha":NEW},"protected":True},
         fleet={"schemaVersion":1,"entries":[{"repository":REPO}]},
         central_runs=[{"event":"push","head_sha":NEW,"status":"completed",
@@ -102,6 +102,7 @@ class AutoMergeGuards(unittest.TestCase):
             lambda x:x["pr"]["head"].update(ref="fix/not-auto-owned"),
             lambda x:x["pr"]["head"]["repo"].update(full_name="attacker/fork"),
             lambda x:x["pr"]["base"].update(ref="release"),
+            lambda x:x["pr"]["base"].update(sha=HEAD),
             lambda x:x["pr"]["user"].update(login="intruder"),
         ]
         self.deny_cases(candidates)
@@ -115,6 +116,7 @@ class AutoMergeGuards(unittest.TestCase):
             lambda x:x["fleet"]["entries"].append({"repository":REPO}),
             lambda x:x["fleet"]["entries"].clear(),
             lambda x:x["main"].update(protected=False),
+            lambda x:x["main"]["commit"].update(sha=NEW),
             lambda x:x["metadata"].update(allow_auto_merge=False),
             lambda x:x["metadata"].update(allow_squash_merge=False),
         ]
