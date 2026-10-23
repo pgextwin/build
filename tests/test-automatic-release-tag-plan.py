@@ -46,6 +46,9 @@ def tagged(n, *, stem="v18.1"):
 
 def run_plan(mutator=None, *, releases=None, refs=None):
     audit, bridge, manifest = fixture()
+    # The in-memory fixture bridge shares dicts with the mock signed audit.
+    # Actual workflow artifacts are separate JSON files: model that boundary.
+    bridge = deepcopy(bridge)
     if mutator:
         mutator(audit, bridge, manifest)
     return plan.plan(
