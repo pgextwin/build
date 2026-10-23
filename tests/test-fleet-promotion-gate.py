@@ -56,7 +56,7 @@ def fixture(name="plpgsql_check"):
     return dict(repo=repo,main_sha=SHA,tag=tag,confirmation="PUBLISH",
         actor="HumanOperator",policy={"schemaVersion":1,"allowedRepositories":[repo],
                 "releasePolicy":"manual-dispatch"},
-        fleet={"releasePolicy":"manual-only","scheduleUtc":"0 0 * * *","entries":[
+        fleet={"releasePolicy":"manual-only","scheduleUtc":"0 * * * *","entries":[
                 {"repository":repo,"mode":"BUILD","candidateEnabled":True,
                  "releasePolicy":"manual-only"}]},
         local={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-dispatch"},
