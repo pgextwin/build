@@ -79,6 +79,10 @@ def admit(*, repository, expected_head, expected_central, pr, files, ci_run,
             and pr.get("mergeable") is True and pr.get("mergeable_state") == "clean"
             and type(pr.get("number")) is int and pr["number"] > 0,
             "PR is not ready, clean and mergeable")
+    base = pr.get("base") or {}
+    require(type(base.get("sha")) is str and SHA.fullmatch(base["sha"])
+            and base["sha"] == (main.get("commit") or {}).get("sha"),
+            "PR original base and current protected main differ")
     head = pr.get("head") or {}
     require(head.get("sha") == expected_head
             and head.get("repo", {}).get("full_name") == repository
