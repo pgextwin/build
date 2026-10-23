@@ -94,14 +94,18 @@ def admit(*, repository, expected_head, expected_central, pr, files, ci_run,
             "PR modifies files other than exact shared pin")
     old, new = pin_change(files[0].get("patch"))
     require(new == expected_central, "PR attempts an unvalidated central pin")
+    run_pulls = ci_run.get("pull_requests") or []
     require(ci_run.get("event") == "pull_request"
             and ci_run.get("run_attempt") == 1
             and ci_run.get("status") == "completed"
             and ci_run.get("conclusion") == "success"
             and ci_run.get("head_sha") == expected_head
+            and ci_run.get("head_branch") == head.get("ref")
+            and (ci_run.get("head_repository") or {}).get("full_name") == repository
             and str(ci_run.get("path", "")).endswith("/windows.yml")
-            and len(ci_run.get("pull_requests", [])) == 1
-            and ci_run["pull_requests"][0].get("number") == pr["number"],
+            and ci_run.get("associated_pr_number") == pr["number"]
+            and (not run_pulls or
+                 (len(run_pulls) == 1 and run_pulls[0].get("number") == pr["number"])),
             "original exact-head native PR Windows CI unproven")
     require(type(checks) is list and len(checks) < 100, "invalid/truncated exact-head checks")
     success = {c.get("name") for c in checks
@@ -138,10 +142,17 @@ def main():
         require(a.run_id > 0 and os.getenv("GH_TOKEN"), "trusted GitHub token or run missing")
         require(a.repository == os.getenv("GITHUB_REPOSITORY"), "caller repo identity mismatch")
         run = gh_api(f"repos/{a.repository}/actions/runs/{a.run_id}")
-        matches = run.get("pull_requests", [])
-        require(type(matches) is list and len(matches) == 1
-                and type(matches[0].get("number")) is int, "exactly one PR required")
-        number = matches[0]["number"]
+        # GitHub often returns [] for original pull_request workflow_run.pull_requests.
+        # Bind identity using the exact-head commit-to-PR REST association.
+        require(type(run.get("head_sha")) is str
+                and SHA.fullmatch(run["head_sha"]), "invalid original run head SHA")
+        associated = gh_api(
+            f"repos/{a.repository}/commits/{run['head_sha']}/pulls?per_page=100")
+        require(type(associated) is list and len(associated) == 1,
+                "exact-head commit must identify exactly one GitHub PR")
+        number = associated[0].get("number")
+        require(type(number) is int and number > 0, "invalid independent PR association")
+        run["associated_pr_number"] = number
         pr = gh_api(f"repos/{a.repository}/pulls/{number}")
         files = gh_api(f"repos/{a.repository}/pulls/{number}/files?per_page=100")
         check_payload = gh_api(f"repos/{a.repository}/commits/{pr['head']['sha']}/check-runs?per_page=100")
