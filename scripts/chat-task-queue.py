@@ -83,7 +83,7 @@ def plan(policy, snapshot):
         elif url is not None:
             action, reason = "REVIEW_CANDIDATE", "independent exact-head PR/CI audit required"
         elif detected is not None and entry["mode"] == "BUILD" and watch == "SUCCESS":
-            action, reason = "PREPARE_CANDIDATE", "verify upstream SHA and create safe PR"
+            action, reason = "VERIFY_UPSTREAM", "Issue is observational; recheck protected-main pins and live upstream full SHA before any PR"
         elif detected is not None:
             action, reason = "INVESTIGATE_EVIDENCE", "watch/BUILD gate not proven"
         if action is not None:
