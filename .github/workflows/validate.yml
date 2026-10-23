@@ -89,6 +89,9 @@ jobs:
       - name: Verify actual signed-audit to Publisher admission remains DENY
         run: python tests/test-automatic-publisher-bridge.py
 
+      - name: Verify automatic read-only tag proposal cannot bypass formal Publisher gate
+        run: python tests/test-automatic-release-tag-plan.py
+
       - name: Reject forged unattended Release requests (nonpublishing Issue 75)
         run: python tests/test-automatic-release-preflight.py
 
