@@ -78,7 +78,7 @@ class ReadonlyFleet(TestCase):
 
     def test_schedule_is_read_only_and_owner_gates_unchanged(self):
         y=(ROOT/".github/workflows/fleet-upstream-watch.yml").read_text()
-        self.assertIn('cron: "0 0 * * *"',y)
+        self.assertIn('cron: "0 * * * *"',y)
         self.assertIn("permissions:\n  contents: read",y)
         for forbidden in ("issues: write","contents: write","pull-requests: write",
                           "secrets.","gh pr create","gh release","pull_request_target:"):
