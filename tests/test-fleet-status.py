@@ -109,4 +109,68 @@ row=m.one({"repository":"pgextwin/pgtap","mode":"BUILD","scheduleUtc":"0 0 * * *
 assert row["watchResult"]=="UNKNOWN"
 assert any("non-scheduled" in e for e in row["errors"])
 
-print("17-extension genuine protected-current-main schedule status fixtures passed")
+
+# Issue #75: the new native PR CI must outrank historic Dispatch CI. Its root
+# success is observational, NEVER independent App15368 or Publisher admission.
+candidate_branch="auto-candidate/"+"a"*20
+candidate_pr={
+    "head":{"ref":candidate_branch,"sha":"3"*40,
+            "repo":{"full_name":"pgextwin/pgtap"}},
+    "user":{"login":"github-actions[bot]"},
+    "body":"<!-- pgextwin-candidate:v1:"+"a"*20+" -->",
+    "html_url":"https://github.com/pgextwin/pgtap/pull/78"
+}
+native_run={
+    "id":202,"event":"pull_request","path":".github/workflows/windows.yml",
+    "name":"Windows CI/CD","head_branch":candidate_branch,"head_sha":"3"*40,
+    "head_repository":{"full_name":"pgextwin/pgtap"},
+    "run_attempt":1,"status":"completed","conclusion":"success"
+}
+page={"total_count":1,"workflow_runs":[native_run]}
+run,kind=m.native_candidate_ci(page,candidate_pr,"pgextwin/pgtap")
+assert run["id"]==202 and kind=="NATIVE_CI_SUCCESS_UNVERIFIED"
+assert m.native_candidate_ci({"total_count":0,"workflow_runs":[]},
+                             candidate_pr,"pgextwin/pgtap")== (None,"NOT_RUN")
+assert m.native_candidate_ci(
+    {"total_count":1,"workflow_runs":[{**native_run,"head_sha":"4"*40}]},
+    candidate_pr,"pgextwin/pgtap")[1]=="STALE_HEAD_CI"
+assert m.native_candidate_ci(
+    {"total_count":1,"workflow_runs":[{**native_run,"status":"in_progress",
+                                    "conclusion":None}]},
+    candidate_pr,"pgextwin/pgtap")[1]=="RUNNING"
+assert m.native_candidate_ci(
+    {"total_count":1,"workflow_runs":[{**native_run,"conclusion":"failure"}]},
+    candidate_pr,"pgextwin/pgtap")[1]=="FAILED_OR_UNVERIFIED"
+
+for bad_page,bad_pr in (
+    ({"total_count":2,"workflow_runs":[native_run]},candidate_pr),
+    ({"total_count":1,"workflow_runs":[{**native_run,"event":"workflow_dispatch"}]},candidate_pr),
+    ({"total_count":1,"workflow_runs":[{**native_run,"run_attempt":2}]},candidate_pr),
+    ({"total_count":1,"workflow_runs":[{**native_run,"path":"other.yml"}]},candidate_pr),
+    ({"total_count":1,"workflow_runs":[{**native_run,"head_repository":{"full_name":"pgextwin/orafce"}}]},candidate_pr),
+    (page,{**candidate_pr,"user":{"login":"outside-user"}}),
+    (page,{**candidate_pr,"head":{**candidate_pr["head"],"repo":{"full_name":"outside/fork"}}}),
+):
+    try:
+        m.native_candidate_ci(bad_page,bad_pr,"pgextwin/pgtap")
+    except m.WatchError:
+        pass
+    else:
+        raise AssertionError("forged/paginated/forked native candidate must fail closed")
+
+def native_request(url):
+    if "/pulls?" in url:
+        return [candidate_pr]
+    if "windows.yml/runs?event=pull_request" in url:
+        return page
+    if "windows.yml/runs?event=workflow_dispatch" in url:
+        raise AssertionError("active native PR cannot be overridden by old Dispatch")
+    return fixture_request(url)
+m.request=native_request
+row=m.one({"repository":"pgextwin/pgtap","mode":"BUILD","scheduleUtc":"0 0 * * *"}, {})
+assert not row["errors"] and row["lastCandidateStatus"]=="NATIVE_CI_SUCCESS_UNVERIFIED"
+assert row["candidateCiMode"]=="NATIVE_PULL_REQUEST"
+assert row["lastWindowsCi"]["runId"]==202 and row["lastSuccessfulCandidate"] is None
+assert row["candidatePrUrl"]=="https://github.com/pgextwin/pgtap/pull/78"
+
+print("17-extension genuine protected-current-main schedule and native PR CI status fixtures passed")
