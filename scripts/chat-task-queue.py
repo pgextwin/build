@@ -11,7 +11,7 @@ import re
 PR_URL = re.compile(r"^https://github\.com/(pgextwin/[a-z][a-z0-9_]*)/pull/([1-9][0-9]*)$")
 STATES = {"NOT_RUN", "RUNNING", "FAILED_OR_UNVERIFIED", "FAILED",
           "VERIFIED", "INDETERMINATE", "NATIVE_CI_SUCCESS_UNVERIFIED",
-          "STALE_HEAD_CI"}
+          "STALE_HEAD_CI", "DISPATCH_CI_SUCCESS_UNVERIFIED"}
 WATCH = {"UNKNOWN", "SUCCESS", "RUNNING", "FAILED"}
 
 
@@ -73,7 +73,7 @@ def plan(policy, snapshot):
                 "candidate PR is outside exact repository")
         # A native CI signal is observational only, not independent App15368
         # matrix/artifact/signature verification or automatic merge authority.
-        require(ci not in {"NATIVE_CI_SUCCESS_UNVERIFIED", "STALE_HEAD_CI"}
+        require(ci not in {"NATIVE_CI_SUCCESS_UNVERIFIED", "DISPATCH_CI_SUCCESS_UNVERIFIED", "STALE_HEAD_CI"}
                 or url is not None, "native PR CI result without active candidate PR")
         detected = row.get("detectedCandidate")
         require(detected is None or type(detected) is dict,
