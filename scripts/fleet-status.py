@@ -102,12 +102,56 @@ def fetch_audit(repo,run):
         raise WatchError("candidate audit has inconsistent identity")
     return data
 
+def native_candidate_ci(page, pr, repo):
+    """Observe exact active bot PR Windows CI; NEVER authorize merge or Release.
+
+    Native pull_request CI does not necessarily include a legacy candidate-audit
+    artifact. A green root run remains UNVERIFIED until separate exact-HEAD
+    App15368 and signed-byte audits independently succeed.
+    """
+    if type(page) is not dict or type(page.get("workflow_runs")) is not list:
+        raise WatchError("native PR Windows CI page missing")
+    runs = page["workflow_runs"]
+    if (type(page.get("total_count")) is not int
+            or page["total_count"] != len(runs) or len(runs) > 100):
+        raise WatchError("native PR CI response paginated or incomplete")
+    head = (pr.get("head") or {}) if type(pr) is dict else {}
+    branch, sha = head.get("ref"), head.get("sha")
+    if (type(pr) is not dict or (pr.get("user") or {}).get("login") != "github-actions[bot]"
+            or (head.get("repo") or {}).get("full_name") != repo
+            or type(branch) is not str
+            or re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch) is None
+            or type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None):
+        raise WatchError("active PR is not an authentic same-repository bot candidate")
+    if not all(type(r) is dict and r.get("event") == "pull_request" for r in runs):
+        raise WatchError("unfiltered native PR run list")
+    same_branch = [r for r in runs if r.get("head_branch") == branch]
+    if not same_branch:
+        return None, "NOT_RUN"
+    run = same_branch[0]
+    if (run.get("path") != ".github/workflows/windows.yml"
+            or run.get("name") != "Windows CI/CD"
+            or (run.get("head_repository") or {}).get("full_name") != repo):
+        raise WatchError("active native Windows CI identity mismatch")
+    if run.get("head_sha") != sha:
+        return run, "STALE_HEAD_CI"
+    if type(run.get("run_attempt")) is not int or run["run_attempt"] != 1:
+        raise WatchError("candidate PR CI attempt is not original")
+    if run.get("status") in ("queued", "waiting", "pending", "in_progress", "requested"):
+        return run, "RUNNING"
+    if run.get("status") != "completed":
+        raise WatchError("unknown native PR Windows status")
+    if run.get("conclusion") == "success":
+        return run, "NATIVE_CI_SUCCESS_UNVERIFIED"
+    return run, "FAILED_OR_UNVERIFIED"
+
+
 def one(entry,lifecycle):
     repo=entry["repository"]
     row={"extension":repo.split("/")[-1],"repository":repo,"mode":entry["mode"],
          "scheduleUtc":entry["scheduleUtc"],"lastWatch":None,"watchResult":"UNKNOWN",
          "currentMainScheduleStatus":"INDETERMINATE","currentProtectedMainSha":None,
-         "detectedCandidate":None,"candidatePrUrl":None,"lastWindowsCi":None,
+         "detectedCandidate":None,"candidatePrUrl":None,"lastWindowsCi":None,"candidateCiMode":"NONE",
          "lastCandidateStatus":"NOT_RUN","perMajor":[],"lastSuccessfulCandidate":None,
          "lastSuccessfulUpstreamShas":{},"errors":[]}
     original_schedule=None
@@ -138,6 +182,7 @@ def one(entry,lifecycle):
                                       "mayBeStale":True}  # Watch success alone does not prove an older Issue is a new update.
     except (WatchError,ValueError,KeyError,OSError) as e:
         row["errors"].append("upstream issue: "+str(e))
+    owned_pr=None
     try:
         prs=request(BASE+repo+"/pulls?state=open&per_page=100")
         if not isinstance(prs,list):
@@ -149,12 +194,26 @@ def one(entry,lifecycle):
             if m and "<!-- pgextwin-candidate:v1:"+m.group(1)+" -->" in (pr.get("body") or ""):
                 owned.append(pr)
         row["candidatePrUrl"]=owned[0].get("html_url") if len(owned)==1 else None
+        owned_pr=owned[0] if len(owned)==1 else None
         if len(owned)>1:
             row["errors"].append("multiple active owned candidate PRs; inspect separately")
     except (WatchError,ValueError,KeyError,OSError) as e:
         row["errors"].append("candidate PR: "+str(e))
     try:
+        if owned_pr is not None:
+            # Active native pull_request CI ALWAYS takes precedence over stale
+            # legacy workflow_dispatch runs. Do not assume green means audited.
+            page=request(BASE+repo+
+                "/actions/workflows/windows.yml/runs?event=pull_request&per_page=100")
+            active_run,native_status=native_candidate_ci(page,owned_pr,repo)
+            row["candidateCiMode"]="NATIVE_PULL_REQUEST"
+            row["lastWindowsCi"]=compact_run(active_run)
+            row["lastCandidateStatus"]=native_status
+            return row
+
+        # Legacy read-only telemetry retained if there is no active candidate.
         runs=most_recent(request(BASE+repo+"/actions/workflows/windows.yml/runs?event=workflow_dispatch&per_page=100"),"workflow_runs")
+        row["candidateCiMode"]="LEGACY_DISPATCH"
         candidates=[r for r in runs if (r.get("head_branch") or "").startswith("auto-candidate/")]
         row["lastWindowsCi"]=compact_run(candidates[0]) if candidates else None
         if candidates:
