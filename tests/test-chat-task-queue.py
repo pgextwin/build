@@ -87,6 +87,25 @@ class HourlyQueueTests(unittest.TestCase):
             "pgextwin/pg_hint_plan": "INVESTIGATE_EVIDENCE",
         })
 
+    def test_native_pull_request_ci_success_is_review_only_not_release(self):
+        state = snapshot()
+        item = target(state, "pgtap")
+        item["candidatePrUrl"] = "https://github.com/pgextwin/pgtap/pull/78"
+        item["lastCandidateStatus"] = "NATIVE_CI_SUCCESS_UNVERIFIED"
+        result = queue.plan(POLICY, state)
+        self.assertEqual(result["pending"], 1)
+        self.assertEqual(result["actions"][0]["action"], "REVIEW_CANDIDATE")
+        self.assertIs(result["releaseAuthorized"], False)
+        self.assertIs(result["formalReleasePermitted"], False)
+        item["lastCandidateStatus"] = "STALE_HEAD_CI"
+        self.assertEqual(queue.plan(POLICY, state)["actions"][0]["action"],
+                         "INVESTIGATE_CI")
+        item["candidatePrUrl"] = None
+        for ci in ("NATIVE_CI_SUCCESS_UNVERIFIED", "STALE_HEAD_CI"):
+            item["lastCandidateStatus"] = ci
+            with self.assertRaises(queue.Denied):
+                queue.plan(POLICY, state)
+
     def test_candidate_not_prepared_if_watch_or_fleet_gate_unproven(self):
         state = snapshot()
         row = target(state)
