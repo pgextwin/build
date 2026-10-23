@@ -122,6 +122,22 @@ jobs:
           pattern: ${{ github.event.repository.name }}-pg*-windows-x64
           path: dist
           merge-multiple: true
+      # An independently pinned, READ-ONLY risk check supplements the
+      # approved legacy 455f0ccc Publisher without silently replacing its
+      # existing manual PUBLISH, signed-build or attempt verification contract.
+      - name: Checkout immutable shared Grype prewrite guard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/build
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-guard
+          persist-credentials: false
+      - name: Deny blocked or untrustworthy Grype evidence before legacy Publisher
+        run: |
+          python .pgextwin-guard/scripts/formal-publisher-grype-preflight.py \
+            --manifest config/extension.json \
+            --lifecycle .pgextwin-build/metadata/postgresql.json \
+            --dist dist
       - name: Verify signed binaries and publish only the fresh exact Release ID
         env:
           GH_TOKEN: ${{ github.token }}
