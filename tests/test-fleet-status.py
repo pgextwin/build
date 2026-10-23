@@ -28,10 +28,34 @@ assert "INDETERMINATE (unexpected PR URL)" in m.render(state)
 # The update-watch.yml workflow also runs on completed Windows CI.
 # A normal skipped workflow_run must never overwrite the true schedule status.
 true_scan={"id":101,"event":"schedule","status":"completed","conclusion":"success",
-           "head_branch":"main"}
+           "head_branch":"main","head_sha":"1"*40,"run_attempt":1}
 skipped_observer={"id":102,"event":"workflow_run","status":"completed",
                   "conclusion":"skipped","head_branch":"main"}
 assert m.scheduled_watch_state([true_scan])[1]=="SUCCESS"
+protected={"protected":True,"commit":{"sha":"1"*40}}
+assert m.current_main_schedule_state(true_scan,"SUCCESS",protected)==(
+    "CURRENT_MAIN_SCHEDULE_SUCCESS","1"*40)
+assert m.current_main_schedule_state(None,"UNKNOWN",protected)[0]=="NOT_YET_OBSERVED"
+assert m.current_main_schedule_state(true_scan,"SUCCESS",{
+    "protected":True,"commit":{"sha":"2"*40}})[0]=="PREVIOUS_MAIN_ONLY"
+assert m.current_main_schedule_state({**true_scan,"conclusion":"failure"},"FAILED",protected)[0]==(
+    "CURRENT_MAIN_SCHEDULE_FAILED")
+assert m.current_main_schedule_state({**true_scan,"status":"in_progress"},
+                                     "RUNNING",protected)[0]=="CURRENT_MAIN_SCHEDULE_RUNNING"
+assert m.current_main_schedule_state({**true_scan,"run_attempt":2},"SUCCESS",
+                                     protected)[0]=="UNVERIFIED_ATTEMPT"
+for invalid_run,invalid_branch in (
+    (true_scan,{"protected":False,"commit":{"sha":"1"*40}}),
+    (true_scan,{"protected":True,"commit":{"sha":"malformed"}}),
+    ({**true_scan,"event":"workflow_dispatch"},protected),
+    ({**true_scan,"head_branch":"other"},protected)):
+    try:
+        m.current_main_schedule_state(invalid_run,"SUCCESS",invalid_branch)
+    except m.WatchError:
+        pass
+    else:
+        raise AssertionError("must deny forged current protected main or schedule")
+
 assert m.scheduled_watch_state([])==(None,"UNKNOWN")
 assert m.scheduled_watch_state([{**true_scan,"status":"in_progress","conclusion":None}])[1]=="RUNNING"
 assert m.scheduled_watch_state([{**true_scan,"conclusion":"failure"}])[1]=="FAILED"
@@ -53,6 +77,8 @@ def fixture_request(url):
         # to unfiltered newest-first is denied, never called SUCCESS.
         assert "event=schedule" in url
         return {"workflow_runs":[true_scan]}
+    if url.endswith("/branches/main"):
+        return protected
     if "/issues?" in url or "/pulls?" in url:
         return []
     if "/windows.yml/runs?" in url:
@@ -63,7 +89,9 @@ m.request=fixture_request
 row=m.one({"repository":"pgextwin/pgtap","mode":"BUILD","scheduleUtc":"0 0 * * *"}, {})
 assert row["watchResult"]=="SUCCESS" and row["lastWatch"]["runId"]==101
 assert row["lastWatch"]["event"]=="schedule"
-assert not row["errors"] and len(requests)==4
+assert row["currentMainScheduleStatus"]=="CURRENT_MAIN_SCHEDULE_SUCCESS"
+assert row["currentProtectedMainSha"]=="1"*40
+assert not row["errors"] and len(requests)==5
 # Missing original schedule is explicitly UNKNOWN, not a synthetic success.
 def no_schedule(url):
     value=fixture_request(url)
@@ -71,6 +99,7 @@ def no_schedule(url):
 m.request=no_schedule
 row=m.one({"repository":"pgextwin/pgtap","mode":"BUILD","scheduleUtc":"0 0 * * *"}, {})
 assert row["watchResult"]=="UNKNOWN" and row["lastWatch"] is None
+assert row["currentMainScheduleStatus"]=="NOT_YET_OBSERVED"
 # An API contract violation must not let a skipped workflow_run authorize UPDATE.
 def wrong_event(url):
     value=fixture_request(url)
@@ -80,4 +109,4 @@ row=m.one({"repository":"pgextwin/pgtap","mode":"BUILD","scheduleUtc":"0 0 * * *
 assert row["watchResult"]=="UNKNOWN"
 assert any("non-scheduled" in e for e in row["errors"])
 
-print("17-extension original schedule-only hourly status fixtures passed")
+print("17-extension genuine protected-current-main schedule status fixtures passed")
