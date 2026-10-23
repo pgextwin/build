@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "mode": "OBSERVE",
   "defaultAction": "DENY",
-  "scheduleUtc": "0 0 * * *",
+  "scheduleUtc": "0 * * * *",
   "pilotRepository": "pgextwin/plpgsql_check",
   "requiredMajorVersions": [
     15,
