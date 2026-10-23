@@ -35,7 +35,15 @@ def fixture():
             "maintainedMajors": [14, 15, 16, 17, 18],
             "zipSha256ByMajor": {str(i): f"{i:064x}" for i in range(14, 19)},
             "spdxSha256ByMajor": {str(i): f"{i + 20:064x}" for i in range(14, 19)},
-            "grypeSha256ByMajor": {str(i): f"{i + 40:064x}" for i in range(14, 19)}
+            "grypeSha256ByMajor": {str(i): f"{i + 40:064x}" for i in range(14, 19)},
+            "grypePolicyByMajor": {str(i): {
+                "status": "NO_BLOCKING_FINDINGS",
+                "blockingFindingCount": 0,
+                "findingCountBySeverity": {
+                    name: 0 for name in
+                    ("Critical", "High", "Medium", "Low", "Negligible", "Unknown")},
+                "publicationAuthorized": False
+            } for i in range(14, 19)}
         },
         "repo": REPO, "sha": SHA, "run_id": RUN_ID, "attempt": ATTEMPT,
         "event": "push", "ref": "refs/heads/main",
@@ -54,6 +62,8 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
         for kind in ("zip", "spdx", "grype"):
             self.assertEqual(result[kind + "Sha256ByMajor"],
                              fixture()["audit"][kind + "Sha256ByMajor"])
+        self.assertEqual(set(result["grypePolicyByMajor"]),
+                         set(map(str, range(14, 19))))
         self.assertEqual(result["policyBlockers"][0], "CENTRAL_MANUAL_DISPATCH")
         self.assertEqual(result["policyBlockers"][-1],
                          "INDEPENDENT_PUBLISHER_AUTHORIZATION_NOT_ESTABLISHED")
@@ -72,6 +82,17 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
             inputs["repo"] = row["repository"]
             inputs["audit"]["repository"] = row["repository"]
             self.assertEqual(bridge.bridge(**inputs)["status"], "PUBLISH_DENY")
+
+    def test_real_blocking_report_remains_explicit_nonpublishing(self):
+        inputs = fixture()
+        record = inputs["audit"]["grypePolicyByMajor"]["14"]
+        record["findingCountBySeverity"]["Critical"] = 1
+        record["blockingFindingCount"] = 1
+        record["status"] = "BLOCKING_FINDINGS"
+        output = bridge.bridge(**inputs)
+        self.assertEqual(output["status"], "PUBLISH_DENY")
+        self.assertIn("BLOCKING_GRYPE_FINDINGS", output["policyBlockers"])
+        self.assertIs(output["publisherWriteEnabled"], False)
 
     def test_forged_audit_and_runtime_identity_rejected(self):
         mutations = [
@@ -104,6 +125,12 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
             lambda a: a["audit"]["grypeSha256ByMajor"].pop("18"),
             lambda a: a["audit"]["spdxSha256ByMajor"].update({"19": "f" * 64}),
             lambda a: a["audit"]["grypeSha256ByMajor"].update({"14": "NOT_SHA"}),
+            lambda a: a["audit"].pop("grypePolicyByMajor"),
+            lambda a: a["audit"]["grypePolicyByMajor"].pop("14"),
+            lambda a: a["audit"]["grypePolicyByMajor"]["14"].update(status="PUBLISH"),
+            lambda a: a["audit"]["grypePolicyByMajor"]["14"].update(publicationAuthorized=True),
+            lambda a: a["audit"]["grypePolicyByMajor"]["14"].update(blockingFindingCount=True),
+            lambda a: a["audit"]["grypePolicyByMajor"]["14"]["findingCountBySeverity"].update(Critical=1),
             lambda a: a["fleet"].update(releasePolicy="automatic"),
             lambda a: a["fleet"]["entries"].pop(),
             lambda a: a["fleet"]["entries"][0].update(releasePolicy="automatic"),
