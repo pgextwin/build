@@ -1,6 +1,6 @@
-name: Verified immutable pin Auto-merge (nonpublishing)
+name: Verify immutable pin Auto-merge eligibility (READ ONLY)
 
-# Called only by a protected extension's original Windows CI workflow_run observer.
+# Optional immutable read-only evidence checker; NO GitHub mutations or merge.
 # This reusable workflow NEVER creates a Release, tag or signing authorization.
 on:
   workflow_call:
@@ -13,7 +13,7 @@ on:
         type: string
 
 jobs:
-  guarded-squash:
+  read-only-evidence:
     if: >-
       ${{ github.event_name == 'workflow_run' &&
           github.event.workflow_run.event == 'pull_request' &&
@@ -22,8 +22,8 @@ jobs:
           github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+      pull-requests: read
       actions: read
     steps:
       - name: Check out only immutable shared guard, not PR content
@@ -37,7 +37,7 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - name: Inspect original PR, protected main, independent CI and exact SHA; native Squash Auto-merge
+      - name: Inspect original PR, protected main, independent CI and exact SHA without merging
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.windows_run_id }}
@@ -48,4 +48,3 @@ jobs:
           --run-id "$RUN_ID"
           --expected-central "$CENTRAL_SHA"
           --fleet .pgextwin-guard/metadata/automation-fleet.json
-          --execute
