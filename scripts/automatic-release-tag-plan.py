@@ -110,6 +110,25 @@ def plan(audit, bridge, manifest, releases, refs, *, repo, sha, run_id, attempt)
             and "INDEPENDENT_PUBLISHER_AUTHORIZATION_NOT_ESTABLISHED" in bridge["policyBlockers"]
             and manifest.get("name") == repo.split("/")[1],
             "signed audit/PUBLISH DENY identity and safety policy mismatch")
+    # A read-only tag proposal is NOT an authorization. Still fail closed
+    # before passing this evidence toward a future independent Publisher if
+    # the bridge reports any High/Critical/Unknown Grype finding, or its
+    # digest and per-major evidence diverge from the genuine signed audit.
+    require(audit.get("maintainedMajors") == bridge.get("maintainedMajors")
+            and all(audit.get(key) == bridge.get(key) and type(audit.get(key)) is dict
+                    for key in ("zipSha256ByMajor", "spdxSha256ByMajor",
+                                "grypeSha256ByMajor", "grypePolicyByMajor")),
+            "signed candidate asset digests or scanner verdict changed in bridge")
+    risk = bridge["grypePolicyByMajor"]
+    require(type(risk) is dict and set(risk) ==
+            {str(major) for major in bridge["maintainedMajors"]}
+            and all(type(row) is dict
+                    and row.get("status") == "NO_BLOCKING_FINDINGS"
+                    and type(row.get("blockingFindingCount")) is int
+                    and row["blockingFindingCount"] == 0
+                    for row in risk.values())
+            and "BLOCKING_GRYPE_FINDINGS" not in bridge["policyBlockers"],
+            "blocking or unauthenticated Grype scan: no stable tag proposal")
     require(type(releases) is list and type(refs) is list
             and len(releases) < 100 and len(refs) < 100,
             "incomplete release/tag inventory")
