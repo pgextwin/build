@@ -182,6 +182,10 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
             "maintainedMajors": majors,
             "zipSha256ByMajor": {str(m): hashes[ident.asset_stem(manifest, m) + ".zip"]
                                 for m in majors},
+            "spdxSha256ByMajor": {str(m): hashes[ident.asset_stem(manifest, m) + ".spdx.json"]
+                                 for m in majors},
+            "grypeSha256ByMajor": {str(m): hashes[ident.asset_stem(manifest, m) + ".vulnerabilities.json"]
+                                  for m in majors},
             "cryptographicVerification": "REAL_GH_ATTESTATION_VERIFY",
             "signedArtifactsVerified": True,
             "publishableReceipt": False, "publicationAuthorized": False,

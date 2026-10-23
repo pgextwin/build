@@ -94,7 +94,10 @@ class SignedCandidateReadOnly(unittest.TestCase):
     def test_complete_real_shape_is_never_a_release_receipt(self):
         result=self.run_audit()
         self.assertEqual(result["status"],audit.SIGNED)
-        self.assertEqual(set(result["zipSha256ByMajor"]),set(map(str,MAJORS)))
+        for kind in ("zip", "spdx", "grype"):
+            values = result[kind + "Sha256ByMajor"]
+            self.assertEqual(set(values), set(map(str, MAJORS)))
+            self.assertTrue(all(len(v) == 64 for v in values.values()))
         self.assertIs(result["signedArtifactsVerified"],True)
         for field in ("publishableReceipt","publicationAuthorized","automaticReleaseEnabled"):
             self.assertIs(result[field],False)

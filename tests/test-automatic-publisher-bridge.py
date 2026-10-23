@@ -33,7 +33,9 @@ def fixture():
             "publicationAuthorized": False,
             "automaticReleaseEnabled": False,
             "maintainedMajors": [14, 15, 16, 17, 18],
-            "zipSha256ByMajor": {str(i): f"{i:064x}" for i in range(14, 19)}
+            "zipSha256ByMajor": {str(i): f"{i:064x}" for i in range(14, 19)},
+            "spdxSha256ByMajor": {str(i): f"{i + 20:064x}" for i in range(14, 19)},
+            "grypeSha256ByMajor": {str(i): f"{i + 40:064x}" for i in range(14, 19)}
         },
         "repo": REPO, "sha": SHA, "run_id": RUN_ID, "attempt": ATTEMPT,
         "event": "push", "ref": "refs/heads/main",
@@ -49,6 +51,9 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
         self.assertEqual(result["status"], "PUBLISH_DENY")
         self.assertEqual(result["verifiedAuditStatus"],
                          "VERIFIED_SIGNED_CANDIDATE_NONPUBLISHING")
+        for kind in ("zip", "spdx", "grype"):
+            self.assertEqual(result[kind + "Sha256ByMajor"],
+                             fixture()["audit"][kind + "Sha256ByMajor"])
         self.assertEqual(result["policyBlockers"][0], "CENTRAL_MANUAL_DISPATCH")
         self.assertEqual(result["policyBlockers"][-1],
                          "INDEPENDENT_PUBLISHER_AUTHORIZATION_NOT_ESTABLISHED")
@@ -93,6 +98,12 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
             lambda a: a["audit"]["zipSha256ByMajor"].pop("14"),
             lambda a: a["audit"]["zipSha256ByMajor"].update({"19": "a" * 64}),
             lambda a: a["audit"]["zipSha256ByMajor"].update({"14": "NOT_SHA"}),
+            lambda a: a["audit"].pop("spdxSha256ByMajor"),
+            lambda a: a["audit"].pop("grypeSha256ByMajor"),
+            lambda a: a["audit"]["spdxSha256ByMajor"].pop("15"),
+            lambda a: a["audit"]["grypeSha256ByMajor"].pop("18"),
+            lambda a: a["audit"]["spdxSha256ByMajor"].update({"19": "f" * 64}),
+            lambda a: a["audit"]["grypeSha256ByMajor"].update({"14": "NOT_SHA"}),
             lambda a: a["fleet"].update(releasePolicy="automatic"),
             lambda a: a["fleet"]["entries"].pop(),
             lambda a: a["fleet"]["entries"][0].update(releasePolicy="automatic"),
