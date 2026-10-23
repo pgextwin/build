@@ -33,6 +33,12 @@ _guard_spec.loader.exec_module(guard)
 _auth_spec = importlib.util.spec_from_file_location("typed_release_auth", ROOT / "release-authorization.py")
 auth = importlib.util.module_from_spec(_auth_spec)
 _auth_spec.loader.exec_module(auth)
+# Reuse the same fail-closed unfiltered Grype policy as all 17 signed
+# candidate audits. Policy review never mints a Publisher authorization.
+_vuln_spec = importlib.util.spec_from_file_location(
+    "formal_publisher_grype_policy", ROOT / "automatic-grype-publisher-policy.py")
+vulnerability = importlib.util.module_from_spec(_vuln_spec)
+_vuln_spec.loader.exec_module(vulnerability)
 
 class Denied(ValueError): pass
 
@@ -158,8 +164,17 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
               "package identity, source pin, run, or major mismatch")
         check(json.loads(spdx_path.read_text(encoding="utf-8-sig")).get("spdxVersion") == "SPDX-2.3",
               "invalid SPDX SBOM")
-        check(isinstance(json.loads(grype_path.read_text(encoding="utf-8-sig")).get("matches"), list),
-              "invalid Grype vulnerability report")
+        try:
+            grype = json.loads(grype_path.read_text(encoding="utf-8-sig"),
+                               object_pairs_hook=guard._unique)
+            finding_policy = vulnerability.review(grype, asset_stem=stem)
+        except (vulnerability.Denied, ValueError, TypeError, KeyError) as e:
+            raise Denied("untrusted or suppressed Grype evidence: " + str(e)) from e
+        # This is an actual formal Publisher preflight, not a reporting-only
+        # check. Any Critical/High/Unknown match MUST prevent tag reservation.
+        check(finding_policy["status"] == "NO_BLOCKING_FINDINGS"
+              and finding_policy["blockingFindingCount"] == 0,
+              "blocking Critical/High/Unknown vulnerability: Release denied")
         if verify_signatures:
             sbom = json.loads(spdx_path.read_text(encoding="utf-8-sig"),
                               object_pairs_hook=guard._unique)
