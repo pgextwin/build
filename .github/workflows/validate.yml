@@ -92,6 +92,9 @@ jobs:
       - name: Deny forged cross-job Sigstore Publisher second opinion (NO PUBLISH)
         run: python tests/test-independent-signed-publisher-preflight.py
 
+      - name: Deny forged signed automatic Publisher/tag handoff without releasing
+        run: python tests/test-automatic-publisher-handoff.py
+
       - name: Block unfiltered Grype high/critical/unknown findings before unattended Publisher
         run: python tests/test-automatic-grype-publisher-policy.py
 
