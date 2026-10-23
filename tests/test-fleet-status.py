@@ -120,6 +120,23 @@ candidate_pr={
     "body":"<!-- pgextwin-candidate:v1:"+"a"*20+" -->",
     "html_url":"https://github.com/pgextwin/pgtap/pull/78"
 }
+assert m.candidate_run_url("pgextwin/pgtap",candidate_branch,"pull_request") == (
+    "https://api.github.com/repos/pgextwin/pgtap/actions/workflows/windows.yml/"
+    "runs?event=pull_request&branch=auto-candidate%2F"+"a"*20+"&per_page=100")
+for bad_repo,bad_branch,bad_event in (
+    ("other/repo",candidate_branch,"pull_request"),
+    ("pgextwin/pgtap","main","workflow_dispatch"),
+    ("pgextwin/pgtap","auto-candidate/"+"x"*20,"workflow_dispatch"),
+    ("pgextwin/pgtap",candidate_branch,"schedule"),
+    ("pgextwin/pgtap",candidate_branch+"&event=schedule","pull_request"),
+):
+    try:
+        m.candidate_run_url(bad_repo,bad_branch,bad_event)
+    except m.WatchError:
+        pass
+    else:
+        raise AssertionError("unscoped/injected CI query must fail")
+
 native_run={
     "id":202,"event":"pull_request","path":".github/workflows/windows.yml",
     "name":"Windows CI/CD","head_branch":candidate_branch,"head_sha":"3"*40,
@@ -161,6 +178,7 @@ assert m.native_candidate_ci(
     candidate_pr,"pgextwin/pgtap")[1]=="FAILED_OR_UNVERIFIED"
 
 for bad_page,bad_pr in (
+    ({"total_count":1,"workflow_runs":[{**native_run,"head_branch":"main"}]},candidate_pr),
     ({"total_count":2,"workflow_runs":[native_run]},candidate_pr),
     ({"total_count":1,"workflow_runs":[{**native_run,"event":"workflow_dispatch"}]},candidate_pr),
     ({"total_count":1,"workflow_runs":[{**native_run,"run_attempt":2}]},candidate_pr),
@@ -180,6 +198,7 @@ def native_request(url):
     if "/pulls?" in url:
         return [candidate_pr]
     if "windows.yml/runs?event=pull_request" in url:
+        assert "&branch=auto-candidate%2F"+"a"*20+"&per_page=100" in url
         return page
     if "windows.yml/runs?event=workflow_dispatch" in url:
         raise AssertionError("active native PR cannot be overridden by old Dispatch")
@@ -199,6 +218,7 @@ def dispatch_fallback_request(url):
     if "windows.yml/runs?event=pull_request" in url:
         return {"total_count":0,"workflow_runs":[]}
     if "windows.yml/runs?event=workflow_dispatch" in url:
+        assert "&branch=auto-candidate%2F"+"a"*20+"&per_page=100" in url
         return dispatch_page
     return fixture_request(url)
 m.request=dispatch_fallback_request
