@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Nonpublishing, protected-PR-only Auto-merge for a single verified shared workflow pin.
 
-Run ONLY from a trusted caller's original Windows workflow_run (or trusted
-workflow_dispatch with an independently supplied original run ID). Never use
-pull_request_target with untrusted checkout. GitHub must still enforce required
-checks, up-to-date branch protection and merge authorization.
+Read-only proof checker called from an original trusted Windows workflow_run.
+Never use pull_request_target with untrusted checkout. The GitHub Actions
+GITHUB_TOKEN Auto-merge pilot #41 suppressed protected-main push CI, so this
+script must never register or execute any merge via the Actions job token.
 """
 from __future__ import annotations
 import argparse
@@ -136,7 +136,6 @@ def main():
     p.add_argument("--run-id", required=True, type=int)
     p.add_argument("--expected-central", required=True)
     p.add_argument("--fleet", default="metadata/automation-fleet.json")
-    p.add_argument("--execute", action="store_true")
     a = p.parse_args()
     try:
         require(a.run_id > 0 and os.getenv("GH_TOKEN"), "trusted GitHub token or run missing")
@@ -168,12 +167,9 @@ def main():
             central=gh_api("repos/pgextwin/build/branches/main"),
             central_runs=central_runs["workflow_runs"],
             fleet=json.loads(Path(a.fleet).read_text(encoding="utf-8")))
-        print("ADMITTED NONPUBLISHING AUTO-MERGE:", " ".join(args))
-        if a.execute:
-            result = subprocess.run(args, check=False)
-            require(result.returncode == 0, "GitHub refused protected native Auto-merge")
-        else:
-            print("DRY-RUN: no change was made")
+        print("READ-ONLY EVIDENCE: eligible original pin-only PR", pr["number"])
+        print("PROPOSED EXTERNAL TRUSTED-ACTOR COMMAND:", " ".join(args))
+        print("NO MERGE: Actions-token writes are prohibited (missing native push CI)")
         return 0
     except (Denied, KeyError, TypeError, OSError, ValueError) as exc:
         print("AUTO-MERGE DENIED:", str(exc), file=sys.stderr)
