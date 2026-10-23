@@ -52,11 +52,26 @@ class HourlyQueueTests(unittest.TestCase):
             "https://github.com/pgextwin/pg_hint_plan/pull/19")
         result = queue.plan(POLICY, state)
         self.assertEqual({x["repository"]: x["action"] for x in result["actions"]},
-                         {"pgextwin/orafce": "PREPARE_CANDIDATE",
+                         {"pgextwin/orafce": "VERIFY_UPSTREAM",
                           "pgextwin/pg_hint_plan": "REVIEW_CANDIDATE"})
         self.assertIs(result["formalReleasePermitted"], False)
-        self.assertTrue(all(x["action"] in {"PREPARE_CANDIDATE", "REVIEW_CANDIDATE", "INVESTIGATE_CI", "INVESTIGATE_EVIDENCE"} for x in result["actions"]))
+        self.assertTrue(all(x["action"] in {"VERIFY_UPSTREAM", "REVIEW_CANDIDATE", "INVESTIGATE_CI", "INVESTIGATE_EVIDENCE"} for x in result["actions"]))
         self.assertFalse(any("releaseTag" in x or "confirmRelease" in x for x in result["actions"]))
+
+    def test_old_issue_with_successful_watch_still_requires_fresh_upstream_sha(self):
+        state = snapshot()
+        row = target(state)
+        row["detectedCandidate"] = {
+            "url": "https://github.com/pgextwin/orafce/issues/7",
+            "mayBeStale": False,
+        }
+        row["watchResult"] = "SUCCESS"
+        result = queue.plan(POLICY, state)
+        self.assertEqual(result["pending"], 1)
+        self.assertEqual(result["actions"][0]["action"], "VERIFY_UPSTREAM")
+        self.assertIs(result["formalReleasePermitted"], False)
+        self.assertFalse(any(x["action"] == "PREPARE_CANDIDATE"
+                             for x in result["actions"]))
 
     def test_failed_ci_or_incomplete_observation_must_not_pass(self):
         state = snapshot()
