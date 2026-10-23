@@ -165,6 +165,22 @@ jobs:
             --lifecycle .pgextwin-build/metadata/postgresql.json \
             --output "$RUNNER_TEMP/independent-signed-publisher-preflight.json"
           echo 'Second real gh verification matched original digest/Run/attempt; still PUBLISH_DENY.' >> "$GITHUB_STEP_SUMMARY"
+      # Cross the final read-only handoff boundary ONLY after real Sigstore
+      # re-verification in this independent job and exact digest/run equality.
+      # Tag proposal and existing Publisher policy remain explicitly DENY.
+      - name: Join original and independent real signed evidence with tag/policy (NO PUBLISH)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/automatic-publisher-handoff.py \
+            --first "$RUNNER_TEMP/original-signed-audit/automatic-signed-candidate-audit.json" \
+            --second "$RUNNER_TEMP/independent-signed-candidate-audit.json" \
+            --opinion "$RUNNER_TEMP/independent-signed-publisher-preflight.json" \
+            --bridge "$RUNNER_TEMP/original-signed-audit/automatic-publisher-policy-deny.json" \
+            --tag "$RUNNER_TEMP/original-signed-audit/automatic-release-tag-proposal-nonpublishing.json" \
+            --fleet .pgextwin-build/metadata/automation-fleet.json \
+            --output "$RUNNER_TEMP/automatic-publisher-handoff-evidence-only.json"
+          echo 'Independent signatures and tag proposal joined; effective PUBLISH_DENY, no write token.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve second opinion as nonpublishing proof only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -172,5 +188,6 @@ jobs:
           path: |
             ${{ runner.temp }}/independent-signed-candidate-audit.json
             ${{ runner.temp }}/independent-signed-publisher-preflight.json
+            ${{ runner.temp }}/automatic-publisher-handoff-evidence-only.json
           if-no-files-found: error
           retention-days: 30
