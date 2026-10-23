@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""All 14 extensions: create-only, manual-PUBLISH attested Release publisher.
+"""All 17 extensions: create-only, gated attested Release publisher.
 
 A reserved tag or partial draft is quarantined; reruns MUST fail closed.
 Release state and every GitHub asset digest are independently verified before and
