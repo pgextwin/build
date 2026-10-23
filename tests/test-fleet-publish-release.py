@@ -45,7 +45,18 @@ def make_assets(folder,ext,run=123,workflow_event="workflow_dispatch"):
         with ZipFile(folder/(stem+".zip"),"w") as z:
             z.writestr("PACKAGE-INFO.json",json.dumps(info))
         (folder/(stem+".spdx.json")).write_text('{"spdxVersion":"SPDX-2.3"}')
-        (folder/(stem+".vulnerabilities.json")).write_text('{"matches":[]}')
+        (folder/(stem+".vulnerabilities.json")).write_text(json.dumps({
+            "matches": [], "ignoredMatches": [],
+            "descriptor": {
+                "name": "grype", "version": "0.120.1",
+                "db": {"status": {"valid": True, "schemaVersion": "v6",
+                                  "built": "2026-10-23T00:00:00Z",
+                                  "from": "2026-10-23T00:00:00Z"},
+                       "providers": {"nvd": {}}},
+                "configuration": {"match-upstream-kernel-headers": True,
+                                  "ignore": [], "fail-on-severity": ""}},
+            "source": {"type": "file", "target": stem},
+        }))
 
 class FleetPublisherTests(TestCase):
     def test_exact_per_pg_15_files_5_distinct_sources(self):
@@ -56,6 +67,53 @@ class FleetPublisherTests(TestCase):
             got=p.check_assets(folder,ext,receipt,COMMIT,123,lc,verify_signatures=False)
             self.assertEqual(len(got),15)
             self.assertEqual(set(got),p.ident.expected_assets(ext,[14,15,16,17,18])-{"SHA256SUMS.txt"})
+
+    def test_formal_publisher_blocks_real_grype_risks_before_tag_write(self):
+        ext, lc, receipt = fixture()
+        with TemporaryDirectory() as tmp, patch.object(p, "REPO", REPO):
+            folder = Path(tmp)
+            make_assets(folder, ext)
+            # Clean, complete scanner evidence is acceptable for non-signature
+            # offline validation. Production signatures remain independently
+            # mandatory; the test never calls the publishing entry point.
+            self.assertEqual(len(p.check_assets(
+                folder, ext, receipt, COMMIT, 123, lc, verify_signatures=False)), 15)
+            report_path = next(folder.glob("*-pg18-windows-x64.vulnerabilities.json"))
+            clean = json.loads(report_path.read_text())
+            def vulnerability(severity):
+                return {"vulnerability": {"id": "CVE-2026-test",
+                                           "severity": severity},
+                        "artifact": {"name": "library.dll"},
+                        "matchDetails": [{"matcher": "dpkg"}]}
+            for severity in ("Critical", "High", "Unknown"):
+                with self.subTest(severity=severity):
+                    report = json.loads(json.dumps(clean))
+                    report["matches"] = [vulnerability(severity)]
+                    report_path.write_text(json.dumps(report))
+                    with self.assertRaisesRegex(p.Denied, "blocking"):
+                        p.check_assets(folder, ext, receipt, COMMIT, 123, lc,
+                                       verify_signatures=False)
+            for name, mutate in (
+                ("ignored", lambda r: r.update(ignoredMatches=[vulnerability("High")])),
+                ("no-db", lambda r: r["descriptor"].pop("db")),
+                ("filtered", lambda r: r["descriptor"]["configuration"].update(
+                    ignore=[{"name": "library.dll"}])),
+                ("wrong-scan-target", lambda r: r["source"].update(
+                    target="unrelated-sbom")),
+                ("missing-finding-details", lambda r: r.update(
+                    matches=[{"vulnerability": {"id": "CVE-test", "severity": "Low"}}])),
+                ("unknown-scanner", lambda r: r["descriptor"].update(version="floating")),
+            ):
+                with self.subTest(name=name):
+                    report = json.loads(json.dumps(clean))
+                    mutate(report)
+                    report_path.write_text(json.dumps(report))
+                    with self.assertRaises(p.Denied):
+                        p.check_assets(folder, ext, receipt, COMMIT, 123, lc,
+                                       verify_signatures=False)
+            report_path.write_text(json.dumps(clean))
+            self.assertEqual(len(p.check_assets(
+                folder, ext, receipt, COMMIT, 123, lc, verify_signatures=False)), 15)
 
     def test_wrong_source_matrix_operator_or_asset_denied(self):
         ext,lc,receipt=fixture()
