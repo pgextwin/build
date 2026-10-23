@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+from urllib.parse import quote
 from update_watch_lib import WatchError, github_get_json
 from importlib.util import spec_from_file_location,module_from_spec
 
@@ -102,6 +103,18 @@ def fetch_audit(repo,run):
         raise WatchError("candidate audit has inconsistent identity")
     return data
 
+def candidate_run_url(repo, branch, event):
+    """Fetch only the active immutable candidate branch; never scan fleet-wide CI."""
+    if (type(repo) is not str
+            or re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", repo) is None
+            or type(branch) is not str
+            or re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch) is None
+            or event not in ("pull_request", "workflow_dispatch")):
+        raise WatchError("invalid scoped candidate Windows run query")
+    return (BASE + repo + "/actions/workflows/windows.yml/runs?event=" + event
+            + "&branch=" + quote(branch, safe="") + "&per_page=100")
+
+
 def native_candidate_ci(page, pr, repo, event="pull_request"):
     """Observe exact active bot PR Windows CI; NEVER authorize merge or Release.
 
@@ -127,10 +140,11 @@ def native_candidate_ci(page, pr, repo, event="pull_request"):
         raise WatchError("active PR is not an authentic same-repository bot candidate")
     if not all(type(r) is dict and r.get("event") == event for r in runs):
         raise WatchError("unfiltered native PR run list")
-    same_branch = [r for r in runs if r.get("head_branch") == branch]
-    if not same_branch:
+    if any(r.get("head_branch") != branch for r in runs):
+        raise WatchError("GitHub returned CI outside the requested candidate branch")
+    if not runs:
         return None, "NOT_RUN"
-    run = same_branch[0]
+    run = runs[0]
     if (run.get("path") != ".github/workflows/windows.yml"
             or run.get("name") != "Windows CI/CD"
             or (run.get("head_repository") or {}).get("full_name") != repo):
@@ -206,8 +220,7 @@ def one(entry,lifecycle):
         if owned_pr is not None:
             # Active native pull_request CI ALWAYS takes precedence over stale
             # legacy workflow_dispatch runs. Do not assume green means audited.
-            page=request(BASE+repo+
-                "/actions/workflows/windows.yml/runs?event=pull_request&per_page=100")
+            page=request(candidate_run_url(repo,owned_pr["head"]["ref"],"pull_request"))
             active_run,native_status=native_candidate_ci(page,owned_pr,repo)
             if active_run is not None:
                 row["candidateCiMode"]="NATIVE_PULL_REQUEST"
@@ -218,8 +231,7 @@ def one(entry,lifecycle):
             # and explicitly dispatches windows.yml: PR event suppression may
             # prevent ANY native pull_request Windows run. The exact branch
             # and HEAD of the active PR still MUST match; no old green dispatch.
-            dispatched=request(BASE+repo+
-                "/actions/workflows/windows.yml/runs?event=workflow_dispatch&per_page=100")
+            dispatched=request(candidate_run_url(repo,owned_pr["head"]["ref"],"workflow_dispatch"))
             run,status=native_candidate_ci(dispatched,owned_pr,repo,
                                            event="workflow_dispatch")
             row["candidateCiMode"]="ACTIVE_DISPATCH" if run is not None else "NONE"
