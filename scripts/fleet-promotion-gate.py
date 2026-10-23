@@ -73,7 +73,7 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
     require(type(local) is dict and local=={
         "schemaVersion":1,"enabled":True,"releasePolicy":authorization_mode
     }, "local main-only authorization mode not explicitly enabled")
-    require(fleet.get("releasePolicy")=="manual-only" and fleet.get("scheduleUtc")=="0 0 * * *"
+    require(fleet.get("releasePolicy")=="manual-only" and fleet.get("scheduleUtc")=="0 * * * *"
             and isinstance(fleet.get("entries"),list), "central fleet must remain manual-only")
     matches=[e for e in fleet["entries"] if e.get("repository")==repo]
     require(len(matches)==1 and matches[0].get("mode")=="BUILD"
