@@ -71,6 +71,18 @@ jobs:
             --unattended .pgextwin-build/metadata/unattended-publication.json \
             --output "$RUNNER_TEMP/automatic-publisher-policy-deny.json"
           echo 'Effective Publisher admission: PUBLISH_DENY / GO B,G4,G5 NO_GO.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Plan next stable Windows tag from authenticated Releases and refs (READ ONLY)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/automatic-release-tag-plan.py \
+            --audit "$RUNNER_TEMP/automatic-signed-candidate-audit.json" \
+            --bridge "$RUNNER_TEMP/automatic-publisher-policy-deny.json" \
+            --manifest config/extension.json \
+            --output "$RUNNER_TEMP/automatic-release-tag-proposal-nonpublishing.json"
+          echo 'Tag proposal only: no tag reserved and no independent PUBLISH authority.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve nonpublishing evidence only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -78,5 +90,6 @@ jobs:
           path: |
             ${{ runner.temp }}/automatic-signed-candidate-audit.json
             ${{ runner.temp }}/automatic-publisher-policy-deny.json
+            ${{ runner.temp }}/automatic-release-tag-proposal-nonpublishing.json
           if-no-files-found: error
           retention-days: 30
