@@ -55,7 +55,7 @@ class HourlyQueueTests(unittest.TestCase):
                          {"pgextwin/orafce": "VERIFY_UPSTREAM",
                           "pgextwin/pg_hint_plan": "REVIEW_CANDIDATE"})
         self.assertIs(result["formalReleasePermitted"], False)
-        self.assertTrue(all(x["action"] in {"PREPARE_CANDIDATE", "REVIEW_CANDIDATE", "INVESTIGATE_CI", "INVESTIGATE_EVIDENCE"} for x in result["actions"]))
+        self.assertTrue(all(x["action"] in {"VERIFY_UPSTREAM", "REVIEW_CANDIDATE", "INVESTIGATE_CI", "INVESTIGATE_EVIDENCE"} for x in result["actions"]))
         self.assertFalse(any("releaseTag" in x or "confirmRelease" in x for x in result["actions"]))
 
     def test_old_issue_with_successful_watch_still_requires_fresh_upstream_sha(self):
