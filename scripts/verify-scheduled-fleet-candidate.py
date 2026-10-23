@@ -9,6 +9,7 @@ the stable upstream commit before creating a draft PR. Never authorizes PUBLISH.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,13 @@ OLD = {"pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user",
        "wal2json", "pg_partman", "pg_stat_monitor", "orafce"}
 NEW = {"pgtap", "pg_variables", "pg_store_plans"}
 REPOSITORIES = {"pgextwin/" + r for r in OLD | NEW}
+# Every blob must match across the original scheduled scan, current protected
+# build main and the immutable reusable-workflow checkout before live replay.
+REPLAY_SOURCE_PATHS = (
+    ".github/workflows/fleet-upstream-watch.yml",
+    "scripts/fleet-upstream-watch.py",
+    "metadata/automation-fleet.json",
+)
 
 
 class Denied(ValueError):
@@ -61,11 +69,22 @@ def timestamp(value):
     return dt.astimezone(timezone.utc)
 
 
-def validate(report, run, build_branch, target_branch, repository, head, pin, now, *, live_replay=False):
+def validate(report, run, build_branch, target_branch, repository, head, pin, now, *,
+             live_replay=False, source_equivalent=False):
     need(repository in REPOSITORIES, "unregistered candidate repository")
     expected = COHORT_14 if repository.split("/")[1] in OLD else COHORT_3
     need(pin == expected and SHA.fullmatch(head), "invalid immutable detector cohort")
-    for branch, sha in ((build_branch, run.get("head_sha")),
+    current_build = (build_branch.get("commit") or {}).get("sha")
+    need(type(current_build) is str and SHA.fullmatch(current_build),
+         "current central protected main SHA missing")
+    # Never silently accept a stale scheduled scan. Only a new, complete
+    # 17-repo live replay from byte-identical immutable scan sources may
+    # replace the old schedule-head binding; target main stays exact.
+    if current_build != run.get("head_sha"):
+        need(live_replay is True and source_equivalent is True,
+             "central SHA drift without authenticated immutable live replay")
+    for branch, sha in ((build_branch, current_build if live_replay and
+                         source_equivalent else run.get("head_sha")),
                         (target_branch, head)):
         need(type(branch) is dict and branch.get("protected") is True
              and (branch.get("commit") or {}).get("sha") == sha
@@ -159,6 +178,42 @@ def api(url, token):
         raise
 
 
+def git_blob_sha(data):
+    """GitHub SHA-1 blob identity for the actual immutable checkout bytes."""
+    need(type(data) is bytes, "immutable scan source is not bytes")
+    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") +
+                        bytes([0]) + data).hexdigest()
+
+
+def verify_replay_source_blobs(scheduled_sha, current_sha, token):
+    """Fail closed unless scheduled, current and pinned scanner bytes agree."""
+    need(type(scheduled_sha) is str and SHA.fullmatch(scheduled_sha)
+         and type(current_sha) is str and SHA.fullmatch(current_sha)
+         and scheduled_sha != current_sha,
+         "central SHA drift proof has invalid refs")
+    root = Path(__file__).resolve().parents[1]
+    local = {}
+    for path in REPLAY_SOURCE_PATHS:
+        source = root / path
+        need(source.is_file() and not source.is_symlink(),
+             "pinned immutable scan source missing or symlinked")
+        local[path] = git_blob_sha(source.read_bytes())
+    for commit_sha in (scheduled_sha, current_sha):
+        tree = api(HOST + BUILD + "/git/trees/" + commit_sha + "?recursive=1", token)
+        need(type(tree) is dict and tree.get("truncated") is False
+             and type(tree.get("tree")) is list
+             and type(tree.get("sha")) is str and SHA.fullmatch(tree["sha"]),
+             "incomplete central Git source inventory")
+        rows = [item for item in tree["tree"] if type(item) is dict
+                and item.get("path") in REPLAY_SOURCE_PATHS]
+        need(len(rows) == len(REPLAY_SOURCE_PATHS)
+             and len({item["path"] for item in rows}) == len(REPLAY_SOURCE_PATHS)
+             and all(item.get("type") == "blob" and item.get("mode") == "100644"
+                     and item.get("sha") == local[item["path"]] for item in rows),
+             "scheduled/current fleet scan code or policy differs from pinned immutable source")
+    return True
+
+
 def replay_live_fleet(token):
     """Fallback when a caller GITHUB_TOKEN cannot download build's artifact.
 
@@ -202,40 +257,53 @@ def run(repository, head, pin, token):
     need(exact.get("id") == current["id"] and exact.get("head_sha") == current.get("head_sha")
          and exact.get("conclusion") == "success" and exact.get("status") == "completed",
          "central run has not successfully completed")
-    artifacts = api(HOST + BUILD + "/actions/runs/" + str(exact["id"])
-                    + "/artifacts?per_page=100", token)
-    need(type(artifacts) is dict and type(artifacts.get("artifacts")) is list
-         and artifacts.get("total_count") == len(artifacts["artifacts"]),
-         "complete central artifacts unavailable")
-    matches = [a for a in artifacts["artifacts"] if type(a) is dict
-               and a.get("name") == "fleet-upstream-watch"]
-    need(len(matches) == 1 and matches[0].get("expired") is False
-         and type(matches[0].get("size_in_bytes")) is int
-         and 0 < matches[0]["size_in_bytes"] < 200000,
-         "unique bounded unexpired central snapshot unavailable")
-    with TemporaryDirectory(prefix="pgextwin-fleet-candidate-") as temp:
-        command = ["gh", "run", "download", str(exact["id"]), "--repo", BUILD,
-                   "--name", "fleet-upstream-watch", "--dir", temp]
-        proc = subprocess.run(command, capture_output=True, text=True, check=False,
-                              timeout=90, env=os.environ.copy())
-        live_replay = proc.returncode != 0
-        if live_replay:
-            # A repo-scoped GITHUB_TOKEN cannot be assumed to have Actions:read
-            # on pgextwin/build. NEVER treat a failed archive download as
-            # proof of a successful candidate; rescan all 17 from protected
-            # repository sources and validate that independent evidence.
-            report = replay_live_fleet(token)
-            print("FLEET_EVIDENCE=INDEPENDENT_GET_ONLY_REPLAY; central artifact not downloaded")
-        else:
-            root = Path(temp)
-            need({p.name for p in root.iterdir()} ==
-                 {"fleet-upstream-watch.json", "fleet-upstream-watch.md"},
-                 "unexpected files in central artifact")
-            raw = (root / "fleet-upstream-watch.json").read_bytes()
-            need(len(raw) <= 262144, "oversized fleet JSON")
-            report = strict_json(raw.decode("utf-8"))
+    source_equivalent = False
+    if build_branch.get("commit", {}).get("sha") != exact.get("head_sha"):
+        # The original successful schedule remains necessary, but its old
+        # source cannot authorize fresh work unless the scanner/policy blobs
+        # match the pinned immutable reusable workflow and current main.
+        source_equivalent = verify_replay_source_blobs(
+            exact["head_sha"], build_branch["commit"]["sha"], token)
+        report = replay_live_fleet(token)
+        live_replay = True
+        print("FLEET_EVIDENCE=FRESH_17_REPLAY_WITH_IDENTICAL_IMMUTABLE_SOURCES")
+    else:
+        artifacts = api(HOST + BUILD + "/actions/runs/" + str(exact["id"])
+                        + "/artifacts?per_page=100", token)
+        need(type(artifacts) is dict and type(artifacts.get("artifacts")) is list
+             and artifacts.get("total_count") == len(artifacts["artifacts"]),
+             "complete central artifacts unavailable")
+        matches = [a for a in artifacts["artifacts"] if type(a) is dict
+                   and a.get("name") == "fleet-upstream-watch"]
+        need(len(matches) == 1 and matches[0].get("expired") is False
+             and type(matches[0].get("size_in_bytes")) is int
+             and 0 < matches[0]["size_in_bytes"] < 200000,
+             "unique bounded unexpired central snapshot unavailable")
+        with TemporaryDirectory(prefix="pgextwin-fleet-candidate-") as temp:
+            command = ["gh", "run", "download", str(exact["id"]), "--repo", BUILD,
+                       "--name", "fleet-upstream-watch", "--dir", temp]
+            proc = subprocess.run(command, capture_output=True, text=True, check=False,
+                                  timeout=90, env=os.environ.copy())
+            live_replay = proc.returncode != 0
+            if live_replay:
+                # A repo-scoped GITHUB_TOKEN cannot be assumed to have Actions:read
+                # on pgextwin/build. NEVER treat a failed archive download as
+                # proof of a successful candidate; rescan all 17 from protected
+                # repository sources and validate that independent evidence.
+                report = replay_live_fleet(token)
+                print("FLEET_EVIDENCE=INDEPENDENT_GET_ONLY_REPLAY; central artifact not downloaded")
+            else:
+                root = Path(temp)
+                need({p.name for p in root.iterdir()} ==
+                     {"fleet-upstream-watch.json", "fleet-upstream-watch.md"},
+                     "unexpected files in central artifact")
+                raw = (root / "fleet-upstream-watch.json").read_bytes()
+                need(len(raw) <= 262144, "oversized fleet JSON")
+                report = strict_json(raw.decode("utf-8"))
+
     mode = validate(report, exact, build_branch, target_branch, repository,
-                    head, pin, datetime.now(timezone.utc), live_replay=live_replay)
+                    head, pin, datetime.now(timezone.utc),
+                    live_replay=live_replay, source_equivalent=source_equivalent)
     need(api(HOST + BUILD + "/branches/main", token) == build_branch
          and api(HOST + repository + "/branches/main", token) == target_branch,
          "protected main changed during candidate authorization")
