@@ -54,7 +54,7 @@ def get_pair(snapshots, *, allow_absent=False):
 
 
 def proof_statement(entry, kind, *, repo, sha, signer_sha, run_id, attempt,
-                    event, zip_name, zip_digest, sbom):
+                    event, zip_name, zip_digest, sbom, config_path=offline.PROMOTE_PATH):
     """Interpret mock X.509-shaped data; caller MUST cryptographically verify separately."""
     require(type(entry) is dict and set(entry) == {"verificationResult"},
             "missing/ambiguous verified attestation")
@@ -76,8 +76,9 @@ def proof_statement(entry, kind, *, repo, sha, signer_sha, run_id, attempt,
     uri = f"https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}"
     signer_uri = ("https://github.com/pgextwin/build/"
                   + offline.SIGNER_PATH + "@" + signer_sha)
-    config_uri = (f"https://github.com/{repo}/"
-                  + offline.PROMOTE_PATH + "@refs/heads/main")
+    require(config_path in {offline.PROMOTE_PATH, ".github/workflows/update-watch.yml"},
+            "unrecognized trusted caller workflow")
+    config_uri = f"https://github.com/{repo}/{config_path}@refs/heads/main"
     require("runnerInvocationURI" not in cert
             and cert.get("issuer") == offline.ISSUER
             and cert.get("runInvocationURI") == uri
