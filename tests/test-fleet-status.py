@@ -134,6 +134,24 @@ assert m.native_candidate_ci({"total_count":0,"workflow_runs":[]},
 assert m.native_candidate_ci(
     {"total_count":1,"workflow_runs":[{**native_run,"head_sha":"4"*40}]},
     candidate_pr,"pgextwin/pgtap")[1]=="STALE_HEAD_CI"
+dispatch_run={**native_run,"id":203,"event":"workflow_dispatch"}
+dispatch_page={"total_count":1,"workflow_runs":[dispatch_run]}
+assert m.native_candidate_ci(dispatch_page,candidate_pr,"pgextwin/pgtap",
+                             event="workflow_dispatch")[1]=="DISPATCH_CI_SUCCESS_UNVERIFIED"
+assert m.native_candidate_ci(
+    {"total_count":1,"workflow_runs":[{**dispatch_run,"head_sha":"4"*40}]},
+    candidate_pr,"pgextwin/pgtap",event="workflow_dispatch")[1]=="STALE_HEAD_CI"
+for bad in ({"total_count":1,"workflow_runs":[{**dispatch_run,"run_attempt":2}]},
+            {"total_count":1,"workflow_runs":[native_run]},
+            {"total_count":2,"workflow_runs":[dispatch_run]}):
+    try:
+        m.native_candidate_ci(bad,candidate_pr,"pgextwin/pgtap",
+                              event="workflow_dispatch")
+    except m.WatchError:
+        pass
+    else:
+        raise AssertionError("dispatch fallback must reject bad event, attempt or page")
+
 assert m.native_candidate_ci(
     {"total_count":1,"workflow_runs":[{**native_run,"status":"in_progress",
                                     "conclusion":None}]},
@@ -172,5 +190,23 @@ assert not row["errors"] and row["lastCandidateStatus"]=="NATIVE_CI_SUCCESS_UNVE
 assert row["candidateCiMode"]=="NATIVE_PULL_REQUEST"
 assert row["lastWindowsCi"]["runId"]==202 and row["lastSuccessfulCandidate"] is None
 assert row["candidatePrUrl"]=="https://github.com/pgextwin/pgtap/pull/78"
+
+# Explicit dispatch created by GITHUB_TOKEN proposer remains the legitimate
+# primary candidate CI when the native PR event is suppressed by GitHub.
+def dispatch_fallback_request(url):
+    if "/pulls?" in url:
+        return [candidate_pr]
+    if "windows.yml/runs?event=pull_request" in url:
+        return {"total_count":0,"workflow_runs":[]}
+    if "windows.yml/runs?event=workflow_dispatch" in url:
+        return dispatch_page
+    return fixture_request(url)
+m.request=dispatch_fallback_request
+row=m.one({"repository":"pgextwin/pgtap","mode":"BUILD","scheduleUtc":"0 0 * * *"}, {})
+assert not row["errors"] and row["lastWindowsCi"]["runId"]==203
+assert row["candidateCiMode"]=="ACTIVE_DISPATCH"
+assert row["lastCandidateStatus"]=="DISPATCH_CI_SUCCESS_UNVERIFIED"
+assert row["lastSuccessfulCandidate"] is None
+
 
 print("17-extension genuine protected-current-main schedule and native PR CI status fixtures passed")
