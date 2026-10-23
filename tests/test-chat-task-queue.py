@@ -97,11 +97,14 @@ class HourlyQueueTests(unittest.TestCase):
         self.assertEqual(result["actions"][0]["action"], "REVIEW_CANDIDATE")
         self.assertIs(result["releaseAuthorized"], False)
         self.assertIs(result["formalReleasePermitted"], False)
+        item["lastCandidateStatus"] = "DISPATCH_CI_SUCCESS_UNVERIFIED"
+        self.assertEqual(queue.plan(POLICY, state)["actions"][0]["action"],
+                         "REVIEW_CANDIDATE")
         item["lastCandidateStatus"] = "STALE_HEAD_CI"
         self.assertEqual(queue.plan(POLICY, state)["actions"][0]["action"],
                          "INVESTIGATE_CI")
         item["candidatePrUrl"] = None
-        for ci in ("NATIVE_CI_SUCCESS_UNVERIFIED", "STALE_HEAD_CI"):
+        for ci in ("NATIVE_CI_SUCCESS_UNVERIFIED", "DISPATCH_CI_SUCCESS_UNVERIFIED", "STALE_HEAD_CI"):
             item["lastCandidateStatus"] = ci
             with self.assertRaises(queue.Denied):
                 queue.plan(POLICY, state)

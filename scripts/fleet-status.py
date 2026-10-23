@@ -102,13 +102,15 @@ def fetch_audit(repo,run):
         raise WatchError("candidate audit has inconsistent identity")
     return data
 
-def native_candidate_ci(page, pr, repo):
+def native_candidate_ci(page, pr, repo, event="pull_request"):
     """Observe exact active bot PR Windows CI; NEVER authorize merge or Release.
 
     Native pull_request CI does not necessarily include a legacy candidate-audit
     artifact. A green root run remains UNVERIFIED until separate exact-HEAD
     App15368 and signed-byte audits independently succeed.
     """
+    if event not in ("pull_request", "workflow_dispatch"):
+        raise WatchError("unknown original Windows candidate CI event")
     if type(page) is not dict or type(page.get("workflow_runs")) is not list:
         raise WatchError("native PR Windows CI page missing")
     runs = page["workflow_runs"]
@@ -123,7 +125,7 @@ def native_candidate_ci(page, pr, repo):
             or re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch) is None
             or type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None):
         raise WatchError("active PR is not an authentic same-repository bot candidate")
-    if not all(type(r) is dict and r.get("event") == "pull_request" for r in runs):
+    if not all(type(r) is dict and r.get("event") == event for r in runs):
         raise WatchError("unfiltered native PR run list")
     same_branch = [r for r in runs if r.get("head_branch") == branch]
     if not same_branch:
@@ -142,7 +144,8 @@ def native_candidate_ci(page, pr, repo):
     if run.get("status") != "completed":
         raise WatchError("unknown native PR Windows status")
     if run.get("conclusion") == "success":
-        return run, "NATIVE_CI_SUCCESS_UNVERIFIED"
+        return run, ("NATIVE_CI_SUCCESS_UNVERIFIED" if event == "pull_request"
+                     else "DISPATCH_CI_SUCCESS_UNVERIFIED")
     return run, "FAILED_OR_UNVERIFIED"
 
 
@@ -206,9 +209,22 @@ def one(entry,lifecycle):
             page=request(BASE+repo+
                 "/actions/workflows/windows.yml/runs?event=pull_request&per_page=100")
             active_run,native_status=native_candidate_ci(page,owned_pr,repo)
-            row["candidateCiMode"]="NATIVE_PULL_REQUEST"
-            row["lastWindowsCi"]=compact_run(active_run)
-            row["lastCandidateStatus"]=native_status
+            if active_run is not None:
+                row["candidateCiMode"]="NATIVE_PULL_REQUEST"
+                row["lastWindowsCi"]=compact_run(active_run)
+                row["lastCandidateStatus"]=native_status
+                return row
+            # The existing GITHUB_TOKEN candidate proposer creates a Draft PR
+            # and explicitly dispatches windows.yml: PR event suppression may
+            # prevent ANY native pull_request Windows run. The exact branch
+            # and HEAD of the active PR still MUST match; no old green dispatch.
+            dispatched=request(BASE+repo+
+                "/actions/workflows/windows.yml/runs?event=workflow_dispatch&per_page=100")
+            run,status=native_candidate_ci(dispatched,owned_pr,repo,
+                                           event="workflow_dispatch")
+            row["candidateCiMode"]="ACTIVE_DISPATCH" if run is not None else "NONE"
+            row["lastWindowsCi"]=compact_run(run)
+            row["lastCandidateStatus"]=status
             return row
 
         # Legacy read-only telemetry retained if there is no active candidate.
