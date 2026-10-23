@@ -27,6 +27,7 @@ def load(label, filename):
 
 ident = load("signed_candidate_identity", "fleet-release-identity.py")
 pin = load("signed_candidate_certificate", "issue-75-attempt-pin-migration-offline.py")
+vulnerability_policy = load("signed_candidate_grype_policy", "automatic-grype-publisher-policy.py")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 CALLER = ".github/workflows/update-watch.yml"
@@ -104,6 +105,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
             and {p.name for p in folder.iterdir() if p.is_file()} == names,
             "signed files or original maintained PG matrix incomplete")
     hashes = {}
+    vulnerability_results = {}
     for major in majors:
         stem = ident.asset_stem(manifest, major)
         z, s, g = (folder / (stem + ext) for ext in
@@ -149,6 +151,10 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
         require(type(sbom) is dict and sbom.get("spdxVersion") == "SPDX-2.3"
                 and type(grype) is dict and type(grype.get("matches")) is list,
                 "missing independently downloaded SBOM or Grype report")
+        try:
+            vulnerability_results[str(major)] = vulnerability_policy.review(grype, asset_stem=stem)
+        except vulnerability_policy.Denied as exc:
+            raise Denied("untrusted unfiltered Grype evidence") from exc
         for kind in (pin.SLSA, pin.SPDX):
             verified = verify(z, kind, repo, sha)
             require(type(verified) is list and len(verified) == 1
@@ -186,6 +192,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
                                  for m in majors},
             "grypeSha256ByMajor": {str(m): hashes[ident.asset_stem(manifest, m) + ".vulnerabilities.json"]
                                   for m in majors},
+            "grypePolicyByMajor": vulnerability_results,
             "cryptographicVerification": "REAL_GH_ATTESTATION_VERIFY",
             "signedArtifactsVerified": True,
             "publishableReceipt": False, "publicationAuthorized": False,

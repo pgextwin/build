@@ -83,6 +83,9 @@ jobs:
       - name: Verify signed automatic candidate digest/Sigstore origin denial fixtures
         run: python tests/test-automatic-signed-candidate-audit.py
 
+      - name: Block unfiltered Grype high/critical/unknown findings before unattended Publisher
+        run: python tests/test-automatic-grype-publisher-policy.py
+
       - name: Verify actual signed-audit to Publisher admission remains DENY
         run: python tests/test-automatic-publisher-bridge.py
 
