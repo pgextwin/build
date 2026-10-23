@@ -129,6 +129,7 @@ class AutoMergeGuards(unittest.TestCase):
         x["metadata"]["full_name"]=x["repository"]
         x["pr"]["head"]["repo"]["full_name"]=x["repository"]
         x["pr"]["base"]["repo"]["full_name"]=x["repository"]
+        x["ci_run"]["head_repository"]["full_name"]=x["repository"]
         x["fleet"]["entries"][0]["repository"]=x["repository"]
         with self.assertRaises(lib.Denied):
             lib.admit(**x)
