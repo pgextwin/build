@@ -61,13 +61,14 @@ class AutoMergeGuards(unittest.TestCase):
         self.assertIn("contents: read", workflow)
         self.assertIn("pull-requests: read", workflow)
 
-    def test_positive_is_explicit_squash_expected_head_nonpublishing(self):
-        command = lib.admit(**fixture())
-        self.assertEqual(command, [
-            "gh","pr","merge","42","-R",REPO,"--auto","--squash",
-            "--match-head-commit",HEAD])
-        self.assertNotIn("--admin",command)
-        self.assertNotIn("release",command)
+    def test_positive_structured_chat_admission_nonpublishing(self):
+        evidence = lib.admit(**fixture())
+        self.assertEqual(evidence["decision"], "ELIGIBLE_FOR_PROTECTED_CHAT_MERGE_ONLY")
+        self.assertEqual(evidence["mergeMethod"], "squash")
+        self.assertEqual(evidence["expectedHeadSha"], HEAD)
+        self.assertEqual(evidence["prNumber"], 42)
+        self.assertEqual(evidence["actor"], "CONNECTED_CHAT_GITHUB_NOT_ACTIONS_TOKEN")
+        self.assertEqual(evidence["releaseAuthorized"], False)
 
     def test_reject_held_repositories(self):
         for repo in ("pgextwin/pg_bigm","pgextwin/orafce"):
@@ -147,7 +148,72 @@ class AutoMergeGuards(unittest.TestCase):
         x["checks"] += [
             {"name":n,"status":"completed","conclusion":"success","app":{"id":15368}}
             for n in ("syntax","Regression-test immutable Release preflight")]
-        self.assertIn("--squash",lib.admit(**x))
+        self.assertEqual(lib.admit(**x)["mergeMethod"],"squash")
+
+    def postmerge(self, repository=REPO):
+        return dict(
+            repository=repository, expected_main=NEW,
+            branch={"name":"main","protected":True,"commit":{"sha":NEW}},
+            run={"id":123, "event":"push", "head_sha":NEW,
+                 "head_branch":"main", "run_attempt":1,
+                 "status":"completed", "conclusion":"success",
+                 "path":".github/workflows/windows.yml"},
+            checks=[{"name":name,"status":"completed","conclusion":"success",
+                     "app":{"id":15368}} for name in lib.REQUIRED],
+            pr={"state":"closed", "merged":True, "merge_commit_sha":NEW,
+                "base":{"ref":"main"}},
+        )
+
+    def test_accept_only_real_native_postmerge_main_and_app_checks(self):
+        p=self.postmerge()
+        receipt=lib.verify_postmerge(**p)
+        self.assertEqual(receipt["decision"],"ORIGINAL_POSTMERGE_WINDOWS_ACCEPTED")
+        self.assertEqual(receipt["mainSha"],NEW)
+        self.assertEqual(receipt["requiredChecksPassed"],7)
+        self.assertFalse(receipt["releaseAuthorized"])
+
+    def test_reject_actions_token_merge_without_original_push_ci(self):
+        p=self.postmerge()
+        p["run"]={}
+        p["checks"]=[]
+        with self.assertRaises(lib.Denied):
+            lib.verify_postmerge(**p)
+
+    def test_reject_all_fake_postmerge_successes(self):
+        attacks=[
+            lambda p:p["branch"]["commit"].update(sha=HEAD),
+            lambda p:p["branch"].update(protected=False),
+            lambda p:p["run"].update(event="workflow_dispatch"),
+            lambda p:p["run"].update(event="pull_request"),
+            lambda p:p["run"].update(head_sha=HEAD),
+            lambda p:p["run"].update(head_branch="dev"),
+            lambda p:p["run"].update(run_attempt=2),
+            lambda p:p["run"].update(status="in_progress"),
+            lambda p:p["run"].update(conclusion="skipped"),
+            lambda p:p["run"].update(path=".github/workflows/update-watch.yml"),
+            lambda p:p["checks"][0]["app"].update(id=1),
+            lambda p:p["checks"][0].update(conclusion="skipped"),
+            lambda p:p["checks"].clear(),
+            lambda p:p["pr"].update(merged=False),
+            lambda p:p["pr"].update(merge_commit_sha=HEAD),
+        ]
+        for i,change in enumerate(attacks):
+            with self.subTest(i=i),self.assertRaises(lib.Denied):
+                p=self.postmerge()
+                change(p)
+                lib.verify_postmerge(**p)
+
+    def test_plpgsql_original_eight_postmerge_checks(self):
+        p=self.postmerge("pgextwin/plpgsql_check")
+        p["checks"]=[c for c in p["checks"]
+                     if c["name"]!="windows / PostgreSQL 14 / Windows x64"]
+        with self.assertRaises(lib.Denied):
+            lib.verify_postmerge(**p)
+        p["checks"] += [
+            {"name":name,"status":"completed","conclusion":"success",
+             "app":{"id":15368}} for name in
+            ("syntax","Regression-test immutable Release preflight")]
+        self.assertEqual(lib.verify_postmerge(**p)["requiredChecksPassed"],8)
 
     def deny_cases(self, candidates):
         for i, mutate in enumerate(candidates):
