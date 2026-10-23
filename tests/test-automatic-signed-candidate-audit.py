@@ -47,6 +47,17 @@ def create_assets(path,ext):
         obj["package"]["architecture"]="x64"
         with ZipFile(zip_path,"w") as z:
             z.writestr("PACKAGE-INFO.json",json.dumps(obj))
+        stem=audit.ident.asset_stem(ext,m)
+        scan={"matches":[], "ignoredMatches":[],
+              "descriptor":{"name":"grype","version":"0.120.1",
+                            "db":{"status":{"valid":True,"schemaVersion":"v6",
+                                            "built":"2026-10-23T00:00:00Z",
+                                            "from":"2026-10-23T00:00:00Z"},
+                                  "providers":{"nvd":{}}},
+                            "configuration":{"ignore":[],
+                                             "match-upstream-kernel-headers":True}},
+              "source":{"type":"file","target":stem}}
+        (path/(stem+".vulnerabilities.json")).write_text(json.dumps(scan))
 
 def signed_result(path,kind,repo,sha,*,tamper=None):
     d=sha256(path.read_bytes()).hexdigest()
@@ -98,9 +109,25 @@ class SignedCandidateReadOnly(unittest.TestCase):
             values = result[kind + "Sha256ByMajor"]
             self.assertEqual(set(values), set(map(str, MAJORS)))
             self.assertTrue(all(len(v) == 64 for v in values.values()))
+        self.assertEqual(set(result["grypePolicyByMajor"]),set(map(str,MAJORS)))
+        self.assertTrue(all(v["status"]=="NO_BLOCKING_FINDINGS"
+                            for v in result["grypePolicyByMajor"].values()))
         self.assertIs(result["signedArtifactsVerified"],True)
         for field in ("publishableReceipt","publicationAuthorized","automaticReleaseEnabled"):
             self.assertIs(result[field],False)
+
+    def test_real_report_blocking_findings_never_grant_release(self):
+        def critical(e,l,i,r,f):
+            path=f/(audit.ident.asset_stem(e,14)+".vulnerabilities.json")
+            doc=json.loads(path.read_text())
+            doc["matches"]=[{"vulnerability":{"id":"CVE-example","severity":"High"},
+                             "artifact":{"name":"example.dll"},
+                             "matchDetails":[{"matcher":"package"}]}]
+            path.write_text(json.dumps(doc))
+        result=self.run_audit(critical)
+        self.assertEqual(result["grypePolicyByMajor"]["14"]["status"],"BLOCKING_FINDINGS")
+        self.assertEqual(result["grypePolicyByMajor"]["14"]["blockingFindingCount"],1)
+        self.assertIs(result["publicationAuthorized"],False)
 
     def test_original_intent_and_root_identity_hostile_denials(self):
         cases=[
