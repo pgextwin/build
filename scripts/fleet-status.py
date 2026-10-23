@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only operational snapshot for the nine-extension fleet."""
+"""Read-only operational snapshot for the configured protected extension fleet."""
 from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
@@ -21,6 +21,31 @@ def most_recent(payload, key):
     if not isinstance(payload,dict) or not isinstance(payload.get(key),list):
         raise WatchError("unexpected GitHub API response for "+key)
     return payload[key]
+
+def scheduled_watch_state(runs):
+    """Observe only the true scheduled update scan, never an unrelated event.
+
+    The update-watch workflow also receives workflow_run from Windows CI.
+    GitHub legitimately marks those unrelated invocations skipped. Treating
+    the latest skipped workflow_run as a failed daily scan created false
+    INVESTIGATE_EVIDENCE work across otherwise healthy extensions.
+
+    This is observational ONLY: even a successful schedule is historical
+    and never proves current protected-main / source SHA authorization.
+    """
+    if type(runs) is not list or not all(type(r) is dict for r in runs):
+        raise WatchError("malformed scheduled watch run list")
+    if any(r.get("event") != "schedule" for r in runs):
+        raise WatchError("non-scheduled run in filtered watch response")
+    if not runs:
+        return None, "UNKNOWN"
+    run = runs[0]  # GitHub runs API newest-first, filtered event=schedule
+    if run.get("status") == "completed":
+        return run, ("SUCCESS" if run.get("conclusion") == "success" else "FAILED")
+    if run.get("status") in ("queued", "in_progress", "pending", "waiting", "requested"):
+        return run, "RUNNING"
+    raise WatchError("unexpected original scheduled watch run status")
+
 
 def compact_run(run):
     if not run:
@@ -56,11 +81,10 @@ def one(entry,lifecycle):
          "lastCandidateStatus":"NOT_RUN","perMajor":[],"lastSuccessfulCandidate":None,
          "lastSuccessfulUpstreamShas":{},"errors":[]}
     try:
-        runs=most_recent(request(BASE+repo+"/actions/workflows/update-watch.yml/runs?per_page=10"),"workflow_runs")
-        row["lastWatch"]=compact_run(runs[0]) if runs else None
-        if runs:
-            row["watchResult"]= "SUCCESS" if runs[0].get("conclusion")=="success" else (
-                "RUNNING" if runs[0].get("status")!="completed" else "FAILED")
+        runs=most_recent(request(BASE+repo+
+            "/actions/workflows/update-watch.yml/runs?event=schedule&per_page=10"),"workflow_runs")
+        original_schedule, row["watchResult"]=scheduled_watch_state(runs)
+        row["lastWatch"]=compact_run(original_schedule)
     except (WatchError,ValueError,KeyError,OSError) as e:
         row["errors"].append("watch: "+str(e))
     try:
