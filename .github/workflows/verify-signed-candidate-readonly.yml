@@ -181,6 +181,19 @@ jobs:
             --fleet .pgextwin-build/metadata/automation-fleet.json \
             --output "$RUNNER_TEMP/automatic-publisher-handoff-evidence-only.json"
           echo 'Independent signatures and tag proposal joined; effective PUBLISH_DENY, no write token.' >> "$GITHUB_STEP_SUMMARY"
+      # This is a fresh independent GitHub GET of CURRENT protected main,
+      # original in-progress Run, live policy blobs and unoccupied proposed tag.
+      # It is still read-only; a Publisher must obtain separate WRITE authority.
+      - name: Independently recheck live Publisher prerequisites (PUBLISH DENY)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/automatic-publisher-live-preflight.py \
+            --handoff "$RUNNER_TEMP/automatic-publisher-handoff-evidence-only.json" \
+            --output "$RUNNER_TEMP/automatic-publisher-live-policy-recheck-nonpublishing.json"
+          echo 'Live protected main, original run, policy bytes and vacant tag checked independently; still PUBLISH_DENY.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve second opinion as nonpublishing proof only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -189,5 +202,6 @@ jobs:
             ${{ runner.temp }}/independent-signed-candidate-audit.json
             ${{ runner.temp }}/independent-signed-publisher-preflight.json
             ${{ runner.temp }}/automatic-publisher-handoff-evidence-only.json
+            ${{ runner.temp }}/automatic-publisher-live-policy-recheck-nonpublishing.json
           if-no-files-found: error
           retention-days: 30
