@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("scheduled_fleet", ROOT / "scripts/verify-scheduled-fleet-candidate.py")
@@ -39,15 +40,80 @@ report = {
     "extensions": rows,
 }
 def check(document=report, event=run, bbranch=None, target=None, repository=repo,
-          head=good_sha, pin=m.COHORT_3, live_replay=False):
+          head=good_sha, pin=m.COHORT_3, live_replay=False,
+          source_equivalent=False):
     return m.validate(document, event, bbranch or branch(build_sha),
                       target or branch(good_sha), repository, head, pin, now,
-                      live_replay=live_replay)
+                      live_replay=live_replay,
+                      source_equivalent=source_equivalent)
 
 assert check() == "candidate"
 # The independent fresh GET-only replay is not the central ZIP; it must
 # maintain the same protected-main, 17-row, candidate-only contract.
 assert check(live_replay=True) == "candidate"
+# Normal schedule-head exact match remains mandatory. Only a distinct fresh
+# live replay after an authenticated immutable source-identity comparison may
+# tolerate unrelated central main advances. Target main still MUST match.
+drift_build = branch("d" * 40)
+for replay, identical in ((False, False), (True, False), (False, True)):
+    try:
+        check(bbranch=drift_build, live_replay=replay, source_equivalent=identical)
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("unproven central SHA drift was authorized")
+assert check(bbranch=drift_build, live_replay=True,
+             source_equivalent=True) == "candidate"
+try:
+    check(bbranch=drift_build, target=branch("f" * 40),
+          live_replay=True, source_equivalent=True)
+except m.Denied:
+    pass
+else:
+    raise AssertionError("stale target main accepted after central replay")
+
+# The two GitHub trees and actual pinned checkout must agree on the same
+# exact mode/type/blob per file. Malformed/incomplete/changed trees all DENY.
+def pristine_tree():
+    return {"sha": "a" * 40, "truncated": False,
+            "tree": [{"path": path, "type": "blob", "mode": "100644",
+                      "sha": m.git_blob_sha((ROOT / path).read_bytes())}
+                     for path in m.REPLAY_SOURCE_PATHS]}
+
+with patch.object(m, "api", return_value=pristine_tree()) as fetch:
+    assert m.verify_replay_source_blobs("b" * 40, "d" * 40, "") is True
+    assert fetch.call_count == 2
+    assert all("/git/trees/" in call.args[0] for call in fetch.call_args_list)
+for variant in ("missing", "changed", "symlink", "duplicate", "truncated"):
+    item = pristine_tree()
+    if variant == "missing":
+        item["tree"].pop()
+    elif variant == "changed":
+        item["tree"][0]["sha"] = "f" * 40
+    elif variant == "symlink":
+        item["tree"][0]["mode"] = "120000"
+    elif variant == "duplicate":
+        item["tree"].append(dict(item["tree"][0]))
+    else:
+        item["truncated"] = True
+    with patch.object(m, "api", return_value=item):
+        try:
+            m.verify_replay_source_blobs("b" * 40, "d" * 40, "")
+        except m.Denied:
+            pass
+        else:
+            raise AssertionError("malformed identical-source claim accepted: " + variant)
+# Original scheduled-tree mismatch cannot be hidden by a matching current
+# tree, and no API response is accepted as authentication by itself.
+bad = pristine_tree()
+bad["tree"][0]["sha"] = "e" * 40
+with patch.object(m, "api", side_effect=[bad, pristine_tree()]):
+    try:
+        m.verify_replay_source_blobs("b" * 40, "d" * 40, "")
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("original schedule scan source tampering accepted")
 none = deepcopy(report)
 for entry in none["extensions"]:
     if entry["repository"] == repo:
