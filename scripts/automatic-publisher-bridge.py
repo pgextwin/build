@@ -106,6 +106,27 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
                             for v in values.values())
                     for values in digests.values()),
             "incomplete/ambiguous Windows ZIP/SPDX/Grype SHA256 matrices")
+    # An authenticated Grype report may identify real blockers; a CLEAN scan
+    # still cannot bypass the existing independent Publisher authorization.
+    grype_risk = audit.get("grypePolicyByMajor")
+    require(type(grype_risk) is dict and set(grype_risk) == {str(m) for m in majors}
+            and all(type(v) is dict
+                    and v.get("status") in ("BLOCKING_FINDINGS", "NO_BLOCKING_FINDINGS")
+                    and type(v.get("blockingFindingCount")) is int
+                    and v["blockingFindingCount"] >= 0
+                    and v.get("publicationAuthorized") is False
+                    and type(v.get("findingCountBySeverity")) is dict
+                    and set(v["findingCountBySeverity"]) ==
+                        {"Critical", "High", "Medium", "Low", "Negligible", "Unknown"}
+                    and all(type(c) is int and c >= 0
+                            for c in v["findingCountBySeverity"].values())
+                    and v["blockingFindingCount"] == sum(
+                        v["findingCountBySeverity"][k]
+                        for k in ("Critical", "High", "Unknown"))
+                    and (v["status"] == "BLOCKING_FINDINGS") ==
+                        (v["blockingFindingCount"] > 0)
+                    for v in grype_risk.values()),
+            "untrusted or incomplete per-PG blocking Grype scan verdict")
     require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int
             and fleet["schemaVersion"] == 1
             and fleet.get("releasePolicy") == "manual-only"
@@ -149,11 +170,14 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
         "zipSha256ByMajor": digests["zip"],
         "spdxSha256ByMajor": digests["spdx"],
         "grypeSha256ByMajor": digests["grype"],
+        "grypePolicyByMajor": grype_risk,
         "policyBlockers": [
             "CENTRAL_MANUAL_DISPATCH",
             "LOCAL_MANUAL_DISPATCH",
             "FLEET_MANUAL_ONLY",
             "UNATTENDED_OBSERVE_DENY",
+            *(["BLOCKING_GRYPE_FINDINGS"] if any(
+                v["blockingFindingCount"] for v in grype_risk.values()) else []),
             "INDEPENDENT_PUBLISHER_AUTHORIZATION_NOT_ESTABLISHED",
         ],
         "publishableReceipt": False,
