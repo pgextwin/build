@@ -76,6 +76,9 @@ jobs:
       - name: Validate inert Chat PR authorization and hostile merge/event fixtures
         run: python tests/test-chat-pr-authorization.py
 
+      - name: Reject forged or unverified shared-pin native Auto-merge admission
+        run: python tests/test-verified-pin-automerge.py
+
       - name: Reject mismatched protected candidate and upstream signing intent (NONPUBLISHING)
         run: python tests/test-automatic-signed-build-intent.py
       - name: Reject forged original scheduled decision bytes on protected main (NONPUBLISHING)
