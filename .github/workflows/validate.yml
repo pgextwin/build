@@ -95,6 +95,9 @@ jobs:
       - name: Deny forged signed automatic Publisher/tag handoff without releasing
         run: python tests/test-automatic-publisher-handoff.py
 
+      - name: Deny forged live Publisher original Run/main/tag/policy rechecks
+        run: python tests/test-automatic-publisher-live-preflight.py
+
       - name: Block unfiltered Grype high/critical/unknown findings before unattended Publisher
         run: python tests/test-automatic-grype-publisher-policy.py
 
