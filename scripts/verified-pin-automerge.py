@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nonpublishing, protected-PR-only Auto-merge for a single verified shared workflow pin.
+"""Nonpublishing read-only merge admission and real postmerge proof for shared pins.
 
 Read-only proof checker called from an original trusted Windows workflow_run.
 Never use pull_request_target with untrusted checkout. The GitHub Actions
@@ -79,6 +79,10 @@ def admit(*, repository, expected_head, expected_central, pr, files, ci_run,
             and pr.get("mergeable") is True and pr.get("mergeable_state") == "clean"
             and type(pr.get("number")) is int and pr["number"] > 0,
             "PR is not ready, clean and mergeable")
+    base = pr.get("base") or {}
+    require(type(base.get("sha")) is str and SHA.fullmatch(base["sha"])
+            and base["sha"] == (main.get("commit") or {}).get("sha"),
+            "PR original base and current protected main differ")
     head = pr.get("head") or {}
     require(head.get("sha") == expected_head
             and head.get("repo", {}).get("full_name") == repository
@@ -116,8 +120,64 @@ def admit(*, repository, expected_head, expected_central, pr, files, ci_run,
         (REQUIRED - {"windows / PostgreSQL 14 / Windows x64"})
         | {"syntax", "Regression-test immutable Release preflight"})
     require(need <= success, "required original App15368 checks not fully successful")
-    return ["gh", "pr", "merge", str(pr["number"]), "-R", repository,
-            "--auto", "--squash", "--match-head-commit", expected_head]
+    return {
+        "schemaVersion": 1,
+        "decision": "ELIGIBLE_FOR_PROTECTED_CHAT_MERGE_ONLY",
+        "repository": repository,
+        "prNumber": pr["number"],
+        "expectedHeadSha": expected_head,
+        "expectedBaseSha": (pr.get("base") or {}).get("sha"),
+        "mergeMethod": "squash",
+        "actor": "CONNECTED_CHAT_GITHUB_NOT_ACTIONS_TOKEN",
+        "releaseAuthorized": False,
+    }
+
+
+
+def verify_postmerge(*, repository, expected_main, branch, run, checks, pr=None):
+    """Inert proof of the ORIGINAL native main/push CI, never a Release admission.
+
+    This must not be substituted with workflow_dispatch, reruns or the successful
+    pull_request CI. GitHub Actions GITHUB_TOKEN merges can suppress this event.
+    """
+    require(type(repository) is str and repository.startswith("pgextwin/")
+            and type(expected_main) is str and SHA.fullmatch(expected_main),
+            "postmerge identity is missing")
+    require(type(branch) is dict and branch.get("name") == "main"
+            and branch.get("protected") is True
+            and (branch.get("commit") or {}).get("sha") == expected_main,
+            "postmerge main is stale, unprotected or mismatched")
+    require(type(run) is dict and run.get("event") == "push"
+            and run.get("head_sha") == expected_main
+            and run.get("head_branch") == "main"
+            and run.get("run_attempt") == 1
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+            and str(run.get("path", "")).endswith("/windows.yml"),
+            "real original exact-main push Windows CI is not successful")
+    if pr is not None:
+        require(type(pr) is dict and pr.get("state") == "closed"
+                and pr.get("merged") is True
+                and pr.get("merge_commit_sha") == expected_main
+                and (pr.get("base") or {}).get("ref") == "main",
+                "postmerge commit is not the exact protected PR merge")
+    require(type(checks) is list and len(checks) < 100,
+            "postmerge check list missing or truncated")
+    successes = {c.get("name") for c in checks
+                 if type(c) is dict and c.get("status") == "completed"
+                 and c.get("conclusion") == "success"
+                 and (c.get("app") or {}).get("id") == 15368}
+    required = REQUIRED if repository != "pgextwin/plpgsql_check" else (
+        (REQUIRED - {"windows / PostgreSQL 14 / Windows x64"})
+        | {"syntax", "Regression-test immutable Release preflight"})
+    require(required <= successes,
+            "real postmerge original App15368 required checks absent")
+    return {
+        "schemaVersion": 1, "decision": "ORIGINAL_POSTMERGE_WINDOWS_ACCEPTED",
+        "repository": repository, "mainSha": expected_main,
+        "runId": run.get("id"), "requiredChecksPassed": len(required),
+        "releaseAuthorized": False,
+    }
 
 
 def gh_api(path):
@@ -158,7 +218,7 @@ def main():
         require(check_payload.get("total_count", 0) < 100, "check run pagination required")
         central_runs = gh_api("repos/pgextwin/build/actions/workflows/validate.yml/runs"
                               f"?event=push&head_sha={a.expected_central}&per_page=30")
-        args = admit(
+        evidence = admit(
             repository=a.repository, expected_head=run.get("head_sha"),
             expected_central=a.expected_central, pr=pr, files=files,
             ci_run=run, checks=check_payload["check_runs"],
@@ -167,9 +227,9 @@ def main():
             central=gh_api("repos/pgextwin/build/branches/main"),
             central_runs=central_runs["workflow_runs"],
             fleet=json.loads(Path(a.fleet).read_text(encoding="utf-8")))
-        print("READ-ONLY EVIDENCE: eligible original pin-only PR", pr["number"])
-        print("PROPOSED EXTERNAL TRUSTED-ACTOR COMMAND:", " ".join(args))
-        print("NO MERGE: Actions-token writes are prohibited (missing native push CI)")
+        print(json.dumps(evidence, sort_keys=True))
+        print("NO MERGE: independently GET exact head/base again with existing Chat GitHub "
+              "connector before expected-head protected Squash; never GITHUB_TOKEN")
         return 0
     except (Denied, KeyError, TypeError, OSError, ValueError) as exc:
         print("AUTO-MERGE DENIED:", str(exc), file=sys.stderr)
