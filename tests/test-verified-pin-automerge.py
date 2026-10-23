@@ -50,6 +50,17 @@ def fixture():
 
 
 class AutoMergeGuards(unittest.TestCase):
+    def test_action_token_cannot_merge_or_suppress_required_push_ci(self):
+        script = (root / "scripts" / "verified-pin-automerge.py").read_text()
+        workflow = (root / ".github/workflows/verified-pin-automerge.yml").read_text()
+        self.assertNotIn('p.add_argument("--execute"', script)
+        self.assertNotIn("subprocess.run(args", script)
+        self.assertNotIn("--execute", workflow)
+        self.assertNotIn("contents: write", workflow)
+        self.assertNotIn("pull-requests: write", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn("pull-requests: read", workflow)
+
     def test_positive_is_explicit_squash_expected_head_nonpublishing(self):
         command = lib.admit(**fixture())
         self.assertEqual(command, [
