@@ -181,6 +181,8 @@ def github(repo, suffix, *, not_found=False):
         or re.fullmatch(r"git/ref/tags/v[A-Za-z0-9][A-Za-z0-9._-]{0,110}-windows\.[1-9][0-9]*", suffix)
     )
     require(allowed, "GitHub GET endpoint not allowlisted")
+    require(not not_found or suffix.startswith(("releases/tags/", "git/ref/tags/")),
+            "only an exact public tag or Release lookup may treat 404 as absent")
     args = ["gh", "api", "--method", "GET", "repos/" + repo + "/" + suffix]
     p = subprocess.run(args, capture_output=True, text=True,
                        check=False, timeout=40)
