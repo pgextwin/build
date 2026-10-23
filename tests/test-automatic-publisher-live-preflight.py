@@ -103,7 +103,7 @@ class IndependentLivePublisherTests(unittest.TestCase):
             lambda x: x["handoff"].update(runAttempt=2),
             lambda x: x["handoff"].update(independentSigstoreSecondOpinion=False),
             lambda x: x["handoff"].update(tagProposal="../escape"),
-            lambda x: x["handoff"].update(goG4="GO"),
+            lambda x: x["handoff"].update(g4="GO"),
             lambda x: x["handoff"]["policyBlockers"].append("EXTRA"),
             lambda x: x["fleet"].update(releasePolicy="automatic"),
             lambda x: x["fleet"]["entries"].pop(),
