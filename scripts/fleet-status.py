@@ -47,12 +47,41 @@ def scheduled_watch_state(runs):
     raise WatchError("unexpected original scheduled watch run status")
 
 
+def current_main_schedule_state(run, watch_status, branch):
+    """Observe an original successful schedule on *today's protected main*.
+
+    A historic SUCCESS after subsequent source changes is not evidence of a
+    post-repair schedule. This pure GET-only check neither verifies candidate
+    creation nor grants Release authorization.
+    """
+    sha = (branch.get("commit") or {}).get("sha") if type(branch) is dict else None
+    if (type(branch) is not dict or branch.get("protected") is not True
+            or type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None):
+        raise WatchError("protected current main SHA unavailable")
+    if run is None:
+        return "NOT_YET_OBSERVED", sha
+    if (type(run) is not dict or run.get("event") != "schedule"
+            or run.get("head_branch") != "main"):
+        raise WatchError("latest watch is not a genuine main/schedule event")
+    if run.get("head_sha") != sha:
+        return "PREVIOUS_MAIN_ONLY", sha
+    if run.get("run_attempt") != 1:
+        return "UNVERIFIED_ATTEMPT", sha
+    if watch_status == "SUCCESS" and run.get("status") == "completed":
+        return "CURRENT_MAIN_SCHEDULE_SUCCESS", sha
+    if watch_status == "RUNNING":
+        return "CURRENT_MAIN_SCHEDULE_RUNNING", sha
+    if watch_status == "FAILED":
+        return "CURRENT_MAIN_SCHEDULE_FAILED", sha
+    return "INDETERMINATE", sha
+
+
 def compact_run(run):
     if not run:
         return None
     return {"runId":run.get("id"),"url":run.get("html_url"),"startedAt":run.get("run_started_at") or run.get("created_at"),
             "updatedAt":run.get("updated_at"),"status":run.get("status"),"conclusion":run.get("conclusion"),
-            "event":run.get("event"),"branch":run.get("head_branch")}
+            "event":run.get("event"),"branch":run.get("head_branch"),"headSha":run.get("head_sha"),"runAttempt":run.get("run_attempt")}
 
 def fetch_audit(repo,run):
     artifacts=most_recent(request(BASE+repo+"/actions/runs/"+str(run["id"])+"/artifacts?per_page=100"),"artifacts")
@@ -77,9 +106,11 @@ def one(entry,lifecycle):
     repo=entry["repository"]
     row={"extension":repo.split("/")[-1],"repository":repo,"mode":entry["mode"],
          "scheduleUtc":entry["scheduleUtc"],"lastWatch":None,"watchResult":"UNKNOWN",
+         "currentMainScheduleStatus":"INDETERMINATE","currentProtectedMainSha":None,
          "detectedCandidate":None,"candidatePrUrl":None,"lastWindowsCi":None,
          "lastCandidateStatus":"NOT_RUN","perMajor":[],"lastSuccessfulCandidate":None,
          "lastSuccessfulUpstreamShas":{},"errors":[]}
+    original_schedule=None
     try:
         runs=most_recent(request(BASE+repo+
             "/actions/workflows/update-watch.yml/runs?event=schedule&per_page=10"),"workflow_runs")
@@ -87,6 +118,12 @@ def one(entry,lifecycle):
         row["lastWatch"]=compact_run(original_schedule)
     except (WatchError,ValueError,KeyError,OSError) as e:
         row["errors"].append("watch: "+str(e))
+    try:
+        branch=request(BASE+repo+"/branches/main")
+        row["currentMainScheduleStatus"],row["currentProtectedMainSha"] = (
+            current_main_schedule_state(original_schedule, row["watchResult"], branch))
+    except (WatchError,ValueError,KeyError,OSError,TypeError) as e:
+        row["errors"].append("protected-main schedule: "+str(e))
     try:
         issues=request(BASE+repo+"/issues?state=open&per_page=100")
         if not isinstance(issues,list):
@@ -149,8 +186,9 @@ def render(state):
         "## Manual candidate queue (not release approval)","",
         "A draft PR link means **manual inspection is required**, even if its latest CI is green.",
         "Never infer that a candidate is release-ready without checking the matching SHA, run, artifacts, audit and source diff.","",
-        "| Extension | Mode | Last watch | Update Issue | Candidate PR (manual queue) | Candidate CI | Last verified SHA |",
-        "| --- | --- | --- | --- | --- | --- | --- |"]
+        "Current-main schedule SUCCESS proves only an authentic completed first-attempt schedule on the current protected main, not an update, signature, or Release.","",
+        "| Extension | Mode | Last watch | Current-main schedule | Update Issue | Candidate PR (manual queue) | Candidate CI | Last verified SHA |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for s in state["extensions"]:
         w=s["lastWatch"]
         watch=(w.get("conclusion") or w.get("status")) if w else "NOT_RUN"
@@ -164,7 +202,7 @@ def render(state):
         else:
             queue="—"
         success=(s["lastSuccessfulCandidate"] or {}).get("packagingCommit") or "—"
-        lines.append("| "+s["extension"]+" | "+s["mode"]+" | "+watch+" | "+candidate.replace("|","/")[:70]+
+        lines.append("| "+s["extension"]+" | "+s["mode"]+" | "+watch+" | "+s.get("currentMainScheduleStatus","INDETERMINATE")+" | "+candidate.replace("|","/")[:70]+
                      " | "+queue+" | "+s["lastCandidateStatus"]+" | "+success+" |")
     queue=state.get("hourlyChatQueue")
     if queue is not None:
