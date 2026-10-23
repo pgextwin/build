@@ -92,14 +92,20 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
     require(len(expected_roster) == 17 and repo in expected_roster,
             "repository is not one of the same 17 protected extensions")
     majors = audit.get("maintainedMajors")
-    digests = audit.get("zipSha256ByMajor")
+    # Preserve the SHA256 of every verified on-disk ZIP, SPDX and Grype byte
+    # stream, not just ZIP bytes. These are integrity evidence, NOT independent
+    # cryptographic proofs of all three assets or Publisher authorization.
+    digests = {kind: audit.get(kind + "Sha256ByMajor")
+               for kind in ("zip", "spdx", "grype")}
     require(type(majors) is list and len(majors) >= 1
             and len(majors) <= 5 and all(type(v) is int and 14 <= v <= 18 for v in majors)
             and majors == sorted(set(majors))
-            and type(digests) is dict
-            and set(digests) == {str(m) for m in majors}
-            and all(type(v) is str and HASH.fullmatch(v) for v in digests.values()),
-            "incomplete/ambiguous retained Windows ZIP SHA256 matrix")
+            and all(type(values) is dict
+                    and set(values) == {str(m) for m in majors}
+                    and all(type(v) is str and HASH.fullmatch(v)
+                            for v in values.values())
+                    for values in digests.values()),
+            "incomplete/ambiguous Windows ZIP/SPDX/Grype SHA256 matrices")
     require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int
             and fleet["schemaVersion"] == 1
             and fleet.get("releasePolicy") == "manual-only"
@@ -140,7 +146,9 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
         "runAttempt": attempt,
         "verifiedAuditStatus": audit["status"],
         "maintainedMajors": majors,
-        "zipSha256ByMajor": digests,
+        "zipSha256ByMajor": digests["zip"],
+        "spdxSha256ByMajor": digests["spdx"],
+        "grypeSha256ByMajor": digests["grype"],
         "policyBlockers": [
             "CENTRAL_MANUAL_DISPATCH",
             "LOCAL_MANUAL_DISPATCH",
