@@ -83,6 +83,9 @@ jobs:
       - name: Verify signed automatic candidate digest/Sigstore origin denial fixtures
         run: python tests/test-automatic-signed-candidate-audit.py
 
+      - name: Verify actual signed-audit to Publisher admission remains DENY
+        run: python tests/test-automatic-publisher-bridge.py
+
       - name: Reject forged unattended Release requests (nonpublishing Issue 75)
         run: python tests/test-automatic-release-preflight.py
 
