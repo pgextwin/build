@@ -59,10 +59,24 @@ jobs:
             --intent "$RUNNER_TEMP/original-decision/automatic-signed-build-intent.json" \
             --output "$RUNNER_TEMP/automatic-signed-candidate-audit.json"
           echo 'Cryptographically verified BUILD only. Formal Release authorization: DENY.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Compare actual signed candidate with effective Publisher policy (READ ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/automatic-publisher-bridge.py \
+            --audit "$RUNNER_TEMP/automatic-signed-candidate-audit.json" \
+            --fleet .pgextwin-build/metadata/automation-fleet.json \
+            --central-policy .pgextwin-build/metadata/release-promotion.json \
+            --local-policy config/release-promotion.json \
+            --unattended .pgextwin-build/metadata/unattended-publication.json \
+            --output "$RUNNER_TEMP/automatic-publisher-policy-deny.json"
+          echo 'Effective Publisher admission: PUBLISH_DENY / GO B,G4,G5 NO_GO.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve nonpublishing evidence only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: automatic-signed-candidate-audit-nonpublishing
-          path: ${{ runner.temp }}/automatic-signed-candidate-audit.json
+          path: |
+            ${{ runner.temp }}/automatic-signed-candidate-audit.json
+            ${{ runner.temp }}/automatic-publisher-policy-deny.json
           if-no-files-found: error
           retention-days: 30
