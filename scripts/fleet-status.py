@@ -74,7 +74,7 @@ def one(entry,lifecycle):
             i=owned[0]
             row["detectedCandidate"]={"url":i.get("html_url"),"title":i.get("title"),
                                       "updatedAt":i.get("updated_at"),
-                                      "mayBeStale":row["watchResult"]!="SUCCESS"}
+                                      "mayBeStale":True  # Successful watch run does not prove this older Issue is fresh.}
     except (WatchError,ValueError,KeyError,OSError) as e:
         row["errors"].append("upstream issue: "+str(e))
     try:
