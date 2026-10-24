@@ -111,7 +111,9 @@ class TokenLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"caller failed"):
             with mod.single_repository_token(**args(api)):
                 raise RuntimeError("caller failed")
-        self.assertEqual(api.calls[-1],("DELETE","/installation/token"))
+        self.assertEqual(api.calls[-2:], [
+            ("DELETE","/installation/token"),
+            ("GET","/installation/repositories?per_page=100")])
 
     def test_issuer_mismatch_prevents_token_mint(self):
         api=FakeAPI("signer")
