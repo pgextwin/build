@@ -69,8 +69,8 @@ class LocatorTests(TestCase):
         with self.assertRaises(loc.Denied):
             loc.decode(marker+"\n"+marker)
         with self.assertRaises(loc.Denied):
-            loc.decode(marker.replace(',"repository"',',"repository"')) if False else loc.decode(
-                marker.replace('"schemaVersion":1', '"schemaVersion":1,"schemaVersion":1'))
+            loc.decode(marker.replace('"schemaVersion":1',
+                                      '"schemaVersion":1,"schemaVersion":1'))
         with self.assertRaises(loc.Denied):
             loc.decode(marker+" trailing rubbish")
 
