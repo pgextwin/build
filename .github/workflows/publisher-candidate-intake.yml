@@ -59,7 +59,7 @@ jobs:
             --unattended metadata/unattended-publication.json \
             --publisher-boundary metadata/publisher-write-boundary.json \
             --github-output "$GITHUB_OUTPUT"
-          echo "Automatic WRITE activation: ${{ steps.readiness.outputs.publisher_ready }} (static only; never sufficient)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Publisher readiness is only a protected static policy check; real issuer and App gates remain mandatory." >> "$GITHUB_STEP_SUMMARY"
       - name: Authenticated cross-repository GET of protected main, original signed jobs and audit artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -161,8 +161,8 @@ jobs:
             --second "$RUNNER_TEMP/pgextwin-original/second/independent-signed-candidate-audit.json" \
             --output "$RUNNER_TEMP/independent-completed-source-nonpublishing.json"
           echo "Real Sigstore and signed source independently rechecked; still PUBLISH_DENY." >> "$GITHUB_STEP_SUMMARY"
-      - name: Correlate actual central schedule with newly reverified signed source (DENY)
-        if: github.event_name == 'schedule'
+      - name: Correlate genuine schedule with still-manual publication policy (DENY)
+        if: ${{ github.event_name == 'schedule' && needs.nonpublishing_intake.outputs.publisher_ready != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_REPOSITORY: ${{ matrix.repository }}
