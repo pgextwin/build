@@ -47,6 +47,36 @@ class TestUnattendedPolicy(unittest.TestCase):
                 with self.assertRaises(module.PolicyDenied):
                     module.evaluate(p, f)
 
+    def test_future_automatic_signed_policy_is_static_only_and_requires_all_controls(self):
+        p,f=self.fixtures()
+        f["releasePolicy"]="automatic-signed-schedule"
+        for row in f["entries"]:
+            row["releasePolicy"]="automatic-signed-schedule"
+        # OBSERVE cannot be relabelled as an automatic-release policy.
+        with self.assertRaises(module.PolicyDenied):
+            module.evaluate(p,f)
+        p["mode"]="UNATTENDED"
+        for key in p["controls"]:
+            p["controls"][key]=True
+        future=module.evaluate(p,f)
+        self.assertEqual(future["status"],
+                         "POLICY_READY_RUNTIME_EVIDENCE_REQUIRED")
+        self.assertIs(future["automaticPublicationAuthorized"],False)
+        self.assertEqual(len(future["eligibleRepositories"]),17)
+        for change in (
+            lambda x:x["entries"][0].update(releasePolicy="manual-only"),
+            lambda x:x["entries"].append(copy.deepcopy(x["entries"][0])),
+            lambda x:x["entries"][0].update(candidateEnabled=False),
+        ):
+            bad=copy.deepcopy(f)
+            change(bad)
+            with self.assertRaises(module.PolicyDenied):
+                module.evaluate(p,bad)
+        incomplete=copy.deepcopy(p)
+        incomplete["controls"]["requireSbomAttestation"]=False
+        with self.assertRaises(module.PolicyDenied):
+            module.evaluate(incomplete,f)
+
     def test_unknown_field_and_missing_guard_are_denied(self):
         p, f = self.fixtures()
         p["unexpected"] = "allowed"
