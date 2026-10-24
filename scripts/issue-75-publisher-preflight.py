@@ -22,6 +22,18 @@ SIGNER_PATH = pin.offline.SIGNER_PATH
 PROVENANCE = pin.SLSA
 SPDX = pin.SPDX
 PROMOTE_PATH = pin.offline.PROMOTE_PATH
+PUSH_PATH = ".github/workflows/update-watch.yml"
+# These are real protected main/push jobs, distinct from the manual Publisher.
+SIGNED_PUSH_JOBS = (
+    "Audit real single manifest-only protected candidate main push",
+    "Attest original candidate after verified protected main merge (NO PUBLISH)",
+    "Verify actual signed ZIP/SPDX/Grype provenance without Publisher rights",
+    "Independently reverify signed candidate before future Publisher (NO PUBLISH)",
+)
+SIGNED_PUSH_ARTIFACTS = frozenset({
+    "automatic-signed-candidate-audit-nonpublishing",
+    "independent-signed-publisher-preflight-nonpublishing",
+})
 AUTHORIZE = "Verify manual operator confirmation and immutable candidate evidence"
 BUILD = "Fresh attested Windows maintained PG14–18 build from validated main"
 RESOLVE = BUILD + " / Resolve extension and PostgreSQL matrix"
@@ -59,7 +71,7 @@ def attempt_from_env(env, run_id, repo):
 
 
 def validate_pkg(pkg, *, major, repo, packaging_sha, upstream_sha,
-                 run_id, attempt):
+                 run_id, attempt, event="workflow_dispatch"):
     require(type(pkg) is dict, "invalid PACKAGE-INFO")
     src = pkg.get("source")
     upstream = pkg.get("upstream")
@@ -77,10 +89,13 @@ def validate_pkg(pkg, *, major, repo, packaging_sha, upstream_sha,
             and build.get("workflow") == SIGNER_PATH
             and build.get("commit") == SIGNER_SHA,
             "PACKAGE-INFO trusted source, PG or fixed builder mismatch")
+    require(event in ("workflow_dispatch", "push")
+            and (event != "push" or attempt == 1),
+            "unknown signed run event or replay attempt")
     require(positive(wf.get("id")) and wf["id"] == run_id
             and positive(wf.get("attempt")) and wf["attempt"] == attempt
             and wf.get("url") == f"https://github.com/{repo}/actions/runs/{run_id}"
-            and wf.get("event") == "workflow_dispatch"
+            and wf.get("event") == event
             and wf.get("ref") == "refs/heads/main",
             "PACKAGE-INFO exact run/attempt/event/ref mismatch")
 
@@ -142,6 +157,80 @@ def validate_snapshot(run, page, *, repo, sha, run_id, attempt, majors):
          job.get("conclusion")) for name, job in seen.items())))
 
 
+
+def validate_completed_push_snapshot(run, jobs, artifacts, *, repo, sha, run_id,
+                                     attempt):
+    """Strict original completed signed main/push identity; NO publication grant.
+
+    This checks authenticated GET metadata, not bytes or cryptographic
+    signatures. An isolated Publisher must ALSO independently download the
+    original ZIP/SPDX/Grype and run real gh attestation verify before WRITE.
+    """
+    require(positive(run_id) and attempt == 1 and type(attempt) is int
+            and type(repo) is str and re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", repo)
+            and type(sha) is str and re.fullmatch(r"[0-9a-f]{40}", sha),
+            "invalid original signed run identity")
+    require(type(run) is dict and type(run.get("repository")) is dict
+            and run["repository"].get("full_name") == repo
+            and type(run.get("id")) is int and run["id"] == run_id
+            and type(run.get("run_attempt")) is int
+            and run["run_attempt"] == attempt
+            and run.get("head_sha") == sha and run.get("head_branch") == "main"
+            and run.get("event") == "push" and run.get("path") == PUSH_PATH
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success",
+            "not original successful completed signed main/push run")
+    require(type(jobs) is dict and type(jobs.get("total_count")) is int
+            and 0 < jobs["total_count"] < 100
+            and type(jobs.get("jobs")) is list
+            and len(jobs["jobs"]) == jobs["total_count"],
+            "incomplete/paginated signed jobs")
+    matches = {}
+    for job in jobs["jobs"]:
+        require(type(job) is dict and positive(job.get("id"))
+                and positive(job.get("run_id")) and job["run_id"] == run_id
+                and type(job.get("run_attempt")) is int
+                and job["run_attempt"] == attempt
+                and job.get("head_sha") == sha
+                and type(job.get("name")) is str,
+                "cross-run/cross-attempt or incomplete signed job")
+        for expected in SIGNED_PUSH_JOBS:
+            if job["name"] == expected or job["name"].endswith(" / " + expected):
+                require(expected not in matches
+                        and job.get("status") == "completed"
+                        and job.get("conclusion") == "success",
+                        "duplicate/failed/skipped required signed job")
+                matches[expected] = job["id"]
+    require(set(matches) == set(SIGNED_PUSH_JOBS),
+            "missing required independent Sigstore/Windows job")
+    require(type(artifacts) is dict
+            and type(artifacts.get("total_count")) is int
+            and 0 < artifacts["total_count"] < 100
+            and type(artifacts.get("artifacts")) is list
+            and len(artifacts["artifacts"]) == artifacts["total_count"],
+            "incomplete/paginated signed audit artifacts")
+    found = {}
+    for artifact in artifacts["artifacts"]:
+        require(type(artifact) is dict and type(artifact.get("name")) is str,
+                "invalid signed artifact inventory entry")
+        if artifact["name"] in SIGNED_PUSH_ARTIFACTS:
+            require(artifact["name"] not in found
+                    and positive(artifact.get("id"))
+                    and positive(artifact.get("size_in_bytes"))
+                    and artifact.get("expired") is False
+                    and type(artifact.get("workflow_run")) is dict
+                    and artifact["workflow_run"].get("id") == run_id
+                    and artifact["workflow_run"].get("head_sha") == sha,
+                    "duplicate/expired/cross-run signed audit artifact")
+            found[artifact["name"]] = (artifact["id"], artifact["size_in_bytes"])
+    require(set(found) == SIGNED_PUSH_ARTIFACTS,
+            "missing original and independent signed audit artifacts")
+    # Stable fingerprint for pre/post independent byte verification comparison.
+    # Do not return authorization flags or mistake GET metadata for signatures.
+    return (repo, sha, run_id, attempt, tuple(sorted(matches.items())),
+            tuple(sorted(found.items())))
+
+
 def _unique(pairs):
     obj = {}
     for key, value in pairs:
@@ -151,12 +240,17 @@ def _unique(pairs):
 
 
 def verified_claims(raw, *, predicate, repo, packaging_sha,
-                    run_id, attempt, zip_name, zip_digest, sbom):
+                    run_id, attempt, zip_name, zip_digest, sbom,
+                    event="workflow_dispatch", config_path=PROMOTE_PATH):
     """Parse ONLY stdout from successful actual gh attestation verify.
 
     Cryptographic trust is provided by the caller's strict CLI invocation
     and zero exit status, never by this parser or mocked verificationResult.
     """
+    require((event, config_path) in (("workflow_dispatch", PROMOTE_PATH),
+                                    ("push", PUSH_PATH))
+            and (event != "push" or attempt == 1),
+            "unrecognized or replayed signed-workflow identity")
     try:
         items = json.loads(raw, object_pairs_hook=_unique)
     except (ValueError, TypeError) as exc:
@@ -196,7 +290,7 @@ def verified_claims(raw, *, predicate, repo, packaging_sha,
             {"verificationResult": item["verificationResult"]},
             predicate, repo=repo, sha=packaging_sha,
             signer_sha=SIGNER_SHA, run_id=run_id, attempt=attempt,
-            event="workflow_dispatch", zip_name=zip_name,
-            zip_digest=zip_digest, sbom=sbom)
+            event=event, zip_name=zip_name,
+            zip_digest=zip_digest, sbom=sbom, config_path=config_path)
     except (pin.Deny, pin.offline.Deny, TypeError, KeyError) as exc:
         raise Deny("verified X.509/immutable signer/source/attempt/SPDX mismatch") from exc
