@@ -1,6 +1,17 @@
 name: Nonpublishing Publisher App proof
 on:
   workflow_dispatch:
+  # A single scoped token canary; the existing dispatch still audits all
+  # registered extensions when an operator explicitly requests it.
+  schedule:
+    - cron: '45 2 * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publisher-app-proof.yml'
+      - 'scripts/probe-publisher-app.py'
+      - 'scripts/publisher-scoped-token.py'
+      - 'metadata/unattended-publication.json'
 permissions:
   contents: read
 concurrency:
@@ -8,6 +19,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   proof:
+    # Existing dedicated protected Environment still controls access to the key.
     if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main'
     environment: publisher
     runs-on: ubuntu-latest
