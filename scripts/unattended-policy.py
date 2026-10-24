@@ -64,8 +64,11 @@ def evaluate(policy, fleet):
             "all safety controls must be booleans")
     require(type(fleet) is dict and fleet.get("schemaVersion") == 1 and
             fleet.get("scheduleUtc") == SCHEDULE and
-            fleet.get("releasePolicy") == "manual-only",
+            fleet.get("releasePolicy") in ("manual-only", "automatic-signed-schedule"),
             "fleet identity or release safety policy changed")
+    fleet_mode=fleet["releasePolicy"]
+    require(policy["mode"] != "OBSERVE" or fleet_mode == "manual-only",
+            "OBSERVE cannot silently accept the scheduled Publisher release policy")
     entries = fleet.get("entries")
     old_repos = {"pgextwin/" + n for n in (
         "pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user",
@@ -90,7 +93,7 @@ def evaluate(policy, fleet):
             "non-original repos require explicit manual-only candidate policy")
     require(all(x.get("scheduleUtc") == SCHEDULE and
                 x.get("mode") in {"WATCH", "BUILD", "OFF"} and
-                x.get("releasePolicy") == "manual-only" for x in entries),
+                x.get("releasePolicy") == fleet_mode for x in entries),
             "fleet controls are incompatible with Step 22 safe rollout")
     pilot = next(x for x in entries if x["repository"] == PILOT)
     require(pilot["mode"] == "BUILD" and pilot["candidateEnabled"] is True,
@@ -104,6 +107,15 @@ def evaluate(policy, fleet):
         return {"schemaVersion": 1, "status": "OBSERVE_ONLY",
                 "repository": PILOT, "automaticPublicationAuthorized": False,
                 "reason": "Manual approval and publishing remain mandatory."}
+    # An explicitly protected automatic signed schedule mode is allowed only
+    # in UNATTENDED with full controls. This STATIC policy does not authorize
+    # a Release; separate original Sigstore and independent Publisher App
+    # checks are still mandatory. Legacy manual-only mode stays supported
+    # as an observational migration dry run.
+    require(fleet_mode == "manual-only" or
+            (fleet_mode == "automatic-signed-schedule" and
+             policy["mode"] == "UNATTENDED"),
+            "scheduled release mode is not independently controlled")
     # The historical one-repository pilot restriction is no longer an
     # authorization gate: all 17 candidates already use the same protected
     # BUILD lane. Requiring the other 16 to turn OFF would disable a proven
