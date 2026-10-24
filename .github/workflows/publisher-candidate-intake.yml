@@ -9,6 +9,7 @@ on:
       - '.github/workflows/publisher-candidate-intake.yml'
       - 'scripts/publisher-candidate-intake.py'
       - 'scripts/verify-completed-signed-source.py'
+      - 'scripts/select-signed-publisher-candidates.py'
       - 'scripts/publisher-scoped-token.py'
       - 'metadata/automation-fleet.json'
 
@@ -47,33 +48,13 @@ jobs:
             --summary "$RUNNER_TEMP/publisher-candidate-intake.md"
       - name: Select exact original signed runs for separate real-byte verification
         id: select
-        env:
-          INTAKE: ${{ runner.temp }}/publisher-candidate-intake.json
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import json, os, re
-          from pathlib import Path
-          result = json.loads(Path(os.environ["INTAKE"]).read_text())
-          assert result["status"] == "NONPUBLISHING_PUBLISHER_INTAKE"
-          assert result["publicationAuthorized"] is False
-          eligible = []
-          for row in result["rows"]:
-              if row["status"] != "SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED":
-                  continue
-              repo, sha, run_id = row["repository"], row["mainSha"], row["candidateRunId"]
-              assert re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", repo)
-              assert re.fullmatch(r"[0-9a-f]{40}", sha)
-              assert type(run_id) is int and run_id > 0
-              eligible.append({"repository": repo, "name": repo.split("/")[1],
-                               "sha": sha, "source_run": run_id})
-          assert len({v["repository"] for v in eligible}) == len(eligible)
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              print("candidate_matrix="+json.dumps(eligible, separators=(",",":")), file=output)
-              print("has_candidates="+str(bool(eligible)).lower(), file=output)
-          print("REAL_BYTE_RECHECK_REQUIRED="+str(len(eligible))+"; NO_RELEASE")
-          PY
+          python scripts/select-signed-publisher-candidates.py \
+            --intake "$RUNNER_TEMP/publisher-candidate-intake.json" \
+            --fleet metadata/automation-fleet.json \
+            --github-output "$GITHUB_OUTPUT"
       - name: Publish explicit nonpublishing observations
         if: always()
         shell: bash
