@@ -231,5 +231,5 @@ with TemporaryDirectory() as directory:
                                  "GITHUB_OUTPUT": str(output)}):
         with patch.object(m, "run", side_effect=m.Deferred("LATEST_GENUINE_CENTRAL_SCAN_NOT_SUCCESSFUL")):
             assert m.main() == 0
-    assert output.read_text() == "mode=deferred\\n"
+    assert output.read_text() == "mode=deferred\n"
 print("PASS: unavailable genuine central schedule is safe deferred, not candidate or publish")
