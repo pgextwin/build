@@ -1,0 +1,62 @@
+name: Hourly independent Publisher candidate intake (READ ONLY)
+on:
+  schedule:
+    # Offset from central :00 scanner and local :30 candidate workflows.
+    - cron: '15 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publisher-candidate-intake.yml'
+      - 'scripts/publisher-candidate-intake.py'
+      - 'scripts/publisher-scoped-token.py'
+      - 'metadata/automation-fleet.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: central-publisher-intake
+  cancel-in-progress: false
+
+jobs:
+  nonpublishing_intake:
+    name: Inspect 17/future candidate signed runs; deny unverified Release
+    if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Authenticated cross-repository GET of protected main, original signed jobs and audit artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/publisher-candidate-intake.py \
+            --fleet metadata/automation-fleet.json \
+            --output "$RUNNER_TEMP/publisher-candidate-intake.json" \
+            --summary "$RUNNER_TEMP/publisher-candidate-intake.md"
+      - name: Publish explicit nonpublishing observations
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/publisher-candidate-intake.md" ]; then
+            cat "$RUNNER_TEMP/publisher-candidate-intake.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'INTAKE=INDETERMINATE; PUBLISH_DENY; no signed Release authorization' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve machine-readable candidate-only intake (NO RELEASE)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: publisher-candidate-intake-nonpublishing
+          path: |
+            ${{ runner.temp }}/publisher-candidate-intake.json
+            ${{ runner.temp }}/publisher-candidate-intake.md
+          if-no-files-found: error
+          retention-days: 30
