@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 
 from update_watch_lib import WatchError, detect_extension_update, github_get_json, utc_now, validate_watch_semantics
 import importlib.util
@@ -64,6 +65,49 @@ def snapshot(repository, entry, fetch):
             "candidate": observed.get("candidate"), "current": observed.get("current")}
 
 
+# A transient API transport error is not equivalent to an up-to-date result.
+# Keep the first authentic failed attempt visible and bound retries strictly.
+def transient_upstream_error(exc):
+    if not isinstance(exc, WatchError):
+        return False
+    message = str(exc).lower()
+    if not message.startswith("upstream query failed:"):
+        return False
+    return (bool(re.search(r"http error (?:429|500|502|503|504)\\b", message))
+            or any(term in message for term in (
+                "timed out", "temporary failure", "connection reset",
+                "connection aborted", "remote end closed connection")))
+
+
+def safe_failure_code(exc):
+    # Never write tokens, full third-party URLs, or GitHub response bodies
+    # into the shared audit artifact. A type alone concealed the source of
+    # the first real hourly pg_cron INDETERMINATE incident (run 40054693145).
+    message = str(exc).lower()
+    if isinstance(exc, WatchError) and message.startswith("upstream query failed:"):
+        status = re.search(r"http error (\\d{3})\\b", message)
+        return "UPSTREAM_HTTP_" + status.group(1) if status else "UPSTREAM_TRANSPORT"
+    if isinstance(exc, WatchError):
+        if "protected extension main changed during audit" in message:
+            return "PROTECTED_MAIN_DRIFT"
+        if "upstream response must be a json array" in message:
+            return "UPSTREAM_INVALID_RESPONSE"
+        return "WATCH_VALIDATION_ERROR"
+    return "AUDIT_EXCEPTION"
+
+
+def bounded_snapshot(repository, entry, fetch, pause=time.sleep):
+    for attempt in range(2):
+        try:
+            return snapshot(repository, entry, fetch)
+        except WatchError as exc:
+            if attempt == 0 and transient_upstream_error(exc):
+                pause(2)
+                continue
+            raise
+    raise WatchError("bounded snapshot exhausted without a result")
+
+
 def scan(registry, fetch):
     entries = fleet.validate(registry)
     if len(entries) != 17:
@@ -71,10 +115,11 @@ def scan(registry, fetch):
     results = []
     for repository, entry in sorted(entries.items()):
         try:
-            results.append(snapshot(repository, entry, fetch))
+            results.append(bounded_snapshot(repository, entry, fetch))
         except (WatchError, KeyError, TypeError, ValueError, OSError) as exc:
             results.append({"repository": repository, "status": "INDETERMINATE",
-                            "updates": [], "reason": type(exc).__name__})
+                            "updates": [], "reason": type(exc).__name__,
+                            "reasonCode": safe_failure_code(exc)})
     if len(results) != 17 or len({x["repository"] for x in results}) != 17:
         raise WatchError("partial or ambiguous fleet coverage")
     failures = [x["repository"] for x in results if x["status"] == "INDETERMINATE"]
@@ -95,8 +140,11 @@ def markdown(report):
         version = "—"
         if isinstance(candidate, dict):
             version = str(candidate.get("version") or candidate.get("perPostgresql") or "—")[:80]
+        status = item["status"]
+        if status == "INDETERMINATE":
+            status += " (" + item.get("reasonCode", "AUDIT_EXCEPTION") + ")"
         rows.append("| " + item["repository"].split("/")[-1] + " | " + version.replace("|", "/") +
-                    " | " + item["status"] + " |")
+                    " | " + status + " |")
     rows += ["", "Detected updates: " + str(report["updatesDetected"]),
              "Indeterminate: " + str(report["indeterminate"]),
              "PUBLISH=DENY; candidate creation still requires owner UPDATE and exact main SHA."]
