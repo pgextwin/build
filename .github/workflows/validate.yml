@@ -154,6 +154,9 @@ jobs:
       - name: Reject forged signed schedule Publisher receipts and privileged policy bypass
         run: python tests/test-automatic-publisher-receipt-issuer.py
 
+      - name: Reject fake automatic signed Publisher public Release provenance (NO RELEASE)
+        run: python tests/test-automatic-release-provenance.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 

@@ -201,7 +201,7 @@ jobs:
     # Only an authentically signed candidate, genuine schedule and an explicit
     # protected-fleet auto policy may even enter the credentialed Environment.
     # Current manual-only/OBSERVE/PUBLISH_DENY yields publisher_ready=false.
-    name: Isolated Publisher App signed formal Release (create only)
+    name: Isolated Publisher App signed formal Release (create only) (${{ matrix.name }})
     needs: [nonpublishing_intake, independent_real_signed_source]
     if: >-
       ${{ github.event_name == 'schedule' &&

@@ -39,6 +39,11 @@ _vuln_spec = importlib.util.spec_from_file_location(
     "formal_publisher_grype_policy", ROOT / "automatic-grype-publisher-policy.py")
 vulnerability = importlib.util.module_from_spec(_vuln_spec)
 _vuln_spec.loader.exec_module(vulnerability)
+_auto_notes_spec = importlib.util.spec_from_file_location(
+    "formal_publisher_public_auto_provenance",
+    ROOT / "automatic-release-provenance.py")
+auto_provenance = importlib.util.module_from_spec(_auto_notes_spec)
+_auto_notes_spec.loader.exec_module(auto_provenance)
 
 class Denied(ValueError): pass
 
@@ -316,11 +321,17 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
     expected["SHA256SUMS.txt"]=digest(folder/"SHA256SUMS.txt")
     stage="PREFLIGHT_OK"
     notes=Path(recovery).with_suffix(".md")
-    notes.write_text("# "+ext["name"]+" Windows x64\n\n"
+    notes_text = ("# "+ext["name"]+" Windows x64\n\n"
         +"Unofficial Windows x64 binaries built from per-PostgreSQL SHA-pinned upstream sources. "
         +"All maintained requested PG majors were smoke-tested; SPDX 2.3 SBOM, report-only Grype, "
         +"signed provenance, signed SBOM attestations and SHA256SUMS included.\n"
-        +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n",encoding="utf-8")
+        +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n")
+    if receipt.get("authorizationMode") == "automatic-schedule":
+        # Only a PUBLIC locator for downstream independently authenticated
+        # source Run and completed central schedule Run. This text is never
+        # treated as a signed proof or as an admission grant by itself.
+        notes_text += "\n" + auto_provenance.encode(receipt) + "\n"
+    notes.write_text(notes_text, encoding="utf-8")
     def state(s):
         nonlocal stage
         stage=s
