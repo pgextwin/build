@@ -136,6 +136,31 @@ class ReadonlyFleet(TestCase):
             "protected extension main changed during audit")),
             "PROTECTED_MAIN_DRIFT")
 
+    def test_protected_push_live_smoke_cannot_replace_genuine_schedule(self):
+        workflow = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
+        self.assertIn('cron: "0 * * * *"', workflow)
+        self.assertIn("  push:\n    branches: [main]\n    paths:\n", workflow)
+        # Only the fleet scanner and its trusted sources may initiate this
+        # extra read-only run. Extension manifest pushes and arbitrary PRs
+        # must not generate another cross-repository 17-fleet scan.
+        for path in (
+            ".github/workflows/fleet-upstream-watch.yml",
+            "scripts/fleet-upstream-watch.py",
+            "scripts/update_watch_lib.py",
+            "scripts/fleet-control.py",
+            "metadata/automation-fleet.json",
+        ):
+            self.assertIn('      - "' + path + '"', workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertNotIn("pull_request:\n", workflow)
+        # A successful code-change push is never the authentic central
+        # schedule proof needed before a local :30 candidate can start.
+        verifier = (ROOT / "scripts/verify-scheduled-fleet-candidate.py").read_text()
+        self.assertIn('run.get("event") == "schedule"', verifier)
+        self.assertIn('run.get("run_attempt") == 1', verifier)
+        self.assertIn('report.get("indeterminate") == 0', verifier)
+        self.assertIn('report.get("publication") == "DENY"', verifier)
+
     def test_schedule_is_read_only_and_owner_gates_unchanged(self):
         y=(ROOT/".github/workflows/fleet-upstream-watch.yml").read_text()
         self.assertIn('cron: "0 * * * *"',y)
