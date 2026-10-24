@@ -92,6 +92,11 @@ jobs:
       - name: Deny forged cross-job Sigstore Publisher second opinion (NO PUBLISH)
         run: python tests/test-independent-signed-publisher-preflight.py
 
+      - name: Independently reject Publisher WRITE scope for unauthorized App, repo and policy
+        run: |
+          python tests/test-independent-publisher-write-scope.py
+          python scripts/independent-publisher-write-scope.py --policy metadata/publisher-write-boundary.json --fleet metadata/automation-fleet.json --repository pgextwin/plpgsql_check
+
       - name: Deny forged signed automatic Publisher/tag handoff without releasing
         run: python tests/test-automatic-publisher-handoff.py
 
