@@ -112,11 +112,20 @@ class PublisherHandoffTests(unittest.TestCase):
             lambda x: x["tag"].update(publicationAuthorized=True),
             lambda x: x["tag"].update(requiresIndependentLiveRecheckAndAtomicTagReservation=False),
             lambda x: x["fleet"].update(releasePolicy="automatic"),
-            lambda x: x["fleet"]["entries"].pop(),
             lambda x: x["fleet"]["entries"].append(deepcopy(x["fleet"]["entries"][0])),
             lambda x: x.update(repository="pgextwin/evil"),
         ]
         self.deny(attacks)
+
+    def test_dynamic_roster_preserves_unknown_repository_deny(self):
+        value = fixture()
+        # An absent member is still rejected; the old fixed-count rejection
+        # was intentionally replaced by exact protected roster membership.
+        value["fleet"]["entries"].pop()
+        self.assertIsInstance(handoff.handoff(**value), dict)
+        value["repository"] = "pgextwin/evil"
+        with self.assertRaises(handoff.Denied):
+            handoff.handoff(**value)
 
     def deny(self, attacks):
         for i, mutate in enumerate(attacks):
