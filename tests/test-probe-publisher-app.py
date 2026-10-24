@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from urllib.error import HTTPError
 from unittest.mock import patch
 spec = importlib.util.spec_from_file_location("probe", Path(__file__).resolve().parents[1] / "scripts/probe-publisher-app.py")
 p = importlib.util.module_from_spec(spec)
@@ -18,7 +19,9 @@ class ProofTests(unittest.TestCase):
             {"repository": "pgextwin/future_extension", "mode": "BUILD",
              "candidateEnabled": True, "releasePolicy": "manual-only"}]}
         calls = []
+        revoked = False
         def api(method, path, token, body=None):
+            nonlocal revoked
             calls.append((method, path))
             if path == "/app":
                 return {"id": 5451798 if bad != "identity" else 15368, "slug": "pgextwin-publisher"}
@@ -31,6 +34,9 @@ class ProofTests(unittest.TestCase):
                     "permissions":{"contents":"write","metadata":"read"},
                     "expires_at":(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat().replace("+00:00", "Z")}
             if path.startswith("/installation/repositories"):
+                if revoked:
+                    raise HTTPError("https://api.github.com", 403 if bad=="revocation-403"
+                                    else 401, "revoked", {}, None)
                 return {"total_count": 2 if bad == "scope" else 1,
                         "repositories":[{"full_name":"pgextwin/future_extension"}]}
             if path.endswith("/git/blobs"):
@@ -40,6 +46,7 @@ class ProofTests(unittest.TestCase):
                 data=base64.b64decode(body["content"])
                 return {"sha":hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()}
             if path == "/installation/token":
+                revoked = True
                 return {}
             raise AssertionError(path)
         env={"GITHUB_REPOSITORY":"pgextwin/build","GITHUB_REF":"refs/heads/main",
@@ -66,6 +73,16 @@ class ProofTests(unittest.TestCase):
         self.assertIn(("POST","/repos/pgextwin/future_extension/git/blobs"), calls)
         self.assertIn(("DELETE","/installation/token"), calls)
         self.assertFalse(any("/releases" in path or "/refs" in path for _,path in calls))
+    def test_live_token_revocation_is_confirmed(self):
+        calls=self.exercise()
+        self.assertEqual(calls[-2:],[
+            ("DELETE","/installation/token"),
+            ("GET","/installation/repositories?per_page=100")])
+
+    def test_unconfirmed_revocation_is_rejected(self):
+        calls=self.exercise("revocation-403")
+        self.assertIn(("DELETE","/installation/token"),calls)
+
     def test_wrong_identity_never_mints(self):
         self.assertFalse(any(path.endswith("/access_tokens") for _,path in self.exercise("identity")))
     def test_expanded_scope_rejected_and_revoked(self):
