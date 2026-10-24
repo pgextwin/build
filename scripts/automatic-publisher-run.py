@@ -141,7 +141,14 @@ def main():
                         and obj.get("commit",{}).get("sha")==expected_sha,
                         "protected source/central main changed before Release")
             current=source.github("pgextwin/build",f"actions/runs/{publisher_id}")
-            require(current==schedule_run,
+            require(type(current) is dict
+                    and all(current.get(k)==schedule_run.get(k) for k in
+                            ("id","run_attempt","event","path","head_sha",
+                             "head_branch"))
+                    and (current.get("repository") or {}).get("full_name")==
+                        "pgextwin/build"
+                    and current.get("status")=="in_progress"
+                    and current.get("conclusion") is None,
                     "live schedule Run identity changed before Release")
             formal.absent(tag)
             # Absolutely NO GitHub WRITE without valid typed independent
