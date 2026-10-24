@@ -169,6 +169,9 @@ jobs:
       - name: Verify independent real signed-source gate remains read-only and fail-closed
         run: python tests/test-verify-completed-signed-source.py
 
+      - name: Verify hourly Publisher selects only genuine fleet signed runs (NO RELEASE)
+        run: python tests/test-select-signed-publisher-candidates.py
+
       - name: Validate default-denied post-manual Release Catalog policy
         run: python tests/test-manual-release-downstream.py
 
