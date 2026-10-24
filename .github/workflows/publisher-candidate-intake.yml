@@ -1,4 +1,4 @@
-name: Hourly independent Publisher candidate intake (READ ONLY)
+name: Hourly independent Publisher candidate intake (default DENY)
 on:
   schedule:
     # Offset from central :00 scanner and local :30 candidate workflows.
@@ -10,6 +10,14 @@ on:
       - 'scripts/publisher-candidate-intake.py'
       - 'scripts/verify-completed-signed-source.py'
       - 'scripts/automatic-publisher-admission.py'
+      - 'scripts/automatic-publisher-receipt-issuer.py'
+      - 'scripts/automatic-publisher-readiness.py'
+      - 'scripts/automatic-publisher-run.py'
+      - 'scripts/download-original-signed-source.py'
+      - 'scripts/fleet-publish-release.py'
+      - 'metadata/publisher-write-boundary.json'
+      - 'metadata/unattended-publication.json'
+      - 'metadata/release-promotion.json'
       - 'scripts/select-signed-publisher-candidates.py'
       - 'scripts/publisher-scoped-token.py'
       - 'metadata/automation-fleet.json'
@@ -30,6 +38,7 @@ jobs:
     outputs:
       has_candidates: ${{ steps.select.outputs.has_candidates }}
       candidate_matrix: ${{ steps.select.outputs.candidate_matrix }}
+      publisher_ready: ${{ steps.readiness.outputs.publisher_ready }}
     permissions:
       contents: read
     steps:
@@ -39,6 +48,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
+      - name: Read-only protected central automatic Publisher opt-in gate
+        id: readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/automatic-publisher-readiness.py \
+            --fleet metadata/automation-fleet.json \
+            --central-policy metadata/release-promotion.json \
+            --unattended metadata/unattended-publication.json \
+            --publisher-boundary metadata/publisher-write-boundary.json \
+            --github-output "$GITHUB_OUTPUT"
+          echo "Automatic WRITE activation: ${{ steps.readiness.outputs.publisher_ready }} (static only; never sufficient)" >> "$GITHUB_STEP_SUMMARY"
       - name: Authenticated cross-repository GET of protected main, original signed jobs and audit artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -108,32 +129,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - name: Redownload original and second-opinion audit + real signed PG assets
+      - name: Re-download ORIGINAL signed PG ZIP/SPDX/Grype and two audits (READ ONLY)
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_REPOSITORY: ${{ matrix.repository }}
-          TARGET_EXTENSION: ${{ matrix.name }}
           ORIGINAL_RUN_ID: ${{ matrix.source_run }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/original" "$RUNNER_TEMP/second" "$RUNNER_TEMP/signed-raw" "$RUNNER_TEMP/signed-dist"
-          gh run download "$ORIGINAL_RUN_ID" --repo "$TARGET_REPOSITORY" --name automatic-signed-candidate-audit-nonpublishing --dir "$RUNNER_TEMP/original"
-          gh run download "$ORIGINAL_RUN_ID" --repo "$TARGET_REPOSITORY" --name independent-signed-publisher-preflight-nonpublishing --dir "$RUNNER_TEMP/second"
-          gh run download "$ORIGINAL_RUN_ID" --repo "$TARGET_REPOSITORY" --pattern "${TARGET_EXTENSION}-pg*-windows-x64" --dir "$RUNNER_TEMP/signed-raw"
-          python - <<'PY'
-          from pathlib import Path
-          import os, shutil
-          root = Path(os.environ["RUNNER_TEMP"])
-          incoming, final = root / "signed-raw", root / "signed-dist"
-          files = [p for p in incoming.rglob("*") if p.is_file()]
-          assert files and all(not p.is_symlink() for p in incoming.rglob("*"))
-          assert len({p.name for p in files}) == len(files), "duplicate artifact filename"
-          for item in files:
-              assert item.suffix in (".zip", ".json") and not item.name.startswith(".")
-              shutil.copyfile(item, final/item.name)
-          print("ORIGINAL_ASSETS_REDOWNLOADED="+str(len(files))+"; NO_PUBLISH")
-          PY
+          python scripts/download-original-signed-source.py \
+            --repository "$TARGET_REPOSITORY" --run-id "$ORIGINAL_RUN_ID" \
+            --directory "$RUNNER_TEMP/pgextwin-original"
       - name: Fresh real Sigstore, immutable source ZIP/SPDX/Grype and exact current-main recheck
         env:
           GH_TOKEN: ${{ github.token }}
@@ -147,12 +153,12 @@ jobs:
             --repository "$TARGET_REPOSITORY" \
             --sha "$SOURCE_SHA" \
             --run-id "$ORIGINAL_RUN_ID" \
-            --dist "$RUNNER_TEMP/signed-dist" \
+            --dist "$RUNNER_TEMP/pgextwin-original/signed-dist" \
             --manifest .pgextwin-candidate/config/extension.json \
             --lifecycle metadata/postgresql.json \
             --fleet metadata/automation-fleet.json \
-            --original "$RUNNER_TEMP/original/automatic-signed-candidate-audit.json" \
-            --second "$RUNNER_TEMP/second/independent-signed-candidate-audit.json" \
+            --original "$RUNNER_TEMP/pgextwin-original/original/automatic-signed-candidate-audit.json" \
+            --second "$RUNNER_TEMP/pgextwin-original/second/independent-signed-candidate-audit.json" \
             --output "$RUNNER_TEMP/independent-completed-source-nonpublishing.json"
           echo "Real Sigstore and signed source independently rechecked; still PUBLISH_DENY." >> "$GITHUB_STEP_SUMMARY"
       - name: Correlate actual central schedule with newly reverified signed source (DENY)
@@ -169,7 +175,7 @@ jobs:
           gh api --method GET repos/pgextwin/build/branches/main > "$RUNNER_TEMP/central-main.json"
           python scripts/automatic-publisher-admission.py \
             --source "$RUNNER_TEMP/independent-completed-source-nonpublishing.json" \
-            --proposal "$RUNNER_TEMP/original/automatic-release-tag-proposal-nonpublishing.json" \
+            --proposal "$RUNNER_TEMP/pgextwin-original/original/automatic-release-tag-proposal-nonpublishing.json" \
             --manifest .pgextwin-candidate/config/extension.json \
             --fleet metadata/automation-fleet.json \
             --central-policy metadata/release-promotion.json \
@@ -188,5 +194,95 @@ jobs:
           path: |
             ${{ runner.temp }}/independent-completed-source-nonpublishing.json
             ${{ runner.temp }}/scheduled-publisher-admission-nonpublishing.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  isolated_formal_publisher:
+    # Only an authentically signed candidate, genuine schedule and an explicit
+    # protected-fleet auto policy may even enter the credentialed Environment.
+    # Current manual-only/OBSERVE/PUBLISH_DENY yields publisher_ready=false.
+    name: Isolated Publisher App signed formal Release (create only)
+    needs: [nonpublishing_intake, independent_real_signed_source]
+    if: >-
+      ${{ github.event_name == 'schedule' &&
+          github.repository == 'pgextwin/build' &&
+          github.ref == 'refs/heads/main' &&
+          needs.nonpublishing_intake.outputs.has_candidates == 'true' &&
+          needs.nonpublishing_intake.outputs.publisher_ready == 'true' &&
+          needs.independent_real_signed_source.result == 'success' }}
+    environment: publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.nonpublishing_intake.outputs.candidate_matrix) }}
+    steps:
+      - name: Checkout exact protected central Publisher code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout exact signed packaging protected main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.sha }}
+          path: .pgextwin-candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Independently download ORIGINAL signed Run bytes (not prior-job authority)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPOSITORY: ${{ matrix.repository }}
+          ORIGINAL_RUN_ID: ${{ matrix.source_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/download-original-signed-source.py \
+            --repository "$TARGET_REPOSITORY" --run-id "$ORIGINAL_RUN_ID" \
+            --directory "$RUNNER_TEMP/pgextwin-publisher-original"
+      - name: Authenticate signed ZIPs, scheduled Run, live policy, App and create-only formal Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHER_APP_ID: ${{ vars.PGEXTWIN_PUBLISHER_APP_ID }}
+          PUBLISHER_INSTALLATION_ID: ${{ vars.PGEXTWIN_PUBLISHER_INSTALLATION_ID }}
+          PUBLISHER_PRIVATE_KEY: ${{ secrets.PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY }}
+          TARGET_REPOSITORY: ${{ matrix.repository }}
+          TARGET_SOURCE_SHA: ${{ matrix.sha }}
+          ORIGINAL_RUN_ID: ${{ matrix.source_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/automatic-publisher-run.py \
+            --repository "$TARGET_REPOSITORY" --sha "$TARGET_SOURCE_SHA" \
+            --source-run "$ORIGINAL_RUN_ID" \
+            --dist "$RUNNER_TEMP/pgextwin-publisher-original/signed-dist" \
+            --manifest .pgextwin-candidate/config/extension.json \
+            --lifecycle metadata/postgresql.json \
+            --original "$RUNNER_TEMP/pgextwin-publisher-original/original/automatic-signed-candidate-audit.json" \
+            --second "$RUNNER_TEMP/pgextwin-publisher-original/second/independent-signed-candidate-audit.json" \
+            --proposal "$RUNNER_TEMP/pgextwin-publisher-original/original/automatic-release-tag-proposal-nonpublishing.json" \
+            --fleet metadata/automation-fleet.json \
+            --central-policy metadata/release-promotion.json \
+            --local-policy .pgextwin-candidate/config/release-promotion.json \
+            --unattended metadata/unattended-publication.json \
+            --publisher-boundary metadata/publisher-write-boundary.json \
+            --recovery "$RUNNER_TEMP/publisher-recovery.json" \
+            --output "$RUNNER_TEMP/verified-automatic-release.json"
+      - name: Preserve no-secret exact release identity and recovery state
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: independent-automatic-formal-release-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/verified-automatic-release.json
+            ${{ runner.temp }}/publisher-recovery.json
           if-no-files-found: warn
           retention-days: 30
