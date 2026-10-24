@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/publisher-candidate-intake.yml'
       - 'scripts/publisher-candidate-intake.py'
+      - 'scripts/verify-completed-signed-source.py'
       - 'scripts/publisher-scoped-token.py'
       - 'metadata/automation-fleet.json'
 
@@ -24,6 +25,9 @@ jobs:
     if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      has_candidates: ${{ steps.select.outputs.has_candidates }}
+      candidate_matrix: ${{ steps.select.outputs.candidate_matrix }}
     permissions:
       contents: read
     steps:
@@ -41,6 +45,35 @@ jobs:
             --fleet metadata/automation-fleet.json \
             --output "$RUNNER_TEMP/publisher-candidate-intake.json" \
             --summary "$RUNNER_TEMP/publisher-candidate-intake.md"
+      - name: Select exact original signed runs for separate real-byte verification
+        id: select
+        env:
+          INTAKE: ${{ runner.temp }}/publisher-candidate-intake.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          result = json.loads(Path(os.environ["INTAKE"]).read_text())
+          assert result["status"] == "NONPUBLISHING_PUBLISHER_INTAKE"
+          assert result["publicationAuthorized"] is False
+          eligible = []
+          for row in result["rows"]:
+              if row["status"] != "SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED":
+                  continue
+              repo, sha, run_id = row["repository"], row["mainSha"], row["candidateRunId"]
+              assert re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", repo)
+              assert re.fullmatch(r"[0-9a-f]{40}", sha)
+              assert type(run_id) is int and run_id > 0
+              eligible.append({"repository": repo, "name": repo.split("/")[1],
+                               "sha": sha, "source_run": run_id})
+          assert len({v["repository"] for v in eligible}) == len(eligible)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print("candidate_matrix="+json.dumps(eligible, separators=(",",":")), file=output)
+              print("has_candidates="+str(bool(eligible)).lower(), file=output)
+          print("REAL_BYTE_RECHECK_REQUIRED="+str(len(eligible))+"; NO_RELEASE")
+          PY
       - name: Publish explicit nonpublishing observations
         if: always()
         shell: bash
@@ -59,4 +92,92 @@ jobs:
             ${{ runner.temp }}/publisher-candidate-intake.json
             ${{ runner.temp }}/publisher-candidate-intake.md
           if-no-files-found: error
+          retention-days: 30
+
+  independent_real_signed_source:
+    name: Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original
+    needs: nonpublishing_intake
+    if: >-
+      ${{ needs.nonpublishing_intake.outputs.has_candidates == 'true' &&
+          github.repository == 'pgextwin/build' &&
+          github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.nonpublishing_intake.outputs.candidate_matrix) }}
+    steps:
+      - name: Checkout current protected central verifier (no persistent credential)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout EXACT signed packaging main SHA (read only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.sha }}
+          path: .pgextwin-candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Redownload original and second-opinion audit + real signed PG assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPOSITORY: ${{ matrix.repository }}
+          TARGET_EXTENSION: ${{ matrix.name }}
+          ORIGINAL_RUN_ID: ${{ matrix.source_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/original" "$RUNNER_TEMP/second" "$RUNNER_TEMP/signed-raw" "$RUNNER_TEMP/signed-dist"
+          gh run download "$ORIGINAL_RUN_ID" --repo "$TARGET_REPOSITORY" --name automatic-signed-candidate-audit-nonpublishing --dir "$RUNNER_TEMP/original"
+          gh run download "$ORIGINAL_RUN_ID" --repo "$TARGET_REPOSITORY" --name independent-signed-publisher-preflight-nonpublishing --dir "$RUNNER_TEMP/second"
+          gh run download "$ORIGINAL_RUN_ID" --repo "$TARGET_REPOSITORY" --pattern "${TARGET_EXTENSION}-pg*-windows-x64" --dir "$RUNNER_TEMP/signed-raw"
+          python - <<'PY'
+          from pathlib import Path
+          import os, shutil
+          root = Path(os.environ["RUNNER_TEMP"])
+          incoming, final = root / "signed-raw", root / "signed-dist"
+          files = [p for p in incoming.rglob("*") if p.is_file()]
+          assert files and all(not p.is_symlink() for p in incoming.rglob("*"))
+          assert len({p.name for p in files}) == len(files), "duplicate artifact filename"
+          for item in files:
+              assert item.suffix in (".zip", ".json") and not item.name.startswith(".")
+              shutil.copyfile(item, final/item.name)
+          print("ORIGINAL_ASSETS_REDOWNLOADED="+str(len(files))+"; NO_PUBLISH")
+          PY
+      - name: Fresh real Sigstore, immutable source ZIP/SPDX/Grype and exact current-main recheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPOSITORY: ${{ matrix.repository }}
+          SOURCE_SHA: ${{ matrix.sha }}
+          ORIGINAL_RUN_ID: ${{ matrix.source_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify-completed-signed-source.py \
+            --repository "$TARGET_REPOSITORY" \
+            --sha "$SOURCE_SHA" \
+            --run-id "$ORIGINAL_RUN_ID" \
+            --dist "$RUNNER_TEMP/signed-dist" \
+            --manifest .pgextwin-candidate/config/extension.json \
+            --lifecycle metadata/postgresql.json \
+            --fleet metadata/automation-fleet.json \
+            --original "$RUNNER_TEMP/original/automatic-signed-candidate-audit.json" \
+            --second "$RUNNER_TEMP/second/independent-signed-candidate-audit.json" \
+            --output "$RUNNER_TEMP/independent-completed-source-nonpublishing.json"
+          echo "Real Sigstore and signed source independently rechecked; still PUBLISH_DENY." >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve evidence only (NO Publisher Environment or token)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: independent-completed-source-nonpublishing-${{ matrix.name }}
+          path: ${{ runner.temp }}/independent-completed-source-nonpublishing.json
+          if-no-files-found: warn
           retention-days: 30
