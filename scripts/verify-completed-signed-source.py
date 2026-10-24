@@ -115,7 +115,7 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
         get(repository,run_path),get(repository,jobs_path),
         get(repository,assets_path),repo=repository,sha=sha,
         run_id=run_id,attempt=attempt)
-    require(type(folder) is Path and folder.is_dir() and not folder.is_symlink(),
+    require(isinstance(folder, Path) and folder.is_dir() and not folder.is_symlink(),
             "signed ZIP directory unavailable")
     try:
         majors=ident.maintained_majors(manifest,lifecycle)
