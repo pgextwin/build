@@ -74,6 +74,28 @@ class TokenLifecycleTests(unittest.TestCase):
         with mod.single_repository_token(**args(FakeAPI(),fleet=fleet)) as (token,_,__):
             self.assertEqual(token,TOKEN)
 
+    def test_explicit_auto_mode_requires_exact_full_policy_and_revokes(self):
+        fleet=fixture()
+        fleet["releasePolicy"]="automatic-signed-schedule"
+        fleet["entries"][0]["releasePolicy"]="automatic-signed-schedule"
+        api=FakeAPI()
+        with self.assertRaises(mod.Denied):
+            with mod.single_repository_token(**args(api,fleet=fleet)):
+                pass
+        self.assertEqual(api.calls,[])
+        with mod.single_repository_token(**args(api,fleet=fleet),
+                                         release_policy="automatic-signed-schedule") as (token,_,__):
+            self.assertEqual(token,TOKEN)
+        self.assertEqual(api.calls[-1],("DELETE","/installation/token"))
+        with self.assertRaises(mod.Denied):
+            with mod.single_repository_token(**args(FakeAPI(),fleet=fixture()),
+                                             release_policy="automatic-signed-schedule"):
+                pass
+        with self.assertRaises(mod.Denied):
+            with mod.single_repository_token(**args(FakeAPI(),fleet=fleet),
+                                             release_policy="unknown"):
+                pass
+
     def test_caller_failure_always_revokes(self):
         api=FakeAPI()
         with self.assertRaisesRegex(RuntimeError,"caller failed"):
