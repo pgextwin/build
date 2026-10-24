@@ -76,6 +76,66 @@ class ReadonlyFleet(TestCase):
         with self.assertRaises(WatchError):
             w.snapshot("pgextwin/pgtap",{"mode":"BUILD","strategy":"github-releases"},invalid)
 
+    def test_transient_upstream_failure_bounded_recovery(self):
+        error = WatchError("upstream query failed: HTTP Error 503: Service Unavailable")
+        self.assertTrue(w.transient_upstream_error(error))
+        self.assertEqual(w.safe_failure_code(error), "UPSTREAM_HTTP_503")
+        self.assertTrue(w.transient_upstream_error(
+            WatchError("upstream query failed: timed out")))
+        self.assertFalse(w.transient_upstream_error(
+            WatchError("upstream query failed: HTTP Error 403: Forbidden")))
+        self.assertFalse(w.transient_upstream_error(
+            WatchError("unprotected or unverifiable upstream manifest main")))
+        self.assertEqual(w.safe_failure_code(
+            WatchError("upstream response must be a JSON array")),
+            "UPSTREAM_INVALID_RESPONSE")
+        seen = [0]
+        sleeps = []
+        def once(url):
+            if url.endswith("/releases?per_page=100"):
+                seen[0] += 1
+                if seen[0] == 1:
+                    raise error
+            return fixture(url)
+        row = w.bounded_snapshot("pgextwin/pgtap",
+                                 {"mode":"BUILD","strategy":"github-releases"},
+                                 once, pause=lambda seconds: sleeps.append(seconds))
+        self.assertEqual(row["status"], "up-to-date")
+        self.assertEqual(seen, [2])
+        self.assertEqual(sleeps, [2])
+
+    def test_persistent_or_nontransient_error_denied_no_success(self):
+        attempts = [0]
+        def persistent(url):
+            if url.endswith("/releases?per_page=100"):
+                attempts[0] += 1
+                raise WatchError("upstream query failed: HTTP Error 504: Gateway Timeout")
+            return fixture(url)
+        with self.assertRaises(WatchError):
+            w.bounded_snapshot("pgextwin/pgtap",
+                               {"mode":"BUILD","strategy":"github-releases"},
+                               persistent, pause=lambda seconds: None)
+        self.assertEqual(attempts, [2])
+        self.assertEqual(w.safe_failure_code(
+            WatchError("upstream query failed: HTTP Error 504: Gateway Timeout")),
+            "UPSTREAM_HTTP_504")
+        attempts[0] = 0
+        def no_retry(url):
+            if url.endswith("/releases?per_page=100"):
+                attempts[0] += 1
+                raise WatchError("upstream query failed: HTTP Error 403: Forbidden")
+            return fixture(url)
+        with self.assertRaises(WatchError):
+            w.bounded_snapshot("pgextwin/pgtap",
+                               {"mode":"BUILD","strategy":"github-releases"},
+                               no_retry, pause=lambda seconds: None)
+        self.assertEqual(attempts, [1])
+        # Reject trust or source drift without retry: retries must never
+        # turn a changed/unprotected manifest into a successful audit.
+        self.assertEqual(w.safe_failure_code(WatchError(
+            "protected extension main changed during audit")),
+            "PROTECTED_MAIN_DRIFT")
+
     def test_schedule_is_read_only_and_owner_gates_unchanged(self):
         y=(ROOT/".github/workflows/fleet-upstream-watch.yml").read_text()
         self.assertIn('cron: "0 * * * *"',y)
