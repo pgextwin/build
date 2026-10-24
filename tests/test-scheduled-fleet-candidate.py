@@ -233,3 +233,68 @@ with TemporaryDirectory() as directory:
             assert m.main() == 0
     assert output.read_text() == "mode=deferred\n"
 print("PASS: unavailable genuine central schedule is safe deferred, not candidate or publish")
+
+
+# A scheduled run delayed past the original strict three-hour TTL must never
+# trigger an expensive 17-repository replay or create a candidate. It is
+# operationally DEFERRED (same as missing/failed schedule), not a green proof.
+expired = deepcopy(run)
+expired["created_at"] = iso(now - timedelta(hours=4))
+expired["updated_at"] = iso(now - timedelta(hours=4, minutes=-1))
+expired["id"] = 99818
+def expired_run_check(original):
+    with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
+                                 "GITHUB_REF": "refs/heads/main",
+                                 "GITHUB_RUN_ATTEMPT": "1"}):
+        with patch.object(m, "api", side_effect=[
+            branch(build_sha), branch(good_sha),
+            {"workflow_runs": [original]}, original
+        ]) as getter:
+            try:
+                m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+            except m.Deferred as exc:
+                assert str(exc) == "LATEST_GENUINE_CENTRAL_SCAN_EXPIRED"
+                assert getter.call_count == 4
+            else:
+                raise AssertionError("expired central schedule was not safely deferred")
+expired_run_check(expired)
+bad_clock = deepcopy(expired)
+bad_clock["updated_at"] = iso(now + timedelta(days=1))
+with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
+                             "GITHUB_REF": "refs/heads/main",
+                             "GITHUB_RUN_ATTEMPT": "1"}):
+    with patch.object(m, "api", side_effect=[
+        branch(build_sha), branch(good_sha),
+        {"workflow_runs": [bad_clock]}, bad_clock
+    ]):
+        try:
+            m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+        except m.Denied:
+            pass
+        else:
+            raise AssertionError("forged future run clock was not hard denied")
+bad_actor = deepcopy(expired)
+bad_actor["event"] = "workflow_dispatch"
+with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
+                             "GITHUB_REF": "refs/heads/main",
+                             "GITHUB_RUN_ATTEMPT": "1"}):
+    with patch.object(m, "api", side_effect=[
+        branch(build_sha), branch(good_sha),
+        {"workflow_runs": [bad_actor]}, bad_actor
+    ]):
+        try:
+            m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+        except m.Denied:
+            pass
+        else:
+            raise AssertionError("forged dispatch accepted as schedule")
+with TemporaryDirectory() as directory:
+    output = Path(directory) / "output"
+    with patch.dict(os.environ, {"GITHUB_REPOSITORY": repo, "GITHUB_SHA": good_sha,
+                                 "PGEXTWIN_DETECTOR_SHA": m.COHORT_3,
+                                 "GH_TOKEN": "never-log-secret",
+                                 "GITHUB_OUTPUT": str(output)}):
+        with patch.object(m, "run", side_effect=m.Deferred("LATEST_GENUINE_CENTRAL_SCAN_EXPIRED")):
+            assert m.main() == 0
+    assert output.read_text() == "mode=deferred\\n"
+print("PASS: expired genuine central scan defers only, clock and spoofing DENY")
