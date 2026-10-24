@@ -295,11 +295,14 @@ class FleetPublisherTests(TestCase):
         tag="v18.1-windows.3"
         release={"id":879,"tag_name":tag,"target_commitish":COMMIT,"draft":True,
             "assets":[{"name":"sample.zip","state":"uploaded","digest":"sha256:"+"d"*64}]}
-        with patch.object(p,"get",return_value=[release]):
+        with patch.object(p,"get",return_value=([release],False)) as get:
             self.assertEqual(p.staged_release_id(tag,COMMIT),879)
+            get.assert_called_once_with("releases?per_page=100&page=1",
+                                        release_page=True)
         for bad in ([],[release,release],[release]*100,[{**release,"draft":False}],
-                    [{**release,"target_commitish":"f"*40}]):
-            with patch.object(p,"get",return_value=bad),self.assertRaises(p.Denied):
+                    [{**release,"target_commitish":"f"*40}],
+                    [{**release,"id":True}], [{"id":None, "tag_name":tag}]):
+            with patch.object(p,"get",return_value=(bad,False)),self.assertRaises(p.Denied):
                 p.staged_release_id(tag,COMMIT)
         with patch.object(p,"get",return_value=release),patch.object(
                 p,"run",side_effect=AssertionError("draft must not download by tag")):
@@ -311,6 +314,41 @@ class FleetPublisherTests(TestCase):
         with patch.object(p,"get",return_value=bad),self.assertRaises(p.Denied):
             p.check_remote(tag,{"sample.zip":"d"*64},True,879)
 
+
+    def test_staged_release_full_pages_and_exact_multiple(self):
+        tag="v18.1-windows.3"
+        release={"id":9000,"tag_name":tag,"target_commitish":COMMIT,"draft":True}
+        # Full first page with 100 *other* releases: draft may be on page 2.
+        first=[{"id":n,"tag_name":"old-"+str(n),"draft":False} for n in range(1,101)]
+        with patch.object(p,"get",side_effect=[(first,True),([release],False)]) as get:
+            self.assertEqual(p.staged_release_id(tag,COMMIT),9000)
+            self.assertEqual(get.call_count,2)
+            self.assertEqual(get.call_args.args[0],"releases?per_page=100&page=2")
+        # An exact 100-item page with no next pointer is still complete.
+        with patch.object(p,"get",return_value=(first[:-1]+[release],False)):
+            self.assertEqual(p.staged_release_id(tag,COMMIT),9000)
+
+    def test_staged_release_refuses_truncated_and_unstable_pages(self):
+        tag="v18.1-windows.3"
+        release={"id":9000,"tag_name":tag,"target_commitish":COMMIT,"draft":True}
+        first=[{"id":n,"tag_name":"old-"+str(n)} for n in range(1,101)]
+        cases=[
+            [([release],True)],  # GitHub claimed next even though the page was short
+            [(first,True),([dict(first[0]),release],False)],  # duplicate ID
+            [(first,True),([],False)],  # missing exact reserved draft
+            [(first,True),([{"id":9000, "tag_name":tag, "draft":False}],False)],
+        ]
+        for pages in cases:
+            with self.subTest(pages=len(pages)):
+                with patch.object(p,"get",side_effect=pages),self.assertRaises(p.Denied):
+                    p.staged_release_id(tag,COMMIT)
+        # Never accept a supposedly unbounded list of next pages (max 50).
+        def endless(path, *, release_page=False):
+            index=int(path.rsplit("=",1)[1])
+            return ([{"id":index*100+n,"tag_name":"other"}
+                     for n in range(100)],True)
+        with patch.object(p,"get",side_effect=endless),self.assertRaises(p.Denied):
+            p.staged_release_id(tag,COMMIT)
 
     def test_pre_g4_real_historical_publisher_manual_offline(self):
         """Both exact pinned scripts read local synthetic ZIPs; no publisher main(), GET or write."""
