@@ -152,7 +152,7 @@ def scan(fleet, *, get):
     require(len(names) == len(fleet["entries"]) and len(set(names)) == len(names),
             "duplicate/malformed fleet")
     for name in names:
-        _scope.valid_fleet(fleet, name)
+        _scope.valid_fleet(fleet, name, release_policy=fleet.get('releasePolicy'))
     rows = []
     for repo in names:
         try:
