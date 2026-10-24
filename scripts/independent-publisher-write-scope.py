@@ -53,11 +53,13 @@ def evaluate(policy, fleet, issuance, live_repositories, *, repository,
     require(type(fleet) is dict and fleet.get("schemaVersion") == 1
             and fleet.get("releasePolicy") == "manual-only"
             and type(fleet.get("entries")) is list
-            and len(fleet["entries"]) == 17,
+            and len(fleet["entries"]) > 0,
             "unexpected fleet policy")
     rows = fleet["entries"]
     names = [x.get("repository") for x in rows if type(x) is dict]
-    require(len(names) == 17 and len(set(names)) == 17
+    require(len(names) == len(rows)
+            and all(type(n) is str and REPO.fullmatch(n) for n in names)
+            and len(set(names)) == len(rows)
             and type(repository) is str and REPO.fullmatch(repository)
             and repository in names
             and all(type(n) is str and REPO.fullmatch(n) for n in names)
