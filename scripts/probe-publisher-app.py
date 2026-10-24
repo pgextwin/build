@@ -70,20 +70,32 @@ def repositories(fleet):
     return names
 
 def run():
+    event = os.environ.get("GITHUB_EVENT_NAME")
     require(os.environ.get("GITHUB_REPOSITORY") == "pgextwin/build"
         and os.environ.get("GITHUB_REF") == "refs/heads/main"
-        and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch")
+        and event in ("workflow_dispatch", "schedule", "push"))
     app = int(os.environ["PUBLISHER_APP_ID"])
     installation = int(os.environ["PUBLISHER_INSTALLATION_ID"])
     require(app == 5451798 and installation == 174720074 and app != 15368)
     names = repositories(json.loads(Path("metadata/automation-fleet.json").read_text()))
+    if event != "workflow_dispatch":
+        # Nonpublishing automatic canary: no need to mint 17 tokens daily.
+        # The existing protected registry supplies the pilot; no new allowlist.
+        pilot_policy = json.loads(
+            Path("metadata/unattended-publication.json").read_text("utf-8"))
+        pilot = pilot_policy.get("pilotRepository")
+        require(pilot_policy.get("schemaVersion") == 1
+                and pilot_policy.get("defaultAction") == "DENY"
+                and type(pilot) is str and pilot in names)
+        names = [pilot]
     key = os.environ.pop("PUBLISHER_PRIVATE_KEY")
     # One central code path validates the authenticated issuer + installation
     # and scopes every fresh token. No App key is sent to Signer jobs.
     scope_token.issuer(api, jwt, key, app, installation)
     report = {"appId": app, "installationId": installation,
         "installationRepositorySelection": "all", "signerAppId": 15368,
-        "independentApp": True, "publicationAuthorized": False, "repositories": []}
+        "independentApp": True, "publicationAuthorized": False,
+        "event": event, "checkedRepositoryCount": len(names), "repositories": []}
     payload = b"pgextwin Publisher authorization probe; no refs, tags or Releases.\n"
     expected = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
     fleet = json.loads(Path("metadata/automation-fleet.json").read_text())
