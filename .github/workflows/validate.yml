@@ -145,6 +145,9 @@ jobs:
       - name: Reject forged protected-main native audit event/release evidence
         run: python tests/test-automatic-postmerge-audit-live.py
 
+      - name: Verify synthetic-only same-process Publisher integration and revocation (NO RELEASE)
+        run: python tests/test-automatic-publisher-inprocess-e2e.py
+
       - name: Reject forged scheduled Publisher runtime and original signed-source downloads
         run: python tests/test-automatic-publisher-runtime.py
 
