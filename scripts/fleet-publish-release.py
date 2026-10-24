@@ -300,6 +300,58 @@ def check_remote(tag, expected, draft, release_id):
                 check(digest(Path(d)/name) == expected_sha,
                       "remote SHA mismatch: " + name)
 
+def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_run_id):
+    """Existing create-only formal Release writer after SAME-JOB full preflight.
+
+    Never invoke with an untrusted JSON receipt: the caller must already have
+    authenticated and rechecked signed source, runtime authorization and App
+    scope in the same privileged job. The manual entrypoint retains its gate.
+    """
+    tag=receipt["releaseTag"]
+    check(type(publish_run_id) is int and publish_run_id>0,
+          "publisher Run ID is not a positive integer")
+    absent(tag)
+    (folder/"SHA256SUMS.txt").write_text("".join(
+        value+"  "+name+"\n" for name,value in sorted(expected.items())),encoding="ascii")
+    expected["SHA256SUMS.txt"]=digest(folder/"SHA256SUMS.txt")
+    stage="PREFLIGHT_OK"
+    notes=Path(recovery).with_suffix(".md")
+    notes.write_text("# "+ext["name"]+" Windows x64\n\n"
+        +"Unofficial Windows x64 binaries built from per-PostgreSQL SHA-pinned upstream sources. "
+        +"All maintained requested PG majors were smoke-tested; SPDX 2.3 SBOM, report-only Grype, "
+        +"signed provenance, signed SBOM attestations and SHA256SUMS included.\n"
+        +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n",encoding="utf-8")
+    def state(s):
+        nonlocal stage
+        stage=s
+        Path(recovery).write_text(json.dumps(
+            {"schemaVersion":1,"state":stage,"tag":tag,"runId":publish_run_id,
+             "commit":commit},indent=2)+"\n")
+    state("PREFLIGHT_OK")
+    # Exclusive tag reservation: a second concurrent writer cannot create the same tag.
+    run("gh","api","-X","POST","repos/"+REPO+"/git/refs",
+        "-f","ref=refs/tags/"+tag,"-f","sha="+commit)
+    state("TAG_RESERVED")
+    run("gh","release","create",tag,
+        *[str(folder/name) for name in sorted(expected)],
+        "--repo",REPO,"--verify-tag","--draft","--target",commit,
+        "--title",tag,"--notes-file",str(notes))
+    state("DRAFT_STAGED")
+    release_id = staged_release_id(tag, commit)
+    check_remote(tag, expected, True, release_id)
+    state("DRAFT_VERIFIED")
+    # Publish exactly the release ID that this run created and verified.
+    # Never resolve a draft by its tag or edit an unrelated Release.
+    run("gh","api","-X","PATCH",
+        "repos/"+REPO+"/releases/"+str(release_id),
+        "-F","draft=false")
+    state("PUBLISHED_AUDIT_PENDING")
+    check_remote(tag, expected, False, release_id)
+    state("PUBLISHED_VERIFIED")
+    print("Formal Release verified: "+tag)
+    return 0
+
+
 def main():
     p=argparse.ArgumentParser()
     for n in ("receipt","manifest","tag","dist","recovery","lifecycle"):
@@ -324,44 +376,8 @@ def main():
         lifecycle=json.loads(Path(a.lifecycle).read_text(encoding="utf-8"))
         expected=check_assets(folder,ext,receipt,commit,int(os.environ["GITHUB_RUN_ID"]),lifecycle,
                               workflow_event=os.environ.get("GITHUB_EVENT_NAME",""))
-        absent(a.tag)
-        (folder/"SHA256SUMS.txt").write_text("".join(
-            value+"  "+name+"\n" for name,value in sorted(expected.items())),encoding="ascii")
-        expected["SHA256SUMS.txt"]=digest(folder/"SHA256SUMS.txt")
-        notes=Path(a.recovery).with_suffix(".md")
-        notes.write_text("# "+ext["name"]+" Windows x64\n\n"
-            +"Unofficial Windows x64 binaries built from per-PostgreSQL SHA-pinned upstream sources. "
-            +"All maintained requested PG majors were smoke-tested; SPDX 2.3 SBOM, report-only Grype, "
-            +"signed provenance, signed SBOM attestations and SHA256SUMS included.\n"
-            +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n",encoding="utf-8")
-        def state(s):
-            nonlocal stage
-            stage=s
-            Path(a.recovery).write_text(json.dumps(
-                {"schemaVersion":1,"state":stage,"tag":a.tag,"runId":int(os.environ["GITHUB_RUN_ID"]),
-                 "commit":commit},indent=2)+"\n")
-        state("PREFLIGHT_OK")
-        # Exclusive tag reservation: a second concurrent writer cannot create the same tag.
-        run("gh","api","-X","POST","repos/"+REPO+"/git/refs",
-            "-f","ref=refs/tags/"+a.tag,"-f","sha="+commit)
-        state("TAG_RESERVED")
-        run("gh","release","create",a.tag,
-            *[str(folder/name) for name in sorted(expected)],
-            "--repo",REPO,"--verify-tag","--draft","--target",commit,
-            "--title",a.tag,"--notes-file",str(notes))
-        state("DRAFT_STAGED")
-        release_id = staged_release_id(a.tag, commit)
-        check_remote(a.tag, expected, True, release_id)
-        state("DRAFT_VERIFIED")
-        # Publish exactly the release ID that this run created and verified.
-        # Never resolve a draft by its tag or edit an unrelated Release.
-        run("gh","api","-X","PATCH",
-            "repos/"+REPO+"/releases/"+str(release_id),
-            "-F","draft=false")
-        state("PUBLISHED_AUDIT_PENDING")
-        check_remote(a.tag, expected, False, release_id)
-        state("PUBLISHED_VERIFIED")
-        print("Formal Release verified: "+a.tag)
+        publish_preverified(folder,ext,receipt,commit,expected,Path(a.recovery),
+                            publish_run_id=int(os.environ["GITHUB_RUN_ID"]))
         return 0
     except (Denied,KeyError,ValueError,OSError,TypeError,IndexError,HTTPError) as e:
         print("RELEASE DENIED at "+stage+": "+str(e),file=sys.stderr)

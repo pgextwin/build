@@ -101,7 +101,7 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
             and type(attempt) is int and attempt==1
             and type(manifest) is dict and manifest.get("name")==repository.split("/")[1],
             "invalid protected signed source identity")
-    scope.valid_fleet(fleet,repository)
+    scope.valid_fleet(fleet,repository,release_policy=fleet.get('releasePolicy'))
     branch=get(repository,"branches/main")
     require(type(branch) is dict and branch.get("name")=="main"
             and branch.get("protected") is True

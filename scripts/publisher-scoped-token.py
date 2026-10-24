@@ -20,11 +20,12 @@ def require(ok, reason):
     if not ok:
         raise Denied(reason)
 
-def valid_fleet(fleet, repository):
-    require(type(repository) is str and REPO.fullmatch(repository)
+def valid_fleet(fleet, repository, *, release_policy='manual-only'):
+    require(release_policy in ("manual-only", "automatic-signed-schedule")
+            and type(repository) is str and REPO.fullmatch(repository)
             and type(fleet) is dict and type(fleet.get("schemaVersion")) is int
             and fleet["schemaVersion"] == 1
-            and fleet.get("releasePolicy") == "manual-only"
+            and fleet.get("releasePolicy") == release_policy
             and type(fleet.get("entries")) is list and bool(fleet["entries"]),
             "Publisher target or protected fleet invalid")
     names = []
@@ -33,7 +34,7 @@ def valid_fleet(fleet, repository):
                 and REPO.fullmatch(row["repository"])
                 and row.get("mode") == "BUILD"
                 and row.get("candidateEnabled") is True
-                and row.get("releasePolicy") == "manual-only",
+                and row.get("releasePolicy") == release_policy,
                 "Publisher target is not an enabled, manual-only BUILD member")
         names.append(row["repository"])
     require(len(names) == len(set(names)) and repository in names,
@@ -62,14 +63,15 @@ def issuer(api, jwt, key, app, installation):
 
 @contextmanager
 def single_repository_token(*, api, jwt, key, app, installation,
-                            repository, fleet, now=None):
+                            repository, fleet, now=None,
+                            release_policy="manual-only"):
     """Yield token + live scope only within one isolated job; ALWAYS revoke.
 
     No token is emitted to logs or artifacts. Even a successful scope proof is
     not valid publication approval. API requests and actual write verification
     must be done using the yielded token in the SAME trusted process.
     """
-    valid_fleet(fleet, repository)
+    valid_fleet(fleet, repository, release_policy=release_policy)
     issuer(api, jwt, key, app, installation)
     require(now is None or (type(now) is datetime and now.tzinfo is not None),
             "invalid token observation time")

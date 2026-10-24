@@ -43,7 +43,7 @@ def select(report,fleet):
     require(len(names)==len(fleet["entries"]) and len(set(names))==len(names),
             "untrusted protected fleet roster")
     for name in names:
-        scope.valid_fleet(fleet,name)
+        scope.valid_fleet(fleet,name,release_policy=fleet.get('releasePolicy'))
     rows=report.get("rows")
     require(type(rows) is list and len(rows)==len(names)
             and type(report.get("repositoryCount")) is int
