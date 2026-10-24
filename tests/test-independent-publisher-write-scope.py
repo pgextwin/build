@@ -33,13 +33,12 @@ def fixture():
         "issuance": {
             "token": "synthetic-not-usable-publisher-token",
             "expires_at": (NOW + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
-            "permissions": {"contents": "write"},
-            "repository_selection": "selected",
-            "repositories": [{"id": REPO_ID, "full_name": REPO}]
+            "permissions": {"contents": "write", "metadata": "read"},
+            "repository_selection": "selected"
         },
         "live_repositories": {"total_count": 1, "repositories": [
-            {"id": REPO_ID, "full_name": REPO,
-             "permissions": {"push": True, "pull": True, "admin": False}}]}
+            {"id": REPO_ID, "full_name": REPO}]},
+        "blob": {"sha": "d" * 40}, "expected_blob_sha": "d" * 40
     }
 
 class WriteScopeTests(unittest.TestCase):
@@ -76,17 +75,19 @@ class WriteScopeTests(unittest.TestCase):
             lambda x: x["issuance"].update(permissions={"contents": "read"}),
             lambda x: x["issuance"].update(permissions={"contents": "write", "actions": "write"}),
             lambda x: x["issuance"].update(repository_selection="all"),
-            lambda x: x["issuance"].update(repositories=[]),
-            lambda x: x["issuance"]["repositories"].append(
-                {"id": 2, "full_name": "pgextwin/orafce"}),
-            lambda x: x["issuance"]["repositories"][0].update(full_name="pgextwin/orafce"),
+            lambda x: x["blob"].update(sha="a" * 40),
+            lambda x: x.update(blob=None),
+            lambda x: x.update(expected_blob_sha="a" * 40),
+            lambda x: x.update(expected_blob_sha=None),
             lambda x: x["issuance"].update(expires_at=(NOW-timedelta(seconds=1)).isoformat().replace("+00:00", "Z")),
             lambda x: x["issuance"].update(expires_at=(NOW+timedelta(hours=3)).isoformat().replace("+00:00", "Z")),
             lambda x: x["issuance"].update(token=""),
             lambda x: x["live_repositories"].update(total_count=2),
             lambda x: x["live_repositories"].update(repositories=[]),
             lambda x: x["live_repositories"]["repositories"][0].update(full_name="pgextwin/orafce"),
-            lambda x: x["live_repositories"]["repositories"][0]["permissions"].update(push=False),
+            lambda x: x["live_repositories"]["repositories"].append(
+                {"id": 2, "full_name": "pgextwin/orafce"}),
+            lambda x: x["live_repositories"]["repositories"][0].update(full_name=None),
             lambda x: x.update(repository="pgextwin/orafce"),
             lambda x: x.update(repository="pgextwin/evil"),
             lambda x: x["fleet"].update(entries=[]),
