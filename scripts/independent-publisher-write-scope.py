@@ -37,8 +37,56 @@ def parse_utc(value):
     require(result.tzinfo is not None, "missing timezone")
     return result
 
+def validate_live_scope(issuance, live_repositories, blob, *,
+                        repository, observed_at, expected_blob_sha):
+    """Use only same-job live API results, including an actual Git blob WRITE.
+
+    GitHub's real issuance permissions also include mandatory metadata:read.
+    Token issuance does not enumerate repositories; the token-authenticated
+    installation inventory establishes its *effective* repository scope.
+    A successful result is NEVER a formal Release authorization.
+    """
+    require(type(repository) is str and REPO.fullmatch(repository),
+            "invalid destination repository")
+    require(type(issuance) is dict and type(issuance.get("token")) is str
+            and len(issuance["token"]) > 20
+            and issuance.get("repository_selection") == "selected"
+            and issuance.get("permissions") == {"contents": "write", "metadata": "read"},
+            "token issuance is not exclusively scoped Contents WRITE")
+    require(type(live_repositories) is dict
+            and type(live_repositories.get("total_count")) is int
+            and live_repositories["total_count"] == 1
+            and type(live_repositories.get("repositories")) is list
+            and len(live_repositories["repositories"]) == 1,
+            "token-authenticated repository inventory missing or expanded")
+    actual = live_repositories["repositories"][0]
+    require(type(actual) is dict and actual.get("full_name") == repository,
+            "token-authenticated repository differs from target")
+    # Installation token issuance reports permission strings, not a
+    # permissions.push Boolean. Establish WRITE through an authenticated POST
+    # and exact Git blob SHA instead of fabricating a repository permission.
+    require(type(blob) is dict and type(expected_blob_sha) is str
+            and re.fullmatch(r"[0-9a-f]{40}", expected_blob_sha)
+            and blob.get("sha") == expected_blob_sha,
+            "same-token Git blob WRITE was not independently confirmed")
+    require(type(observed_at) is datetime and observed_at.tzinfo is not None,
+            "missing trusted observation time")
+    expires = parse_utc(issuance.get("expires_at"))
+    remaining = expires - observed_at.astimezone(timezone.utc)
+    require(timedelta(seconds=60) < remaining <= timedelta(hours=1),
+            "token expired or implausible lifetime")
+    return {"schemaVersion": 1,
+            "status": "SCOPED_CONTENTS_WRITE_PROVEN_NONPUBLISHING",
+            "repository": repository, "scopedRepositoryCount": 1,
+            "blobSha": expected_blob_sha,
+            "expiresAt": expires.isoformat(), "observedAt": observed_at.isoformat(),
+            "publicationAuthorized": False, "publishableReceipt": False,
+            "publisherWriteAuthorized": False}
+
+
 def evaluate(policy, fleet, issuance, live_repositories, *, repository,
-             observed_at, trusted_issuer_app_id, trusted_issuer_installation_id):
+             observed_at, trusted_issuer_app_id, trusted_issuer_installation_id,
+             blob=None, expected_blob_sha=None):
     """Compare independently obtained GitHub data, never issue an auth receipt.
 
     Caller MUST prove trusted_issuer_* with a GitHub-JWT-authenticated GET
@@ -88,41 +136,15 @@ def evaluate(policy, fleet, issuance, live_repositories, *, repository,
             and positive(trusted_issuer_installation_id)
             and trusted_issuer_installation_id == policy["publisherInstallationId"],
             "authenticated issuer differs from protected policy")
-    require(type(issuance) is dict
-            and type(issuance.get("token")) is str
-            and len(issuance["token"]) > 20
-            and issuance.get("repository_selection") == "selected"
-            and issuance.get("permissions") == {"contents": "write"},
-            "token issuance is not exactly scoped Contents WRITE")
-    minted = issuance.get("repositories")
-    require(type(minted) is list and len(minted) == 1
-            and type(minted[0]) is dict
-            and minted[0].get("full_name") == repository
-            and positive(minted[0].get("id")),
-            "minted token accesses wrong/multiple repositories")
-    require(type(live_repositories) is dict
-            and type(live_repositories.get("total_count")) is int
-            and live_repositories["total_count"] == 1
-            and type(live_repositories.get("repositories")) is list
-            and len(live_repositories["repositories"]) == 1,
-            "token-authenticated repository GET missing or expanded")
-    actual = live_repositories["repositories"][0]
-    require(type(actual) is dict and actual.get("id") == minted[0]["id"]
-            and actual.get("full_name") == repository
-            and type(actual.get("permissions")) is dict
-            and actual["permissions"].get("push") is True,
-            "live token lacks scoped repository WRITE proof")
-    require(type(observed_at) is datetime and observed_at.tzinfo is not None,
-            "missing trusted observation time")
-    expires = parse_utc(issuance.get("expires_at"))
-    remaining = expires - observed_at.astimezone(timezone.utc)
-    require(timedelta(seconds=60) < remaining <= timedelta(hours=1),
-            "token expired or implausible lifetime")
+    proof = validate_live_scope(
+        issuance, live_repositories, blob, repository=repository,
+        observed_at=observed_at, expected_blob_sha=expected_blob_sha)
     return {"schemaVersion": 1, "status": "SCOPED_APP_WRITE_EVIDENCE_ONLY",
             "repository": repository, "publisherAppId": policy["publisherAppId"],
             "publisherInstallationId": policy["publisherInstallationId"],
-            "scopedRepositoryCount": 1,
-            "observedAt": observed_at.isoformat(), "expiresAt": expires.isoformat(),
+            "scopedRepositoryCount": proof["scopedRepositoryCount"],
+            "blobSha": proof["blobSha"],
+            "observedAt": proof["observedAt"], "expiresAt": proof["expiresAt"],
             "needsSameJobCryptographicAndGitHubAuthorization": True,
             "publisherWriteAuthorized": False, "publicationAuthorized": False}
 
