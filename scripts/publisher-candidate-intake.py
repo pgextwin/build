@@ -57,8 +57,8 @@ def github(repo, suffix):
     allowed = (
         suffix == "branches/main"
         or suffix == "actions/workflows/update-watch.yml/runs?per_page=50"
-        or re.fullmatch(r"actions/runs/[1-9][0-9]*/jobs\\?per_page=100", suffix)
-        or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\\?per_page=100", suffix)
+        or re.fullmatch(r"actions/runs/[1-9][0-9]*/jobs\?per_page=100", suffix)
+        or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", suffix)
     )
     require(allowed, "non-allowlisted or mutating GitHub resource")
     require(bool(os.environ.get("GH_TOKEN")), "read-only GitHub token unavailable")
