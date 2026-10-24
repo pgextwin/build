@@ -4,6 +4,17 @@ on:
   schedule:
     # Every hour at :00 JST/UTC; GitHub Actions may dispatch late.
     - cron: "0 * * * *"
+  # A protected-main code/policy change gets one immediate READ-ONLY live
+  # smoke. It is NOT a genuine schedule event and cannot authorize a candidate:
+  # verify-scheduled-fleet-candidate.py requires event=schedule.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fleet-upstream-watch.yml"
+      - "scripts/fleet-upstream-watch.py"
+      - "scripts/update_watch_lib.py"
+      - "scripts/fleet-control.py"
+      - "metadata/automation-fleet.json"
   workflow_dispatch:
 
 permissions:
