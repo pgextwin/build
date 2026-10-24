@@ -166,6 +166,9 @@ jobs:
       - name: Reject replayed, forged, cross-run completed signed push before auto Publisher
         run: python tests/test-publisher-completed-run.py
 
+      - name: Verify independent real signed-source gate remains read-only and fail-closed
+        run: python tests/test-verify-completed-signed-source.py
+
       - name: Validate default-denied post-manual Release Catalog policy
         run: python tests/test-manual-release-downstream.py
 
