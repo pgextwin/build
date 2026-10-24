@@ -11,6 +11,7 @@ HUMAN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 TYPES = {
     "manual-dispatch": ("VERIFIED_MANUAL_DISPATCH", "workflow_dispatch"),
     "chat-pr-authorization": ("VERIFIED_CHAT_PR_AUTHORIZATION", "push"),
+    "automatic-schedule": ("VERIFIED_AUTOMATIC_SCHEDULE", "schedule"),
 }
 
 
@@ -33,18 +34,54 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
     status, expected_event = TYPES[mode]
     require(receipt.get("status") == status and event == expected_event,
             "authorization receipt status / execution event mismatch")
-    require(isinstance(actor, str) and HUMAN.fullmatch(actor)
-            and not actor.lower().endswith("bot")
-            and receipt.get("operator") == actor
-            and receipt.get("repository") == repository
+    require(receipt.get("repository") == repository
             and isinstance(commit, str) and SHA.fullmatch(commit)
             and receipt.get("trustedCommit") == commit,
-            "receipt operator, repository or exact commit mismatch")
+            "receipt repository or exact source commit mismatch")
+    if mode == "automatic-schedule":
+        # A schedule's GITHUB_ACTOR can be the last workflow editor; it is NOT
+        # an operator approval. The privileged caller must independently GET
+        # and authenticate the exact central schedule Run before any WRITE.
+        require("operator" not in receipt
+                and isinstance(actor, str) and bool(actor),
+                "unattended receipt must not invent a human operator")
+    else:
+        require(isinstance(actor, str) and HUMAN.fullmatch(actor)
+                and not actor.lower().endswith("bot")
+                and receipt.get("operator") == actor,
+                "receipt human operator mismatch")
     require(isinstance(receipt.get("releaseTag"), str)
             and isinstance(receipt.get("majors"), list)
             and len(receipt["majors"]) > 0
             and isinstance(receipt.get("sources"), list),
             "incomplete signed Release authorization")
+    if mode == "automatic-schedule":
+        # Strictly an envelope contract; these assertions do not
+        # authenticate signature bytes, run metadata, policy, or App token.
+        # Only an independent live Publisher may actually issue this mode.
+        require(receipt.get("publisherRepository") == "pgextwin/build"
+                and receipt.get("publisherWorkflow") ==
+                    ".github/workflows/publisher-candidate-intake.yml"
+                and type(receipt.get("publisherRunId")) is int
+                and receipt["publisherRunId"] > 0
+                and type(receipt.get("publisherRunAttempt")) is int
+                and receipt["publisherRunAttempt"] == 1
+                and isinstance(receipt.get("publisherMainSha"), str)
+                and SHA.fullmatch(receipt["publisherMainSha"])
+                and receipt.get("signedSourceWorkflow") ==
+                    ".github/workflows/update-watch.yml"
+                and type(receipt.get("sourceRunId")) is int
+                and receipt["sourceRunId"] > 0
+                and receipt["sourceRunId"] != receipt["publisherRunId"]
+                and type(receipt.get("sourceRunAttempt")) is int
+                and receipt["sourceRunAttempt"] == 1
+                and all(receipt.get(k) is True for k in (
+                    "signedArtifactsVerified", "publicationAuthorized",
+                    "publishableReceipt", "publisherWriteAuthorized",
+                    "automaticReleaseEnabled"))
+                and receipt.get("approvalProvenance") ==
+                    "INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE",
+                "automatic receipt lacks independently verifiable identities")
     if mode == "chat-pr-authorization":
         # A green Windows run or a synthetic ID join does not prove signed
         # ZIP/SBOM/attestation bytes. A future trusted verifier MUST explicitly
