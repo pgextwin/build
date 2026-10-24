@@ -29,7 +29,7 @@ class ProofTests(unittest.TestCase):
                 from datetime import datetime, timezone, timedelta
                 return {"token":"synthetic-private-token-never-print","repository_selection":"selected",
                     "permissions":{"contents":"write","metadata":"read"},
-                    "expires_at":(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat()}
+                    "expires_at":(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat().replace("+00:00", "Z")}
             if path.startswith("/installation/repositories"):
                 return {"total_count": 2 if bad == "scope" else 1,
                         "repositories":[{"full_name":"pgextwin/future_extension"}]}
