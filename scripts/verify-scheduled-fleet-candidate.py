@@ -271,6 +271,23 @@ def run(repository, head, pin, token):
         # Real central failures stay visible in their original runs. No fallback
         # to old runs, push smoke, workflow_dispatch or unverified candidates.
         raise Deferred("LATEST_GENUINE_CENTRAL_SCAN_NOT_SUCCESSFUL")
+    # A genuinely successful but time-expired central schedule is operational
+    # unavailability, not an eligible candidate and not a local CI failure.
+    # It must NEVER authorize an old result or silently extend its TTL.
+    # Malformed/future clocks or spoofed schedule identity still hard-DENY.
+    need(exact.get("event") == "schedule"
+         and exact.get("path") == WATCH_PATH
+         and exact.get("head_branch") == "main"
+         and exact.get("run_attempt") == 1
+         and (exact.get("repository") or {}).get("full_name") == BUILD,
+         "central schedule identity invalid")
+    now = datetime.now(timezone.utc)
+    started, finished = timestamp(exact.get("created_at")), timestamp(exact.get("updated_at"))
+    need(started <= finished <= now + timedelta(minutes=5),
+         "central schedule clock invalid")
+    if now - started >= timedelta(hours=3):
+        raise Deferred("LATEST_GENUINE_CENTRAL_SCAN_EXPIRED")
+
     source_equivalent = False
     if build_branch.get("commit", {}).get("sha") != exact.get("head_sha"):
         # The original successful schedule remains necessary, but its old
