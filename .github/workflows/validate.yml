@@ -145,6 +145,9 @@ jobs:
       - name: Reject forged protected-main native audit event/release evidence
         run: python tests/test-automatic-postmerge-audit-live.py
 
+      - name: Reject forged signed schedule Publisher receipts and privileged policy bypass
+        run: python tests/test-automatic-publisher-receipt-issuer.py
+
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
