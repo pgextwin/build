@@ -1,0 +1,25 @@
+name: Nonpublishing Publisher App proof
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: publisher-app-proof
+  cancel-in-progress: false
+jobs:
+  proof:
+    if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main'
+    environment: publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out trusted main without persisting credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prove one-repository WRITE and revoke each token; NO RELEASE
+        env:
+          PUBLISHER_APP_ID: ${{ vars.PGEXTWIN_PUBLISHER_APP_ID }}
+          PUBLISHER_INSTALLATION_ID: ${{ vars.PGEXTWIN_PUBLISHER_INSTALLATION_ID }}
+          PUBLISHER_PRIVATE_KEY: ${{ secrets.PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY }}
+        run: python scripts/probe-publisher-app.py
