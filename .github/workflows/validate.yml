@@ -22,6 +22,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Reject unsigned, skipped and stale remote candidate Runs (NO RELEASE)
+        run: python tests/test-publisher-candidate-intake.py
+
       - name: Verify reusable single-repository token revocation and isolation (NO RELEASE)
         run: python tests/test-publisher-scoped-token.py
 
