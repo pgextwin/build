@@ -8,6 +8,7 @@ and never emits a publication receipt; separate release admission is required.
 """
 from __future__ import annotations
 from contextlib import contextmanager
+from urllib.error import HTTPError
 from datetime import datetime, timezone, timedelta
 import re
 
@@ -108,5 +109,15 @@ def single_repository_token(*, api, jwt, key, app, installation,
         yield token, minted, scoped
     finally:
         if type(token) is str and token:
-            # On any error, revocation failures must propagate, never be waived.
+            # DELETE acceptance alone cannot establish token invalidation.
+            # Independently require the SAME scoped token to receive 401 from
+            # its former authorized read endpoint. Any 403, transport failure
+            # or still-usable token is a hard denial, never an accepted proof.
             api("DELETE", "/installation/token", token)
+            try:
+                api("GET", "/installation/repositories?per_page=100", token)
+            except HTTPError as exc:
+                require(exc.code == 401,
+                        "Publisher token revocation not independently confirmed")
+            else:
+                raise Denied("Publisher token remains usable after revocation")
