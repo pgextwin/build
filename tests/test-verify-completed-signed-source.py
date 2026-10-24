@@ -88,6 +88,42 @@ class IndependentCompletedSource(unittest.TestCase):
                 mod.verify_completed_source(folder,{"name":"pg_ivm"},{},{},{},wrong,
                     repository=REPO,sha=SHA,run_id=RUN,
                     get=lambda *_:self.fail("GET attempted"))
+    def test_real_linux_pathlib_directory_is_accepted_before_source_validation(self):
+        # The GitHub Ubuntu runner passes Path(...), whose runtime type is
+        # PosixPath rather than exactly pathlib.Path. This regression must
+        # reach the subsequent manifest validation (no mock Sigstore success).
+        with tempfile.TemporaryDirectory() as d:
+            branch={"name":"main","protected":True,"commit":{"sha":SHA}}
+            def get(_, route):
+                return branch if route=="branches/main" else {}
+            with patch.object(mod.guard,"validate_completed_push_snapshot",
+                              return_value={"signed":"fixture"}), \
+                 patch.object(mod.ident,"maintained_majors",
+                              side_effect=mod.ident.Denied("fixture stops here")):
+                with self.assertRaises(mod.Denied) as caught:
+                    mod.verify_completed_source(
+                        Path(d),{"name":"pg_ivm"},{},{},{},fleet(),
+                        repository=REPO,sha=SHA,run_id=RUN,get=get)
+                self.assertEqual(
+                    str(caught.exception),
+                    "protected PostgreSQL source identity invalid")
+
+    def test_signed_folder_symlink_is_still_denied(self):
+        with tempfile.TemporaryDirectory() as d:
+            real=Path(d)/"real"
+            real.mkdir()
+            link=Path(d)/"link"
+            link.symlink_to(real,target_is_directory=True)
+            branch={"name":"main","protected":True,"commit":{"sha":SHA}}
+            with patch.object(mod.guard,"validate_completed_push_snapshot",
+                              return_value={"signed":"fixture"}):
+                with self.assertRaises(mod.Denied) as caught:
+                    mod.verify_completed_source(
+                        link,{"name":"pg_ivm"},{},{},{},fleet(),
+                        repository=REPO,sha=SHA,run_id=RUN,
+                        get=lambda _,route: branch if route=="branches/main" else {})
+                self.assertIn("signed ZIP directory unavailable",str(caught.exception))
+
     def test_only_readonly_status_is_exported_in_source(self):
         source=(ROOT/"scripts/verify-completed-signed-source.py").read_text()
         self.assertIn("REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING",source)
