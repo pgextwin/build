@@ -19,6 +19,11 @@ _scope_spec = importlib.util.spec_from_file_location(
 scope = importlib.util.module_from_spec(_scope_spec)
 _scope_spec.loader.exec_module(scope)
 
+_scope_token_spec = importlib.util.spec_from_file_location(
+    "publisher_token_lifecycle", Path(__file__).with_name("publisher-scoped-token.py"))
+scope_token = importlib.util.module_from_spec(_scope_token_spec)
+_scope_token_spec.loader.exec_module(scope_token)
+
 def require(ok):
     if not ok:
         raise ValueError("Publisher probe rejected")
@@ -73,57 +78,36 @@ def run():
     require(app == 5451798 and installation == 174720074 and app != 15368)
     names = repositories(json.loads(Path("metadata/automation-fleet.json").read_text()))
     key = os.environ.pop("PUBLISHER_PRIVATE_KEY")
-    auth = jwt(key, app)
-    identity = api("GET", "/app", auth)
-    require(identity.get("id") == app and identity.get("slug") == "pgextwin-publisher")
-    installed = api("GET", "/app/installations/" + str(installation), auth)
-    require(installed.get("app_id") == app and installed.get("id") == installation
-        and installed.get("account", {}).get("login") == "pgextwin"
-        and installed.get("repository_selection") == "all"
-        and installed.get("permissions") == {"contents": "write", "metadata": "read"}
-        and installed.get("suspended_at") is None)
+    # One central code path validates the authenticated issuer + installation
+    # and scopes every fresh token. No App key is sent to Signer jobs.
+    scope_token.issuer(api, jwt, key, app, installation)
     report = {"appId": app, "installationId": installation,
         "installationRepositorySelection": "all", "signerAppId": 15368,
         "independentApp": True, "publicationAuthorized": False, "repositories": []}
     payload = b"pgextwin Publisher authorization probe; no refs, tags or Releases.\n"
     expected = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
+    fleet = json.loads(Path("metadata/automation-fleet.json").read_text())
     for name in names:
-        token = None
         row = {"repository": name, "status": "DENY", "tokenRevoked": False}
         report["repositories"].append(row)
         try:
-            minted = api("POST", "/app/installations/" + str(installation) + "/access_tokens",
-                jwt(key, app), {"repositories": [name.split("/")[1]],
-                    "permissions": {"contents": "write", "metadata": "read"}})
-            token = minted.get("token")
-            require(type(token) is str and len(token) > 20)
-            # Deny unexpected permission grants before attempting any write.
-            require(minted.get("repository_selection") == "selected"
-                and minted.get("permissions") == {"contents": "write", "metadata": "read"})
-            scoped = api("GET", "/installation/repositories?per_page=100", token)
-            require(scoped.get("total_count") == 1 and type(scoped.get("repositories")) is list
-                and len(scoped["repositories"]) == 1
-                and scoped["repositories"][0].get("full_name") == name)
-            blob = api("POST", "/repos/" + name + "/git/blobs", token,
-                {"content": base64.b64encode(payload).decode(), "encoding": "base64"})
-            proof = scope.validate_live_scope(
-                minted, scoped, blob, repository=name,
-                observed_at=datetime.now(timezone.utc), expected_blob_sha=expected)
-            require(proof["publicationAuthorized"] is False
-                and proof["publisherWriteAuthorized"] is False)
-            row.update(status="SCOPED_CONTENTS_WRITE_PROVEN", expiresAt=minted["expires_at"],
-                scopedRepositoryCount=proof["scopedRepositoryCount"],
-                permissions=minted["permissions"], blobSha=proof["blobSha"])
+            with scope_token.single_repository_token(
+                    api=api, jwt=jwt, key=key, app=app, installation=installation,
+                    repository=name, fleet=fleet) as (token, minted, scoped):
+                blob = api("POST", "/repos/" + name + "/git/blobs", token,
+                    {"content": base64.b64encode(payload).decode(), "encoding": "base64"})
+                proof = scope.validate_live_scope(
+                    minted, scoped, blob, repository=name,
+                    observed_at=datetime.now(timezone.utc), expected_blob_sha=expected)
+                require(proof["publicationAuthorized"] is False
+                    and proof["publisherWriteAuthorized"] is False)
+                row.update(status="SCOPED_CONTENTS_WRITE_PROVEN",
+                    expiresAt=minted["expires_at"],
+                    scopedRepositoryCount=proof["scopedRepositoryCount"],
+                    permissions=minted["permissions"], blobSha=proof["blobSha"])
+            row["tokenRevoked"] = True
         except Exception:
             row["status"] = "DENY"
-        finally:
-            if token:
-                try:
-                    api("DELETE", "/installation/token", token)
-                    row["tokenRevoked"] = True
-                except Exception:
-                    row["status"] = "DENY"
-            token = None
     Path("publisher-app-proof.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))
     require(all(row["status"] == "SCOPED_CONTENTS_WRITE_PROVEN" and row["tokenRevoked"]
