@@ -296,5 +296,5 @@ with TemporaryDirectory() as directory:
                                  "GITHUB_OUTPUT": str(output)}):
         with patch.object(m, "run", side_effect=m.Deferred("LATEST_GENUINE_CENTRAL_SCAN_EXPIRED")):
             assert m.main() == 0
-    assert output.read_text() == "mode=deferred\\n"
+    assert output.read_text() == "mode=deferred\n"
 print("PASS: expired genuine central scan defers only, clock and spoofing DENY")
