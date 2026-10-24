@@ -314,6 +314,7 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
     (folder/"SHA256SUMS.txt").write_text("".join(
         value+"  "+name+"\n" for name,value in sorted(expected.items())),encoding="ascii")
     expected["SHA256SUMS.txt"]=digest(folder/"SHA256SUMS.txt")
+    stage="PREFLIGHT_OK"
     notes=Path(recovery).with_suffix(".md")
     notes.write_text("# "+ext["name"]+" Windows x64\n\n"
         +"Unofficial Windows x64 binaries built from per-PostgreSQL SHA-pinned upstream sources. "
