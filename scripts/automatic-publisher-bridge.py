@@ -129,35 +129,41 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
             "untrusted or incomplete per-PG blocking Grype scan verdict")
     require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int
             and fleet["schemaVersion"] == 1
-            and fleet.get("releasePolicy") == "manual-only"
+            and fleet.get("releasePolicy") in ("manual-only",
+                                               "automatic-signed-schedule")
             and type(fleet.get("entries")) is list and len(fleet["entries"]) == 17,
-            "fleet automatic release policy is not independently valid")
-    rows = fleet["entries"]
+            "signed candidate fleet policy invalid")
+    fleet_mode=fleet["releasePolicy"]
+    scheduled=fleet_mode=="automatic-signed-schedule"
+    rows=fleet["entries"]
     require(all(type(v) is dict for v in rows)
             and {v.get("repository") for v in rows} == expected_roster
+            and len({v.get("repository") for v in rows}) == len(rows)
             and all(v.get("mode") == "BUILD" and v.get("candidateEnabled") is True
-                    and v.get("releasePolicy") == "manual-only" for v in rows),
-            "fleet roster, BUILD lane, or manual-only gate mismatched")
+                    and v.get("releasePolicy") == fleet_mode for v in rows),
+            "fleet roster, BUILD lane, or release policy mismatched")
+    central_mode=("automatic-signed-schedule" if scheduled else "manual-dispatch")
     require(type(central) is dict and type(central.get("schemaVersion")) is int
             and central["schemaVersion"] == 1
-            and central.get("releasePolicy") == "manual-dispatch"
+            and central.get("releasePolicy") == central_mode
             and type(central.get("allowedRepositories")) is list
-            and len(central["allowedRepositories"]) == 17
+            and len(central["allowedRepositories"]) == len(rows)
             and set(central["allowedRepositories"]) == expected_roster,
-            "central Release authorization is NOT the established manual gate")
+            "central Publisher policy must match protected signed candidate mode")
     require(local == {"schemaVersion": 1, "enabled": True,
-                      "releasePolicy": "manual-dispatch"},
-            "local Release policy must stay in the existing manual mode")
+                      "releasePolicy": central_mode},
+            "local Publisher release policy does not match central mode")
     try:
-        mode = unattended_policy.evaluate(unattended, fleet)
+        mode=unattended_policy.evaluate(unattended, fleet)
     except (unattended_policy.PolicyDenied, TypeError, KeyError, ValueError) as exc:
         raise Denied("unattended policy invalid") from exc
-    require(mode.get("status") == "OBSERVE_ONLY"
+    require(mode.get("status")==("POLICY_READY_RUNTIME_EVIDENCE_REQUIRED"
+                                  if scheduled else "OBSERVE_ONLY")
             and mode.get("automaticPublicationAuthorized") is False
-            and unattended.get("mode") == "OBSERVE"
-            and unattended.get("defaultAction") == "DENY"
-            and unattended["controls"].get("automaticFormalRelease") is False,
-            "existing OBSERVE/DENY safety gate may not be weakened by this bridge")
+            and unattended.get("mode")==("UNATTENDED" if scheduled else "OBSERVE")
+            and unattended.get("defaultAction")=="DENY"
+            and unattended["controls"].get("automaticFormalRelease") is scheduled,
+            "protected source observation cannot mint Publisher authorization")
     return {
         "schemaVersion": 1,
         "status": "PUBLISH_DENY",
@@ -172,10 +178,10 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
         "grypeSha256ByMajor": digests["grype"],
         "grypePolicyByMajor": grype_risk,
         "policyBlockers": [
-            "CENTRAL_MANUAL_DISPATCH",
-            "LOCAL_MANUAL_DISPATCH",
-            "FLEET_MANUAL_ONLY",
-            "UNATTENDED_OBSERVE_DENY",
+            *(["AUTOMATIC_RELEASE_REQUIRES_FRESH_INDEPENDENT_PUBLISHER"
+               ] if scheduled else [
+                   "CENTRAL_MANUAL_DISPATCH","LOCAL_MANUAL_DISPATCH",
+                   "FLEET_MANUAL_ONLY","UNATTENDED_OBSERVE_DENY"]),
             *(["BLOCKING_GRYPE_FINDINGS"] if any(
                 v["blockingFindingCount"] for v in grype_risk.values()) else []),
             "INDEPENDENT_PUBLISHER_AUTHORIZATION_NOT_ESTABLISHED",
