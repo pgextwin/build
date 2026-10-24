@@ -73,7 +73,7 @@ def transient_upstream_error(exc):
     message = str(exc).lower()
     if not message.startswith("upstream query failed:"):
         return False
-    return (bool(re.search(r"http error (?:429|500|502|503|504)\\b", message))
+    return (bool(re.search(r"http error (?:429|500|502|503|504)\b", message))
             or any(term in message for term in (
                 "timed out", "temporary failure", "connection reset",
                 "connection aborted", "remote end closed connection")))
@@ -85,7 +85,7 @@ def safe_failure_code(exc):
     # the first real hourly pg_cron INDETERMINATE incident (run 40054693145).
     message = str(exc).lower()
     if isinstance(exc, WatchError) and message.startswith("upstream query failed:"):
-        status = re.search(r"http error (\\d{3})\\b", message)
+        status = re.search(r"http error (\d{3})\b", message)
         return "UPSTREAM_HTTP_" + status.group(1) if status else "UPSTREAM_TRANSPORT"
     if isinstance(exc, WatchError):
         if "protected extension main changed during audit" in message:
