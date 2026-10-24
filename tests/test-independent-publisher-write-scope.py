@@ -43,7 +43,7 @@ def fixture():
     }
 
 class WriteScopeTests(unittest.TestCase):
-    def test_default_deny_is_common_to_all_17(self):
+    def test_default_deny_is_common_to_current_fleet(self):
         args = fixture()
         args["policy"] = json.loads(
             (ROOT / "metadata/publisher-write-boundary.json").read_text())
@@ -89,7 +89,8 @@ class WriteScopeTests(unittest.TestCase):
             lambda x: x["live_repositories"]["repositories"][0]["permissions"].update(push=False),
             lambda x: x.update(repository="pgextwin/orafce"),
             lambda x: x.update(repository="pgextwin/evil"),
-            lambda x: x["fleet"]["entries"].pop(),
+            lambda x: x["fleet"].update(entries=[]),
+            lambda x: x["fleet"]["entries"].append({"repository": []}),
             lambda x: x["fleet"]["entries"].append(deepcopy(x["fleet"]["entries"][0])),
             lambda x: x["fleet"].update(releasePolicy="automatic"),
             lambda x: x["policy"].update(mode="OBSERVE"),
@@ -101,6 +102,19 @@ class WriteScopeTests(unittest.TestCase):
                 args = fixture()
                 mutation(args)
                 scope.evaluate(**args)
+
+    def test_fleet_can_grow_or_shrink_without_expanding_token(self):
+        args = fixture()
+        future = deepcopy(args["fleet"]["entries"][0])
+        future["repository"] = "pgextwin/future_extension"
+        args["fleet"]["entries"].append(future)
+        self.assertEqual(scope.evaluate(**args)["scopedRepositoryCount"], 1)
+        args["fleet"]["entries"] = [
+            row for row in args["fleet"]["entries"] if row["repository"] == REPO]
+        self.assertEqual(scope.evaluate(**args)["scopedRepositoryCount"], 1)
+        args["fleet"]["entries"] = [future]
+        with self.assertRaises(scope.Denied):
+            scope.evaluate(**args)
 
     def test_no_shell_network_or_release_writes(self):
         with patch("subprocess.run", side_effect=AssertionError("NO PROCESS")), \
