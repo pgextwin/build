@@ -83,6 +83,51 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
             inputs["audit"]["repository"] = row["repository"]
             self.assertEqual(bridge.bridge(**inputs)["status"], "PUBLISH_DENY")
 
+    def test_future_auto_mode_still_does_not_authorize_source_job(self):
+        # Future modes require a COMPLETE, independent protected policy switch.
+        # Pure fixture success is not real Sigstore and never a Publisher grant.
+        obj=fixture()
+        obj["fleet"]["releasePolicy"]="automatic-signed-schedule"
+        for row in obj["fleet"]["entries"]:
+            row["releasePolicy"]="automatic-signed-schedule"
+        obj["central"]["releasePolicy"]="automatic-signed-schedule"
+        obj["local"]["releasePolicy"]="automatic-signed-schedule"
+        obj["unattended"]["mode"]="UNATTENDED"
+        for name in obj["unattended"]["controls"]:
+            obj["unattended"]["controls"][name]=True
+        outcome=bridge.bridge(**obj)
+        self.assertEqual(outcome["status"],"PUBLISH_DENY")
+        self.assertIn("AUTOMATIC_RELEASE_REQUIRES_FRESH_INDEPENDENT_PUBLISHER",
+                      outcome["policyBlockers"])
+        self.assertNotIn("CENTRAL_MANUAL_DISPATCH",outcome["policyBlockers"])
+        self.assertEqual(outcome["policyBlockers"][-1],
+                         "INDEPENDENT_PUBLISHER_AUTHORIZATION_NOT_ESTABLISHED")
+        self.assertIs(outcome["publishableReceipt"],False)
+        self.assertIs(outcome["publicationAuthorized"],False)
+        self.assertIs(outcome["publisherWriteEnabled"],False)
+        self.assertEqual(outcome["g4"],"NO_GO")
+        for mutation in (
+            lambda x:x["central"].update(releasePolicy="manual-dispatch"),
+            lambda x:x["local"].update(releasePolicy="manual-dispatch"),
+            lambda x:x["unattended"].update(mode="OBSERVE"),
+            lambda x:x["unattended"]["controls"].update(automaticFormalRelease=False),
+            lambda x:x["fleet"]["entries"][0].update(releasePolicy="manual-only"),
+            lambda x:x["fleet"]["entries"].append(deepcopy(x["fleet"]["entries"][0])),
+        ):
+            bad=deepcopy(obj)
+            mutation(bad)
+            with self.assertRaises(bridge.Denied):
+                bridge.bridge(**bad)
+
+    def test_signed_workflow_separates_legacy_manual_handoff_from_auto_mode(self):
+        workflow=(ROOT/".github/workflows/verify-signed-candidate-readonly.yml").read_text()
+        self.assertIn("id: source_policy_mode",workflow)
+        self.assertIn("manual_only=",workflow)
+        self.assertEqual(
+            workflow.count("if: steps.source_policy_mode.outputs.manual_only == 'true'"),2)
+        self.assertIn("independent-signed-candidate-audit.json",workflow)
+        self.assertIn("independent-signed-publisher-preflight.json",workflow)
+
     def test_real_blocking_report_remains_explicit_nonpublishing(self):
         inputs = fixture()
         record = inputs["audit"]["grypePolicyByMajor"]["14"]

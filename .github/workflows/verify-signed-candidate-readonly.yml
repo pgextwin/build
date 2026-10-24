@@ -168,7 +168,29 @@ jobs:
       # Cross the final read-only handoff boundary ONLY after real Sigstore
       # re-verification in this independent job and exact digest/run equality.
       # Tag proposal and existing Publisher policy remain explicitly DENY.
+      - name: Select legacy handoff only for genuinely manual Publisher policy
+        id: source_policy_mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          f=json.loads(Path(".pgextwin-build/metadata/automation-fleet.json").read_text())
+          mode=f.get("releasePolicy")
+          if mode not in ("manual-only","automatic-signed-schedule"):
+              raise SystemExit("UNKNOWN_PUBLISHER_POLICY_DENY")
+          rows=f.get("entries")
+          if not isinstance(rows,list) or not rows or any(
+              not isinstance(x,dict) or x.get("releasePolicy")!=mode
+              for x in rows):
+              raise SystemExit("MIXED_SOURCE_PUBLISHER_POLICY_DENY")
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+              out.write("manual_only="+str(mode=="manual-only").lower()+"\\n")
+          print("SIGNED_SOURCE_MODE="+mode+"; both signed audits stay nonpublishing")
+          PY
       - name: Join original and independent real signed evidence with tag/policy (NO PUBLISH)
+        if: steps.source_policy_mode.outputs.manual_only == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -185,6 +207,7 @@ jobs:
       # original in-progress Run, live policy blobs and unoccupied proposed tag.
       # It is still read-only; a Publisher must obtain separate WRITE authority.
       - name: Independently recheck live Publisher prerequisites (PUBLISH DENY)
+        if: steps.source_policy_mode.outputs.manual_only == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
