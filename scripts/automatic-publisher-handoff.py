@@ -74,15 +74,15 @@ def handoff(first, second, opinion, bridge, tag, fleet, *,
             and fleet["schemaVersion"] == 1
             and fleet.get("releasePolicy") == "manual-only"
             and type(fleet.get("entries")) is list
-            and len(fleet["entries"]) == 17, "unknown fleet policy")
+            and len(fleet["entries"]) > 0, "unknown fleet policy")
     rows = fleet["entries"]
     require(all(type(r) is dict and type(r.get("repository")) is str
                 and REPO.fullmatch(r["repository"])
                 and r.get("releasePolicy") == "manual-only"
                 for r in rows)
-            and len({r["repository"] for r in rows}) == 17
+            and len({r["repository"] for r in rows}) == len(rows)
             and repository in {r["repository"] for r in rows},
-            "non-17, duplicated or non-manual Publisher scope")
+            "unregistered, duplicated or non-manual Publisher scope")
     require(type(first) is dict and type(second) is dict
             and first == second, "original and independent signed audits diverge")
     require(first.get("schemaVersion") == 1
