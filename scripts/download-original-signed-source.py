@@ -23,7 +23,7 @@ def check(ok,reason):
 def download(repository,run_id,directory,*,call=None):
     check(type(repository) is str and REPO.fullmatch(repository)
           and type(run_id) is int and run_id>0
-          and type(directory) is Path and not directory.is_symlink()
+          and isinstance(directory, Path) and not directory.is_symlink()
           and type(os.environ.get("RUNNER_TEMP")) is str
           and type(os.environ.get("GH_TOKEN")) is str
           and bool(os.environ["GH_TOKEN"]),
