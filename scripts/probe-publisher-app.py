@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Nonpublishing, protected-main Publisher credential proof; never print secrets."""
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+import time
+import urllib.request
+import urllib.error
+
+def require(ok):
+    if not ok:
+        raise ValueError("Publisher probe rejected")
+
+def api(method, path, token, body=None):
+    require(path.startswith("/") and not path.startswith("//"))
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request("https://api.github.com" + path, data=data,
+        method=method, headers={"Authorization": "Bearer " + token,
+        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "pgextwin-publisher-proof"})
+    with urllib.request.urlopen(request, timeout=40) as response:
+        raw = response.read()
+        return json.loads(raw) if raw else {}
+
+def b64(value):
+    return base64.urlsafe_b64encode(value).rstrip(b"=")
+
+def jwt(key, app):
+    now = int(time.time())
+    message = b64(b'{"alg":"RS256","typ":"JWT"}') + b"." + b64(
+        json.dumps({"iat": now-60, "exp": now+300, "iss": str(app)}).encode())
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "key.pem"
+        path.write_text(key)
+        path.chmod(0o600)
+        result = subprocess.run(["openssl", "dgst", "-sha256", "-sign", str(path)],
+            input=message, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True)
+    return (message + b"." + b64(result.stdout)).decode()
+
+def repositories(fleet):
+    rows = fleet.get("entries")
+    require(fleet.get("schemaVersion") == 1 and fleet.get("releasePolicy") == "manual-only"
+            and type(rows) is list and bool(rows))
+    names = []
+    for row in rows:
+        require(type(row) is dict)
+        name = row.get("repository")
+        require(type(name) is str and re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", name)
+            and row.get("mode") == "BUILD" and row.get("candidateEnabled") is True
+            and row.get("releasePolicy") == "manual-only")
+        names.append(name)
+    require(len(set(names)) == len(names))
+    return names
+
+def run():
+    require(os.environ.get("GITHUB_REPOSITORY") == "pgextwin/build"
+        and os.environ.get("GITHUB_REF") == "refs/heads/main"
+        and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch")
+    app = int(os.environ["PUBLISHER_APP_ID"])
+    installation = int(os.environ["PUBLISHER_INSTALLATION_ID"])
+    require(app == 5451798 and installation == 174720074 and app != 15368)
+    names = repositories(json.loads(Path("metadata/automation-fleet.json").read_text()))
+    key = os.environ.pop("PUBLISHER_PRIVATE_KEY")
+    auth = jwt(key, app)
+    identity = api("GET", "/app", auth)
+    require(identity.get("id") == app and identity.get("slug") == "pgextwin-publisher")
+    installed = api("GET", "/app/installations/" + str(installation), auth)
+    require(installed.get("app_id") == app and installed.get("id") == installation
+        and installed.get("account", {}).get("login") == "pgextwin"
+        and installed.get("repository_selection") == "all"
+        and installed.get("permissions") == {"contents": "write", "metadata": "read"}
+        and installed.get("suspended_at") is None)
+    report = {"appId": app, "installationId": installation,
+        "installationRepositorySelection": "all", "signerAppId": 15368,
+        "independentApp": True, "publicationAuthorized": False, "repositories": []}
+    payload = b"pgextwin Publisher authorization probe; no refs, tags or Releases.\n"
+    expected = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
+    for name in names:
+        token = None
+        row = {"repository": name, "status": "DENY", "tokenRevoked": False}
+        report["repositories"].append(row)
+        try:
+            minted = api("POST", "/app/installations/" + str(installation) + "/access_tokens",
+                jwt(key, app), {"repositories": [name.split("/")[1]],
+                    "permissions": {"contents": "write", "metadata": "read"}})
+            token = minted.get("token")
+            require(type(token) is str and len(token) > 20)
+            require(minted.get("repository_selection") == "selected"
+                and minted.get("permissions") == {"contents": "write", "metadata": "read"})
+            expiry = __import__("datetime").datetime.fromisoformat(minted["expires_at"].replace("Z", "+00:00"))
+            require(60 < expiry.timestamp() - time.time() <= 3600)
+            scoped = api("GET", "/installation/repositories?per_page=100", token)
+            actual = scoped.get("repositories")
+            require(scoped.get("total_count") == 1 and type(actual) is list
+                and len(actual) == 1 and actual[0].get("full_name") == name)
+            blob = api("POST", "/repos/" + name + "/git/blobs", token,
+                {"content": base64.b64encode(payload).decode(), "encoding": "base64"})
+            require(blob.get("sha") == expected)
+            row.update(status="SCOPED_CONTENTS_WRITE_PROVEN", expiresAt=minted["expires_at"],
+                scopedRepositoryCount=1, permissions=minted["permissions"], blobSha=expected)
+        except Exception:
+            row["status"] = "DENY"
+        finally:
+            if token:
+                try:
+                    api("DELETE", "/installation/token", token)
+                    row["tokenRevoked"] = True
+                except Exception:
+                    row["status"] = "DENY"
+            token = None
+    Path("publisher-app-proof.json").write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report))
+    require(all(row["status"] == "SCOPED_CONTENTS_WRITE_PROVEN" and row["tokenRevoked"]
+                for row in report["repositories"]))
+
+if __name__ == "__main__":
+    try:
+        run()
+    except Exception:
+        print("PUBLISHER_PROOF_DENY; credential values and API error bodies suppressed")
+        raise SystemExit(1)
