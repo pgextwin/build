@@ -82,9 +82,12 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                  workflow_event="workflow_dispatch"):
     # Do not trust the authorization receipt without independently matching all
     # immutable source identities, lifecycle, package metadata and zip digests.
+    automatic = receipt.get("authorizationMode") == "automatic-schedule"
     try:
         auth.validate_receipt(receipt, repository=REPO, commit=commit,
-                              actor=receipt.get("operator"), event=workflow_event)
+                              actor=(os.environ.get("GITHUB_ACTOR", "")
+                                     if automatic else receipt.get("operator")),
+                              event=workflow_event)
     except auth.Denied as e:
         raise Denied("invalid typed authorization: " + str(e)) from e
     # A Chat PR receipt must never turn run-metadata SUCCESS into artifact
@@ -92,9 +95,24 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
     if receipt.get("authorizationMode") == "chat-pr-authorization":
         check(verify_signatures is True,
               "Chat PR publication requires independent ZIP/SPDX attestations")
+    if automatic:
+        # A genuine central schedule is distinct from the completed signed
+        # packaging main/push run; they must NEVER share a run identity.
+        # This is a verification-only path until the independent privileged
+        # Publisher issuer is implemented and policies genuinely authorize.
+        check(verify_signatures is True and workflow_event == "schedule"
+              and receipt.get("sourceRunId") == run_id
+              and receipt.get("sourceRunAttempt") == 1
+              and os.environ.get("GITHUB_REPOSITORY") == "pgextwin/build"
+              and os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+              and os.environ.get("GITHUB_REF") == "refs/heads/main"
+              and os.environ.get("GITHUB_SHA") == receipt.get("publisherMainSha")
+              and os.environ.get("GITHUB_RUN_ID") == str(receipt.get("publisherRunId"))
+              and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
+              "automatic scheduled Publisher has no trusted live origin")
     check(receipt.get("schemaVersion") == 1
-          and isinstance(receipt.get("operator"), str)
-          and bool(receipt["operator"])
+          and (automatic or
+               (isinstance(receipt.get("operator"), str) and bool(receipt["operator"])))
           and receipt.get("repository") == REPO
           and receipt.get("trustedCommit") == commit
           and ext.get("name") == receipt.get("extension")
@@ -118,13 +136,21 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
     attempt = None
     initial_snapshot = None
     if verify_signatures:
-        attempt = guard.attempt_from_env(os.environ, run_id, REPO)
-        initial_snapshot = guard.validate_snapshot(
-            get("actions/runs/" + str(run_id)),
-            get("actions/runs/" + str(run_id) + "/attempts/" +
-                str(attempt) + "/jobs?per_page=100"),
-            repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
-            majors=maintained)
+        if automatic:
+            attempt = 1
+            initial_snapshot = guard.validate_completed_push_snapshot(
+                get("actions/runs/" + str(run_id)),
+                get("actions/runs/" + str(run_id) + "/attempts/1/jobs?per_page=100"),
+                get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
+                repo=REPO, sha=commit, run_id=run_id, attempt=attempt)
+        else:
+            attempt = guard.attempt_from_env(os.environ, run_id, REPO)
+            initial_snapshot = guard.validate_snapshot(
+                get("actions/runs/" + str(run_id)),
+                get("actions/runs/" + str(run_id) + "/attempts/" +
+                    str(attempt) + "/jobs?per_page=100"),
+                repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
+                majors=maintained)
     before_hashes = {name: digest(folder / name) for name in expected_files}
     package_attempt = None
     for major in maintained:
@@ -148,7 +174,8 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
             check(wf["attempt"] == attempt, "package vs authenticated run attempt")
         guard.validate_pkg(pkg, major=major, repo=REPO,
                            packaging_sha=commit, upstream_sha=source["commit"],
-                           run_id=run_id, attempt=package_attempt)
+                           run_id=run_id, attempt=package_attempt,
+                           event="push" if automatic else "workflow_dispatch")
         check(pkg.get("buildMode") == "release-attested"
               and pkg["package"]["name"] == ext["name"]
               and pkg["postgresql"]["major"] == major
@@ -159,7 +186,8 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
               and pkg["source"]["packagingRepository"] == REPO
               and pkg["source"]["packagingCommit"] == commit
               and pkg["workflowRun"]["id"] == run_id
-              and pkg["workflowRun"]["event"] == workflow_event
+              and pkg["workflowRun"]["event"] ==
+                  ("push" if automatic else workflow_event)
               and pkg["workflowRun"]["ref"] == "refs/heads/main",
               "package identity, source pin, run, or major mismatch")
         check(json.loads(spdx_path.read_text(encoding="utf-8-sig")).get("spdxVersion") == "SPDX-2.3",
@@ -191,19 +219,28 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 guard.verified_claims(
                     verified, predicate=kind, repo=REPO, packaging_sha=commit,
                     run_id=run_id, attempt=attempt, zip_name=zip_path.name,
-                    zip_digest=zip_hash, sbom=sbom)
+                    zip_digest=zip_hash, sbom=sbom,
+                    event="push" if automatic else "workflow_dispatch",
+                    config_path=(guard.PUSH_PATH if automatic else guard.PROMOTE_PATH))
                 check(digest(zip_path) == zip_hash and
                       digest(spdx_path) == before_hashes[spdx_path.name],
                       "local ZIP/SPDX modified during signed verification")
     check({name: digest(folder / name) for name in expected_files} == before_hashes,
           "local release assets changed during preflight")
     if verify_signatures:
-        final_snapshot = guard.validate_snapshot(
-            get("actions/runs/" + str(run_id)),
-            get("actions/runs/" + str(run_id) + "/attempts/" +
-                str(attempt) + "/jobs?per_page=100"),
-            repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
-            majors=maintained)
+        if automatic:
+            final_snapshot = guard.validate_completed_push_snapshot(
+                get("actions/runs/" + str(run_id)),
+                get("actions/runs/" + str(run_id) + "/attempts/1/jobs?per_page=100"),
+                get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
+                repo=REPO, sha=commit, run_id=run_id, attempt=1)
+        else:
+            final_snapshot = guard.validate_snapshot(
+                get("actions/runs/" + str(run_id)),
+                get("actions/runs/" + str(run_id) + "/attempts/" +
+                    str(attempt) + "/jobs?per_page=100"),
+                repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
+                majors=maintained)
         check(initial_snapshot == final_snapshot,
               "Actions run/job attempt changed during signature verification")
     return before_hashes

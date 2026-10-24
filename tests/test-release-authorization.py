@@ -29,7 +29,73 @@ def fixture(mode="manual-dispatch"):
                    publishableReceipt=True)
     return obj
 
+def automatic_fixture():
+    obj=fixture()
+    obj.pop("operator")
+    obj.update(
+        status="VERIFIED_AUTOMATIC_SCHEDULE",
+        authorizationMode="automatic-schedule",
+        publisherRepository="pgextwin/build",
+        publisherWorkflow=".github/workflows/publisher-candidate-intake.yml",
+        publisherRunId=89753,publisherRunAttempt=1,
+        publisherMainSha="e"*40,
+        signedSourceWorkflow=".github/workflows/update-watch.yml",
+        sourceRunId=23456,sourceRunAttempt=1,
+        signedArtifactsVerified=True,publicationAuthorized=True,
+        publishableReceipt=True,publisherWriteAuthorized=True,
+        automaticReleaseEnabled=True,
+        approvalProvenance="INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE")
+    return obj
+
+
 class ReceiptTests(unittest.TestCase):
+    def test_schedule_receipt_type_is_distinct_from_human_approval(self):
+        # Pure schema acceptance is NOT an authorization issuer or Sigstore.
+        self.assertEqual(auth.validate_receipt(
+            automatic_fixture(),repository=REPO,commit=SHA,
+            actor="ScheduleWorkflowEditor",event="schedule"),"schedule")
+        for event in ("push","workflow_dispatch"):
+            with self.assertRaises(auth.Denied):
+                auth.validate_receipt(automatic_fixture(),repository=REPO,
+                                      commit=SHA,actor="ScheduleWorkflowEditor",
+                                      event=event)
+        with self.assertRaises(auth.Denied):
+            auth.validate_receipt(fixture(),repository=REPO,commit=SHA,
+                                  actor="HumanOperator",event="schedule")
+
+    def test_fake_schedule_receipt_identity_and_authority_denied(self):
+        changes=[
+            lambda x:x.update(operator="HumanOperator"),
+            lambda x:x.update(publisherRepository=REPO),
+            lambda x:x.update(publisherWorkflow=".github/workflows/evil.yml"),
+            lambda x:x.update(publisherRunId=0),
+            lambda x:x.update(publisherRunId=True),
+            lambda x:x.update(publisherRunAttempt=2),
+            lambda x:x.update(publisherRunAttempt=True),
+            lambda x:x.update(publisherMainSha="invalid"),
+            lambda x:x.update(signedSourceWorkflow="evil.yml"),
+            lambda x:x.update(sourceRunId=0),
+            lambda x:x.update(sourceRunId=89753),
+            lambda x:x.update(sourceRunAttempt=2),
+            lambda x:x.update(sourceRunAttempt=True),
+            lambda x:x.update(approvalProvenance="FAKE"),
+            lambda x:x.update(status="VERIFIED_MANUAL_DISPATCH"),
+            lambda x:x.update(trustedCommit=BASE),
+            lambda x:x.update(authorizationMode="automatic"),
+        ]
+        for field in ("signedArtifactsVerified","publicationAuthorized",
+                      "publishableReceipt","publisherWriteAuthorized",
+                      "automaticReleaseEnabled"):
+            changes.extend((
+                lambda x,f=field:x.update({f:False}),
+                lambda x,f=field:x.update({f:"true"})))
+        for i,change in enumerate(changes):
+            with self.subTest(i=i),self.assertRaises(auth.Denied):
+                obj=automatic_fixture()
+                change(obj)
+                auth.validate_receipt(obj,repository=REPO,commit=SHA,
+                                      actor="ScheduleWorkflowEditor",event="schedule")
+
     def test_both_typed_modes_and_events(self):
         for mode,event in (("manual-dispatch","workflow_dispatch"),
                            ("chat-pr-authorization","push")):
