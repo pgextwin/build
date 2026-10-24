@@ -199,3 +199,37 @@ for item in ("def replay_live_fleet(", "FLEET_EVIDENCE=INDEPENDENT_GET_ONLY_REPL
 assert "contents: write" not in workflow
 print("PASS: 17-repo schedule proof and distinct GET-only replay plus",
       len(denials), "hostile cases; no Release token or PUBLISH")
+
+# A failed or missing genuine central run never authorizes a candidate.
+# Its original failure is preserved; local hourly preflight is labelled DEFERRED
+# (not misreported as a Windows compile failure). A forged/invalid successful
+# run still goes through strict validate(), so cannot take this route.
+import os
+from tempfile import TemporaryDirectory
+latest_fail = deepcopy(run)
+latest_fail["conclusion"] = "failure"
+for records, expected_reason in (([latest_fail], "LATEST_GENUINE_CENTRAL_SCAN_NOT_SUCCESSFUL"),
+                                 ([], "NO_GENUINE_CENTRAL_FLEET_SCHEDULE")):
+    with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
+                                 "GITHUB_REF": "refs/heads/main",
+                                 "GITHUB_RUN_ATTEMPT": "1"}):
+        responses = [branch(build_sha), branch(good_sha), {"workflow_runs": records}]
+        if records:
+            responses.append(latest_fail)
+        with patch.object(m, "api", side_effect=responses):
+            try:
+                m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+            except m.Deferred as e:
+                assert str(e) == expected_reason
+            else:
+                raise AssertionError("failed or missing central schedule created a candidate")
+with TemporaryDirectory() as directory:
+    output = Path(directory) / "output"
+    with patch.dict(os.environ, {"GITHUB_REPOSITORY": repo, "GITHUB_SHA": good_sha,
+                                 "PGEXTWIN_DETECTOR_SHA": m.COHORT_3,
+                                 "GH_TOKEN": "never-log-secret",
+                                 "GITHUB_OUTPUT": str(output)}):
+        with patch.object(m, "run", side_effect=m.Deferred("LATEST_GENUINE_CENTRAL_SCAN_NOT_SUCCESSFUL")):
+            assert m.main() == 0
+    assert output.read_text() == "mode=deferred\n"
+print("PASS: unavailable genuine central schedule is safe deferred, not candidate or publish")

@@ -11,7 +11,7 @@ on:
         required: true
     outputs:
       mode:
-        description: candidate or none (never publication)
+        description: candidate, none, or deferred (never publication)
         value: ${{ jobs.scheduled.outputs.mode }}
 
 permissions:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   scheduled:
-    name: Authenticate newest completed central 17-fleet scan
+    name: Authenticate newest central 17-fleet scan or defer safely
     if: ${{ github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     permissions:
@@ -50,5 +50,6 @@ jobs:
           VERIFIED_MODE: ${{ steps.verify.outputs.mode }}
         run: |
           echo "Scheduled upstream candidate preflight: ${VERIFIED_MODE:-DENY}" >> "$GITHUB_STEP_SUMMARY"
+          echo "deferred = missing/failed latest genuine central schedule: no candidate, no Release, retry at next normal scheduled run." >> "$GITHUB_STEP_SUMMARY"
           echo "Formal Release and PUBLISH are never authorized by this workflow." >> "$GITHUB_STEP_SUMMARY"
 
