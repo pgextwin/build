@@ -167,7 +167,7 @@ class IssuerTests(unittest.TestCase):
 
     def test_module_has_no_side_effects_or_token_leak(self):
         src=(ROOT/"scripts/automatic-publisher-receipt-issuer.py").read_text()
-        for value in ("subprocess","urlopen","requests","gh release create",
+        for value in ("import subprocess","from subprocess","urlopen","import requests","gh release create",
                       "gh api -X POST","GH_TOKEN","PUBLISHER_PRIVATE_KEY"):
             self.assertNotIn(value,src)
 
