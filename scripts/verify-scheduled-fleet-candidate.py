@@ -44,6 +44,16 @@ class Denied(ValueError):
     pass
 
 
+class Deferred(Exception):
+    """No candidate decision: the genuine central scheduled evidence is unavailable.
+
+    This is never authorization. The central run retains its own failure status;
+    the dependent local workflow may finish as a labelled safe no-op and check
+    the next scheduled interval without falsely reporting a Windows failure.
+    """
+    pass
+
+
 def need(condition, explanation):
     if not condition:
         raise Denied(explanation)
@@ -250,13 +260,17 @@ def run(repository, head, pin, token):
          and len(runs["workflow_runs"]) <= 100, "central run list unavailable")
     matching = [r for r in runs["workflow_runs"] if type(r) is dict
                 and r.get("path") == WATCH_PATH]
-    need(bool(matching), "central fleet run absent")
-    current = matching[0]  # GitHub API returns newest runs first; do not ignore failed latest runs.
+    if not matching:
+        raise Deferred("NO_GENUINE_CENTRAL_FLEET_SCHEDULE")
+    current = matching[0]  # Never replace a failed newest schedule with an older success.
     need(type(current.get("id")) is int and current["id"] > 0, "run id missing")
     exact = api(HOST + BUILD + "/actions/runs/" + str(current["id"]), token)
-    need(exact.get("id") == current["id"] and exact.get("head_sha") == current.get("head_sha")
-         and exact.get("conclusion") == "success" and exact.get("status") == "completed",
-         "central run has not successfully completed")
+    need(exact.get("id") == current["id"] and exact.get("head_sha") == current.get("head_sha"),
+         "central run identity mismatch")
+    if exact.get("status") != "completed" or exact.get("conclusion") != "success":
+        # Real central failures stay visible in their original runs. No fallback
+        # to old runs, push smoke, workflow_dispatch or unverified candidates.
+        raise Deferred("LATEST_GENUINE_CENTRAL_SCAN_NOT_SUCCESSFUL")
     source_equivalent = False
     if build_branch.get("commit", {}).get("sha") != exact.get("head_sha"):
         # The original successful schedule remains necessary, but its old
@@ -324,8 +338,21 @@ def main():
             f.write("mode=" + mode + "\n")
         print("SCHEDULED_FLEET_CANDIDATE=" + mode + "; PUBLISH=DENY")
         return 0
+    except Deferred as exc:
+        # An unavailable upstream schedule is not a candidate or a local code
+        # failure. Express the distinction in both workflow outputs and logs.
+        output = os.environ.get("GITHUB_OUTPUT")
+        need(bool(output), "GitHub output not available")
+        with open(output, "a", encoding="utf-8") as f:
+            f.write("mode=deferred\n")
+        print("SCHEDULED_FLEET_CANDIDATE=DEFERRED; reason=" + str(exc) +
+              "; PUBLISH=DENY")
+        return 0
     except (Denied, OSError, subprocess.TimeoutExpired, TypeError, KeyError, ValueError) as exc:
-        print("SCHEDULED_FLEET_CANDIDATE=DENY; " + type(exc).__name__,
+        # Only predeclared safe diagnostics; never print exception response
+        # bodies, tokens or arbitrary API-provided text to Actions logs.
+        reason = str(exc) if type(exc) is Denied else type(exc).__name__
+        print("SCHEDULED_FLEET_CANDIDATE=DENY; " + reason,
               file=sys.stderr)
         return 2
 
