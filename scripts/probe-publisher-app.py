@@ -2,6 +2,8 @@
 """Nonpublishing, protected-main Publisher credential proof; never print secrets."""
 import base64
 import hashlib
+import importlib.util
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -11,6 +13,11 @@ import tempfile
 import time
 import urllib.request
 import urllib.error
+
+_scope_spec = importlib.util.spec_from_file_location(
+    "independent_scope", Path(__file__).with_name("independent-publisher-write-scope.py"))
+scope = importlib.util.module_from_spec(_scope_spec)
+_scope_spec.loader.exec_module(scope)
 
 def require(ok):
     if not ok:
@@ -90,19 +97,23 @@ def run():
                     "permissions": {"contents": "write", "metadata": "read"}})
             token = minted.get("token")
             require(type(token) is str and len(token) > 20)
+            # Deny unexpected permission grants before attempting any write.
             require(minted.get("repository_selection") == "selected"
                 and minted.get("permissions") == {"contents": "write", "metadata": "read"})
-            expiry = __import__("datetime").datetime.fromisoformat(minted["expires_at"].replace("Z", "+00:00"))
-            require(60 < expiry.timestamp() - time.time() <= 3600)
             scoped = api("GET", "/installation/repositories?per_page=100", token)
-            actual = scoped.get("repositories")
-            require(scoped.get("total_count") == 1 and type(actual) is list
-                and len(actual) == 1 and actual[0].get("full_name") == name)
+            require(scoped.get("total_count") == 1 and type(scoped.get("repositories")) is list
+                and len(scoped["repositories"]) == 1
+                and scoped["repositories"][0].get("full_name") == name)
             blob = api("POST", "/repos/" + name + "/git/blobs", token,
                 {"content": base64.b64encode(payload).decode(), "encoding": "base64"})
-            require(blob.get("sha") == expected)
+            proof = scope.validate_live_scope(
+                minted, scoped, blob, repository=name,
+                observed_at=datetime.now(timezone.utc), expected_blob_sha=expected)
+            require(proof["publicationAuthorized"] is False
+                and proof["publisherWriteAuthorized"] is False)
             row.update(status="SCOPED_CONTENTS_WRITE_PROVEN", expiresAt=minted["expires_at"],
-                scopedRepositoryCount=1, permissions=minted["permissions"], blobSha=expected)
+                scopedRepositoryCount=proof["scopedRepositoryCount"],
+                permissions=minted["permissions"], blobSha=proof["blobSha"])
         except Exception:
             row["status"] = "DENY"
         finally:
