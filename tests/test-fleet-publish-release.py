@@ -191,6 +191,106 @@ class FleetPublisherTests(TestCase):
                 p.check_assets(folder,ext,receipt,COMMIT,123,lc,False,
                                workflow_event="push")
 
+    def test_scheduled_original_completed_source_is_distinct_from_publisher_run(self):
+        # Offline mocks exercise routing only: they are never signed bytes or
+        # authority to publish, mint a token or create a Release.
+        ext, lc, receipt = fixture()
+        publisher_sha = "c" * 40
+        publisher_run = 9876543
+        receipt.pop("operator")
+        receipt.update(
+            status="VERIFIED_AUTOMATIC_SCHEDULE",
+            authorizationMode="automatic-schedule",
+            publisherRepository="pgextwin/build",
+            publisherWorkflow=".github/workflows/publisher-candidate-intake.yml",
+            publisherRunId=publisher_run,publisherRunAttempt=1,
+            publisherMainSha=publisher_sha,
+            signedSourceWorkflow=".github/workflows/update-watch.yml",
+            sourceRunId=123,sourceRunAttempt=1,
+            signedArtifactsVerified=True,publicationAuthorized=True,
+            publishableReceipt=True,publisherWriteAuthorized=True,
+            automaticReleaseEnabled=True,
+            approvalProvenance="INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE")
+        env={"GITHUB_REPOSITORY":"pgextwin/build",
+             "GITHUB_EVENT_NAME":"schedule","GITHUB_REF":"refs/heads/main",
+             "GITHUB_ACTOR":"ScheduleEditor",
+             "GITHUB_SHA":publisher_sha,
+             "GITHUB_RUN_ID":str(publisher_run),
+             "GITHUB_RUN_ATTEMPT":"1"}
+        with TemporaryDirectory() as tmp, patch.object(p,"REPO",REPO), \
+             patch.dict(p.os.environ,env), \
+             patch.object(p,"get",return_value={"mock":True}) as github, \
+             patch.object(p.guard,"validate_completed_push_snapshot",
+                          return_value={"immutable":"original"} ) as snapshots, \
+             patch.object(p.guard,"verified_claims") as signed, \
+             patch.object(p,"run",return_value='[]') as gh:
+            folder=Path(tmp)
+            make_assets(folder,ext,run=123,workflow_event="push")
+            result=p.check_assets(folder,ext,receipt,COMMIT,123,lc,
+                                  verify_signatures=True,workflow_event="schedule")
+            self.assertEqual(len(result),15)
+            self.assertEqual(snapshots.call_count,2)
+            self.assertEqual(signed.call_count,10)
+            self.assertEqual(gh.call_count,10)
+            self.assertTrue(all(call.kwargs["event"]=="push" and
+                                call.kwargs["config_path"]==p.guard.PUSH_PATH
+                                for call in signed.call_args_list))
+            self.assertTrue(all(call.kwargs["run_id"]==123 and
+                                call.kwargs["attempt"]==1
+                                for call in snapshots.call_args_list))
+            endpoints=[call.args[0] for call in github.call_args_list]
+            self.assertEqual(endpoints.count("actions/runs/123"),2)
+            self.assertEqual(endpoints.count("actions/runs/123/attempts/1/jobs?per_page=100"),2)
+            self.assertEqual(endpoints.count("actions/runs/123/artifacts?per_page=100"),2)
+            self.assertNotIn("actions/runs/"+str(publisher_run),endpoints)
+
+    def test_scheduled_publisher_denies_unsigned_bypass_and_wrong_live_origin(self):
+        ext,lc,receipt=fixture()
+        receipt.pop("operator")
+        receipt.update(
+            status="VERIFIED_AUTOMATIC_SCHEDULE",
+            authorizationMode="automatic-schedule",
+            publisherRepository="pgextwin/build",
+            publisherWorkflow=".github/workflows/publisher-candidate-intake.yml",
+            publisherRunId=9876543,publisherRunAttempt=1,
+            publisherMainSha="c"*40,
+            signedSourceWorkflow=".github/workflows/update-watch.yml",
+            sourceRunId=123,sourceRunAttempt=1,
+            signedArtifactsVerified=True,publicationAuthorized=True,
+            publishableReceipt=True,publisherWriteAuthorized=True,
+            automaticReleaseEnabled=True,
+            approvalProvenance="INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE")
+        env={"GITHUB_REPOSITORY":"pgextwin/build",
+             "GITHUB_EVENT_NAME":"schedule","GITHUB_REF":"refs/heads/main",
+             "GITHUB_ACTOR":"ScheduleEditor","GITHUB_SHA":"c"*40,
+             "GITHUB_RUN_ID":"9876543","GITHUB_RUN_ATTEMPT":"1"}
+        with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):
+            folder=Path(tmp)
+            make_assets(folder,ext,run=123,workflow_event="push")
+            with patch.dict(p.os.environ,env),patch.object(p,"get") as get:
+                with self.assertRaises(p.Denied):
+                    p.check_assets(folder,ext,receipt,COMMIT,123,lc,
+                                   verify_signatures=False,workflow_event="schedule")
+                get.assert_not_called()
+            for key,bad in (("GITHUB_EVENT_NAME","workflow_dispatch"),
+                            ("GITHUB_RUN_ID","123"),
+                            ("GITHUB_REPOSITORY",REPO),
+                            ("GITHUB_RUN_ATTEMPT","2"),
+                            ("GITHUB_SHA","d"*40),
+                            ("GITHUB_REF","refs/tags/tag")):
+                with self.subTest(key=key), patch.dict(p.os.environ,{**env,key:bad}), \
+                     patch.object(p,"get") as get:
+                    with self.assertRaises(p.Denied):
+                        p.check_assets(folder,ext,receipt,COMMIT,123,lc,
+                                       verify_signatures=True,workflow_event="schedule")
+                    get.assert_not_called()
+            with patch.dict(p.os.environ,env), patch.object(p,"get") as get:
+                forged=dict(receipt,sourceRunId=9876543)
+                with self.assertRaises(p.Denied):
+                    p.check_assets(folder,ext,forged,COMMIT,123,lc,
+                                   verify_signatures=True,workflow_event="schedule")
+                get.assert_not_called()
+
     def test_draft_must_be_unique_exact_commit_and_verified_by_id(self):
         tag="v18.1-windows.3"
         release={"id":879,"tag_name":tag,"target_commitish":COMMIT,"draft":True,
