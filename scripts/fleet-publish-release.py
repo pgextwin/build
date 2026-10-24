@@ -62,21 +62,28 @@ def digest(p):
         for c in iter(lambda: f.read(1024 * 1024), b""): h.update(c)
     return h.hexdigest()
 
-def get(path):
+def get(path, *, release_page=False):
+    # Only the draft-ID lookup is allowed to follow a tightly bounded
+    # GitHub Release inventory. All other API reads remain fail-closed if the
+    # returned page advertises more results.
+    if release_page:
+        check(re.fullmatch(r"releases\?per_page=100&page=[1-9][0-9]*", path),
+              "untrusted Release pagination request")
     req = Request("https://api.github.com/repos/" + REPO + "/" + path,
                   headers={"Authorization":"Bearer " + os.environ["GH_TOKEN"],
                            "Accept":"application/vnd.github+json"})
     try:
         with urlopen(req, timeout=25) as resp:
             check(resp.status == 200, "ambiguous GitHub response")
-            # A partial Release inventory can hide an existing tag or Draft;
-            # deny rather than trusting the first page of mutable GitHub data.
             link = resp.headers.get("Link", "")
-            check(not re.search(r'\brel\s*=\s*"?next"?', link, re.I),
-                  "paginated GitHub Release/asset history is not authoritative")
-            return json.load(resp)
+            has_next = bool(re.search(r'\brel\s*=\s*"?next"?', link, re.I))
+            if not release_page:
+                check(not has_next,
+                      "paginated GitHub Release/asset history is not authoritative")
+            data = json.load(resp)
+            return (data, has_next) if release_page else data
     except HTTPError as e:
-        if e.code == 404: return None
+        if e.code == 404 and not release_page: return None
         raise Denied("GitHub API failed HTTP " + str(e.code)) from e
 
 def absent(tag):
@@ -251,22 +258,34 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
     return before_hashes
 
 def staged_release_id(tag, commit):
-    # GitHub's releases/tags/{tag} endpoint can return HTTP 404 for an
-    # authenticated DRAFT even when the tag, draft and assets exist. A newly
-    # reserved tag must resolve to exactly one draft; never infer a release by
-    # display title or treat a tag lookup 404 as evidence of draft absence.
-    releases = get("releases?per_page=100")
-    check(isinstance(releases, list), "cannot enumerate staged Releases")
-    check(len(releases) < 100,
-          "potentially incomplete first page of staged Release history")
-    matches = [r for r in releases if r.get("tag_name") == tag]
-    check(len(matches) == 1, "missing or ambiguous freshly staged Release")
-    release = matches[0]
-    check(release.get("draft") is True
-          and release.get("target_commitish") == commit
-          and isinstance(release.get("id"), int)
-          and release["id"] > 0, "staged Release identity does not match this run")
-    return release["id"]
+    # GitHub's releases/tags/{tag} may give 404 for an authenticated DRAFT.
+    # Enumerate the COMPLETE paginated authorized inventory instead. Never
+    # select a draft by title or accept an incomplete/unstable page sequence.
+    matches = []
+    ids = set()
+    for page in range(1, 51):  # bounded 5,000 entries; deny on overflow
+        releases, has_next = get("releases?per_page=100&page=" + str(page),
+                                 release_page=True)
+        check(type(releases) is list and len(releases) <= 100,
+              "malformed staged Release inventory page")
+        check(not has_next or len(releases) == 100,
+              "truncated staged Release inventory page")
+        for release in releases:
+            check(type(release) is dict and type(release.get("id")) is int
+                  and release["id"] > 0 and release["id"] not in ids,
+                  "invalid or repeated staged Release identity")
+            ids.add(release["id"])
+            if release.get("tag_name") == tag:
+                matches.append(release)
+        if not has_next:
+            check(len(matches) == 1,
+                  "missing or ambiguous freshly staged Release")
+            result = matches[0]
+            check(result.get("draft") is True
+                  and result.get("target_commitish") == commit,
+                  "staged Release identity does not match this run")
+            return result["id"]
+    raise Denied("staged Release inventory pagination limit exceeded")
 
 
 def check_remote(tag, expected, draft, release_id):
