@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import importlib.util
 from pathlib import Path
 import unittest
+from urllib.error import HTTPError
 
 path = Path(__file__).resolve().parents[1] / "scripts/publisher-scoped-token.py"
 spec = importlib.util.spec_from_file_location("publisher_scoped_token", path)
@@ -22,6 +23,7 @@ class FakeAPI:
     def __init__(self, bad=None):
         self.bad = bad
         self.calls = []
+        self.revoked = False
     def __call__(self, method, path, token, body=None):
         self.calls.append((method, path))
         if path == "/app":
@@ -43,12 +45,16 @@ class FakeAPI:
                     "expires_at":(datetime.now(timezone.utc) +
                                   timedelta(minutes=(-1 if self.bad=="expired" else 30))).isoformat().replace("+00:00","Z")}
         if path == "/installation/repositories?per_page=100":
+            if self.revoked and self.bad != "revoke-still-live":
+                raise HTTPError("https://api.github.com", 403 if self.bad=="revoke-forbidden"
+                                else 401, "invalid token", {}, None)
             return {"total_count":2 if self.bad=="two-repos" else 1,
                     "repositories":[{"full_name": "pgextwin/orafce"
                                      if self.bad=="wrong-repo" else REPO}]}
         if path == "/installation/token":
             if self.bad == "revoke-failed":
                 raise PermissionError("revocation failed")
+            self.revoked = True
             return {}
         raise AssertionError("unexpected API operation " + method + " " + path)
 
@@ -65,7 +71,9 @@ class TokenLifecycleTests(unittest.TestCase):
             self.assertEqual(token,TOKEN)
             self.assertEqual(scope["total_count"],1)
             self.assertEqual(minted["permissions"],{"contents":"write","metadata":"read"})
-        self.assertEqual(api.calls[-1],("DELETE","/installation/token"))
+        self.assertEqual(api.calls[-2:], [
+            ("DELETE","/installation/token"),
+            ("GET","/installation/repositories?per_page=100")])
         self.assertEqual([v for v in api.calls if v[0]=="POST"],
                          [("POST","/app/installations/174720074/access_tokens")])
         fleet = fixture()
@@ -86,7 +94,9 @@ class TokenLifecycleTests(unittest.TestCase):
         with mod.single_repository_token(**args(api,fleet=fleet),
                                          release_policy="automatic-signed-schedule") as (token,_,__):
             self.assertEqual(token,TOKEN)
-        self.assertEqual(api.calls[-1],("DELETE","/installation/token"))
+        self.assertEqual(api.calls[-2:], [
+            ("DELETE","/installation/token"),
+            ("GET","/installation/repositories?per_page=100")])
         with self.assertRaises(mod.Denied):
             with mod.single_repository_token(**args(FakeAPI(),fleet=fixture()),
                                              release_policy="automatic-signed-schedule"):
@@ -101,7 +111,9 @@ class TokenLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"caller failed"):
             with mod.single_repository_token(**args(api)):
                 raise RuntimeError("caller failed")
-        self.assertEqual(api.calls[-1],("DELETE","/installation/token"))
+        self.assertEqual(api.calls[-2:], [
+            ("DELETE","/installation/token"),
+            ("GET","/installation/repositories?per_page=100")])
 
     def test_issuer_mismatch_prevents_token_mint(self):
         api=FakeAPI("signer")
@@ -117,7 +129,9 @@ class TokenLifecycleTests(unittest.TestCase):
                 with self.assertRaises(mod.Denied):
                     with mod.single_repository_token(**args(api)):
                         pass
-                self.assertEqual(api.calls[-1],("DELETE","/installation/token"))
+                self.assertEqual(api.calls[-2:], [
+                    ("DELETE","/installation/token"),
+                    ("GET","/installation/repositories?per_page=100")])
         for member in ([],[{"repository":"pgextwin/orafce",
                             "mode":"BUILD","candidateEnabled":True,
                             "releasePolicy":"manual-only"}]):
@@ -125,6 +139,18 @@ class TokenLifecycleTests(unittest.TestCase):
                 with mod.single_repository_token(**args(FakeAPI(),fleet={
                     "schemaVersion":1,"releasePolicy":"manual-only","entries":member})):
                     pass
+
+    def test_revocation_requires_proof_token_is_no_longer_usable(self):
+        for fault in ("revoke-still-live", "revoke-forbidden"):
+            with self.subTest(fault=fault):
+                api=FakeAPI(fault)
+                with self.assertRaises(mod.Denied):
+                    with mod.single_repository_token(**args(api)):
+                        pass
+                self.assertTrue(api.revoked)
+                self.assertEqual(api.calls[-2:], [
+                    ("DELETE","/installation/token"),
+                    ("GET","/installation/repositories?per_page=100")])
 
     def test_revocation_error_not_suppressed(self):
         api=FakeAPI("revoke-failed")
