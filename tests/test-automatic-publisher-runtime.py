@@ -60,8 +60,8 @@ class PublisherRuntimeOffline(TestCase):
             def fake(command,**kwargs):
                 commands.append(command)
                 folder=Path(command[command.index("--dir")+1])
-                if command[5]=="--name":
-                    if command[6]=="automatic-signed-candidate-audit-nonpublishing":
+                if command[6]=="--name":
+                    if command[7]=="automatic-signed-candidate-audit-nonpublishing":
                         (folder/"automatic-signed-candidate-audit.json").write_text("{}")
                     else:
                         (folder/"independent-signed-candidate-audit.json").write_text("{}")
@@ -88,7 +88,6 @@ class PublisherRuntimeOffline(TestCase):
         self.assertIn("scope.single_repository_token(",s)
         self.assertIn("formal.check_assets(",s)
         self.assertIn("formal.publish_preverified(",s)
-        self.assertIn("publisherToken",s) if False else None
         self.assertNotIn("--receipt",s)
         self.assertIn('os.environ["GH_TOKEN"]=original_read_token',s)
 
