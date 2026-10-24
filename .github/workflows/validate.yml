@@ -169,6 +169,9 @@ jobs:
       - name: Verify independent real signed-source gate remains read-only and fail-closed
         run: python tests/test-verify-completed-signed-source.py
 
+      - name: Reject forged schedule-signed source joins before Publisher admission (NO RELEASE)
+        run: python tests/test-automatic-publisher-admission.py
+
       - name: Verify hourly Publisher selects only genuine fleet signed runs (NO RELEASE)
         run: python tests/test-select-signed-publisher-candidates.py
 
