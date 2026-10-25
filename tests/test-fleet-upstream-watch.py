@@ -183,5 +183,22 @@ class ReadonlyFleet(TestCase):
         self.assertIn("candidatePrCreated", (ROOT/"scripts/fleet-upstream-watch.py").read_text())
 
 
+    def test_secondary_actual_schedule_keeps_primary_and_strict_admission(self):
+        workflow = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
+        self.assertEqual(workflow.count('    - cron: "0 * * * *"'), 1)
+        self.assertEqual(workflow.count('    - cron: "7 * * * *"'), 1)
+        self.assertEqual(workflow.count('    - cron:'), 2)
+        self.assertIn("  readonly-fleet:", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        verifier = (ROOT / "scripts/verify-scheduled-fleet-candidate.py").read_text()
+        self.assertIn('exact.get("event") == "schedule"', verifier)
+        self.assertIn("if now - started >= timedelta(hours=3):", verifier)
+        self.assertIn("verify_replay_source_blobs(", verifier)
+        self.assertIn('current = matching[0]', verifier)
+        self.assertNotIn("run_attempt: 2", workflow)
+        self.assertNotIn("contents: write", workflow)
+        self.assertNotIn("pull-requests: write", workflow)
+
+
 if __name__=="__main__":
     main()
