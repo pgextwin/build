@@ -189,7 +189,7 @@ class ReadonlyFleet(TestCase):
         self.assertEqual(workflow.count('    - cron: "7 * * * *"'), 1)
         self.assertEqual(workflow.count('    - cron:'), 2)
         self.assertIn("  readonly-fleet:", workflow)
-        self.assertIn("permissions:\\n  contents: read", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
         verifier = (ROOT / "scripts/verify-scheduled-fleet-candidate.py").read_text()
         self.assertIn('exact.get("event") == "schedule"', verifier)
         self.assertIn("if now - started >= timedelta(hours=3):", verifier)
