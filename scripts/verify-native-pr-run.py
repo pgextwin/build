@@ -117,7 +117,7 @@ def gh_get(repo, endpoint):
         or re.fullmatch(r"pulls/[1-9][0-9]*",endpoint)
         or re.fullmatch(r"pulls/[1-9][0-9]*/files\?per_page=100",endpoint)
         or re.fullmatch(r"git/ref/pull/[1-9][0-9]*/merge",endpoint)
-        or re.fullmatch(r"commits/[a-f0-9]{40}/pulls\\?per_page=100",endpoint)
+        or re.fullmatch(r"commits/[a-f0-9]{40}/pulls\?per_page=100",endpoint)
         or endpoint=="branches/main"
         or re.fullmatch(r"commits/[a-f0-9]{40}/check-runs\?per_page=100",endpoint)),
         "GitHub GET path not allowlisted")
