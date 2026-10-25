@@ -201,15 +201,24 @@ class TrustedRuntimeOffline(TestCase):
                 publish.assert_not_called()
                 self.assertFalse(paths["output"].exists())
 
-    def test_workflow_preserves_whole_matrix_success_and_repository_identity(self):
+    def test_workflow_requires_independent_selected_repository_proofs(self):
         workflow=(ROOT/".github/workflows/publisher-candidate-intake.yml").read_text()
         self.assertIn("signed original (${{ matrix.name }})",workflow)
         publisher=workflow.split("  isolated_formal_publisher:",1)[1]
         for required in ("needs.nonpublishing_intake.result == 'success'",
                          "needs.nonpublishing_intake.outputs.publisher_ready == 'true'",
-                         "needs.independent_real_signed_source.result == 'success'"):
+                         "needs.select_verified_sources.result == 'success'",
+                         "needs.select_verified_sources.outputs.has_verified_sources == 'true'",
+                         "fromJSON(needs.select_verified_sources.outputs.publisher_matrix)"):
             self.assertIn(required,publisher)
         self.assertNotIn("needs.independent_real_signed_source.result == 'failure'",publisher)
+        self.assertNotIn("needs.independent_real_signed_source.result == 'success'",publisher)
+        selector=workflow.split("  select_verified_sources:",1)[1].split("  isolated_formal_publisher:",1)[0]
+        self.assertIn("always() && !cancelled()",selector)
+        self.assertIn("needs.independent_real_signed_source.result == 'failure'",selector)
+        self.assertIn("scripts/select-verified-publisher-candidates.py",selector)
+        self.assertNotIn("environment: publisher",selector)
+        self.assertNotIn("secrets.",selector)
 
     def test_scoped_token_revoked_on_rejected_issuer(self):
         with TemporaryDirectory() as d:

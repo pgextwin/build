@@ -158,6 +158,9 @@ with patch.object(m, "api", return_value=pristine_tree()) as fetch:
     assert m.verify_replay_source_blobs("b" * 40, "d" * 40, "") is True
     assert fetch.call_count == 2
     assert all("/git/trees/" in call.args[0] for call in fetch.call_args_list)
+with patch.object(m, "api", return_value=pristine_tree()) as fetch:
+    assert m.verify_replay_source_blobs(build_sha, build_sha, "") is True
+    assert fetch.call_count == 1
 for variant in ("missing", "changed", "symlink", "duplicate", "truncated"):
     item = pristine_tree()
     if variant == "missing":
@@ -372,3 +375,95 @@ with TemporaryDirectory() as directory:
             assert m.main() == 0
     assert output.read_text() == "mode=deferred\n"
 print("PASS: expired genuine central scan defers only, clock and spoofing DENY")
+
+
+# Regression: a central artifact can download successfully while its target
+# row predates a protected packaging-main merge. Reject that stale row, then
+# independently authenticate the scanner closure and replay the whole fleet.
+# This is a distinct GET-only result, never acceptance of the stale archive.
+from contextlib import redirect_stdout
+from io import StringIO
+from types import SimpleNamespace
+
+new_head = "f" * 40
+fresh = deepcopy(report)
+next(row for row in fresh["extensions"] if row["repository"] == repo)["mainSha"] = new_head
+
+def stale_archive_run(*, original=report, replay=fresh, tree=None,
+                      live_branch=None, final_branch=None):
+    requests = []
+    live_branch = live_branch or branch(new_head)
+    target_gets = 0
+
+    def getter(url, token):
+        nonlocal target_gets
+        requests.append(url)
+        if url == m.HOST + m.BUILD + "/branches/main":
+            return branch(build_sha)
+        if url == m.HOST + repo + "/branches/main":
+            target_gets += 1
+            return final_branch if final_branch is not None and target_gets > 1 else live_branch
+        if url == m.HOST + m.BUILD + "/actions/runs?event=schedule&per_page=100":
+            return {"workflow_runs": [run]}
+        if url == m.HOST + m.BUILD + "/actions/runs/12345":
+            return run
+        if url == m.HOST + m.BUILD + "/actions/runs/12345/artifacts?per_page=100":
+            return {"total_count": 1, "artifacts": [{
+                "name": "fleet-upstream-watch", "expired": False,
+                "size_in_bytes": 1234,
+            }]}
+        if url == m.HOST + m.BUILD + "/git/trees/" + build_sha + "?recursive=1":
+            return pristine_tree() if tree is None else tree
+        raise AssertionError("unexpected GET during stale-archive repair: " + url)
+
+    def download(command, **kwargs):
+        destination = Path(command[-1])
+        (destination / "fleet-upstream-watch.json").write_text(json.dumps(original), "utf-8")
+        (destination / "fleet-upstream-watch.md").write_text("original central snapshot", "utf-8")
+        return SimpleNamespace(returncode=0)
+
+    capture = StringIO()
+    with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
+                                 "GITHUB_REF": "refs/heads/main",
+                                 "GITHUB_RUN_ATTEMPT": "1"}):
+        with patch.object(m, "api", side_effect=getter), \
+             patch.object(m.subprocess, "run", side_effect=download), \
+             patch.object(m, "replay_live_fleet", return_value=replay) as fresh_scan, \
+             redirect_stdout(capture):
+            try:
+                result = m.run(repo, new_head, m.COHORT_3, "opaque-token")
+            except m.Denied as exc:
+                return None, exc, fresh_scan.call_count, requests, capture.getvalue()
+            return result, None, fresh_scan.call_count, requests, capture.getvalue()
+
+mode, error, replay_count, requests, diagnostic = stale_archive_run()
+assert mode == "candidate" and error is None and replay_count == 1
+assert sum("/git/trees/" in url for url in requests) == 1
+assert requests.count(m.HOST + repo + "/branches/main") == 2
+assert "FRESH_FLEET_REPLAY_AFTER_PROTECTED_TARGET_MAIN_CHANGE" in diagnostic
+assert "central artifact target row was not accepted" in diagnostic
+
+# The new route cannot hide bad original evidence, alter the scanner source,
+# accept an old replay, or race a second protected-main change.
+bad_tree = pristine_tree()
+bad_tree["tree"][0]["sha"] = "e" * 40
+bad_original = deepcopy(report)
+bad_original["publication"] = "ALLOW"
+partial_original = deepcopy(report)
+partial_original["extensions"].pop()
+indeterminate_replay = deepcopy(fresh)
+indeterminate_replay["indeterminate"] = 1
+for name, kwargs, expected_replays in (
+    ("scanner source changed", {"tree": bad_tree}, 0),
+    ("original attempts PUBLISH", {"original": bad_original}, 0),
+    ("original fleet incomplete", {"original": partial_original}, 0),
+    ("caller schedule is stale", {"live_branch": branch("e" * 40)}, 0),
+    ("replay still has old target main", {"replay": report}, 1),
+    ("replay is indeterminate", {"replay": indeterminate_replay}, 1),
+    ("main changes during replay", {"final_branch": branch("e" * 40)}, 1),
+):
+    mode, error, replay_count, _, _ = stale_archive_run(**kwargs)
+    assert mode is None and isinstance(error, m.Denied), name
+    assert replay_count == expected_replays, name
+print("PASS: stale artifact target requires authenticated complete fresh replay;",
+      "7 hostile archive/source/main-race variants DENY")

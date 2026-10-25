@@ -72,6 +72,11 @@ class Denied(ValueError):
     pass
 
 
+class SnapshotMainChanged(Denied):
+    """An otherwise authentic snapshot predates the exact caller main."""
+    pass
+
+
 class Deferred(Exception):
     """No candidate decision: the genuine central scheduled evidence is unavailable.
 
@@ -190,7 +195,8 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
     need(set(by_repo) == approved and report.get("updatesDetected") == count,
          "partial or inconsistent registered fleet result")
     target = by_repo[repository]
-    need(target["mainSha"] == head, "candidate manifest main changed since daily watch")
+    if target["mainSha"] != head:
+        raise SnapshotMainChanged("candidate manifest main changed since daily watch")
     return "candidate" if target["status"] == "update-available" else "none"
 
 
@@ -241,9 +247,8 @@ def git_blob_sha(data):
 def verify_replay_source_blobs(scheduled_sha, current_sha, token):
     """Fail closed unless scheduled, current and pinned scanner bytes agree."""
     need(type(scheduled_sha) is str and SHA.fullmatch(scheduled_sha)
-         and type(current_sha) is str and SHA.fullmatch(current_sha)
-         and scheduled_sha != current_sha,
-         "central SHA drift proof has invalid refs")
+         and type(current_sha) is str and SHA.fullmatch(current_sha),
+         "central source proof has invalid refs")
     root = Path(__file__).resolve().parents[1]
     local = {}
     for path in REPLAY_SOURCE_PATHS:
@@ -251,7 +256,7 @@ def verify_replay_source_blobs(scheduled_sha, current_sha, token):
         need(source.is_file() and not source.is_symlink(),
              "pinned immutable scan source missing or symlinked")
         local[path] = git_blob_sha(source.read_bytes())
-    for commit_sha in (scheduled_sha, current_sha):
+    for commit_sha in dict.fromkeys((scheduled_sha, current_sha)):
         tree = api(HOST + BUILD + "/git/trees/" + commit_sha + "?recursive=1", token)
         need(type(tree) is dict and tree.get("truncated") is False
              and type(tree.get("tree")) is list
@@ -376,9 +381,28 @@ def run(repository, head, pin, token):
                 need(len(raw) <= 262144, "oversized fleet JSON")
                 report = strict_json(raw.decode("utf-8"))
 
-    mode = validate(report, exact, build_branch, target_branch, repository,
-                    head, pin, datetime.now(timezone.utc),
-                    live_replay=live_replay, source_equivalent=source_equivalent)
+    try:
+        mode = validate(report, exact, build_branch, target_branch, repository,
+                        head, pin, datetime.now(timezone.utc),
+                        live_replay=live_replay, source_equivalent=source_equivalent)
+    except SnapshotMainChanged:
+        # A successful archive download can still contain the old packaging
+        # main after a protected merge. Never authorize that stale row. Only
+        # after the original snapshot passes every other authentication gate,
+        # bind the entire scanner/policy closure to scheduled/current/pinned
+        # source and perform one distinct fresh complete GET-only replay.
+        # A drift during an existing replay remains DENY, not an endless retry.
+        if live_replay:
+            raise
+        source_equivalent = verify_replay_source_blobs(
+            exact["head_sha"], build_branch["commit"]["sha"], token)
+        report = replay_live_fleet(token)
+        live_replay = True
+        print("FLEET_EVIDENCE=FRESH_FLEET_REPLAY_AFTER_PROTECTED_TARGET_MAIN_CHANGE; "
+              "central artifact target row was not accepted")
+        mode = validate(report, exact, build_branch, target_branch, repository,
+                        head, pin, datetime.now(timezone.utc),
+                        live_replay=live_replay, source_equivalent=source_equivalent)
     need(api(HOST + BUILD + "/branches/main", token) == build_branch
          and api(HOST + repository + "/branches/main", token) == target_branch,
          "protected main changed during candidate authorization")
@@ -412,7 +436,7 @@ def main():
     except (Denied, OSError, subprocess.TimeoutExpired, TypeError, KeyError, ValueError) as exc:
         # Only predeclared safe diagnostics; never print exception response
         # bodies, tokens or arbitrary API-provided text to Actions logs.
-        reason = str(exc) if type(exc) is Denied else type(exc).__name__
+        reason = str(exc) if isinstance(exc, Denied) else type(exc).__name__
         print("SCHEDULED_FLEET_CANDIDATE=DENY; " + reason,
               file=sys.stderr)
         return 2
