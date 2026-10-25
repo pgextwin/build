@@ -21,6 +21,7 @@ on:
       - 'metadata/unattended-publication.json'
       - 'metadata/release-promotion.json'
       - 'scripts/select-signed-publisher-candidates.py'
+      - 'scripts/select-verified-publisher-candidates.py'
       - 'scripts/publisher-scoped-token.py'
       - 'metadata/automation-fleet.json'
 
@@ -199,20 +200,66 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  isolated_formal_publisher:
-    # Only an authentically signed candidate, genuine schedule and an explicit
-    # protected-fleet auto policy may even enter the credentialed Environment.
-    # Current manual-only/OBSERVE/PUBLISH_DENY yields publisher_ready=false.
-    name: Isolated Publisher App signed formal Release (create only) (${{ matrix.name }})
+  select_verified_sources:
+    # A failed peer must not prevent a repository whose separate proof passed.
+    # This read-only job independently GETs the actual same-run jobs; failed,
+    # skipped, missing or mismatched proofs never enter Publisher Environment.
+    name: Select independently verified repositories for isolated Publisher
     needs: [nonpublishing_intake, independent_real_signed_source]
     if: >-
-      ${{ github.event_name == 'schedule' &&
+      ${{ always() && !cancelled() &&
+          github.event_name == 'schedule' &&
           github.repository == 'pgextwin/build' &&
           github.ref == 'refs/heads/main' &&
           needs.nonpublishing_intake.result == 'success' &&
           needs.nonpublishing_intake.outputs.has_candidates == 'true' &&
           needs.nonpublishing_intake.outputs.publisher_ready == 'true' &&
-          needs.independent_real_signed_source.result == 'success' }}
+          (needs.independent_real_signed_source.result == 'success' ||
+           needs.independent_real_signed_source.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      publisher_matrix: ${{ steps.select.outputs.publisher_matrix }}
+      has_verified_sources: ${{ steps.select.outputs.has_verified_sources }}
+    steps:
+      - name: Checkout exact protected read-only proof selector
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Require authentic successful same-run proof for each selected repository
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_MATRIX: ${{ needs.nonpublishing_intake.outputs.candidate_matrix }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/select-verified-publisher-candidates.py \
+            --candidates-json "$CANDIDATE_MATRIX" \
+            --fleet metadata/automation-fleet.json \
+            --github-output "$GITHUB_OUTPUT"
+
+  isolated_formal_publisher:
+    # Only an authentically signed candidate, genuine schedule and an explicit
+    # protected-fleet auto policy may even enter the credentialed Environment.
+    # Current manual-only/OBSERVE/PUBLISH_DENY yields publisher_ready=false.
+    name: Isolated Publisher App signed formal Release (create only) (${{ matrix.name }})
+    needs: [nonpublishing_intake, select_verified_sources]
+    if: >-
+      ${{ always() && !cancelled() &&
+          github.event_name == 'schedule' &&
+          github.repository == 'pgextwin/build' &&
+          github.ref == 'refs/heads/main' &&
+          needs.nonpublishing_intake.result == 'success' &&
+          needs.nonpublishing_intake.outputs.publisher_ready == 'true' &&
+          needs.select_verified_sources.result == 'success' &&
+          needs.select_verified_sources.outputs.has_verified_sources == 'true' }}
     environment: publisher
     runs-on: ubuntu-latest
     timeout-minutes: 55
@@ -224,7 +271,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        include: ${{ fromJSON(needs.nonpublishing_intake.outputs.candidate_matrix) }}
+        include: ${{ fromJSON(needs.select_verified_sources.outputs.publisher_matrix) }}
     steps:
       - name: Checkout exact protected central Publisher code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

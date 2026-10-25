@@ -208,7 +208,9 @@ jobs:
         run: python tests/test-automatic-publisher-admission.py
 
       - name: Verify hourly Publisher selects only genuine fleet signed runs (NO RELEASE)
-        run: python tests/test-select-signed-publisher-candidates.py
+        run: |
+          python tests/test-select-signed-publisher-candidates.py
+          python tests/test-select-verified-publisher-candidates.py
 
       - name: Validate default-denied manual and automatic Catalog policy contracts
         run: python tests/test-manual-release-downstream.py
