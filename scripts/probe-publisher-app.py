@@ -55,18 +55,14 @@ def jwt(key, app):
     return (message + b"." + b64(result.stdout)).decode()
 
 def repositories(fleet):
-    rows = fleet.get("entries")
-    require(fleet.get("schemaVersion") == 1 and fleet.get("releasePolicy") == "manual-only"
-            and type(rows) is list and bool(rows))
-    names = []
-    for row in rows:
-        require(type(row) is dict)
-        name = row.get("repository")
-        require(type(name) is str and re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", name)
-            and row.get("mode") == "BUILD" and row.get("candidateEnabled") is True
-            and row.get("releasePolicy") == "manual-only")
-        names.append(name)
-    require(len(set(names)) == len(names))
+    # The nonpublishing canary must survive an explicitly approved future
+    # fleet transition. Reuse the actual token lifecycle's membership gate;
+    # neither supported policy grants this probe Release authority.
+    require(type(fleet) is dict and type(fleet.get("entries")) is list
+            and bool(fleet["entries"]) and type(fleet["entries"][0]) is dict)
+    scope_token.valid_fleet(fleet,fleet["entries"][0].get("repository"),
+                           release_policy=fleet.get("releasePolicy"))
+    names = [row["repository"] for row in fleet["entries"]]
     return names
 
 def run():
@@ -77,7 +73,8 @@ def run():
     app = int(os.environ["PUBLISHER_APP_ID"])
     installation = int(os.environ["PUBLISHER_INSTALLATION_ID"])
     require(app == 5451798 and installation == 174720074 and app != 15368)
-    names = repositories(json.loads(Path("metadata/automation-fleet.json").read_text()))
+    fleet = json.loads(Path("metadata/automation-fleet.json").read_text())
+    names = repositories(fleet)
     if event != "workflow_dispatch":
         # Nonpublishing automatic canary: no need to mint 17 tokens daily.
         # The existing protected registry supplies the pilot; no new allowlist.
@@ -98,14 +95,14 @@ def run():
         "event": event, "checkedRepositoryCount": len(names), "repositories": []}
     payload = b"pgextwin Publisher authorization probe; no refs, tags or Releases.\n"
     expected = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
-    fleet = json.loads(Path("metadata/automation-fleet.json").read_text())
     for name in names:
         row = {"repository": name, "status": "DENY", "tokenRevoked": False}
         report["repositories"].append(row)
         try:
             with scope_token.single_repository_token(
                     api=api, jwt=jwt, key=key, app=app, installation=installation,
-                    repository=name, fleet=fleet) as (token, minted, scoped):
+                    repository=name, fleet=fleet,
+                    release_policy=fleet["releasePolicy"]) as (token, minted, scoped):
                 blob = api("POST", "/repos/" + name + "/git/blobs", token,
                     {"content": base64.b64encode(payload).decode(), "encoding": "base64"})
                 proof = scope.validate_live_scope(
