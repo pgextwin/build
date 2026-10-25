@@ -27,6 +27,40 @@ class TestUnattendedPolicy(unittest.TestCase):
         self.assertEqual(result["status"], "OBSERVE_ONLY")
         self.assertFalse(result["automaticPublicationAuthorized"])
 
+    def test_registered_fleet_growth_is_static_only_in_both_modes(self):
+        p,f=self.fixtures()
+        row=copy.deepcopy(f["entries"][0])
+        row["repository"]="pgextwin/future_extension"
+        f["entries"].append(row)
+        self.assertEqual(module.evaluate(p,f)["status"],"OBSERVE_ONLY")
+        p["mode"]="UNATTENDED"
+        f["releasePolicy"]="automatic-signed-schedule"
+        for entry in f["entries"]:
+            entry["releasePolicy"]=f["releasePolicy"]
+        for control in p["controls"]:
+            p["controls"][control]=True
+        result=module.evaluate(p,f)
+        self.assertIn(row["repository"],result["eligibleRepositories"])
+        self.assertEqual(len(result["eligibleRepositories"]),18)
+        self.assertIs(result["automaticPublicationAuthorized"],False)
+
+    def test_malformed_dynamic_roster_is_denied(self):
+        mutations=(
+            lambda p,f:f.update(entries=[]),
+            lambda p,f:f["entries"].append(None),
+            lambda p,f:f["entries"][0].update(repository=None),
+            lambda p,f:f["entries"][0].update(repository="other/extension"),
+            lambda p,f:f["entries"][0].update(repository="pgextwin/evil\n"),
+            lambda p,f:f["entries"][0].update(candidateEnabled=1),
+            lambda p,f:p.update(schemaVersion=True),
+            lambda p,f:f.update(schemaVersion=True),
+        )
+        for number,mutate in enumerate(mutations):
+            p,f=self.fixtures()
+            mutate(p,f)
+            with self.subTest(case=number),self.assertRaises(module.PolicyDenied):
+                module.evaluate(p,f)
+
     def test_seventeen_build_candidates_do_not_authorize_unattended_release(self):
         p, f = self.fixtures()
         self.assertEqual(len([x for x in f["entries"] if x["mode"] == "BUILD"]), 17)
@@ -114,16 +148,21 @@ class TestUnattendedPolicy(unittest.TestCase):
         self.assertFalse(result["automaticPublicationAuthorized"])
         self.assertEqual(len(result["eligibleRepositories"]), 17)
 
-    def test_eight_staged_members_are_strictly_off_or_explicit_build(self):
-        for repo in ("hypopg","wal2json","pg_partman","pg_stat_monitor","orafce","pgtap","pg_variables","pg_store_plans"):
+    def test_registered_members_share_explicit_candidate_opt_in(self):
+        for repo in (x["repository"] for x in self.fleet["entries"]
+                     if x["repository"] != module.PILOT):
             with self.subTest(repository=repo):
                 p,f=self.fixtures()
-                item=next(x for x in f["entries"] if x["repository"]=="pgextwin/"+repo)
+                item=next(x for x in f["entries"] if x["repository"]==repo)
                 self.assertEqual(item["mode"],"BUILD")
                 self.assertIs(item["candidateEnabled"],True)
                 item["mode"]="WATCH"
                 with self.assertRaises(module.PolicyDenied):
                     module.evaluate(p,f)
+                item["candidateEnabled"]=False
+                result=module.evaluate(p,f)
+                self.assertEqual(result["status"],"OBSERVE_ONLY")
+                self.assertIs(result["automaticPublicationAuthorized"],False)
                 item["mode"]="OFF"
                 item["candidateEnabled"]=False
                 self.assertEqual(module.evaluate(p,f)["status"],"OBSERVE_ONLY")
@@ -138,13 +177,9 @@ class TestUnattendedPolicy(unittest.TestCase):
         with self.assertRaises(module.PolicyDenied):
             module.evaluate(p, f)
 
-    def test_third_wave_cannot_expand_unattended_release_scope(self):
+    def test_duplicate_roster_and_partial_build_never_authorize_release(self):
         p, f = self.fixtures()
         f["entries"].append(copy.deepcopy(f["entries"][-1]))
-        with self.assertRaises(module.PolicyDenied):
-            module.evaluate(p, f)
-        p, f = self.fixtures()
-        next(x for x in f["entries"] if x["repository"]=="pgextwin/pgtap")["repository"]="pgextwin/unauthorized"
         with self.assertRaises(module.PolicyDenied):
             module.evaluate(p, f)
         p, f = self.fixtures()

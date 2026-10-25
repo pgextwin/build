@@ -11,6 +11,7 @@ on:
       - 'scripts/verify-completed-signed-source.py'
       - 'scripts/automatic-publisher-admission.py'
       - 'scripts/automatic-publisher-receipt-issuer.py'
+      - 'scripts/unattended-policy.py'
       - 'scripts/automatic-publisher-readiness.py'
       - 'scripts/automatic-publisher-run.py'
       - 'scripts/download-original-signed-source.py'

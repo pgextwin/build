@@ -18,6 +18,7 @@ def load(name,path):
     return m
 ident=load("scheduled_release_identity","fleet-release-identity.py")
 typed=load("scheduled_release_receipt","release-authorization.py")
+policy=load("scheduled_release_policy","unattended-policy.py")
 SHA=re.compile(r"^[0-9a-f]{40}$")
 HASH=re.compile(r"^[0-9a-f]{64}$")
 REPO=re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -39,31 +40,31 @@ def policy_gate(fleet,central,local,unattended,boundary,repository):
           and fleet.get("releasePolicy")==MODE
           and type(fleet.get("entries")) is list and bool(fleet["entries"]),
           "future automatic signed fleet policy not approved")
-    rows=fleet["entries"]
-    names=[r.get("repository") for r in rows if type(r) is dict]
-    check(len(names)==len(rows) and len(set(names))==len(names)
-          and repository in names
-          and all(type(n) is str and REPO.fullmatch(n) for n in names)
-          and all(r.get("mode")=="BUILD" and r.get("candidateEnabled") is True
-                  and r.get("releasePolicy")==MODE for r in rows),
-          "incomplete, duplicated or unauthorized dynamic fleet")
+    # Readiness, protected CI and the actual issuer must enforce the SAME
+    # complete control schema. all(supplied_controls.values()) alone accepts
+    # missing defenses, including a one-field automaticFormalRelease object.
+    try:
+        decision=policy.evaluate(unattended,fleet)
+    except (policy.PolicyDenied,KeyError,TypeError,ValueError) as exc:
+        raise Denied("incomplete or invalid shared unattended policy") from exc
+    names=decision.get("eligibleRepositories",[])
+    check(decision.get("status")=="POLICY_READY_RUNTIME_EVIDENCE_REQUIRED"
+          and decision.get("automaticPublicationAuthorized") is False
+          and repository in names,
+          "complete registered automatic fleet not ready")
     check(type(central) is dict and central.get("schemaVersion")==1
+          and type(central.get("schemaVersion")) is int
           and central.get("releasePolicy")==MODE
           and type(central.get("allowedRepositories")) is list
           and len(central["allowedRepositories"])==len(names)
           and set(central["allowedRepositories"])==set(names),
           "central Publisher auto-release policy not approved")
-    check(local=={"schemaVersion":1,"enabled":True,"releasePolicy":MODE},
+    check(type(local) is dict and type(local.get("schemaVersion")) is int
+          and local.get("enabled") is True
+          and local=={"schemaVersion":1,"enabled":True,"releasePolicy":MODE},
           "local automatic release not explicitly approved")
-    check(type(unattended) is dict and unattended.get("schemaVersion")==1
-          and unattended.get("mode")=="UNATTENDED"
-          and unattended.get("defaultAction")=="DENY"
-          and type(unattended.get("controls")) is dict
-          and unattended["controls"].get("automaticFormalRelease") is True
-          and all(type(value) is bool and value is True
-                  for value in unattended["controls"].values()),
-          "unattended controls not unanimously enabled")
-    check(boundary=={
+    check(type(boundary) is dict and type(boundary.get("schemaVersion")) is int
+          and boundary=={
           "schemaVersion":1,"mode":"ENFORCE",
           "publisherAppId":APP,"publisherInstallationId":INSTALLATION,
           "signerAppId":15368},
