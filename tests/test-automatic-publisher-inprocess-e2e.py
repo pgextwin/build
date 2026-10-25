@@ -207,15 +207,16 @@ class TrustedRuntimeOffline(TestCase):
         publisher=workflow.split("  isolated_formal_publisher:",1)[1]
         for required in ("needs.nonpublishing_intake.result == 'success'",
                          "needs.nonpublishing_intake.outputs.publisher_ready == 'true'",
+                         "needs.independent_real_signed_source.result == 'success'",
                          "needs.select_verified_sources.result == 'success'",
                          "needs.select_verified_sources.outputs.has_verified_sources == 'true'",
                          "fromJSON(needs.select_verified_sources.outputs.publisher_matrix)"):
             self.assertIn(required,publisher)
         self.assertNotIn("needs.independent_real_signed_source.result == 'failure'",publisher)
-        self.assertNotIn("needs.independent_real_signed_source.result == 'success'",publisher)
         selector=workflow.split("  select_verified_sources:",1)[1].split("  isolated_formal_publisher:",1)[0]
         self.assertIn("always() && !cancelled()",selector)
-        self.assertIn("needs.independent_real_signed_source.result == 'failure'",selector)
+        self.assertIn("needs.independent_real_signed_source.result == 'success'",selector)
+        self.assertNotIn("needs.independent_real_signed_source.result == 'failure'",selector)
         self.assertIn("scripts/select-verified-publisher-candidates.py",selector)
         self.assertNotIn("environment: publisher",selector)
         self.assertNotIn("secrets.",selector)

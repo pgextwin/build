@@ -22,6 +22,7 @@ def fixture():
     return dict(
         repo=REPO,
         run={"id":RUN,"name":"Windows CI/CD","event":"pull_request",
+             "path":".github/workflows/windows.yml","run_attempt":1,"check_suite_id":700,
              "status":"completed","conclusion":"success",
              "head_repository":{"full_name":REPO},
              "head_sha":SHA,"head_branch":BRANCH,
@@ -43,7 +44,8 @@ def fixture():
               "protection":{"required_status_checks":{"checks":[
                   {"context":"Windows required summary","app_id":15368}]}}},
         checks={"total_count":1,"check_runs":[
-            {"name":"Windows required summary","head_sha":SHA,
+            {"id":701,"check_suite":{"id":700},"name":"Windows required summary","head_sha":SHA,
+             "details_url":"https://github.com/"+REPO+"/actions/runs/"+str(RUN)+"/job/701",
              "app":{"id":15368},"status":"completed","conclusion":"success"}]}
     )
 
@@ -58,9 +60,22 @@ class NativeRunTests(unittest.TestCase):
         self.assertEqual(x["status"],"NATIVE_PR_CI_AUTHENTICATED_NOT_PUBLISHABLE")
         self.assertEqual(x["packagingMergeSha"],MERGE)
         self.assertEqual(x["candidateRunId"],RUN)
+        self.assertEqual(x["candidateCheckSuiteId"],700)
+        self.assertEqual(x["candidateRequiredCheckRunId"],701)
         for field in ("candidateAuditVerified","signedArtifactsVerified",
                       "publishableReceipt","publicationAuthorized"):
             self.assertIs(x[field],False)
+
+    def test_approved_native_run_and_dispatch_on_same_head_are_distinct(self):
+        args=fixture();args["run"]["run_attempt"]=2
+        dispatch=deepcopy(args["checks"]["check_runs"][0])
+        dispatch.update(id=702,check_suite={"id":699})
+        args["checks"]["check_runs"].append(dispatch);args["checks"]["total_count"]=2
+        out=native.validate(**args)
+        self.assertEqual(out["candidateRunAttempt"],2)
+        self.assertEqual(out["candidateRequiredCheckRunId"],701)
+        args["checks"]["check_runs"][0]["conclusion"]="failure"
+        with self.assertRaises(native.Denied):native.validate(**args)
 
     def test_empty_real_run_pr_inventory_with_independent_exact_head_join(self):
         # GitHub actually returned pull_requests=[] for HypoPG PR #37

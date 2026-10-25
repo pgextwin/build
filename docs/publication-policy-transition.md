@@ -58,3 +58,11 @@ See [the review-only migration plan](publication-migration-plan.md) for the
 generated fleet diffs, source invalidation rule, deployment order and independent
 Catalog/CLI/Website prerequisites. Templates have no bound target policy SHA
 and cannot be used as activation receipts.
+
+Publisher selection preserves Catalog's completed-successful central Run
+provenance contract. A failed independent proof matrix blocks publication;
+neither a selected peer nor a JSON observation can waive that failure.
+The additional per-repository selector excludes sources whose protected main
+advanced after successful verification, before entering the Publisher
+Environment. Network, authentication and cryptographic failures remain
+failures. No failure is converted to success by `continue-on-error`.

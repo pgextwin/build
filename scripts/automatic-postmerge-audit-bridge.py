@@ -28,6 +28,10 @@ ALLOWED_ACTORS = frozenset({"ShutenOishi"})
 _policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",HERE/"fleet-policy.py")
 fleet_policy=importlib.util.module_from_spec(_policy_spec)
 _policy_spec.loader.exec_module(fleet_policy)
+_check_spec=importlib.util.spec_from_file_location("postmerge_native_required_check",
+    HERE/"native-required-check.py")
+required_check=importlib.util.module_from_spec(_check_spec)
+_check_spec.loader.exec_module(required_check)
 
 class Denied(ValueError):
     pass
@@ -43,7 +47,7 @@ def full_sha(v):
 
 
 def verify(*, repository, event, commit, pr, pr_files, branch, checks,
-           bound, manifest, lifecycle, fleet, today=None):
+           ci_run, bound, manifest, lifecycle, fleet, today=None):
     """Return a strictly NONPUBLISHING merge witness, not a typed receipt.
 
     A prior native-audit binder must have downloaded exactly the original
@@ -108,19 +112,11 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
             and c.get("context") == "Windows required summary"
             and c.get("app_id") == 15368 for c in required),
             "exact protected App15368 Windows summary not required")
-    require(type(checks) is dict and type(checks.get("total_count")) is int
-            and 0 <= checks["total_count"] < 100
-            and type(checks.get("check_runs")) is list
-            and checks["total_count"] == len(checks["check_runs"]),
-            "incomplete native PR check-run inventory")
     head = pr["head"]["sha"]
-    matches = [c for c in checks["check_runs"] if type(c) is dict
-               and c.get("name") == "Windows required summary"
-               and c.get("head_sha") == head
-               and c.get("status") == "completed"
-               and c.get("conclusion") == "success"
-               and (c.get("app") or {}).get("id") == 15368]
-    require(len(matches) == 1, "ambiguous/missing original exact-head required Windows success")
+    try:
+        native_proof=required_check.verify(ci_run,checks,repository=repository,head=head)
+    except required_check.Denied as exc:
+        raise Denied("original native required Windows check denied: "+str(exc)) from exc
     require(type(bound) is dict
             and bound.get("status") == "BOUND_NATIVE_CANDIDATE_AUDIT_NONPUBLISHING"
             and bound.get("repository") == repository
@@ -130,6 +126,7 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
             and full_sha(bound.get("candidateMergeSha"))
             and type(bound.get("candidateCiRunId")) is int
             and bound["candidateCiRunId"] > 0
+            and native_proof["runId"] == bound["candidateCiRunId"]
             and type(bound.get("nativeAuditRunId")) is int
             and bound["nativeAuditRunId"] > 0
             and type(bound.get("nativeAuditArtifactId")) is int
@@ -161,6 +158,9 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
         "candidateBranch": ref, "candidateHeadSha": head,
         "mainMergeSha": event["after"],
         "mainParentAtAudit": event["before"], "candidateCiRunId": bound["candidateCiRunId"],
+        "candidateCiRunAttempt": native_proof["runAttempt"],
+        "candidateCheckSuiteId": native_proof["checkSuiteId"],
+        "candidateRequiredCheckRunId": native_proof["checkRunId"],
         "nativeAuditRunId": bound["nativeAuditRunId"],
         "nativeAuditArtifactId": bound["nativeAuditArtifactId"],
         "maintainedMajors": majors, "releaseTagStem": tag_stem,

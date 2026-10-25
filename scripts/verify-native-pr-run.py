@@ -8,6 +8,7 @@ no token from candidate branch, no release authorization or policy override.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,9 @@ import sys
 SHA=re.compile(r"^[0-9a-f]{40}$")
 REPO=re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 OWNED=re.compile(r"^auto-candidate/([0-9a-f]{20})$")
+_spec=importlib.util.spec_from_file_location("native_required_check",
+    Path(__file__).resolve().parent/"native-required-check.py")
+required_check=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(required_check)
 class Denied(ValueError): pass
 
 def require(x,msg):
@@ -95,18 +99,16 @@ def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=
     require(type(required) is list
             and any(c.get("context")=="Windows required summary" and c.get("app_id")==15368
                     for c in required if type(c) is dict), "required App15368 CI not enforced")
-    require(type(checks) is dict and type(checks.get("total_count")) is int
-            and checks["total_count"]<100 and type(checks.get("check_runs")) is list,
-            "incomplete candidate head check-run inventory")
-    matches=[c for c in checks["check_runs"] if type(c) is dict
-             and c.get("name")=="Windows required summary"
-             and c.get("head_sha")==head and (c.get("app") or {}).get("id")==15368
-             and c.get("status")=="completed" and c.get("conclusion")=="success"]
-    require(len(matches)==1,"exact-head App15368 Windows required summary not proven")
+    try:
+        proof=required_check.verify(run,checks,repository=repo,head=head)
+    except required_check.Denied as exc:
+        raise Denied("original native required Windows check denied: "+str(exc)) from exc
     return {"schemaVersion":1,"status":"NATIVE_PR_CI_AUTHENTICATED_NOT_PUBLISHABLE",
             "repository":repo,"candidatePr":pr["number"],"branch":branch,
             "candidateHeadSha":head,"packagingMergeSha":merge_ref["object"]["sha"],
-            "candidateRunId":run["id"],"matrixResult":"success",
+            "candidateRunId":run["id"],"candidateRunAttempt":proof["runAttempt"],
+            "candidateCheckSuiteId":proof["checkSuiteId"],
+            "candidateRequiredCheckRunId":proof["checkRunId"],"matrixResult":"success",
             "candidateAuditVerified":False,"signedArtifactsVerified":False,
             "publishableReceipt":False,"publicationAuthorized":False}
 

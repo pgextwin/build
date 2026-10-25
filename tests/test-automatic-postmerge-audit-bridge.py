@@ -49,8 +49,13 @@ def fixture():
                 "protection":{"required_status_checks":{"checks":[
                     {"context":"Windows required summary","app_id":15368}]}}},
         checks={"total_count":1,"check_runs":[
-            {"name":"Windows required summary","head_sha":HEAD,
+            {"id":701,"check_suite":{"id":700},"name":"Windows required summary","head_sha":HEAD,
+             "details_url":"https://github.com/"+REPO+"/actions/runs/39769754052/job/701",
              "status":"completed","conclusion":"success","app":{"id":15368}}]},
+        ci_run={"id":39769754052,"check_suite_id":700,"run_attempt":1,
+                "path":".github/workflows/windows.yml","name":"Windows CI/CD",
+                "head_repository":{"full_name":REPO},"head_sha":HEAD,
+                "event":"pull_request","status":"completed","conclusion":"success"},
         bound={"status":"BOUND_NATIVE_CANDIDATE_AUDIT_NONPUBLISHING",
                "repository":REPO,"candidatePr":28,"candidateHeadSha":HEAD,
                "mainShaAtAudit":BASE,"candidateMergeSha":"f"*40,
@@ -77,6 +82,24 @@ class PostmergeCandidateTests(unittest.TestCase):
         self.assertNotIn("authorizationMode",out)
         self.assertNotIn("confirmRelease",out)
         self.assertNotIn("releaseTag",out)
+
+    def test_native_check_suite_is_required_after_merge_with_same_head_dispatch(self):
+        args=fixture();native=args["checks"]["check_runs"][0]
+        dispatch=deepcopy(native);dispatch.update(id=702,check_suite={"id":699},
+            details_url="https://github.com/"+REPO+"/actions/runs/999/job/702")
+        args["checks"]["check_runs"].append(dispatch);args["checks"]["total_count"]=2
+        out=gate.verify(**args)
+        self.assertEqual(out["candidateCheckSuiteId"],700)
+        self.assertEqual(out["candidateRequiredCheckRunId"],701)
+        for mutate in (
+            lambda a:a["ci_run"].update(event="workflow_dispatch"),
+            lambda a:a["ci_run"].update(check_suite_id=699),
+            lambda a:a["ci_run"].update(id=999),
+            lambda a:a["checks"]["check_runs"][0].update(conclusion="failure"),
+        ):
+            x=deepcopy(args);mutate(x)
+            with self.subTest(mutate=str(mutate)),self.assertRaises(gate.Denied):
+                gate.verify(**x)
 
     def test_failure_cases_refuse_publication_and_candidate_merge(self):
         mutations=[

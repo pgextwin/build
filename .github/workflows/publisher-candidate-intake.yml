@@ -201,9 +201,9 @@ jobs:
           retention-days: 30
 
   select_verified_sources:
-    # A failed peer must not prevent a repository whose separate proof passed.
-    # This read-only job independently GETs the actual same-run jobs; failed,
-    # skipped, missing or mismatched proofs never enter Publisher Environment.
+    # Keep the successful whole-run provenance contract used by Catalog.
+    # Within a successful proof matrix, independently exclude sources that
+    # advanced after verification; failed proof matrices never authorize peers.
     name: Select independently verified repositories for isolated Publisher
     needs: [nonpublishing_intake, independent_real_signed_source]
     if: >-
@@ -214,8 +214,7 @@ jobs:
           needs.nonpublishing_intake.result == 'success' &&
           needs.nonpublishing_intake.outputs.has_candidates == 'true' &&
           needs.nonpublishing_intake.outputs.publisher_ready == 'true' &&
-          (needs.independent_real_signed_source.result == 'success' ||
-           needs.independent_real_signed_source.result == 'failure') }}
+          needs.independent_real_signed_source.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -250,7 +249,7 @@ jobs:
     # protected-fleet auto policy may even enter the credentialed Environment.
     # Current manual-only/OBSERVE/PUBLISH_DENY yields publisher_ready=false.
     name: Isolated Publisher App signed formal Release (create only) (${{ matrix.name }})
-    needs: [nonpublishing_intake, select_verified_sources]
+    needs: [nonpublishing_intake, independent_real_signed_source, select_verified_sources]
     if: >-
       ${{ always() && !cancelled() &&
           github.event_name == 'schedule' &&
@@ -258,6 +257,7 @@ jobs:
           github.ref == 'refs/heads/main' &&
           needs.nonpublishing_intake.result == 'success' &&
           needs.nonpublishing_intake.outputs.publisher_ready == 'true' &&
+          needs.independent_real_signed_source.result == 'success' &&
           needs.select_verified_sources.result == 'success' &&
           needs.select_verified_sources.outputs.has_verified_sources == 'true' }}
     environment: publisher
