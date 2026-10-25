@@ -32,6 +32,34 @@ class Denied(ValueError): pass
 def check(value,why):
     if not value: raise Denied(why)
 
+def independent_source_job(jobs,*,repository,run_id,central_sha):
+    """Require this repository's separate proof in this original central Run.
+
+    Input MUST come from a fresh authenticated attempt-1 jobs GET, never an
+    artifact or matrix-wide success assertion. Other repositories may fail.
+    This is only a prerequisite; it cannot issue publication authority.
+    """
+    check(type(repository) is str and REPO.fullmatch(repository)
+          and type(run_id) is int and run_id>0
+          and type(central_sha) is str and SHA.fullmatch(central_sha),
+          "invalid separate proof target")
+    check(type(jobs) is dict and type(jobs.get("total_count")) is int
+          and 0<jobs["total_count"]<100 and type(jobs.get("jobs")) is list
+          and len(jobs["jobs"])==jobs["total_count"]
+          and all(type(j) is dict for j in jobs["jobs"]),
+          "incomplete separate proof job inventory")
+    expected="Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original ("+repository.split("/")[1]+")"
+    matches=[j for j in jobs["jobs"] if j.get("name")==expected]
+    check(len(matches)==1,"missing or duplicate repository-specific separate proof")
+    job=matches[0]
+    check(type(job.get("id")) is int and job["id"]>0
+          and type(job.get("run_id")) is int and job["run_id"]==run_id
+          and type(job.get("run_attempt")) is int and job["run_attempt"]==1
+          and job.get("head_sha")==central_sha
+          and job.get("status")=="completed" and job.get("conclusion")=="success",
+          "repository-specific independent proof failed, skipped or replayed")
+    return job["id"]
+
 def policy_gate(fleet,central,local,unattended,boundary,repository):
     """Manual-only/OBSERVE/DENY is categorically NOT implicit approval."""
     check(type(repository) is str and REPO.fullmatch(repository)

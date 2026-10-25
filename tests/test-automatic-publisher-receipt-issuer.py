@@ -76,7 +76,39 @@ def switched():
                    "signerAppId":15368}
     return x
 
+def independent_jobs():
+    return {"total_count":2,"jobs":[
+        {"id":111,"run_id":SCHEDULE_RUN,"run_attempt":1,"head_sha":CENTRAL_SHA,
+         "name":"Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original (pgaudit)",
+         "status":"completed","conclusion":"success"},
+        {"id":112,"name":"Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original (other)",
+         "status":"completed","conclusion":"failure"}]}
+
 class IssuerTests(unittest.TestCase):
+    def test_repository_proof_succeeds_despite_failed_peer(self):
+        self.assertEqual(issuer.independent_source_job(independent_jobs(),
+            repository=REPO,run_id=SCHEDULE_RUN,central_sha=CENTRAL_SHA),111)
+
+    def test_separate_proof_rejects_failure_replay_and_incomplete_inventory(self):
+        for change in (
+            lambda j:j.update(total_count=100),
+            lambda j:j.update(total_count=3),
+            lambda j:j["jobs"].append(deepcopy(j["jobs"][0])),
+            lambda j:j["jobs"][0].update(name="unrelated"),
+            lambda j:j["jobs"][0].update(run_id=SOURCE_RUN),
+            lambda j:j["jobs"][0].update(run_attempt=2),
+            lambda j:j["jobs"][0].update(head_sha="d"*40),
+            lambda j:j["jobs"][0].update(conclusion="failure"),
+            lambda j:j["jobs"][0].update(conclusion="skipped"),
+            lambda j:j["jobs"][0].update(status="in_progress"),
+            lambda j:j["jobs"][0].update(id=True),
+        ):
+            jobs=independent_jobs()
+            change(jobs)
+            with self.subTest(jobs=jobs),self.assertRaises(issuer.Denied):
+                issuer.independent_source_job(jobs,repository=REPO,
+                    run_id=SCHEDULE_RUN,central_sha=CENTRAL_SHA)
+
     def test_actual_deployed_modes_never_issue_a_receipt(self):
         with self.assertRaises(issuer.Denied):
             issuer.issue(**inputs())
