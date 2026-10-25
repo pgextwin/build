@@ -166,6 +166,9 @@ jobs:
       - name: Reject partial activation and run Python CI on a nonpublishing future-policy copy
         run: python tests/test-publication-policy-transition.py
 
+      - name: Verify migration templates, head consistency and preserved signer/protection gates (NO APPLY)
+        run: python tests/test-publication-migration-plan.py
+
       - name: Validate PRE-G4 run attempt and certificate provenance boundary (offline only)
         run: python tests/test-issue-75-attempt-provenance-readonly.py
 
@@ -190,7 +193,7 @@ jobs:
       - name: Verify hourly Publisher selects only genuine fleet signed runs (NO RELEASE)
         run: python tests/test-select-signed-publisher-candidates.py
 
-      - name: Validate default-denied post-manual Release Catalog policy
+      - name: Validate default-denied manual and automatic Catalog policy contracts
         run: python tests/test-manual-release-downstream.py
 
       - name: Validate Step 22 unattended publication safety contract

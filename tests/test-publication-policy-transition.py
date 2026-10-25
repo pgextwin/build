@@ -22,6 +22,8 @@ FILES=("automation-fleet.json","release-promotion.json",
        "unattended-publication.json","publisher-write-boundary.json")
 spec=importlib.util.spec_from_file_location("migration_issuer",ROOT/"scripts/automatic-publisher-receipt-issuer.py")
 gate=importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
+spec=importlib.util.spec_from_file_location("projected_catalog_contract",ROOT/"scripts/catalog-downstream-policy.py")
+catalog=importlib.util.module_from_spec(spec);spec.loader.exec_module(catalog)
 
 def automatic(objects):
     f,c,u,b=deepcopy(objects)
@@ -116,13 +118,16 @@ class TransitionTests(unittest.TestCase):
             self.assertIs(result["candidatePrCreated"],False)
 
     def test_projected_activation_passes_existing_python_ci_without_changing_source(self):
-        original={name:(ROOT/"metadata"/name).read_bytes() for name in FILES}
+        paths=FILES+("manual-release-downstream.json",)
+        original={name:(ROOT/"metadata"/name).read_bytes() for name in paths}
         objects=automatic([json.loads(original[name]) for name in FILES])
         with TemporaryDirectory(prefix="pgextwin-policy-projection-") as tmp:
             projected=Path(tmp)/"build"
             shutil.copytree(ROOT,projected,ignore=shutil.ignore_patterns(".git","__pycache__"))
             for name,value in zip(FILES,objects):
                 (projected/"metadata"/name).write_text(json.dumps(value,indent=2)+"\n")
+            downstream=catalog.automatic_template(json.loads(original["manual-release-downstream.json"]),*objects[:2])
+            (projected/"metadata/manual-release-downstream.json").write_text(json.dumps(downstream,indent=2)+"\n")
             suites=sorted(p.name for p in (projected/"tests").glob("test-*.py")
                           if p.name!=Path(__file__).name)
             self.assertTrue(suites)
@@ -146,7 +151,7 @@ class TransitionTests(unittest.TestCase):
             self.assertIs(decision["staticPublisherReady"],True)
             self.assertIs(decision["publicationAuthorized"],False)
             self.assertIs(decision["publishableReceipt"],False)
-        self.assertEqual(original,{name:(ROOT/"metadata"/name).read_bytes() for name in FILES})
+        self.assertEqual(original,{name:(ROOT/"metadata"/name).read_bytes() for name in paths})
         print("PROJECTED_AUTOMATIC_PYTHON_CI="+str(len(suites))+"; no activation, signing or Release")
 
 if __name__=="__main__":unittest.main()

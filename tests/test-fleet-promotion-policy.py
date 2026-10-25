@@ -18,10 +18,14 @@ class PolicyTests(unittest.TestCase):
         self.assertIs(result["publishableReceipt"],False)
         self.assertEqual(result["staticPublisherReady"],objects[0]["releasePolicy"]==gate.MODE)
 
-    def test_legacy_manual_downstream_cannot_grant_automatic_release(self):
-        downstream=gate.fleet_policy.read(ROOT/"metadata/manual-release-downstream.json")
-        self.assertEqual(downstream["mode"],"POST_MANUAL_RELEASE_ONLY")
-        self.assertIs(downstream["automaticFormalRelease"],False)
-        self.assertIs(downstream["automaticCatalogMerge"],False)
+    def test_actual_downstream_declaration_matches_but_never_grants_authority(self):
+        spec=importlib.util.spec_from_file_location("actual_catalog_declaration",ROOT/"scripts/catalog-downstream-policy.py")
+        contract=importlib.util.module_from_spec(spec);spec.loader.exec_module(contract)
+        data=gate.fleet_policy.read(ROOT/"metadata/manual-release-downstream.json")
+        fleet=gate.fleet_policy.read(ROOT/"metadata/automation-fleet.json")
+        central=gate.fleet_policy.read(ROOT/"metadata/release-promotion.json")
+        result=contract.validate(data,fleet,central)
+        for key in ("publicationAuthorized","publishableReceipt","catalogWriteAuthorized"):
+            self.assertIs(result[key],False)
 
 if __name__=="__main__":unittest.main()

@@ -42,3 +42,19 @@ compatible code and policy snapshots. Changing these four metadata files alone
 is not an activation procedure. Individual callers remain pinned; deployment
 must coordinate their pins with the approved policy snapshot, preserve the
 audited attested-builder pin and recheck protected source SHA/CI after changes.
+
+Catalog has a fifth, separate declaration in
+`metadata/manual-release-downstream.json`. Its historical filename does not
+restrict its supported mode: `POST_MANUAL_RELEASE_ONLY` pairs with manual
+promotion, while `POST_VERIFIED_RELEASE_ONLY` pairs with automatic signed
+schedule. `catalog-downstream-policy.py` validates the actual declaration
+against registered fleet membership. Disabled legacy pilot configuration
+remains valid; an enabled declaration requires the complete fleet. Neither
+mode grants Catalog write or Release authority. The future-policy CI copy now
+projects this fifth declaration too, and manual-only regression tests use the
+frozen historical fixture. Live metadata remains unchanged.
+
+See [the review-only migration plan](publication-migration-plan.md) for the
+generated fleet diffs, source invalidation rule, deployment order and independent
+Catalog/CLI/Website prerequisites. Templates have no bound target policy SHA
+and cannot be used as activation receipts.

@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-publication-migration-heads/v1",
+  "heads": [
+    {
+      "repository": "pgextwin/build",
+      "branch": "main",
+      "sha": "aecc5cde41b2478a09f4bbfc761ee3e650753fe4",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "resolver",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_bigm",
+      "branch": "main",
+      "sha": "30b497aa1d67d19fa83e6310565535ecf0f75e95",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_cron",
+      "branch": "main",
+      "sha": "5cdbbcb2a490603c4b8dbf6e9cd56f6d06d8a43f",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_hint_plan",
+      "branch": "main",
+      "sha": "059760d3e3394ff8fd2405647d78390f56ded66c",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pgaudit",
+      "branch": "main",
+      "sha": "168941ab5d3a8a87343636c3feabe2c6c8780dbc",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/set_user",
+      "branch": "main",
+      "sha": "c5b619d20829643c13475ff47f4f0ff3539d26e9",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_repack",
+      "branch": "main",
+      "sha": "376da6db046930ad44a801b7811e351ce371ba2e",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_ivm",
+      "branch": "main",
+      "sha": "6d7f9aedf6ddc34c452cd543754dbc9a8a0c2c1a",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_qualstats",
+      "branch": "main",
+      "sha": "f1a7d135ac9caaa1010e4b9b7c9b982cb8015231",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/plpgsql_check",
+      "branch": "main",
+      "sha": "de0e2c064abd439ad9a3023e84b5eb81f1306d82",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "syntax",
+          "app_id": 15368
+        },
+        {
+          "context": "windows / Resolve extension and PostgreSQL matrix",
+          "app_id": 15368
+        },
+        {
+          "context": "windows / PostgreSQL 15 / Windows x64",
+          "app_id": 15368
+        },
+        {
+          "context": "windows / PostgreSQL 16 / Windows x64",
+          "app_id": 15368
+        },
+        {
+          "context": "windows / PostgreSQL 17 / Windows x64",
+          "app_id": 15368
+        },
+        {
+          "context": "windows / PostgreSQL 18 / Windows x64",
+          "app_id": 15368
+        },
+        {
+          "context": "Regression-test immutable Release preflight",
+          "app_id": 15368
+        },
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/hypopg",
+      "branch": "main",
+      "sha": "7cf1a7d05a638aeb7d9f7920ff897bbd91ae930c",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/wal2json",
+      "branch": "main",
+      "sha": "9437421dcda8e1eac69f5732bec272648c835acd",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_partman",
+      "branch": "main",
+      "sha": "5e66c6333aa46fa45e79b4560be664d6d9c97b40",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_stat_monitor",
+      "branch": "main",
+      "sha": "68ed45684fdb9ad7c178603ae9ce0d500032e986",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/orafce",
+      "branch": "main",
+      "sha": "f30232e1b57398a2df1939c30a16f8f76c7119b1",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pgtap",
+      "branch": "main",
+      "sha": "82553513d3a24e1f62c97a44b88e62efbcc8ac65",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_variables",
+      "branch": "main",
+      "sha": "eebb4b774453b53906f1c4faf46fc915a5447b53",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "repository": "pgextwin/pg_store_plans",
+      "branch": "main",
+      "sha": "70ec4c9b95cbb25e818041c691b0edbb9970e0f4",
+      "protected": true,
+      "requiredChecks": [
+        {
+          "context": "Windows required summary",
+          "app_id": 15368
+        }
+      ]
+    }
+  ]
+}

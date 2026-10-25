@@ -1,63 +1,70 @@
 #!/usr/bin/env python3
-"""No-network test: a downstream opt-in never authorizes unattended formal Release."""
-import copy
-import json
+"""Offline downstream transition: declarations never authorize any write."""
+from copy import deepcopy
+import importlib.util
 from pathlib import Path
 import unittest
+from publication_policy_fixtures import manual_policy
 
-ROOT=Path(__file__).resolve().parents[1]
-P=ROOT/"metadata/manual-release-downstream.json"
-FIELDS={"schemaVersion","enabled","mode","releasePolicy","automaticFormalRelease",
-        "automaticCatalogMerge","allowedExtensions","requiredCatalogWorkflow",
-        "requirePublishedPublicRelease","requireBuildProvenanceAttestation",
-        "requireSbomAttestation","requireExactSHA256","requireExactHeadRequiredChecks",
-        "requireDedicatedMergeApp","denyUnknownOrDuplicate","notes"}
-SAFE_FLAGS={"requirePublishedPublicRelease","requireBuildProvenanceAttestation",
-            "requireSbomAttestation","requireExactSHA256","requireExactHeadRequiredChecks",
-            "requireDedicatedMergeApp","denyUnknownOrDuplicate"}
-
-def validate(v):
-    if (type(v) is not dict or set(v)!=FIELDS or v["schemaVersion"]!=1
-        or v["mode"]!="POST_MANUAL_RELEASE_ONLY"
-        or v["releasePolicy"]!="manual-dispatch"
-        or v["automaticFormalRelease"] is not False
-        or type(v["enabled"]) is not bool or type(v["automaticCatalogMerge"]) is not bool
-        or v["requiredCatalogWorkflow"]!="validate.yml"
-        or v["allowedExtensions"]!=["plpgsql_check"]
-        or not all(v[k] is True for k in SAFE_FLAGS)
-        or not isinstance(v["notes"],str) or not v["notes"]):
-        raise ValueError("unsafe manual-only downstream policy")
-    if v["automaticCatalogMerge"] is True and v["enabled"] is not True:
-        raise ValueError("Catalog merge cannot activate without explicit enabled")
-    return True
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("tested_catalog_contract", ROOT / "scripts/catalog-downstream-policy.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
 
 class Downstream(unittest.TestCase):
-    def test_production_default_is_disabled(self):
-        data=json.loads(P.read_text())
-        validate(data)
-        self.assertFalse(data["enabled"])
-        self.assertFalse(data["automaticCatalogMerge"])
-        self.assertFalse(data["automaticFormalRelease"])
-    def test_manual_only_optin_never_grants_formal_publishing(self):
-        current=json.loads(P.read_text())
-        future=copy.deepcopy(current)
-        future["enabled"]=True
-        future["automaticCatalogMerge"]=True
-        self.assertTrue(validate(future))
-        for change in (
-            lambda x:x.update(automaticFormalRelease=True),
-            lambda x:x.update(releasePolicy="automatic"),
-            lambda x:x.update(mode="UNATTENDED"),
-            lambda x:x.update(allowedExtensions=["evil"]),
-            lambda x:x.update(requiredCatalogWorkflow="unsafe.yml"),
-            lambda x:x.update(requireExactSHA256=False),
-            lambda x:x.update(requireDedicatedMergeApp=False),
-            lambda x:x.update(denyUnknownOrDuplicate=False),
-            lambda x:x.update(enabled=False),
-        ):
-            bad=copy.deepcopy(future)
-            change(bad)
-            with self.assertRaises(ValueError):validate(bad)
+    def setUp(self):
+        self.fleet = manual_policy("automation-fleet.json")
+        self.central = manual_policy("release-promotion.json")
+        self.downstream = manual_policy("manual-release-downstream.json")
 
-if __name__=="__main__":
+    def automatic(self):
+        f, c = deepcopy(self.fleet), deepcopy(self.central)
+        f["releasePolicy"] = c["releasePolicy"] = m.fleet_policy.AUTOMATIC
+        for row in f["entries"]:
+            row["releasePolicy"] = m.fleet_policy.AUTOMATIC
+        return f, c
+
+    def test_historical_disabled_declaration_remains_manual(self):
+        result = m.validate(self.downstream, self.fleet, self.central)
+        self.assertIs(result["catalogMergeDeclared"], False)
+        self.assertFalse(self.downstream["automaticFormalRelease"])
+        self.assertEqual(self.downstream["allowedExtensions"], ["plpgsql_check"])
+
+    def test_manual_catalog_optin_requires_exact_registered_fleet_and_never_formal_authority(self):
+        future = deepcopy(self.downstream)
+        future.update(enabled=True, automaticCatalogMerge=True)
+        with self.assertRaises(ValueError):
+            m.validate(future, self.fleet, self.central)
+        future["allowedExtensions"] = sorted(r.split("/")[1] for r in m.fleet_policy.members(self.fleet))
+        result = m.validate(future, self.fleet, self.central)
+        self.assertIs(result["catalogMergeDeclared"], True)
+        self.assertIs(result["publicationAuthorized"], False)
+        self.assertFalse(future["automaticFormalRelease"])
+        for field, value in (("automaticFormalRelease", True), ("mode", "UNATTENDED"),
+                             ("enabled", False), ("allowedExtensions", ["evil"]),
+                             ("requiredCatalogWorkflow", "unsafe.yml")):
+            bad = deepcopy(future); bad[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                m.validate(bad, self.fleet, self.central)
+
+    def test_automatic_tuple_and_every_safety_flag_are_required_but_not_authority(self):
+        fleet, central = self.automatic()
+        future = m.automatic_template(self.downstream, fleet, central)
+        result = m.validate(future, fleet, central)
+        for key in ("publicationAuthorized", "publishableReceipt", "catalogWriteAuthorized"):
+            self.assertIs(result[key], False)
+        mutations = [(k, False) for k in m.SAFE_FLAGS | {"automaticFormalRelease", "enabled", "automaticCatalogMerge"}]
+        mutations += [("schemaVersion", True), ("mode", "POST_MANUAL_RELEASE_ONLY"),
+                      ("releasePolicy", "manual-dispatch"), ("allowedExtensions", ["plpgsql_check"]),
+                      ("allowedExtensions", future["allowedExtensions"] * 2)]
+        for key, value in mutations:
+            bad = deepcopy(future); bad[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                m.validate(bad, fleet, central)
+        with self.assertRaises(ValueError):
+            m.validate(self.downstream, fleet, central)
+        with self.assertRaises(ValueError):
+            m.validate(future, self.fleet, self.central)
+
+if __name__ == "__main__":
     unittest.main()
