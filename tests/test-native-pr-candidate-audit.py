@@ -47,6 +47,11 @@ def fixture():
              "app":{"id":15368},"status":"completed","conclusion":"success"}]}
     )
 
+def association():
+    return [{"number":PR,
+             "head":{"sha":SHA,"ref":BRANCH,"repo":{"full_name":REPO}},
+             "base":{"ref":"main","repo":{"full_name":REPO}}}]
+
 class NativeRunTests(unittest.TestCase):
     def test_pass_is_not_release_authorization(self):
         x=native.validate(**fixture())
@@ -56,6 +61,63 @@ class NativeRunTests(unittest.TestCase):
         for field in ("candidateAuditVerified","signedArtifactsVerified",
                       "publishableReceipt","publicationAuthorized"):
             self.assertIs(x[field],False)
+
+    def test_empty_real_run_pr_inventory_with_independent_exact_head_join(self):
+        # GitHub actually returned pull_requests=[] for HypoPG PR #37
+        # Windows Run 40185975511 while the independent commit PR API
+        # returned a single, correct matching PR.
+        values=fixture()
+        values["run"]["pull_requests"]=[]
+        values["associated_pulls"]=association()
+        output=native.validate(**values)
+        self.assertEqual(output["candidatePr"],PR)
+        self.assertEqual(output["candidateHeadSha"],SHA)
+        self.assertFalse(output["publicationAuthorized"])
+        self.assertFalse(output["signedArtifactsVerified"])
+
+    def test_independent_association_must_be_unique_and_exact(self):
+        for kind in ("missing","duplicate","number","sha","ref",
+                     "head-repo","base-ref","base-repo","invalid-object"):
+            with self.subTest(kind=kind),self.assertRaises(native.Denied):
+                values=fixture()
+                values["run"]["pull_requests"]=[]
+                associated=association()
+                if kind=="missing":
+                    associated=[]
+                elif kind=="duplicate":
+                    associated.append(deepcopy(associated[0]))
+                elif kind=="number":
+                    associated[0]["number"]=PR+1
+                elif kind=="sha":
+                    associated[0]["head"]["sha"]=MERGE
+                elif kind=="ref":
+                    associated[0]["head"]["ref"]="auto-candidate/"+"f"*20
+                elif kind=="head-repo":
+                    associated[0]["head"]["repo"]["full_name"]="attacker/hypopg"
+                elif kind=="base-ref":
+                    associated[0]["base"]["ref"]="release/bypass"
+                elif kind=="base-repo":
+                    associated[0]["base"]["repo"]["full_name"]="attacker/hypopg"
+                elif kind=="invalid-object":
+                    associated=[None]
+                values["associated_pulls"]=associated
+                native.validate(**values)
+
+    def test_run_metadata_disagreement_not_overridden_by_good_association(self):
+        values=fixture()
+        values["associated_pulls"]=association()
+        values["run"]["pull_requests"][0]["number"]=999
+        with self.assertRaises(native.Denied):
+            native.validate(**values)
+
+    def test_live_get_allowlist_is_exact_and_read_only(self):
+        script=(ROOT/"scripts"/"verify-native-pr-run.py").read_text()
+        self.assertIn('commits/[a-f0-9]{40}/pulls\\?per_page=100',script)
+        self.assertIn('associated=gh_get(repo,"commits/"+run["head_sha"]+',script)
+        self.assertNotIn("pull_request_target",script)
+        self.assertNotIn("gh pr create",script)
+        self.assertNotIn("gh pr merge",script)
+        self.assertNotIn("publicationAuthorized\":True",script)
 
     def test_forged_ci_and_pr_provenance_denied(self):
         mutations=[
