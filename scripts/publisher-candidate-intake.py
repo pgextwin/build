@@ -24,7 +24,10 @@ _scope = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_scope)
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 SHA = re.compile(r"^[a-f0-9]{40}$")
-MAX_RUNS = 50
+MAX_RUNS = 100
+# Filter at the GitHub API, not after a schedule-heavy first page.
+# Per-hour schedule Runs must never evict the original signed main/push Run.
+SOURCE_PUSH_RUNS = "actions/workflows/update-watch.yml/runs?event=push&branch=main&per_page=100"
 MAX_ITEMS = 100
 SIGNED_JOBS = (
     "Audit real single manifest-only protected candidate main push",
@@ -56,7 +59,7 @@ def github(repo, suffix):
     require(type(repo) is str and REPO.fullmatch(repo), "non-fleet repository")
     allowed = (
         suffix == "branches/main"
-        or suffix == "actions/workflows/update-watch.yml/runs?per_page=50"
+        or suffix == SOURCE_PUSH_RUNS
         or re.fullmatch(r"actions/runs/[1-9][0-9]*/jobs\?per_page=100", suffix)
         or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", suffix)
     )
@@ -158,7 +161,7 @@ def scan(fleet, *, get):
         try:
             row = examine(
                 repo, get(repo,"branches/main"),
-                get(repo,"actions/workflows/update-watch.yml/runs?per_page=50"),
+                get(repo,SOURCE_PUSH_RUNS),
                 read_jobs=lambda run_id, r=repo: get(
                     r, f"actions/runs/{run_id}/jobs?per_page=100"),
                 read_artifacts=lambda run_id, r=repo: get(

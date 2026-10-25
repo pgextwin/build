@@ -91,11 +91,48 @@ class IntakeTests(unittest.TestCase):
             with self.subTest(part=part):
                 d=evidence()
                 if part=="runs":
-                    d[part]["workflow_runs"]= [deepcopy(d[part]["workflow_runs"][0])]*51
+                    d[part]["workflow_runs"]= [deepcopy(d[part]["workflow_runs"][0])]*101
                 else:
                     d[part]["total_count"]=101
                 with self.assertRaises(mod.Denied):
                     examine(d)
+
+    def test_schedule_noise_cannot_evict_original_signed_push(self):
+        d=evidence()
+        # Even 99 unrelated schedule executions cannot replace a verified
+        # original push with a false NO_CANDIDATE or authorize schedule bytes.
+        noise=[{**deepcopy(d["runs"]["workflow_runs"][0]),
+                "id":2000+i,"event":"schedule"} for i in range(99)]
+        d["runs"]["workflow_runs"]=noise+d["runs"]["workflow_runs"]
+        result=examine(d)
+        self.assertEqual(result["candidateRunId"],1234)
+        self.assertEqual(result["status"],"SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED")
+        self.assertFalse(result["publicationAuthorized"])
+
+    def test_exact_filtered_github_run_query_and_read_only_whitelist(self):
+        base=evidence()
+        seen=[]
+        def get(repo,suffix):
+            seen.append(suffix)
+            if suffix=="branches/main":return deepcopy(base["branch"])
+            if suffix==mod.SOURCE_PUSH_RUNS:return deepcopy(base["runs"])
+            if suffix.endswith("/jobs?per_page=100"):return deepcopy(base["jobs"])
+            if suffix.endswith("/artifacts?per_page=100"):return deepcopy(base["artifacts"])
+            raise AssertionError("unfiltered/unauthorized original Run discovery: "+suffix)
+        self.assertEqual(mod.scan(fleet(),get=get)["counts"],
+                         {"SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED":1})
+        self.assertEqual(seen[1],mod.SOURCE_PUSH_RUNS)
+        self.assertEqual(mod.SOURCE_PUSH_RUNS,
+                         "actions/workflows/update-watch.yml/runs"
+                         "?event=push&branch=main&per_page=100")
+        with patch.dict(mod.os.environ,{"GH_TOKEN":"synthetic-only"}):
+            for forbidden in (
+                "actions/workflows/update-watch.yml/runs?per_page=50",
+                "actions/workflows/update-watch.yml/runs?event=schedule&branch=main&per_page=100",
+                "actions/workflows/update-watch.yml/runs?event=push&branch=main&per_page=100&page=2",
+            ):
+                with self.subTest(forbidden=forbidden),self.assertRaises(mod.Denied):
+                    mod.github(REPO,forbidden)
 
     def test_dynamic_fleet_and_fail_closed_api_error(self):
         base=evidence()
