@@ -9,7 +9,6 @@ does not mint authorization, launch a Signer, create tags or publish a Release.
 from __future__ import annotations
 
 import argparse
-import base64
 from datetime import date
 import importlib.util
 import json
@@ -25,6 +24,9 @@ spec = importlib.util.spec_from_file_location("automatic_signing_plan",
                                                ROOT / "automatic-signed-build-intent.py")
 intent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(intent)
+spec = importlib.util.spec_from_file_location("signing_contents", ROOT / "github_contents.py")
+contents = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(contents)
 
 SHA = re.compile(r"^[a-f0-9]{40}$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -93,7 +95,7 @@ def only_manifest(source, path):
             and type(source.get("sha")) is str,
             "current protected-main config file not verified")
     try:
-        return parse_json(base64.b64decode(source["content"], validate=True))
+        return contents.decode_json_file(source, path)
     except (ValueError, TypeError) as e:
         raise Denied("current protected-main config bytes malformed") from e
 

@@ -3,6 +3,7 @@
 from copy import deepcopy
 from datetime import date
 import base64
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -23,8 +24,10 @@ RUN=615
 ART=917
 RUN_AT="2026-10-21T09:00:00Z"
 def encoded(path,value):
-    return {"path":path,"encoding":"base64","sha":"e"*40,
-            "content":base64.b64encode(json.dumps(value).encode()).decode()}
+    raw=json.dumps(value).encode()
+    blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
+    return {"path":path,"encoding":"base64","sha":blob,
+            "content":base64.encodebytes(raw).decode()}
 
 def setup():
     base=fixture_mod.fixture()
@@ -101,6 +104,7 @@ class SignedIntentLiveTests(unittest.TestCase):
             lambda b,e,d:d["actions/runs/615/artifacts?per_page=100"]["artifacts"][0]["workflow_run"].update(id=999),
             lambda b,e,d:d["actions/runs/615/artifacts?per_page=100"]["artifacts"][0]["workflow_run"].update(head_sha="b"*40),
             lambda b,e,d:d["contents/config/extension.json?ref="+MAIN].update(content="%%%bad%%%"),
+            lambda b,e,d:d["contents/config/extension.json?ref="+MAIN].update(sha="e"*40),
             lambda b,e,d:d["contents/config/candidate-build.json?ref="+MAIN].update(path="config/evil.json"),
             lambda b,e,d:b["witness"].update(candidateBranch="auto-candidate/forged"),
             lambda b,e,d:b["witness"].update(publicationAuthorized=True),

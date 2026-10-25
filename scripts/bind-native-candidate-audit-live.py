@@ -9,7 +9,6 @@ No event handler, publisher, Release authorization, write, or auto-merge.
 from __future__ import annotations
 
 import argparse
-import base64
 import importlib.util
 import json
 import os
@@ -23,6 +22,9 @@ HERE = Path(__file__).resolve().parent
 s = importlib.util.spec_from_file_location("native_audit_binder", HERE / "bind-native-candidate-audit.py")
 binder = importlib.util.module_from_spec(s)
 s.loader.exec_module(binder)
+s = importlib.util.spec_from_file_location("native_contents", HERE / "github_contents.py")
+contents = importlib.util.module_from_spec(s)
+s.loader.exec_module(contents)
 
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 SHA = re.compile(r"^[a-f0-9]{40}$")
@@ -116,7 +118,7 @@ def validate_live(*, repo, pr_number, ci_id, audit_id, artifact_id,
     require(len(eligible) == 1 and eligible[0].get("id") == artifact_id,
             "native candidate audit artifact ID or uniqueness mismatch")
     try:
-        candidate_manifest = json.loads(base64.b64decode(manifest["content"], validate=False))
+        candidate_manifest = contents.decode_json_file(manifest, "config/extension.json")
     except (ValueError, TypeError) as e:
         raise Denied("invalid actual candidate source manifest") from e
     require(type(candidate_manifest) is dict and candidate_manifest.get("name") == repo.split("/")[1],
