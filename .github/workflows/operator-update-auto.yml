@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   scheduled:
-    name: Authenticate newest central 17-fleet scan or defer safely
+    name: Authenticate newest central protected-fleet scan or defer safely
     if: ${{ github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     permissions:
@@ -38,11 +38,14 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
-      - name: Verify central completed/success daily scan, 17 rows, exact main and candidate-only status
+      - name: Verify central completed/success scan, exact registered fleet, protected main and candidate-only status
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
           PGEXTWIN_DETECTOR_SHA: ${{ inputs.detector_sha }}
+          # GitHub-owned immutable source identity of this reusable workflow.
+          # Future (18th+) callers must pin their detector to this exact SHA.
+          PGEXTWIN_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: python .pgextwin-automation/scripts/verify-scheduled-fleet-candidate.py
       - name: Report candidate-only scheduled result
         if: ${{ always() }}
