@@ -128,9 +128,10 @@ def scan(registry, fetch):
             "extensions": results}
 
 
-def markdown(report):
+def markdown(report, observation_event="unknown"):
     rows = ["## pgextwin registered-fleet stable upstream watch", "",
             "Read-only hourly audit; no source update, candidate PR, Release, or publication authorization.",
+            "Observed trigger: " + observation_event + " (push is NOT genuine schedule acceptance).",
             "", "| Extension | Upstream | Status |",
             "| --- | --- | --- |"]
     for item in report["extensions"]:
@@ -164,7 +165,7 @@ def main():
             raise WatchError("read-only GitHub token missing")
         report = scan(policy, lambda url: github_get_json(url, token))
         output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        summary.write_text(markdown(report), encoding="utf-8")
+        summary.write_text(markdown(report, os.environ.get("GITHUB_EVENT_NAME", "unknown")), encoding="utf-8")
         return 2 if report["indeterminate"] else 0
     except (WatchError, OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
         output.write_text(json.dumps({"status":"INDETERMINATE", "publication":"DENY",
