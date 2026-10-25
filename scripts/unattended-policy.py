@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 REQUIRED_CONTROLS = {
@@ -32,6 +33,7 @@ AUTOMATIC_CONTROLS = {
 REQUIRED_MAJOR_VERSIONS = [15, 16, 17, 18]
 PILOT = "pgextwin/plpgsql_check"
 SCHEDULE = "0 * * * *"
+REPOSITORY = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 
 
 class PolicyDenied(ValueError):
@@ -48,7 +50,7 @@ def evaluate(policy, fleet):
             {"schemaVersion", "mode", "defaultAction", "scheduleUtc",
              "pilotRepository", "requiredMajorVersions", "controls", "notes"},
             "unknown or missing unattended policy fields")
-    require(policy["schemaVersion"] == 1 and
+    require(type(policy["schemaVersion"]) is int and policy["schemaVersion"] == 1 and
             policy["mode"] in {"OBSERVE", "UNATTENDED"} and
             policy["defaultAction"] == "DENY", "invalid mode/default-deny settings")
     require(policy["scheduleUtc"] == SCHEDULE and
@@ -62,7 +64,8 @@ def evaluate(policy, fleet):
             "incomplete/unrecognized unattended controls")
     require(all(type(v) is bool for v in controls.values()),
             "all safety controls must be booleans")
-    require(type(fleet) is dict and fleet.get("schemaVersion") == 1 and
+    require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int and
+            fleet["schemaVersion"] == 1 and
             fleet.get("scheduleUtc") == SCHEDULE and
             fleet.get("releasePolicy") in ("manual-only", "automatic-signed-schedule"),
             "fleet identity or release safety policy changed")
@@ -70,29 +73,20 @@ def evaluate(policy, fleet):
     require(policy["mode"] != "OBSERVE" or fleet_mode == "manual-only",
             "OBSERVE cannot silently accept the scheduled Publisher release policy")
     entries = fleet.get("entries")
-    old_repos = {"pgextwin/" + n for n in (
-        "pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user",
-        "pg_repack", "pg_ivm", "pg_qualstats", "plpgsql_check")}
-    staged_repos = {"pgextwin/" + n for n in (
-        "hypopg", "wal2json", "pg_partman", "pg_stat_monitor", "orafce")}
-    third_wave_repos = {"pgextwin/" + n for n in (
-        "pgtap", "pg_variables", "pg_store_plans")}
-    require(type(entries) is list and len(entries) == 17,
-            "expected exactly seventeen manual-only fleet entries")
-    names = [x.get("repository") for x in entries if type(x) is dict]
-    require(len(names) == 17 and len(set(names)) == 17
-            and set(names) == old_repos | staged_repos | third_wave_repos and PILOT in names,
-            "fleet repository registry contains duplicates, omissions or unknown members")
-    # A BUILD candidate lane NEVER authorizes automatic formal publication.
-    # Permit the five staged repos to enter BUILD only with explicit local
-    # candidate opt-in. UNATTENDED policy below still denies all extra BUILD
-    # repositories independently.
-    require(all(x["mode"] in {"OFF", "BUILD"}
-                and (x["candidateEnabled"] is True) == (x["mode"] == "BUILD")
-                for x in entries if x["repository"] in staged_repos | third_wave_repos),
-            "non-original repos require explicit manual-only candidate policy")
+    # The protected registry is the membership source of truth. Adding a
+    # registered repository must not require editing a second fixed roster.
+    # This static check never grants it Release authority: central/local
+    # opt-in, authentic signed source and scoped App gates remain separate.
+    require(type(entries) is list and bool(entries)
+            and all(type(x) is dict for x in entries),
+            "missing or malformed registered fleet")
+    names = [x.get("repository") for x in entries]
+    require(all(type(name) is str and REPOSITORY.fullmatch(name) for name in names)
+            and len(set(names)) == len(names) and PILOT in names,
+            "fleet repository registry has invalid identities, duplicates or no canary")
     require(all(x.get("scheduleUtc") == SCHEDULE and
                 x.get("mode") in {"WATCH", "BUILD", "OFF"} and
+                type(x.get("candidateEnabled")) is bool and
                 x.get("releasePolicy") == fleet_mode for x in entries),
             "fleet controls are incompatible with Step 22 safe rollout")
     pilot = next(x for x in entries if x["repository"] == PILOT)
@@ -117,14 +111,14 @@ def evaluate(policy, fleet):
              policy["mode"] == "UNATTENDED"),
             "scheduled release mode is not independently controlled")
     # The historical one-repository pilot restriction is no longer an
-    # authorization gate: all 17 candidates already use the same protected
-    # BUILD lane. Requiring the other 16 to turn OFF would disable a proven
+    # authorization gate: all registered candidates use the same protected
+    # BUILD lane. Requiring other members to turn OFF would disable a proven
     # safe stage without improving signing or Publisher authenticity.
     # Require a COMPLETE fleet here; static policy still never authorizes
     # a Release or bypasses runtime/provenance/Signer/Publisher checks.
     require(all(x["mode"] == "BUILD" and x["candidateEnabled"] is True
                 for x in entries),
-            "unattended mode requires the complete 17-repository BUILD fleet")
+            "unattended mode requires the complete registered BUILD fleet")
     require(all(controls.values()),
             "unattended mode requires every defense-in-depth control")
     # Never issue an authorization token. Only independently validated

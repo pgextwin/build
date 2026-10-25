@@ -117,6 +117,51 @@ class IssuerTests(unittest.TestCase):
             lambda x:x["boundary"].update(publisherInstallationId=999),
         ])
 
+    def test_incomplete_or_unknown_controls_cannot_issue_receipt(self):
+        for name in switched()["unattended"]["controls"]:
+            with self.subTest(missing=name), self.assertRaises(issuer.Denied):
+                data=switched()
+                del data["unattended"]["controls"][name]
+                issuer.issue(**data)
+        self.deny([
+            lambda x:x["unattended"].update(controls={"automaticFormalRelease":True}),
+            lambda x:x["unattended"]["controls"].update(unknownGuard=True),
+            lambda x:x["unattended"].update(schemaVersion=True),
+            lambda x:x["unattended"].update(scheduleUtc="0 0 * * *"),
+            lambda x:x["unattended"].update(unrecognized=True),
+            lambda x:x["central"].update(schemaVersion=True),
+            lambda x:x["local"].update(schemaVersion=True),
+            lambda x:x["local"].update(enabled=1),
+            lambda x:x["boundary"].update(schemaVersion=True),
+        ])
+
+    def test_future_registered_member_uses_same_policy_without_count_change(self):
+        data=switched()
+        row=deepcopy(data["fleet"]["entries"][0])
+        row["repository"]="pgextwin/future_extension"
+        data["fleet"]["entries"].append(row)
+        data["central"]["allowedRepositories"].append(row["repository"])
+        # Roster growth is a static configuration fact, never source proof.
+        issuer.policy_gate(data["fleet"],data["central"],data["local"],
+                           data["unattended"],data["boundary"],row["repository"])
+        result=issuer.issue(**data)
+        self.assertEqual(result["repository"],REPO)
+        data["central"]["allowedRepositories"].pop()
+        with self.assertRaises(issuer.Denied):
+            issuer.issue(**data)
+
+    def test_static_readiness_uses_the_same_complete_policy(self):
+        readiness=load("shared_issuer_readiness","scripts/automatic-publisher-readiness.py")
+        data=switched()
+        self.assertIs(readiness.ready(data["fleet"],data["central"],
+                                     data["unattended"],data["boundary"]),True)
+        for control in data["unattended"]["controls"]:
+            bad=deepcopy(data)
+            del bad["unattended"]["controls"][control]
+            with self.subTest(control=control),self.assertRaises(readiness.issuer.Denied):
+                readiness.ready(bad["fleet"],bad["central"],
+                                bad["unattended"],bad["boundary"])
+
     def test_forged_signer_source_scheduler_replay_denied(self):
         self.deny([
             lambda x:x.update(event="workflow_dispatch"),
