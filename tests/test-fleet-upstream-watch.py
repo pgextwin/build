@@ -137,6 +137,15 @@ class ReadonlyFleet(TestCase):
             "protected extension main changed during audit")),
             "PROTECTED_MAIN_DRIFT")
 
+    def test_readonly_force_push_cannot_be_reported_as_schedule(self):
+        report={"extensions": [], "updatesDetected": 0, "indeterminate": 0}
+        push_summary=w.markdown(report, observation_event="push")
+        scheduled_summary=w.markdown(report, observation_event="schedule")
+        self.assertIn("Observed trigger: push (push is NOT genuine schedule acceptance).", push_summary)
+        self.assertIn("Observed trigger: schedule", scheduled_summary)
+        self.assertIn("PUBLISH=DENY", push_summary)
+        self.assertIn("PUBLISH=DENY", scheduled_summary)
+
     def test_protected_push_live_smoke_cannot_replace_genuine_schedule(self):
         workflow = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
         self.assertIn('cron: "0 * * * *"', workflow)
