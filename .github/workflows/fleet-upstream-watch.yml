@@ -4,6 +4,9 @@ on:
   schedule:
     # Every hour at :00 JST/UTC; GitHub Actions may dispatch late.
     - cron: "0 * * * *"
+    # Secondary off-peak genuine schedule to mitigate dropped top-of-hour
+    # GitHub Actions events. Same read-only scanner, no authority widening.
+    - cron: "7 * * * *"
   # A protected-main code/policy change gets one immediate READ-ONLY live
   # smoke. It is NOT a genuine schedule event and cannot authorize a candidate:
   # verify-scheduled-fleet-candidate.py requires event=schedule.
