@@ -92,6 +92,23 @@ jobs:
         run: python tests/test-automatic-signed-build-intent.py
       - name: Reject forged original scheduled decision bytes on protected main (NONPUBLISHING)
         run: python tests/test-automatic-signed-build-intent-live.py
+      - name: Verify common Contents transport and reject corrupt manifest bytes (NO RELEASE)
+        run: python tests/test-github-contents.py
+      - name: Exercise real immutable GitHub Contents wrapping and Git blob SHA (READ ONLY)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET "repos/$GITHUB_REPOSITORY/contents/metadata/automation-fleet.json?ref=$GITHUB_SHA" > "$RUNNER_TEMP/contents-response.json"
+          python - "$RUNNER_TEMP/contents-response.json" <<'PY'
+          import json,sys
+          from scripts.github_contents import decode_json_file
+          source=json.load(open(sys.argv[1],encoding="utf-8"))
+          value=decode_json_file(source,"metadata/automation-fleet.json")
+          assert value["schemaVersion"]==1 and isinstance(value["entries"],list)
+          print("REAL_IMMUTABLE_CONTENTS_DECODE_AND_GIT_BLOB_SHA_VERIFIED; NO_PUBLICATION_AUTHORITY")
+          PY
       - name: Reject unsigned candidate Signer output shortcuts (NO PUBLISH)
         run: python tests/test-automatic-signed-build-intent-output.py
 

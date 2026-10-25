@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Strictly nonpublishing native Run/artifact live-binding negative tests."""
 import base64
+import hashlib
 from copy import deepcopy
 import importlib.util
 import json
@@ -22,7 +23,9 @@ FLEET = json.loads((ROOT / "metadata/automation-fleet.json").read_text("utf-8"))
 
 
 def fixture():
-    source = base64.b64encode(json.dumps({"name": "pg_ivm"}).encode()).decode()
+    raw = json.dumps({"name": "pg_ivm"}).encode()
+    source = base64.encodebytes(raw).decode()
+    blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
     return dict(
         repo=REPO, pr_number=PR, ci_id=CI, audit_id=AUDIT, artifact_id=ART,
         pr={"number": PR, "state": "open", "merged": False,
@@ -30,7 +33,7 @@ def fixture():
             "base": {"ref": "main", "repo": {"full_name": REPO}},
             "head": {"sha": SHA, "repo": {"full_name": REPO}}},
         files=[{"filename": "config/extension.json",
-                "status": "modified", "sha": "c"*40}],
+                "status": "modified", "sha": blob}],
         ci_run={"id": CI, "event": "pull_request", "head_sha": SHA,
                 "status": "completed", "conclusion": "success"},
         audit_run={"id": AUDIT, "event": "workflow_run",
@@ -39,7 +42,7 @@ def fixture():
             {"id": ART, "name": "candidate-audit-native-pr"}]},
         main={"name": "main", "protected": True, "commit": {"sha": MAIN}},
         manifest={"encoding": "base64", "path": "config/extension.json",
-                  "sha": "c"*40, "content": source})
+                  "sha": blob, "content": source})
 
 
 class NativeLiveBindingTests(unittest.TestCase):

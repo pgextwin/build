@@ -6,7 +6,6 @@ Intended for protected `push` of a single reviewed candidate manifest.
 """
 from __future__ import annotations
 import argparse
-import base64
 import importlib.util
 import json
 import os
@@ -27,6 +26,7 @@ def load(name, path):
 bridge = load("postmerge_bridge", "automatic-postmerge-audit-bridge.py")
 binder = load("native_join", "bind-native-candidate-audit.py")
 downloaded = load("native_live", "bind-native-candidate-audit-live.py")
+contents = load("postmerge_contents", "github_contents.py")
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -133,7 +133,7 @@ def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None):
             and manifest.get("sha") == commit["files"][0].get("sha"),
             "merged manifest blob does not equal PR and current main")
     try:
-        extension = json.loads(base64.b64decode(manifest["content"], validate=True))
+        extension = contents.decode_json_file(manifest, "config/extension.json")
     except (ValueError, TypeError) as e:
         raise Denied("invalid immutable current-main source manifest") from e
     require(type(extension) is dict and extension.get("name") == repo.split("/")[1],

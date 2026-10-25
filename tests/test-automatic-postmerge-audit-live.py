@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Denial suite for first real native main-push artifact binding (no publishing)."""
 import base64
+import hashlib
 from copy import deepcopy
 import importlib.util
 import json
@@ -27,6 +28,8 @@ def fixture():
     ext={"name":"pg_ivm","postgresql":{"majors":list(range(14,19))},
          "upstream":{"repository":"sraoss/pg_ivm","ref":"v1.17",
                      "version":"1.17","commit":SOURCE}}
+    raw=json.dumps(ext).encode()
+    blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
     event={"ref":"refs/heads/main","repository":{"full_name":REPO},
            "sender":{"login":"ShutenOishi"},"created":False,
            "deleted":False,"before":OLD,"after":NEW,
@@ -54,7 +57,7 @@ def fixture():
               "workflow_run":{"id":AUDIT}}
     entries={
         "commits/"+NEW:{"sha":NEW,"parents":[{"sha":OLD}],
-                        "files":[{"filename":p,"status":"modified","sha":BLOB}]},
+                        "files":[{"filename":p,"status":"modified","sha":blob}]},
         "commits/"+NEW+"/pulls?per_page=100":[{"number":PR}],
         "pulls/"+str(PR):{"number":PR,"state":"closed","merged":True,"draft":False,
             "user":{"login":"github-actions[bot]"},
@@ -64,7 +67,7 @@ def fixture():
             "base":{"ref":"main","repo":{"full_name":REPO}},
             "body":"<!-- pgextwin-candidate:v1:"+"f"*20+" -->"},
         "pulls/"+str(PR)+"/files?per_page=100":[
-            {"filename":p,"status":"modified","sha":BLOB}],
+            {"filename":p,"status":"modified","sha":blob}],
         "branches/main":{"name":"main","protected":True,
                          "commit":{"sha":NEW},
                          "protection":{"required_status_checks":{"checks":[
@@ -74,8 +77,8 @@ def fixture():
                 "name":"Windows required summary","head_sha":HEAD,
                 "status":"completed","conclusion":"success","app":{"id":15368}}]},
         "contents/config/extension.json?ref="+NEW:{
-            "path":p,"encoding":"base64","sha":BLOB,
-            "content":base64.b64encode(json.dumps(ext).encode()).decode()},
+            "path":p,"encoding":"base64","sha":blob,
+            "content":base64.encodebytes(raw).decode()},
         "actions/runs?event=workflow_run&head_sha="+OLD+"&per_page=100":{
             "total_count":1,"workflow_runs":[{
                 "id":AUDIT,"name":"Upstream candidate after verified central daily fleet scan",
