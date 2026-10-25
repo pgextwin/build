@@ -12,6 +12,7 @@ on:
       - 'scripts/probe-publisher-app.py'
       - 'scripts/publisher-scoped-token.py'
       - 'metadata/unattended-publication.json'
+      - 'metadata/automation-fleet.json'
 permissions:
   contents: read
 concurrency:

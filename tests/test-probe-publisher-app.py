@@ -14,7 +14,8 @@ p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
 
 class ProofTests(unittest.TestCase):
-    def exercise(self, bad=None, event="workflow_dispatch", extra_member=False):
+    def exercise(self, bad=None, event="workflow_dispatch", extra_member=False,
+                 release_policy="manual-only"):
         fleet = {"schemaVersion": 1, "releasePolicy": "manual-only", "entries": [
             {"repository": "pgextwin/future_extension", "mode": "BUILD",
              "candidateEnabled": True, "releasePolicy": "manual-only"}]}
@@ -22,6 +23,9 @@ class ProofTests(unittest.TestCase):
             fleet["entries"].append({
                 "repository": "pgextwin/second_extension", "mode": "BUILD",
                 "candidateEnabled": True, "releasePolicy": "manual-only"})
+        fleet["releasePolicy"]=release_policy
+        for row in fleet["entries"]:
+            row["releasePolicy"]=release_policy
         calls = []
         revoked = False
         def api(method, path, token, body=None):
@@ -71,6 +75,10 @@ class ProofTests(unittest.TestCase):
                     if bad or event not in ("workflow_dispatch", "schedule", "push"):
                         with self.assertRaises(ValueError): p.run()
                     else: p.run()
+                if not bad and event in ("workflow_dispatch","schedule","push"):
+                    report=json.loads(Path("publisher-app-proof.json").read_text())
+                    self.assertIs(report["publicationAuthorized"],False)
+                    self.assertTrue(all(row["tokenRevoked"] for row in report["repositories"]))
                 self.assertNotIn("synthetic-private-token", output.getvalue())
                 self.assertNotIn("synthetic-key", output.getvalue())
             finally: os.chdir(previous)
@@ -81,6 +89,25 @@ class ProofTests(unittest.TestCase):
         self.assertIn(("POST","/repos/pgextwin/future_extension/git/blobs"), calls)
         self.assertIn(("DELETE","/installation/token"), calls)
         self.assertFalse(any("/releases" in path or "/refs" in path for _,path in calls))
+
+    def test_automatic_fleet_policy_preserves_nonpublishing_proof(self):
+        for event in ("push","schedule","workflow_dispatch"):
+            with self.subTest(event=event):
+                calls=self.exercise(event=event,extra_member=event!="workflow_dispatch",
+                                    release_policy="automatic-signed-schedule")
+                self.assertEqual(sum(method=="POST" and path.endswith("/access_tokens")
+                                     for method,path in calls),1)
+                self.assertFalse(any("/releases" in path or "/refs" in path for _,path in calls))
+                self.assertEqual(calls[-2:],[("DELETE","/installation/token"),
+                    ("GET","/installation/repositories?per_page=100")])
+
+    def test_shared_fleet_contract_rejects_mixed_and_unknown_policies(self):
+        for policy in ("automatic-signed-schedule","manual-only","automatic",None):
+            fleet={"schemaVersion":1,"releasePolicy":policy,"entries":[
+                {"repository":"pgextwin/future_extension","mode":"BUILD",
+                 "candidateEnabled":True,"releasePolicy":"unapproved"}]}
+            with self.subTest(policy=policy),self.assertRaises(ValueError):
+                p.repositories(fleet)
     def test_live_token_revocation_is_confirmed(self):
         calls=self.exercise()
         self.assertEqual(calls[-2:],[
