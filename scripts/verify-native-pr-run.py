@@ -23,14 +23,15 @@ class Denied(ValueError): pass
 def require(x,msg):
     if not x: raise Denied(msg)
 
-def validate(repo, run, pr, pr_files, merge_ref, main, checks):
+def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=None):
     require(type(repo) is str and REPO.fullmatch(repo), "unsafe target repository")
     require(type(run) is dict and run.get("event")=="pull_request"
             and run.get("name")=="Windows CI/CD"
             and run.get("status")=="completed" and run.get("conclusion")=="success"
             and type(run.get("id")) is int and run["id"]>0
             and run.get("head_repository",{}).get("full_name")==repo
-            and type(run.get("pull_requests")) is list and len(run["pull_requests"])==1
+            and type(run.get("pull_requests")) is list
+            and len(run["pull_requests"]) <= 1
             and isinstance(run.get("head_branch"),str)
             and SHA.fullmatch(run.get("head_sha","")),
             "not an exact completed authenticated native PR Windows workflow")
@@ -48,14 +49,32 @@ def validate(repo, run, pr, pr_files, merge_ref, main, checks):
             and type(pr.get("number")) is int and pr["number"]>0
             and "<!-- pgextwin-candidate:v1:"+owned.group(1)+" -->" in (pr.get("body") or ""),
             "candidate not owned or exact head/target moved")
-    meta=run["pull_requests"][0]
-    require(meta.get("number")==pr["number"]
-            and (meta.get("head") or {}).get("sha")==head
-            and (meta.get("head") or {}).get("ref")==branch
-            and (meta.get("base") or {}).get("ref")=="main"
-            and (meta.get("head") or {}).get("repo",{}).get("name")==repo.split("/")[1]
-            and (meta.get("base") or {}).get("repo",{}).get("name")==repo.split("/")[1],
-            "run was not produced for current exact PR HEAD")
+    # GitHub can return [] in workflow_run.pull_requests even for a real
+    # pull_request run (observed on actual HypoPG Windows Run40185975511).
+    # Only an independent REST commit-to-PR GET may restore the missing join.
+    # Never guess from the branch, PR title, actor or newest open PR.
+    if associated_pulls is not None:
+        require(type(associated_pulls) is list and len(associated_pulls)==1,
+                "missing or ambiguous independent exact-HEAD PR association")
+        linked=associated_pulls[0]
+        require(type(linked) is dict and linked.get("number")==pr["number"]
+                and (linked.get("head") or {}).get("sha")==head
+                and (linked.get("head") or {}).get("ref")==branch
+                and (linked.get("head") or {}).get("repo",{}).get("full_name")==repo
+                and (linked.get("base") or {}).get("ref")=="main"
+                and (linked.get("base") or {}).get("repo",{}).get("full_name")==repo,
+                "independent commit association disagrees with exact bot PR")
+    elif not run["pull_requests"]:
+        raise Denied("empty run PR inventory requires independent commit association")
+    if run["pull_requests"]:
+        meta=run["pull_requests"][0]
+        require(meta.get("number")==pr["number"]
+                and (meta.get("head") or {}).get("sha")==head
+                and (meta.get("head") or {}).get("ref")==branch
+                and (meta.get("base") or {}).get("ref")=="main"
+                and (meta.get("head") or {}).get("repo",{}).get("name")==repo.split("/")[1]
+                and (meta.get("base") or {}).get("repo",{}).get("name")==repo.split("/")[1],
+                "run PR metadata disagrees with exact bot candidate")
     require(type(pr_files) is list and len(pr_files)==1
             and pr_files[0].get("filename")=="config/extension.json"
             and pr_files[0].get("status")=="modified"
@@ -98,6 +117,7 @@ def gh_get(repo, endpoint):
         or re.fullmatch(r"pulls/[1-9][0-9]*",endpoint)
         or re.fullmatch(r"pulls/[1-9][0-9]*/files\?per_page=100",endpoint)
         or re.fullmatch(r"git/ref/pull/[1-9][0-9]*/merge",endpoint)
+        or re.fullmatch(r"commits/[a-f0-9]{40}/pulls\?per_page=100",endpoint)
         or endpoint=="branches/main"
         or re.fullmatch(r"commits/[a-f0-9]{40}/check-runs\?per_page=100",endpoint)),
         "GitHub GET path not allowlisted")
@@ -123,17 +143,22 @@ def live(repo, run_id, event):
             and (event["workflow_run"]).get("event")=="pull_request"
             and (event["workflow_run"]).get("name")=="Windows CI/CD",
             "event payload differs from live run")
-    pulls=run.get("pull_requests") or []
-    require(type(pulls) is list and len(pulls)==1
-            and type(pulls[0].get("number")) is int,
-            "missing/ambiguous candidate PR in CI event")
-    num=pulls[0]["number"]
+    # Always obtain an independent original GitHub commit->PR association.
+    # The Actions run's pull_requests can legally be [] on a real PR run.
+    associated=gh_get(repo,"commits/"+run["head_sha"]+"/pulls?per_page=100")
+    require(type(associated) is list and len(associated)==1
+            and type(associated[0]) is dict
+            and type(associated[0].get("number")) is int
+            and associated[0]["number"]>0,
+            "missing/ambiguous independent exact-HEAD PR identity")
+    num=associated[0]["number"]
     pr=gh_get(repo,"pulls/"+str(num))
     files=gh_get(repo,"pulls/"+str(num)+"/files?per_page=100")
     merge=gh_get(repo,"git/ref/pull/"+str(num)+"/merge")
     main=gh_get(repo,"branches/main")
     checks=gh_get(repo,"commits/"+run["head_sha"]+"/check-runs?per_page=100")
-    return validate(repo,run,pr,files,merge,main,checks)
+    return validate(repo,run,pr,files,merge,main,checks,
+                    associated_pulls=associated)
 
 def main():
     p=argparse.ArgumentParser()
