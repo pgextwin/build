@@ -149,6 +149,7 @@ jobs:
           python tests/test-verify-candidate.py
           python tests/test-pr-candidate-artifacts.py
           python tests/test-native-pr-candidate-audit.py
+          python tests/test-native-required-check.py
 
       - name: Deny forged cross-run native candidate audit evidence before signing
         run: python tests/test-bind-native-candidate-audit.py

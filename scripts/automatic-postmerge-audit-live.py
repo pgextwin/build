@@ -179,10 +179,13 @@ def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None):
             raise Denied("matched native audit failed SHA/ZIP binding: "+str(exc)) from exc
         matched.append(bound)
     require(len(matched) == 1, "unique prior authentic candidate audit is absent or ambiguous")
+    # Re-fetch the exact original native Run. A dispatch on the same HEAD can
+    # have an identically named success; only this native check suite applies.
+    original_ci=get("actions/runs/"+str(matched[0]["candidateCiRunId"]))
     try:
         result = bridge.verify(repository=repo,event=event,commit=commit,
             pr=pr,pr_files=files,branch=branch,checks=checks,
-            bound=matched[0],manifest=extension,lifecycle=lifecycle,fleet=fleet)
+            ci_run=original_ci,bound=matched[0],manifest=extension,lifecycle=lifecycle,fleet=fleet)
     except (bridge.Denied, ValueError, TypeError, KeyError) as exc:
         raise Denied("postmerge bridge refused untrusted main event: "+str(exc)) from exc
     require(result.get("publicationAuthorized") is False

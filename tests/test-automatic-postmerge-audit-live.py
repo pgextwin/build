@@ -74,7 +74,8 @@ def fixture():
                             {"context":"Windows required summary","app_id":15368}]}}},
         "commits/"+HEAD+"/check-runs?per_page=100":{
             "total_count":1,"check_runs":[{
-                "name":"Windows required summary","head_sha":HEAD,
+                "id":701,"check_suite":{"id":700},"name":"Windows required summary","head_sha":HEAD,
+                "details_url":"https://github.com/"+REPO+"/actions/runs/"+str(CI)+"/job/701",
                 "status":"completed","conclusion":"success","app":{"id":15368}}]},
         "contents/config/extension.json?ref="+NEW:{
             "path":p,"encoding":"base64","sha":blob,
@@ -88,6 +89,7 @@ def fixture():
         "actions/runs/"+str(AUDIT)+"/artifacts?per_page=100":{
             "total_count":1,"artifacts":[artifact]},
         "actions/runs/"+str(CI):{"id":CI,"name":"Windows CI/CD",
+            "path":".github/workflows/windows.yml","run_attempt":1,"check_suite_id":700,
             "head_repository":{"full_name":REPO},"head_branch":BRANCH,
             "head_sha":HEAD,"event":"pull_request",
             "status":"completed","conclusion":"success"},
