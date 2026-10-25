@@ -13,6 +13,9 @@ import sys
 
 MANUAL="manual-only"
 AUTOMATIC="automatic-signed-schedule"
+# Resource ceiling shared with Catalog's signed feed / Windows CLI.
+# This is not a publication allowlist and does not grant new repo rights.
+MAX_REGISTERED_FLEET = 128
 REPO=re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 
 class Denied(ValueError): pass
@@ -24,7 +27,8 @@ def members(fleet,*,require_build=True,audited=None):
     require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int
             and fleet["schemaVersion"]==1
             and fleet.get("releasePolicy") in (MANUAL,AUTOMATIC)
-            and type(fleet.get("entries")) is list and bool(fleet["entries"]),
+            and type(fleet.get("entries")) is list
+            and 0 < len(fleet["entries"]) <= MAX_REGISTERED_FLEET,
             "invalid or unsupported protected fleet")
     rows={}
     for row in fleet["entries"]:

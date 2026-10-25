@@ -15,7 +15,7 @@ items=c.validate(policy)
 original={"pgextwin/"+n for n in ["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack","pg_ivm","pg_qualstats","plpgsql_check"]}
 staged={"pgextwin/"+n for n in ["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]}
 third={"pgextwin/"+n for n in ["pgtap","pg_variables","pg_store_plans"]}
-assert len(items)==17 and set(items)==original|staged|third, "full exact 17 repository candidate registry"
+assert 17 <= len(items) <= c.fleet_policy.MAX_REGISTERED_FLEET and (original|staged|third).issubset(items), "historical 17 mandatory; protected future fleet may grow"
 assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] and items[r]["releasePolicy"]=="manual-only" for r in original), "preserve initial nine BUILD"
 assert all(items[r]["mode"]=="BUILD" and items[r]["candidateEnabled"] is True and items[r]["releasePolicy"]=="manual-only" for r in staged|third), "enable centrally bounded candidate-only BUILD lanes; local opt-in remains separate"
 local={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow":"windows.yml"}
@@ -46,6 +46,31 @@ for repo in staged|third:
     entry=next(x for x in changed["entries"] if x["repository"]==repo)
     entry["candidateEnabled"]=False  # BUILD without opt-in must fail closed
     fails(lambda: c.validate(changed))
+
+
+# Synthetic future membership is accepted by the shared protected policy
+# without adding another Python allowlist. This does NOT grant publication.
+expanded=json.loads(json.dumps(policy))
+new=expanded["entries"][-1].copy()
+new["repository"]="pgextwin/future_registered"
+expanded["entries"].append(new)
+future_items=c.validate(expanded)
+assert len(future_items)==len(items)+1
+assert "pgextwin/future_registered" in future_items
+future_ext={"name":"future_registered","upstream":{"repository":"safeorg/future_registered"}}
+future_watch={"repository":"safeorg/future_registered","strategy":new["strategy"]}
+assert c.decide(expanded,"pgextwin/future_registered",future_ext,future_watch,
+                "candidate",local)==(True,"BUILD")
+# Oversized/truncated/duplicate protected membership always fails closed.
+overflow=json.loads(json.dumps(policy))
+for n in range(129):
+    row=overflow["entries"][-1].copy()
+    row["repository"]=f"pgextwin/registered_{n:03d}"
+    overflow["entries"].append(row)
+fails(lambda:c.validate(overflow))
+duplicate=json.loads(json.dumps(expanded))
+duplicate["entries"].append(new)
+fails(lambda:c.validate(duplicate))
 
 for bad in [
     lambda d:d["entries"].append(d["entries"][0]),

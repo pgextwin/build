@@ -51,6 +51,80 @@ assert check() == "candidate"
 # The independent fresh GET-only replay is not the central ZIP; it must
 # maintain the same protected-main, 17-row, candidate-only contract.
 assert check(live_replay=True) == "candidate"
+
+# A prospective 18th entry is permitted ONLY after explicit protected
+# registration, complete 18-row genuine-schedule proof and a GitHub-owned
+# immutable reusable-workflow source SHA. This is candidate-only, never Release.
+import json
+registered = json.loads((ROOT / "metadata/automation-fleet.json").read_text("utf-8"))
+future_repo = "pgextwin/future_registered"
+future_policy = deepcopy(registered)
+future_entry = deepcopy(future_policy["entries"][-1])
+future_entry["repository"] = future_repo
+future_policy["entries"].append(future_entry)
+future_report = deepcopy(report)
+future_report["extensions"].append({
+    "repository": future_repo, "mainSha": good_sha,
+    "status": "update-available", "updates": [{"version": "v3.0", "commit": "c" * 40}]
+})
+future_report["fleetSize"] = 18
+future_report["updatesDetected"] = 2
+assert m.protected_fleet(future_policy) == m.HISTORICAL_FLOOR | {future_repo}
+assert m.validate(future_report, run, branch(build_sha), branch(good_sha),
+                  future_repo, good_sha, build_sha, now,
+                  registry=future_policy, workflow_sha=build_sha) == "candidate"
+for name, changed in (
+    ("not registered", registered),
+    ("mismatched immutable pin", future_policy),
+):
+    try:
+        m.validate(future_report, run, branch(build_sha), branch(good_sha),
+                   future_repo, good_sha,
+                   "f" * 40 if name == "mismatched immutable pin" else build_sha,
+                   now, registry=changed, workflow_sha=build_sha)
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("future candidate escaped protected identity gate: " + name)
+for field in ("fleetSize", "extensions", "updatesDetected"):
+    broken = deepcopy(future_report)
+    if field == "fleetSize":
+        broken[field] = 17
+    elif field == "extensions":
+        broken[field].pop()
+    else:
+        broken[field] = 1
+    try:
+        m.validate(broken, run, branch(build_sha), branch(good_sha),
+                   future_repo, good_sha, build_sha, now,
+                   registry=future_policy, workflow_sha=build_sha)
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("partial new-fleet proof accepted: " + field)
+for mutated in (
+    {**future_policy, "entries": future_policy["entries"][:-2] + [future_entry]},
+    {**future_policy, "entries": future_policy["entries"] + [future_entry]},
+    {**future_policy, "entries": future_policy["entries"] + [
+        {**future_entry, "repository": "bad/unknown"}]},
+):
+    try:
+        m.protected_fleet(mutated)
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("untrusted or missing historical fleet registry accepted")
+# Even on a future row, no caller-supplied SHA may replace the actual
+# immutable central reusable workflow SHA.
+try:
+    m.validate(future_report, run, branch(build_sha), branch(good_sha),
+               future_repo, good_sha, build_sha, now,
+               registry=future_policy, workflow_sha="e" * 40)
+except m.Denied:
+    pass
+else:
+    raise AssertionError("forged reusable workflow SHA accepted")
+
 # Normal schedule-head exact match remains mandatory. Only a distinct fresh
 # live replay after an authenticated immutable source-identity comparison may
 # tolerate unrelated central main advances. Target main still MUST match.

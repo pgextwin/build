@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,30 @@ OLD = {"pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user",
        "wal2json", "pg_partman", "pg_stat_monitor", "orafce"}
 NEW = {"pgtap", "pg_variables", "pg_store_plans"}
 REPOSITORIES = {"pgextwin/" + r for r in OLD | NEW}
+# These 17 existing trusted repos remain mandatory, not the maximum count.
+# No future repository is authorized merely by its name matching a regex.
+HISTORICAL_FLOOR = frozenset(REPOSITORIES)
+MAX_FLEET = 128
+ROOT = Path(__file__).resolve().parents[1]
+_fleet_spec = importlib.util.spec_from_file_location(
+    "scheduled_shared_fleet_policy", ROOT / "scripts/fleet-policy.py")
+fleet_policy = importlib.util.module_from_spec(_fleet_spec)
+_fleet_spec.loader.exec_module(fleet_policy)
+
+
+def protected_fleet(registry=None):
+    """Exact immutable-checkout manifest, not live unpinned caller metadata."""
+    try:
+        policy = registry if registry is not None else fleet_policy.read(
+            ROOT / "metadata/automation-fleet.json")
+        rows = fleet_policy.members(policy, require_build=True)
+    except (fleet_policy.Denied, OSError, ValueError, TypeError, KeyError) as exc:
+        raise Denied("untrusted protected central fleet manifest") from exc
+    need(HISTORICAL_FLOOR.issubset(rows) and
+         len(HISTORICAL_FLOOR) <= len(rows) <= MAX_FLEET,
+         "protected fleet lost mandatory history or exceeded audit capacity")
+    return frozenset(rows)
+
 # Every blob must match across the original scheduled scan, current protected
 # build main and the immutable reusable-workflow checkout before live replay.
 REPLAY_SOURCE_PATHS = (
@@ -83,15 +108,30 @@ def timestamp(value):
 
 
 def validate(report, run, build_branch, target_branch, repository, head, pin, now, *,
-             live_replay=False, source_equivalent=False):
-    need(repository in REPOSITORIES, "unregistered candidate repository")
-    expected = COHORT_14 if repository.split("/")[1] in OLD else COHORT_3
-    need(pin == expected and SHA.fullmatch(head), "invalid immutable detector cohort")
+             live_replay=False, source_equivalent=False, registry=None,
+             workflow_sha=None):
+    approved = protected_fleet(registry)
+    need(repository in approved, "unregistered candidate repository")
+    need(type(head) is str and SHA.fullmatch(head), "invalid candidate main SHA")
     current_build = (build_branch.get("commit") or {}).get("sha")
     need(type(current_build) is str and SHA.fullmatch(current_build),
          "current central protected main SHA missing")
+    if repository in HISTORICAL_FLOOR:
+        expected = COHORT_14 if repository.split("/")[1] in OLD else COHORT_3
+        need(pin == expected, "invalid immutable historical detector cohort")
+    else:
+        # A newly registered source must invoke this reusable workflow by an
+        # immutable central source SHA, surfaced by GitHub job.workflow_sha.
+        # The same SHA must be the actual protected current/scheduled build
+        # main, never a caller-selected arbitrary repository or workflow ref.
+        source_sha = workflow_sha if workflow_sha is not None else os.environ.get(
+            "PGEXTWIN_WORKFLOW_SHA")
+        need(type(source_sha) is str and SHA.fullmatch(source_sha)
+             and pin == source_sha
+             and source_sha in (current_build, run.get("head_sha")),
+             "future detector lacks exact protected immutable source binding")
     # Never silently accept a stale scheduled scan. Only a new, complete
-    # 17-repo live replay from byte-identical immutable scan sources may
+    # registered-fleet live replay from identical immutable scan sources may
     # replace the old schedule-head binding; target main stays exact.
     if current_build != run.get("head_sha"):
         need(live_replay is True and source_equivalent is True,
@@ -118,9 +158,9 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
          and report.get("scope") == "STABLE_UPSTREAM_GET_ONLY"
          and report.get("publication") == "DENY"
          and report.get("candidatePrCreated") is False
-         and report.get("fleetSize") == 17
+         and report.get("fleetSize") == len(approved)
          and report.get("indeterminate") == 0,
-         "central snapshot is not a successful read-only 17-fleet result")
+         "central snapshot does not cover the exact protected fleet")
     produced = timestamp(report.get("generatedAt"))
     if live_replay:
         # An independent fresh GET-only fleet rescan is an alternative evidence
@@ -133,11 +173,11 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
         need(started - timedelta(minutes=5) <= produced <= finished + timedelta(minutes=5),
              "snapshot timestamp differs from central run")
     entries = report.get("extensions")
-    need(type(entries) is list and len(entries) == 17, "incomplete fleet snapshot")
+    need(type(entries) is list and len(entries) == len(approved), "incomplete fleet snapshot")
     by_repo = {}
     count = 0
     for row in entries:
-        need(type(row) is dict and row.get("repository") in REPOSITORIES
+        need(type(row) is dict and row.get("repository") in approved
              and row["repository"] not in by_repo, "duplicate/unknown fleet entry")
         need(SHA.fullmatch(str(row.get("mainSha", ""))), "unverifiable extension main")
         updates = row.get("updates")
@@ -147,8 +187,8 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
         need(bool(updates) == (status == "update-available"), "inconsistent candidate status")
         count += int(status == "update-available")
         by_repo[row["repository"]] = row
-    need(set(by_repo) == REPOSITORIES and report.get("updatesDetected") == count,
-         "partial or inconsistent 17-extension result")
+    need(set(by_repo) == approved and report.get("updatesDetected") == count,
+         "partial or inconsistent registered fleet result")
     target = by_repo[repository]
     need(target["mainSha"] == head, "candidate manifest main changed since daily watch")
     return "candidate" if target["status"] == "update-available" else "none"
@@ -185,7 +225,7 @@ def api(url, token):
         # authorized to read build's cross-repo Actions endpoints by default.
         # GET public metadata anonymously rather than seeking Actions:read
         # privileges, but only for the exact fixed central build repository.
-        # The full protected-main/immutable-run/17-row checks still apply.
+        # The full protected-main/immutable-run/all-row checks still apply.
         if url.startswith(HOST + BUILD + "/"):
             return request_json(None)
         raise
@@ -232,7 +272,7 @@ def replay_live_fleet(token):
 
     No cross-repository Actions token, credential widening, workflow dispatch,
     candidate writing or Release privilege is needed. Reuse the same pinned
-    17-extension fleet detector and its per-repository protected-main double
+    registered-fleet detector and its per-repository protected-main double
     GETs. An indeterminate row (or inaccessible public API) is always DENY.
     """
     import runpy
@@ -251,7 +291,8 @@ def replay_live_fleet(token):
 
 
 def run(repository, head, pin, token):
-    need(repository in REPOSITORIES and SHA.fullmatch(head), "invalid caller identity")
+    need(repository in protected_fleet() and type(head) is str and SHA.fullmatch(head),
+         "unregistered or invalid caller identity")
     need(os.environ.get("GITHUB_EVENT_NAME") == "schedule"
          and os.environ.get("GITHUB_REF") == "refs/heads/main"
          and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
@@ -300,7 +341,7 @@ def run(repository, head, pin, token):
             exact["head_sha"], build_branch["commit"]["sha"], token)
         report = replay_live_fleet(token)
         live_replay = True
-        print("FLEET_EVIDENCE=FRESH_17_REPLAY_WITH_IDENTICAL_IMMUTABLE_SOURCES")
+        print("FLEET_EVIDENCE=FRESH_FLEET_REPLAY_WITH_IDENTICAL_IMMUTABLE_SOURCES")
     else:
         artifacts = api(HOST + BUILD + "/actions/runs/" + str(exact["id"])
                         + "/artifacts?per_page=100", token)
@@ -322,7 +363,7 @@ def run(repository, head, pin, token):
             if live_replay:
                 # A repo-scoped GITHUB_TOKEN cannot be assumed to have Actions:read
                 # on pgextwin/build. NEVER treat a failed archive download as
-                # proof of a successful candidate; rescan all 17 from protected
+                # proof of a successful candidate; rescan the complete protected fleet from
                 # repository sources and validate that independent evidence.
                 report = replay_live_fleet(token)
                 print("FLEET_EVIDENCE=INDEPENDENT_GET_ONLY_REPLAY; central artifact not downloaded")
