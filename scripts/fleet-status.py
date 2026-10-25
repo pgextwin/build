@@ -321,7 +321,7 @@ def main():
     lifecycle=json.loads(Path(args.lifecycle).read_text())
     results=[one(entry,lifecycle) for entry in policy["entries"]]
     status={"schemaVersion":1,"generatedAt":datetime.now(timezone.utc).isoformat(),
-            "policyRelease":"manual-only","extensions":results}
+            "policyRelease":policy["releasePolicy"],"extensions":results}
     task_spec=spec_from_file_location("hourly_chat_task", Path(__file__).with_name("chat-task-queue.py"))
     task_module=module_from_spec(task_spec)
     task_spec.loader.exec_module(task_module)

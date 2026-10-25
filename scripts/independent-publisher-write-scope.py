@@ -8,6 +8,7 @@ live candidate, CI, Sigstore, Grype, branch, policy and tag checks.
 """
 from __future__ import annotations
 import argparse
+import importlib.util
 from datetime import datetime, timezone, timedelta
 import json
 from pathlib import Path
@@ -17,6 +18,10 @@ import sys
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 FIELDS = {"schemaVersion", "mode", "publisherAppId",
           "publisherInstallationId", "signerAppId"}
+
+_policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",Path(__file__).with_name("fleet-policy.py"))
+fleet_policy=importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(fleet_policy)
 
 class Denied(ValueError):
     pass
@@ -84,37 +89,18 @@ def validate_live_scope(issuance, live_repositories, blob, *,
             "publisherWriteAuthorized": False}
 
 
-def evaluate(policy, fleet, issuance, live_repositories, *, repository,
-             observed_at, trusted_issuer_app_id, trusted_issuer_installation_id,
-             blob=None, expected_blob_sha=None):
-    """Compare independently obtained GitHub data, never issue an auth receipt.
-
-    Caller MUST prove trusted_issuer_* with a GitHub-JWT-authenticated GET
-    and mint a token via the same trusted Publisher job. No caller-supplied
-    artifact, PR comment, CI fixture or READ-ONLY report proves that identity.
-    """
+def inspect_policy(policy,fleet,*,repository):
+    """Read-only declaration inspection: no token, live WRITE or authority."""
     require(type(policy) is dict and set(policy) == FIELDS
             and type(policy["schemaVersion"]) is int
             and policy["schemaVersion"] == 1
             and policy["mode"] in ("DENY", "ENFORCE"),
             "unknown Publisher policy")
-    require(type(fleet) is dict and fleet.get("schemaVersion") == 1
-            and fleet.get("releasePolicy") == "manual-only"
-            and type(fleet.get("entries")) is list
-            and len(fleet["entries"]) > 0,
-            "unexpected fleet policy")
-    rows = fleet["entries"]
-    names = [x.get("repository") for x in rows if type(x) is dict]
-    require(len(names) == len(rows)
-            and all(type(n) is str and REPO.fullmatch(n) for n in names)
-            and len(set(names)) == len(rows)
-            and type(repository) is str and REPO.fullmatch(repository)
-            and repository in names
-            and all(type(n) is str and REPO.fullmatch(n) for n in names)
-            and all(x.get("mode") == "BUILD"
-                    and x.get("candidateEnabled") is True
-                    and x.get("releasePolicy") == "manual-only" for x in rows),
-            "unknown Publisher repository")
+    try:
+        rows=fleet_policy.members(fleet)
+        require(repository in rows,"unknown Publisher target")
+    except fleet_policy.Denied as exc:
+        raise Denied("unexpected fleet policy") from exc
     require(positive(policy["signerAppId"]) and policy["signerAppId"] == 15368,
             "unexpected Signer/Actions principal")
     if policy["mode"] == "DENY":
@@ -131,6 +117,19 @@ def evaluate(policy, fleet, issuance, live_repositories, *, repository,
             and positive(policy["publisherInstallationId"])
             and policy["publisherAppId"] != policy["signerAppId"],
             "Publisher App identity missing or shared with Signer")
+    return {"schemaVersion":1,"status":"POLICY_CONFIGURED_LIVE_EVIDENCE_REQUIRED",
+            "repository":repository,"publisherAppId":policy["publisherAppId"],
+            "publisherInstallationId":policy["publisherInstallationId"],
+            "publisherWriteAuthorized":False,"publicationAuthorized":False}
+
+
+def evaluate(policy, fleet, issuance, live_repositories, *, repository,
+             observed_at, trusted_issuer_app_id, trusted_issuer_installation_id,
+             blob=None, expected_blob_sha=None):
+    """Only authenticated same-job issuer/token/real WRITE can add evidence."""
+    configured=inspect_policy(policy,fleet,repository=repository)
+    if configured["status"]=="PUBLISH_DENY":
+        return configured
     require(positive(trusted_issuer_app_id)
             and trusted_issuer_app_id == policy["publisherAppId"]
             and positive(trusted_issuer_installation_id)
@@ -155,13 +154,9 @@ def main():
     parser.add_argument("--repository", required=True)
     args = parser.parse_args()
     try:
-        policy = json.loads(Path(args.policy).read_text(encoding="utf-8"))
-        fleet = json.loads(Path(args.fleet).read_text(encoding="utf-8"))
-        require(policy.get("mode") == "DENY",
-                "CLI deliberately cannot mint tokens or authorize WRITE")
-        outcome = evaluate(policy, fleet, None, None, repository=args.repository,
-                           observed_at=None, trusted_issuer_app_id=None,
-                           trusted_issuer_installation_id=None)
+        policy = fleet_policy.read(args.policy)
+        fleet = fleet_policy.read(args.fleet)
+        outcome=inspect_policy(policy,fleet,repository=args.repository)
         print(json.dumps(outcome, sort_keys=True))
         return 0
     except (Denied, OSError, ValueError, TypeError, KeyError) as err:

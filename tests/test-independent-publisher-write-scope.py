@@ -11,6 +11,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
+from publication_policy_fixtures import manual_policy
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
     "write_scope", ROOT / "scripts/independent-publisher-write-scope.py")
@@ -21,12 +22,12 @@ REPO = "pgextwin/plpgsql_check"
 REPO_ID = 123456
 
 def fixture():
-    policy = json.loads((ROOT / "metadata/publisher-write-boundary.json").read_text())
+    policy = manual_policy("publisher-write-boundary.json")
     policy.update(mode="ENFORCE", publisherAppId=543210,
                   publisherInstallationId=678900)
     return {
         "policy": policy,
-        "fleet": json.loads((ROOT / "metadata/automation-fleet.json").read_text()),
+        "fleet": manual_policy("automation-fleet.json"),
         "repository": REPO, "observed_at": NOW,
         "trusted_issuer_app_id": 543210,
         "trusted_issuer_installation_id": 678900,
@@ -42,10 +43,9 @@ def fixture():
     }
 
 class WriteScopeTests(unittest.TestCase):
-    def test_default_deny_is_common_to_current_fleet(self):
+    def test_manual_fixture_deny_is_common_to_registered_fleet(self):
         args = fixture()
-        args["policy"] = json.loads(
-            (ROOT / "metadata/publisher-write-boundary.json").read_text())
+        args["policy"] = manual_policy("publisher-write-boundary.json")
         for row in args["fleet"]["entries"]:
             with self.subTest(repo=row["repository"]):
                 a = dict(args, repository=row["repository"], issuance=None,

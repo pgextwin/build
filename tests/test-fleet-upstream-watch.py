@@ -40,7 +40,8 @@ class ReadonlyFleet(TestCase):
     def test_real_central_policy_and_all_17_entries(self):
         policy=json.loads((ROOT / "metadata/automation-fleet.json").read_text())
         names=w.fleet.validate(policy)
-        self.assertEqual(len(names),17)
+        self.assertEqual(len(names),len(policy["entries"]))
+        self.assertGreater(len(names),0)
         self.assertTrue(all("pgextwin/" in n and names[n]["mode"]=="BUILD" for n in names))
 
     def test_no_update_or_publication(self):

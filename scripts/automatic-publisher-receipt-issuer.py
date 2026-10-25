@@ -19,6 +19,7 @@ def load(name,path):
 ident=load("scheduled_release_identity","fleet-release-identity.py")
 typed=load("scheduled_release_receipt","release-authorization.py")
 policy=load("scheduled_release_policy","unattended-policy.py")
+fleet_policy=load("scheduled_fleet_contract","fleet-policy.py")
 SHA=re.compile(r"^[0-9a-f]{40}$")
 HASH=re.compile(r"^[0-9a-f]{64}$")
 REPO=re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -60,43 +61,43 @@ def independent_source_job(jobs,*,repository,run_id,central_sha):
           "repository-specific independent proof failed, skipped or replayed")
     return job["id"]
 
+def deployment_policy(fleet,central,unattended,boundary):
+    """Check a complete protected policy bundle; never issue authority."""
+    try:
+        names=fleet_policy.central_policy(fleet,central)
+        decision=policy.evaluate(unattended,fleet)
+    except (fleet_policy.Denied,policy.PolicyDenied,KeyError,TypeError,ValueError) as exc:
+        raise Denied("incomplete or invalid shared publication policy") from exc
+    automatic=fleet["releasePolicy"]==MODE
+    check(unattended.get("mode")==("UNATTENDED" if automatic else "OBSERVE")
+          and decision.get("status")==("POLICY_READY_RUNTIME_EVIDENCE_REQUIRED"
+                                       if automatic else "OBSERVE_ONLY")
+          and decision.get("automaticPublicationAuthorized") is False,
+          "inconsistent unattended deployment mode")
+    expected={"schemaVersion":1,"mode":"ENFORCE" if automatic else "DENY",
+              "publisherAppId":APP if automatic else None,
+              "publisherInstallationId":INSTALLATION if automatic else None,
+              "signerAppId":15368}
+    check(type(boundary) is dict and type(boundary.get("schemaVersion")) is int
+          and type(boundary.get("signerAppId")) is int and boundary==expected
+          and (not automatic or all(type(boundary.get(k)) is int
+              for k in ("publisherAppId","publisherInstallationId"))),
+          "independent Publisher policy/App mismatch")
+    return {"schemaVersion":1,"status":"STATIC_POLICY_ONLY_RUNTIME_EVIDENCE_REQUIRED",
+            "releasePolicy":fleet["releasePolicy"],"registeredRepositories":sorted(names),
+            "staticPublisherReady":automatic,
+            "publicationAuthorized":False,"publishableReceipt":False}
+
 def policy_gate(fleet,central,local,unattended,boundary,repository):
     """Manual-only/OBSERVE/DENY is categorically NOT implicit approval."""
-    check(type(repository) is str and REPO.fullmatch(repository)
-          and type(fleet) is dict and fleet.get("schemaVersion")==1
-          and type(fleet.get("schemaVersion")) is int
-          and fleet.get("releasePolicy")==MODE
-          and type(fleet.get("entries")) is list and bool(fleet["entries"]),
-          "future automatic signed fleet policy not approved")
-    # Readiness, protected CI and the actual issuer must enforce the SAME
-    # complete control schema. all(supplied_controls.values()) alone accepts
-    # missing defenses, including a one-field automaticFormalRelease object.
-    try:
-        decision=policy.evaluate(unattended,fleet)
-    except (policy.PolicyDenied,KeyError,TypeError,ValueError) as exc:
-        raise Denied("incomplete or invalid shared unattended policy") from exc
-    names=decision.get("eligibleRepositories",[])
-    check(decision.get("status")=="POLICY_READY_RUNTIME_EVIDENCE_REQUIRED"
-          and decision.get("automaticPublicationAuthorized") is False
-          and repository in names,
-          "complete registered automatic fleet not ready")
-    check(type(central) is dict and central.get("schemaVersion")==1
-          and type(central.get("schemaVersion")) is int
-          and central.get("releasePolicy")==MODE
-          and type(central.get("allowedRepositories")) is list
-          and len(central["allowedRepositories"])==len(names)
-          and set(central["allowedRepositories"])==set(names),
-          "central Publisher auto-release policy not approved")
+    decision=deployment_policy(fleet,central,unattended,boundary)
+    check(decision["staticPublisherReady"] is True
+          and type(repository) is str and repository in decision["registeredRepositories"],
+          "automatic signed publication policy not approved for this repository")
     check(type(local) is dict and type(local.get("schemaVersion")) is int
           and local.get("enabled") is True
           and local=={"schemaVersion":1,"enabled":True,"releasePolicy":MODE},
           "local automatic release not explicitly approved")
-    check(type(boundary) is dict and type(boundary.get("schemaVersion")) is int
-          and boundary=={
-          "schemaVersion":1,"mode":"ENFORCE",
-          "publisherAppId":APP,"publisherInstallationId":INSTALLATION,
-          "signerAppId":15368},
-          "independent Publisher policy/App mismatch")
 
 def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           boundary, schedule_run, central_branch, signed_branch,

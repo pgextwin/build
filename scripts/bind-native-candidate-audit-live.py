@@ -30,6 +30,14 @@ NAME = "candidate-audit-native-pr"
 JSON_FILES = frozenset({"native-pr-ci-context.json", "candidate-audit-native-pr.json"})
 
 
+_identity_spec=importlib.util.spec_from_file_location("native_fleet_identity",HERE/"fleet-release-identity.py")
+identity_registry=importlib.util.module_from_spec(_identity_spec)
+_identity_spec.loader.exec_module(identity_registry)
+
+_policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",HERE/"fleet-policy.py")
+fleet_policy=importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(fleet_policy)
+
 class Denied(ValueError):
     pass
 
@@ -47,14 +55,11 @@ def identity(repo, pr, run, audit_run, artifact_id, fleet, *, current_repo, ref,
             "main-only repository/event origin required")
     for n in (pr, run, audit_run, artifact_id):
         require(type(n) is int and n > 0, "invalid positive GitHub evidence identifier")
-    require(type(fleet) is dict and fleet.get("schemaVersion") == 1
-            and fleet.get("releasePolicy") == "manual-only"
-            and type(fleet.get("entries")) is list and len(fleet["entries"]) == 17,
-            "missing existing exact 17-member fleet policy")
-    roster = [x.get("repository") for x in fleet["entries"] if type(x) is dict]
-    require(len(roster) == 17 and len(set(roster)) == 17
-            and all(type(n) is str and REPO.fullmatch(n) for n in roster)
-            and repo in roster, "not a known 17-fleet repository")
+    try:
+        roster=fleet_policy.members(fleet,audited={"pgextwin/"+n for n in identity_registry.UPSTREAMS})
+        require(repo in roster,"not an audited fleet repository")
+    except fleet_policy.Denied as exc:
+        raise Denied("invalid native candidate fleet") from exc
     return True
 
 

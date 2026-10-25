@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import unittest
 
+from publication_policy_fixtures import manual_policy
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
 from update_watch_lib import WatchError
@@ -154,10 +155,9 @@ class FirstRelease(unittest.TestCase):
                         with self.assertRaises((g.Denied, g.ident.Denied)):
                             g.verify(**bad)
 
-    def test_three_live_policies_require_operator_only_promotion(self):
+    def test_three_historical_manual_policies_require_operator_only_promotion(self):
         import json
-        central = json.loads(
-            (ROOT / "metadata/release-promotion.json").read_text(encoding="utf-8"))
+        central = manual_policy("release-promotion.json")
         self.assertEqual(central["releasePolicy"], "manual-dispatch")
         for name in ("pgtap", "pg_variables", "pg_store_plans"):
             self.assertIn("pgextwin/" + name, central["allowedRepositories"])

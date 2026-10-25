@@ -110,8 +110,6 @@ def bounded_snapshot(repository, entry, fetch, pause=time.sleep):
 
 def scan(registry, fetch):
     entries = fleet.validate(registry)
-    if len(entries) != 17:
-        raise WatchError("all 17 existing extension watches must be inventoried")
     results = []
     for repository, entry in sorted(entries.items()):
         try:
@@ -120,18 +118,18 @@ def scan(registry, fetch):
             results.append({"repository": repository, "status": "INDETERMINATE",
                             "updates": [], "reason": type(exc).__name__,
                             "reasonCode": safe_failure_code(exc)})
-    if len(results) != 17 or len({x["repository"] for x in results}) != 17:
+    if len(results) != len(entries) or {x["repository"] for x in results} != set(entries):
         raise WatchError("partial or ambiguous fleet coverage")
     failures = [x["repository"] for x in results if x["status"] == "INDETERMINATE"]
     changed = [x["repository"] for x in results if x["status"] == "update-available"]
     return {"schemaVersion": 1, "generatedAt": utc_now(), "scope": "STABLE_UPSTREAM_GET_ONLY",
-            "publication": "DENY", "candidatePrCreated": False, "fleetSize": 17,
+            "publication": "DENY", "candidatePrCreated": False, "fleetSize": len(entries),
             "updatesDetected": len(changed), "indeterminate": len(failures),
             "extensions": results}
 
 
 def markdown(report):
-    rows = ["## pgextwin 17-extension stable upstream watch", "",
+    rows = ["## pgextwin registered-fleet stable upstream watch", "",
             "Read-only hourly audit; no source update, candidate PR, Release, or publication authorization.",
             "", "| Extension | Upstream | Status |",
             "| --- | --- | --- |"]
@@ -147,7 +145,7 @@ def markdown(report):
                     " | " + status + " |")
     rows += ["", "Detected updates: " + str(report["updatesDetected"]),
              "Indeterminate: " + str(report["indeterminate"]),
-             "PUBLISH=DENY; candidate creation still requires owner UPDATE and exact main SHA."]
+             "PUBLISH=DENY; candidate creation independently rechecks the central schedule and exact main SHA."]
     return "\n".join(rows) + "\n"
 
 

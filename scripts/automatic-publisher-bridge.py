@@ -30,6 +30,7 @@ def module(name, filename):
 
 identity = module("bridge_release_identity", "fleet-release-identity.py")
 unattended_policy = module("bridge_unattended_policy", "unattended-policy.py")
+fleet_policy = module("bridge_fleet_contract", "fleet-policy.py")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 HASH = re.compile(r"^[0-9a-f]{64}$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -89,7 +90,7 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
         expected_roster = {"pgextwin/" + name for name in identity.UPSTREAMS}
     except (TypeError, AttributeError) as exc:
         raise Denied("release registry unavailable") from exc
-    require(len(expected_roster) == 17 and repo in expected_roster,
+    require(bool(expected_roster) and repo in expected_roster,
             "repository is not one of the same 17 protected extensions")
     majors = audit.get("maintainedMajors")
     # Preserve the SHA256 of every verified on-disk ZIP, SPDX and Grype byte
@@ -127,29 +128,13 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
                         (v["blockingFindingCount"] > 0)
                     for v in grype_risk.values()),
             "untrusted or incomplete per-PG blocking Grype scan verdict")
-    require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int
-            and fleet["schemaVersion"] == 1
-            and fleet.get("releasePolicy") in ("manual-only",
-                                               "automatic-signed-schedule")
-            and type(fleet.get("entries")) is list and len(fleet["entries"]) == 17,
-            "signed candidate fleet policy invalid")
+    try:
+        rows=fleet_policy.central_policy(fleet,central,audited=expected_roster)
+    except fleet_policy.Denied as exc:
+        raise Denied("signed candidate fleet/central contract mismatch") from exc
     fleet_mode=fleet["releasePolicy"]
-    scheduled=fleet_mode=="automatic-signed-schedule"
-    rows=fleet["entries"]
-    require(all(type(v) is dict for v in rows)
-            and {v.get("repository") for v in rows} == expected_roster
-            and len({v.get("repository") for v in rows}) == len(rows)
-            and all(v.get("mode") == "BUILD" and v.get("candidateEnabled") is True
-                    and v.get("releasePolicy") == fleet_mode for v in rows),
-            "fleet roster, BUILD lane, or release policy mismatched")
-    central_mode=("automatic-signed-schedule" if scheduled else "manual-dispatch")
-    require(type(central) is dict and type(central.get("schemaVersion")) is int
-            and central["schemaVersion"] == 1
-            and central.get("releasePolicy") == central_mode
-            and type(central.get("allowedRepositories")) is list
-            and len(central["allowedRepositories"]) == len(rows)
-            and set(central["allowedRepositories"]) == expected_roster,
-            "central Publisher policy must match protected signed candidate mode")
+    scheduled=fleet_mode==fleet_policy.AUTOMATIC
+    central_mode=fleet_policy.AUTOMATIC if scheduled else "manual-dispatch"
     require(local == {"schemaVersion": 1, "enabled": True,
                       "releasePolicy": central_mode},
             "local Publisher release policy does not match central mode")

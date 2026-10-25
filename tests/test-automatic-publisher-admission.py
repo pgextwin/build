@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import unittest
 
+from publication_policy_fixtures import manual_policy
 ROOT=Path(__file__).resolve().parents[1]
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,ROOT/path)
@@ -24,10 +25,10 @@ SCHEDULE_RUN=987654
 def fixture():
     signed,unused,manifest=plan.fixture()
     proposal=plan.run_plan()
-    fleet=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
-    central=json.loads((ROOT/"metadata/release-promotion.json").read_text())
-    unattended=json.loads((ROOT/"metadata/unattended-publication.json").read_text())
-    boundary=json.loads((ROOT/"metadata/publisher-write-boundary.json").read_text())
+    fleet=manual_policy("automation-fleet.json")
+    central=manual_policy("release-promotion.json")
+    unattended=manual_policy("unattended-publication.json")
+    boundary=manual_policy("publisher-write-boundary.json")
     source={
         "schemaVersion":1,
         "status":"REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING",
