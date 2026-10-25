@@ -6,14 +6,15 @@ import json
 from pathlib import Path
 import unittest
 
+from publication_policy_fixtures import manual_policy
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
     "signed_publisher_policy_bridge", ROOT / "scripts" / "automatic-publisher-bridge.py")
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
-FLEET = json.loads((ROOT / "metadata" / "automation-fleet.json").read_text("utf-8"))
-CENTRAL = json.loads((ROOT / "metadata" / "release-promotion.json").read_text("utf-8"))
-UNATTENDED = json.loads((ROOT / "metadata" / "unattended-publication.json").read_text("utf-8"))
+FLEET = manual_policy("automation-fleet.json")
+CENTRAL = manual_policy("release-promotion.json")
+UNATTENDED = manual_policy("unattended-publication.json")
 REPO = "pgextwin/pg_ivm"
 SHA = "a" * 40
 RUN_ID = 456789
@@ -54,7 +55,7 @@ def fixture():
 
 
 class NonpublishingPublisherBridgeTests(unittest.TestCase):
-    def test_all_real_current_policies_only_deny_publish(self):
+    def test_historical_manual_policies_only_deny_publish(self):
         result = bridge.bridge(**fixture())
         self.assertEqual(result["status"], "PUBLISH_DENY")
         self.assertEqual(result["verifiedAuditStatus"],
@@ -122,7 +123,7 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
     def test_signed_workflow_separates_legacy_manual_handoff_from_auto_mode(self):
         workflow=(ROOT/".github/workflows/verify-signed-candidate-readonly.yml").read_text()
         self.assertIn("id: source_policy_mode",workflow)
-        self.assertIn("manual_only=",workflow)
+        self.assertIn("scripts/fleet-policy.py",workflow)
         self.assertEqual(
             workflow.count("if: steps.source_policy_mode.outputs.manual_only == 'true'"),2)
         self.assertIn("independent-signed-candidate-audit.json",workflow)

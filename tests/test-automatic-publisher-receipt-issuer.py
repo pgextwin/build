@@ -5,6 +5,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 import unittest
+from publication_policy_fixtures import manual_policy
 ROOT=Path(__file__).resolve().parents[1]
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,ROOT/path)
@@ -20,10 +21,10 @@ SCHEDULE_RUN=93451
 
 def inputs():
     ext,lifecycle,_=old.fixture()
-    fleet=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
-    central=json.loads((ROOT/"metadata/release-promotion.json").read_text())
-    unattended=json.loads((ROOT/"metadata/unattended-publication.json").read_text())
-    boundary=json.loads((ROOT/"metadata/publisher-write-boundary.json").read_text())
+    fleet=manual_policy("automation-fleet.json")
+    central=manual_policy("release-promotion.json")
+    unattended=manual_policy("unattended-publication.json")
+    boundary=manual_policy("publisher-write-boundary.json")
     return dict(
         proof={"schemaVersion":1,"status":"REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING",
                "repository":REPO,"mainMergeSha":SHA,
@@ -109,7 +110,7 @@ class IssuerTests(unittest.TestCase):
                 issuer.independent_source_job(jobs,repository=REPO,
                     run_id=SCHEDULE_RUN,central_sha=CENTRAL_SHA)
 
-    def test_actual_deployed_modes_never_issue_a_receipt(self):
+    def test_historical_manual_modes_never_issue_a_receipt(self):
         with self.assertRaises(issuer.Denied):
             issuer.issue(**inputs())
 

@@ -6,6 +6,8 @@ module never grants Release authority or changes GitHub resources. The task
 must independently GET exact current evidence before any PR mutation.
 """
 from __future__ import annotations
+import importlib.util
+from pathlib import Path
 import re
 
 PR_URL = re.compile(r"^https://github\.com/(pgextwin/[a-z][a-z0-9_]*)/pull/([1-9][0-9]*)$")
@@ -14,6 +16,10 @@ STATES = {"NOT_RUN", "RUNNING", "FAILED_OR_UNVERIFIED", "FAILED",
           "STALE_HEAD_CI", "DISPATCH_CI_SUCCESS_UNVERIFIED"}
 WATCH = {"UNKNOWN", "SUCCESS", "RUNNING", "FAILED"}
 
+
+_policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",Path(__file__).with_name("fleet-policy.py"))
+fleet_policy=importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(fleet_policy)
 
 class Denied(ValueError):
     pass
@@ -26,28 +32,16 @@ def require(condition, reason):
 
 def plan(policy, snapshot):
     """Return reviewable tasks, never an authorization or publication receipt."""
-    require(type(policy) is dict and type(policy.get("schemaVersion")) is int and policy.get("schemaVersion") == 1
-            and policy.get("releasePolicy") == "manual-only",
-            "central fleet is not manual-only")
-    entries = policy.get("entries")
-    require(type(entries) is list and len(entries) == 17,
-            "incomplete central 17-extension fleet")
-    by_repo = {}
-    for entry in entries:
-        require(type(entry) is dict and
-                type(entry.get("repository")) is str and
-                re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", entry["repository"])
-                and entry["repository"] not in by_repo
-                and entry.get("releasePolicy") == "manual-only"
-                and entry.get("mode") in {"BUILD", "WATCH", "OFF"},
-                "unknown, duplicate or non-manual fleet entry")
-        by_repo[entry["repository"]] = entry
+    try:
+        by_repo=fleet_policy.members(policy,require_build=False)
+    except fleet_policy.Denied as exc:
+        raise Denied("invalid protected fleet") from exc
     require(type(snapshot) is dict and type(snapshot.get("schemaVersion")) is int and snapshot.get("schemaVersion") == 1
-            and snapshot.get("policyRelease") == "manual-only",
+            and snapshot.get("policyRelease") == policy["releasePolicy"],
             "untrusted fleet status or publication policy")
     rows = snapshot.get("extensions")
     require(type(rows) is list and len(rows) == len(by_repo),
-            "incomplete 17-extension status")
+            "incomplete registered-fleet status")
     seen = set()
     actions = []
     for row in rows:

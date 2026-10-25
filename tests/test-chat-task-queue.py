@@ -16,7 +16,7 @@ POLICY = json.loads((ROOT / "metadata" / "automation-fleet.json").read_text("utf
 
 def snapshot():
     return {
-        "schemaVersion": 1, "policyRelease": "manual-only",
+        "schemaVersion": 1, "policyRelease": POLICY["releasePolicy"],
         "extensions": [
             {
                 "repository": entry["repository"],

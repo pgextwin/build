@@ -10,6 +10,7 @@ import subprocess
 from unittest.mock import patch
 import unittest
 
+from publication_policy_fixtures import manual_policy
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -37,12 +38,11 @@ def fixture():
                 "head_sha": SHA, "head_branch": "main",
                 "event": "push", "path": ".github/workflows/update-watch.yml",
                 "status": "in_progress", "conclusion": None},
-        "fleet": json.loads((ROOT / "metadata/automation-fleet.json").read_text()),
-        "central": json.loads((ROOT / "metadata/release-promotion.json").read_text()),
+        "fleet": manual_policy("automation-fleet.json"),
+        "central": manual_policy("release-promotion.json"),
         "local": {"schemaVersion": 1, "enabled": True,
                   "releasePolicy": "manual-dispatch"},
-        "unattended": json.loads(
-            (ROOT / "metadata/unattended-publication.json").read_text()),
+        "unattended": manual_policy("unattended-publication.json"),
         "repository": REPO, "sha": SHA, "run_id": RUN,
         "attempt": 1, "event": "push", "ref": "refs/heads/main",
         "tag_absent": True, "release_absent": True,
@@ -124,7 +124,7 @@ class IndependentLivePublisherTests(unittest.TestCase):
                 live.assess(**obj)
 
     def test_live_policy_uses_actual_github_blob_not_self_claimed_json(self):
-        content = (ROOT / "metadata/release-promotion.json").read_bytes()
+        content = json.dumps(manual_policy("release-promotion.json")).encode()
         path = "metadata/release-promotion.json"
         response = {
             "path": path, "encoding": "base64",

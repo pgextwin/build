@@ -7,12 +7,18 @@ validation or caller failure. This module never writes refs, tags or Releases
 and never emits a publication receipt; separate release admission is required.
 """
 from __future__ import annotations
+import importlib.util
+from pathlib import Path
 from contextlib import contextmanager
 from urllib.error import HTTPError
 from datetime import datetime, timezone, timedelta
 import re
 
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
+
+_policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",Path(__file__).with_name("fleet-policy.py"))
+fleet_policy=importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(fleet_policy)
 
 class Denied(ValueError):
     pass
@@ -22,24 +28,16 @@ def require(ok, reason):
         raise Denied(reason)
 
 def valid_fleet(fleet, repository, *, release_policy='manual-only'):
-    require(release_policy in ("manual-only", "automatic-signed-schedule")
-            and type(repository) is str and REPO.fullmatch(repository)
-            and type(fleet) is dict and type(fleet.get("schemaVersion")) is int
-            and fleet["schemaVersion"] == 1
-            and fleet.get("releasePolicy") == release_policy
-            and type(fleet.get("entries")) is list and bool(fleet["entries"]),
-            "Publisher target or protected fleet invalid")
-    names = []
-    for row in fleet["entries"]:
-        require(type(row) is dict and type(row.get("repository")) is str
-                and REPO.fullmatch(row["repository"])
-                and row.get("mode") == "BUILD"
-                and row.get("candidateEnabled") is True
-                and row.get("releasePolicy") == release_policy,
-                "Publisher target is not an enabled, manual-only BUILD member")
-        names.append(row["repository"])
-    require(len(names) == len(set(names)) and repository in names,
-            "missing, duplicated or unauthorized Publisher target")
+    require(release_policy in (fleet_policy.MANUAL,fleet_policy.AUTOMATIC),
+            "unsupported requested Publisher fleet policy")
+    try:
+        rows=fleet_policy.members(fleet)
+    except fleet_policy.Denied as exc:
+        raise Denied("invalid Publisher fleet") from exc
+    require(type(repository) is str and repository in rows
+            and fleet["releasePolicy"]==release_policy,
+            "missing or unauthorized Publisher target/mode")
+
 
 def issuer(api, jwt, key, app, installation):
     """JWT-authenticated App identity; do not accept input IDs alone."""

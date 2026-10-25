@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import unittest
 
+from publication_policy_fixtures import manual_policy
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("unattended_policy", ROOT / "scripts" / "unattended-policy.py")
 module = importlib.util.module_from_spec(spec)
@@ -15,13 +16,13 @@ spec.loader.exec_module(module)
 class TestUnattendedPolicy(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.policy = json.loads((ROOT / "metadata" / "unattended-publication.json").read_text())
-        cls.fleet = json.loads((ROOT / "metadata" / "automation-fleet.json").read_text())
+        cls.policy = manual_policy("unattended-publication.json")
+        cls.fleet = manual_policy("automation-fleet.json")
 
     def fixtures(self):
         return copy.deepcopy(self.policy), copy.deepcopy(self.fleet)
 
-    def test_current_deployment_is_observe_only(self):
+    def test_historical_manual_fixture_is_observe_only(self):
         p, f = self.fixtures()
         result = module.evaluate(p, f)
         self.assertEqual(result["status"], "OBSERVE_ONLY")

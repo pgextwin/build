@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Central live policy gate. Declarative main policy may change; executable code remains SHA-pinned."""
 from __future__ import annotations
+import importlib.util
 import argparse
 import base64
 import json
@@ -16,13 +17,21 @@ STRATEGIES = {"github-releases", "github-tags", "github-releases-per-postgresql"
 MODES = {"OFF", "WATCH", "BUILD"}
 EXPECTED_FIELDS = {"repository", "mode", "strategy", "scheduleUtc", "candidateEnabled", "releasePolicy", "reason"}
 
+_policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",Path(__file__).with_name("fleet-policy.py"))
+fleet_policy=importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(fleet_policy)
+
 def validate(registry):
     if not isinstance(registry, dict) or set(registry) != {"schemaVersion", "scheduleUtc", "releasePolicy", "entries"}:
         raise WatchError("unsupported fleet policy fields")
     if type(registry["schemaVersion"]) is not int or registry["schemaVersion"] != 1:
         raise WatchError("unsupported fleet schema version")
-    if registry["scheduleUtc"] != "0 * * * *" or registry["releasePolicy"] != "manual-only":
-        raise WatchError("fleet must use hourly UTC minute 00 and manual releases")
+    if registry["scheduleUtc"] != "0 * * * *" or registry["releasePolicy"] not in (fleet_policy.MANUAL,fleet_policy.AUTOMATIC):
+        raise WatchError("fleet must use hourly UTC minute 00 and a supported formal-release mode")
+    try:
+        fleet_policy.members(registry,require_build=False)
+    except fleet_policy.Denied as exc:
+        raise WatchError("invalid shared fleet contract") from exc
     entries = registry["entries"]
     if not isinstance(entries, list) or not entries:
         raise WatchError("fleet registry must contain entries")
@@ -36,7 +45,7 @@ def validate(registry):
         seen.add(repo)
         if item["mode"] not in MODES or item["strategy"] not in STRATEGIES:
             raise WatchError("invalid mode or watch strategy")
-        if item["scheduleUtc"] != registry["scheduleUtc"] or item["releasePolicy"] != "manual-only":
+        if item["scheduleUtc"] != registry["scheduleUtc"] or item["releasePolicy"] != registry["releasePolicy"]:
             raise WatchError("fleet entry disagrees with schedule or release policy")
         if type(item["candidateEnabled"]) is not bool or type(item["reason"]) is not str:
             raise WatchError("invalid candidateEnabled or reason type")

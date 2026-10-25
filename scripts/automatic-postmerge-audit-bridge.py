@@ -25,6 +25,10 @@ HUMAN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 ALLOWED_ACTORS = frozenset({"ShutenOishi"})
 
 
+_policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",HERE/"fleet-policy.py")
+fleet_policy=importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(fleet_policy)
+
 class Denied(ValueError):
     pass
 
@@ -49,14 +53,11 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
     require(type(repository) is str and repository == "pgextwin/" + str(manifest.get("name"))
             and manifest.get("name") in ident.UPSTREAMS,
             "not one of the exact 17 audited extension repositories")
-    require(type(fleet) is dict and fleet.get("schemaVersion") == 1
-            and fleet.get("releasePolicy") == "manual-only"
-            and type(fleet.get("entries")) is list and len(fleet["entries"]) == 17,
-            "deployed release-policy changed unexpectedly")
-    names = [e.get("repository") for e in fleet["entries"] if type(e) is dict]
-    require(len(names) == 17 and set(names) == {"pgextwin/" + s for s in ident.UPSTREAMS}
-            and len(set(names)) == len(names) and repository in names,
-            "incomplete/duplicated 17-extension roster")
+    try:
+        names=fleet_policy.members(fleet,audited={"pgextwin/"+s for s in ident.UPSTREAMS})
+        require(repository in names,"unknown candidate repository")
+    except fleet_policy.Denied as exc:
+        raise Denied("invalid audited candidate fleet") from exc
     require(type(event) is dict and event.get("ref") == "refs/heads/main"
             and (event.get("repository") or {}).get("full_name") == repository
             and event.get("created") is False and event.get("deleted") is False

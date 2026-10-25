@@ -7,6 +7,9 @@ on:
     paths:
       - metadata/automation-fleet.json
       - scripts/fleet-status.py
+      - scripts/fleet-policy.py
+      - scripts/fleet-control.py
+      - scripts/chat-task-queue.py
       - .github/workflows/fleet-status.yml
   schedule:
     # An observation window after 00:00 UTC; not a guarantee watches have completed.

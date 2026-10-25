@@ -11,6 +11,7 @@ on:
       - '.github/workflows/publisher-app-proof.yml'
       - 'scripts/probe-publisher-app.py'
       - 'scripts/publisher-scoped-token.py'
+      - 'scripts/fleet-policy.py'
       - 'metadata/unattended-publication.json'
       - 'metadata/automation-fleet.json'
 permissions:

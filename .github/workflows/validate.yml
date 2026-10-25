@@ -104,7 +104,7 @@ jobs:
       - name: Independently reject Publisher WRITE scope for unauthorized App, repo and policy
         run: |
           python tests/test-independent-publisher-write-scope.py
-          python scripts/independent-publisher-write-scope.py --policy metadata/publisher-write-boundary.json --fleet metadata/automation-fleet.json --repository pgextwin/plpgsql_check
+          python scripts/automatic-publisher-readiness.py --fleet metadata/automation-fleet.json --central-policy metadata/release-promotion.json --unattended metadata/unattended-publication.json --publisher-boundary metadata/publisher-write-boundary.json
 
       - name: Deny forged signed automatic Publisher/tag handoff without releasing
         run: python tests/test-automatic-publisher-handoff.py
@@ -160,8 +160,11 @@ jobs:
       - name: Validate typed publication receipts and event isolation
         run: python tests/test-release-authorization.py
 
-      - name: Enforce exact 14 BUILD manual-only Release allowlist and fail-closed controls
+      - name: Validate registered publication policy bundle and fail-closed controls
         run: python tests/test-fleet-promotion-policy.py
+
+      - name: Reject partial activation and run Python CI on a nonpublishing future-policy copy
+        run: python tests/test-publication-policy-transition.py
 
       - name: Validate PRE-G4 run attempt and certificate provenance boundary (offline only)
         run: python tests/test-issue-75-attempt-provenance-readonly.py

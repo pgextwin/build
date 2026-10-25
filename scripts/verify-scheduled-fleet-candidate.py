@@ -36,6 +36,9 @@ REPOSITORIES = {"pgextwin/" + r for r in OLD | NEW}
 REPLAY_SOURCE_PATHS = (
     ".github/workflows/fleet-upstream-watch.yml",
     "scripts/fleet-upstream-watch.py",
+    "scripts/fleet-control.py",
+    "scripts/fleet-policy.py",
+    "scripts/update_watch_lib.py",
     "metadata/automation-fleet.json",
 )
 

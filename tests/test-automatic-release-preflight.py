@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import unittest
 
+from publication_policy_fixtures import manual_policy
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
     "automatic_release_preflight", ROOT / "scripts" / "automatic-release-preflight.py")
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
-FLEET = json.loads((ROOT / "metadata" / "automation-fleet.json").read_text("utf-8"))
+FLEET = manual_policy("automation-fleet.json")
 BASE, AFTER, HEAD = "a" * 40, "b" * 40, "c" * 40
 BRANCH = "auto-candidate/" + "d" * 20
 FILE = {"path": "config/extension.json", "status": "modified"}

@@ -22,6 +22,10 @@ HASH = re.compile(r"^[0-9a-f]{64}$")
 CANDIDATE = re.compile(r"^auto-candidate/([0-9a-f]{20})$")
 
 
+_policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",ROOT/"fleet-policy.py")
+fleet_policy=importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(fleet_policy)
+
 class Denied(ValueError):
     pass
 
@@ -46,28 +50,12 @@ def plan(*, witness, decision, pr, manifest, lifecycle, fleet, central_policy, l
             and decision.get("extension") == manifest["name"]
             and decision.get("repository") == manifest["upstream"].get("repository"),
             "exact extension/repository/upstream identity mismatch")
-    require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int
-            and fleet["schemaVersion"] == 1
-            and fleet.get("releasePolicy") == "manual-only"
-            and type(fleet.get("entries")) is list
-            and len(fleet["entries"]) == len(ident.UPSTREAMS)
-            and {e.get("repository") for e in fleet["entries"] if type(e) is dict}
-                == {"pgextwin/" + n for n in ident.UPSTREAMS},
-            "deployed 17-extension manual-only fleet is not intact")
-    entries = [e for e in fleet["entries"] if e.get("repository") == repository]
-    require(len(entries) == 1 and entries[0].get("mode") == "BUILD"
-            and entries[0].get("candidateEnabled") is True
-            and entries[0].get("releasePolicy") == "manual-only",
-            "central candidate policy not preserved")
-    require(type(central_policy) is dict
-            and type(central_policy.get("schemaVersion")) is int
-            and central_policy["schemaVersion"] == 1
-            and central_policy.get("releasePolicy") == "manual-dispatch"
-            and type(central_policy.get("allowedRepositories")) is list
-            and len(central_policy["allowedRepositories"]) == len(ident.UPSTREAMS)
-            and set(central_policy["allowedRepositories"])
-                == {"pgextwin/" + n for n in ident.UPSTREAMS},
-            "existing manual Release authorization must remain unchanged")
+    try:
+        roster=fleet_policy.central_policy(fleet,central_policy,
+            audited={"pgextwin/"+n for n in ident.UPSTREAMS})
+        require(repository in roster,"unknown signing target")
+    except fleet_policy.Denied as exc:
+        raise Denied("candidate fleet/central policy mismatch") from exc
     require(type(local_candidate_policy) is dict
             and type(local_candidate_policy.get("schemaVersion")) is int
             and type(local_candidate_policy.get("enabled")) is bool

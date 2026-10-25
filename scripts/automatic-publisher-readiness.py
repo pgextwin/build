@@ -17,39 +17,23 @@ spec=importlib.util.spec_from_file_location(
 issuer=importlib.util.module_from_spec(spec);spec.loader.exec_module(issuer)
 
 def ready(fleet,central,unattended,boundary):
-    if any((
-        fleet.get("releasePolicy")!=issuer.MODE,
-        central.get("releasePolicy")!=issuer.MODE,
-        unattended.get("mode")!="UNATTENDED",
-        boundary.get("mode")!="ENFORCE",
-    )):
-        return False
-    names=[r.get("repository") for r in fleet.get("entries",[]) if type(r) is dict]
-    if not names:
-        return False
-    for name in names:
-        issuer.policy_gate(fleet,central,{"schemaVersion":1,
-                           "enabled":True,"releasePolicy":issuer.MODE},
-                           unattended,boundary,name)
-    return True
+    return issuer.deployment_policy(fleet,central,unattended,boundary)["staticPublisherReady"]
 
 def main():
     p=argparse.ArgumentParser()
-    for field in ("fleet","central-policy","unattended","publisher-boundary",
-                  "github-output"):
+    for field in ("fleet","central-policy","unattended","publisher-boundary"):
         p.add_argument("--"+field,required=True)
+    p.add_argument("--github-output")
     a=p.parse_args()
     try:
         paths=[a.fleet,a.central_policy,a.unattended,a.publisher_boundary]
-        objs=[]
-        for path in paths:
-            file=Path(path)
-            if file.is_symlink() or not file.is_file():
-                raise ValueError("untrusted static Publisher policy")
-            objs.append(json.loads(file.read_text("utf-8")))
-        permitted=ready(*objs)
-        with Path(a.github_output).open("a",encoding="utf-8") as out:
-            out.write("publisher_ready="+str(permitted).lower()+"\n")
+        objs=[issuer.fleet_policy.read(path) for path in paths]
+        decision=issuer.deployment_policy(*objs)
+        permitted=decision["staticPublisherReady"]
+        if a.github_output:
+            with Path(a.github_output).open("a",encoding="utf-8") as out:
+                out.write("publisher_ready="+str(permitted).lower()+"\n")
+        print(json.dumps(decision,sort_keys=True))
         print("PUBLISHER_STATIC_READINESS="+str(permitted).lower()+
               "; no authorization or credential minted")
         return 0

@@ -4,12 +4,13 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+from publication_policy_fixtures import manual_policy
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
 from update_watch_lib import WatchError
 s=importlib.util.spec_from_file_location("fleet_control", ROOT/"scripts/fleet-control.py")
 c=importlib.util.module_from_spec(s);s.loader.exec_module(c)
-policy=json.loads((ROOT/"metadata/automation-fleet.json").read_text())
+policy=manual_policy("automation-fleet.json")
 items=c.validate(policy)
 original={"pgextwin/"+n for n in ["pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack","pg_ivm","pg_qualstats","plpgsql_check"]}
 staged={"pgextwin/"+n for n in ["hypopg","wal2json","pg_partman","pg_stat_monitor","orafce"]}

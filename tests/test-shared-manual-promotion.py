@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import unittest
 
+from publication_policy_fixtures import manual_policy
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = (ROOT / ".github/workflows/promote-verified-release.yml").read_text(encoding="utf-8")
 
@@ -113,7 +114,7 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("DENY unknown promotion caller", SHARED)
         self.assertIn("github.event.repository.name }}-pg*-windows-x64", SHARED)
 
-        policy = json.loads((ROOT / "metadata/release-promotion.json").read_text())
+        policy = manual_policy("release-promotion.json")
         self.assertEqual(policy["schemaVersion"], 1)
         self.assertEqual(policy["releasePolicy"], "manual-dispatch")
         self.assertEqual(len(policy["allowedRepositories"]), 17)
@@ -252,7 +253,7 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("fleet-publish-release.py", SHARED)
         self.assertIn("--confirm-release", SHARED)
         self.assertIn("needs: [authorize, release_build]", SHARED)
-        policy = json.loads((ROOT / "metadata/release-promotion.json").read_text())
+        policy = manual_policy("release-promotion.json")
         self.assertEqual(set(policy["allowedRepositories"]),
                          {"pgextwin/" + n for n in thirteen | {"plpgsql_check",
                              "pgtap", "pg_variables", "pg_store_plans"}})

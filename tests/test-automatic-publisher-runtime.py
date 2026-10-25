@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 
+from publication_policy_fixtures import manual_policy
 ROOT=Path(__file__).resolve().parents[1]
 def load(name,file):
     spec=importlib.util.spec_from_file_location(name,ROOT/"scripts"/file)
@@ -21,10 +22,10 @@ runtime=load("dedicated_publisher_runtime","automatic-publisher-run.py")
 def policies():
     names=["automation-fleet.json","release-promotion.json",
            "unattended-publication.json","publisher-write-boundary.json"]
-    return [json.loads((ROOT/"metadata"/x).read_text()) for x in names]
+    return [manual_policy(x) for x in names]
 
 class PublisherRuntimeOffline(TestCase):
-    def test_deployed_policy_denies_environment_before_private_key(self):
+    def test_historical_manual_policy_denies_before_private_key(self):
         x=policies()
         self.assertFalse(gate.ready(*x))
         self.assertNotIn("PUBLISHER_PRIVATE_KEY",runtime.__dict__)
@@ -36,7 +37,8 @@ class PublisherRuntimeOffline(TestCase):
         ):
             copied=[json.loads(json.dumps(v)) for v in x]
             copied[item][field]=value
-            self.assertFalse(gate.ready(*copied))
+            with self.assertRaises(gate.issuer.Denied):
+                gate.ready(*copied)
 
     def test_unsigned_run_download_requires_strict_repo_and_runner_scratch(self):
         with TemporaryDirectory() as t,patch.dict(os.environ,{
