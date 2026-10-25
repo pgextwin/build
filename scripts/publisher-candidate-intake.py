@@ -205,7 +205,7 @@ def main():
                  "Status counts:"]
         lines.extend("- "+k+": "+str(v) for k,v in result["counts"].items())
         Path(a.summary).write_text("\n".join(lines)+"\n","utf-8")
-        print(result["status"]+"; "+str(result["counts"])+"; PUBLISH_DENY")
+        print(result["status"]+"; "+str(result["counts"])+"; EVENT="+result["observationEvent"]+"; PUBLISH_DENY")
         return 0
     except (Denied, OSError, ValueError, KeyError, TypeError) as exc:
         print("PUBLISHER_INTAKE_DENY: "+str(exc), file=sys.stderr)
