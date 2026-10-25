@@ -82,14 +82,26 @@ def setup(root,ready):
 
 class TrustedRuntimeOffline(TestCase):
     def test_all_conditions_jointly_call_the_existing_formal_writer(self):
+        self.check_runtime(False)
+        self.check_runtime(True)
+
+    def check_runtime(self,change_job_on_recheck):
         with TemporaryDirectory() as d:
             item,argv,env,paths=setup(Path(d),True)
             token="synthetic-one-repository-token-not-a-secret"
             revoked=[]
             writes=[]
+            job_reads=0
             def github(repo,route):
+                nonlocal job_reads
                 if route=="branches/main":
                     return item["central_branch"] if repo=="pgextwin/build" else item["signed_branch"]
+                if route==f"actions/runs/{PUBLISHER}/attempts/1/jobs?per_page=100":
+                    job_reads+=1
+                    jobs=fixture.independent_jobs()
+                    if change_job_on_recheck and job_reads==2:
+                        jobs["jobs"][0]["id"]=999
+                    return jobs
                 self.assertEqual((repo,route),
                                  ("pgextwin/build",f"actions/runs/{PUBLISHER}"))
                 return item["schedule_run"]
@@ -132,16 +144,20 @@ class TrustedRuntimeOffline(TestCase):
                  patch.object(runtime.formal,"absent") as absent, \
                  patch.object(runtime.formal,"REPO",runtime.formal.REPO):
                 result=runtime.main()
-                self.assertEqual(result,0)
+                self.assertEqual(result,2 if change_job_on_recheck else 0)
                 self.assertEqual(os.environ["GH_TOKEN"],env["GH_TOKEN"])
                 self.assertEqual(len(revoked),1)
-                self.assertEqual(len(writes),1)
+                self.assertEqual(len(writes),0 if change_job_on_recheck else 1)
+                self.assertEqual(job_reads,2)
                 self.assertEqual(verifier.call_count,1)
                 self.assertEqual(formal_check.call_count,1)
                 self.assertEqual(absent.call_count,2)
-                output=json.loads(paths["output"].read_text())
-                self.assertEqual(output["status"],"PUBLISHED_VERIFIED")
-                self.assertTrue(output["publisherTokenRevoked"])
+                if change_job_on_recheck:
+                    self.assertFalse(paths["output"].exists())
+                else:
+                    output=json.loads(paths["output"].read_text())
+                    self.assertEqual(output["status"],"PUBLISHED_VERIFIED")
+                    self.assertTrue(output["publisherTokenRevoked"])
 
     def test_current_real_policy_denies_before_secret_access_or_network(self):
         with TemporaryDirectory() as d:
@@ -159,6 +175,42 @@ class TrustedRuntimeOffline(TestCase):
                 token.assert_not_called()
                 publish.assert_not_called()
 
+    def test_failed_separate_repository_proof_denies_before_key_or_token(self):
+        with TemporaryDirectory() as d:
+            item,argv,env,paths=setup(Path(d),True)
+            jobs=fixture.independent_jobs()
+            jobs["jobs"][0]["conclusion"]="failure"
+            def github(repo,route):
+                if route=="branches/main":
+                    return item["central_branch"] if repo=="pgextwin/build" else item["signed_branch"]
+                if route.endswith("/attempts/1/jobs?per_page=100"):
+                    return jobs
+                return item["schedule_run"]
+            with patch.dict(os.environ,env),patch.object(sys,"argv",argv), \
+                 patch.object(runtime.source,"verify_completed_source",return_value=item["proof"]), \
+                 patch.object(runtime.source,"github",side_effect=github), \
+                 patch.object(runtime.formal,"absent"), \
+                 patch.object(runtime.formal,"REPO",runtime.formal.REPO), \
+                 patch.object(runtime.probe,"jwt") as jwt, \
+                 patch.object(runtime.scope,"single_repository_token") as token, \
+                 patch.object(runtime.formal,"publish_preverified") as publish:
+                self.assertEqual(runtime.main(),2)
+                self.assertIn("PUBLISHER_PRIVATE_KEY",os.environ)
+                jwt.assert_not_called()
+                token.assert_not_called()
+                publish.assert_not_called()
+                self.assertFalse(paths["output"].exists())
+
+    def test_workflow_preserves_whole_matrix_success_and_repository_identity(self):
+        workflow=(ROOT/".github/workflows/publisher-candidate-intake.yml").read_text()
+        self.assertIn("signed original (${{ matrix.name }})",workflow)
+        publisher=workflow.split("  isolated_formal_publisher:",1)[1]
+        for required in ("needs.nonpublishing_intake.result == 'success'",
+                         "needs.nonpublishing_intake.outputs.publisher_ready == 'true'",
+                         "needs.independent_real_signed_source.result == 'success'"):
+            self.assertIn(required,publisher)
+        self.assertNotIn("needs.independent_real_signed_source.result == 'failure'",publisher)
+
     def test_scoped_token_revoked_on_rejected_issuer(self):
         with TemporaryDirectory() as d:
             item,argv,env,paths=setup(Path(d),True)
@@ -174,6 +226,8 @@ class TrustedRuntimeOffline(TestCase):
             def github(repo,route):
                 if route=="branches/main":
                     return item["central_branch"] if repo=="pgextwin/build" else item["signed_branch"]
+                if route==f"actions/runs/{PUBLISHER}/attempts/1/jobs?per_page=100":
+                    return fixture.independent_jobs()
                 return item["schedule_run"]
             def api(_,path,__):
                 return item["app_identity"] if path=="/app" else item["installation_identity"]

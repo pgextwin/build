@@ -99,7 +99,7 @@ jobs:
           retention-days: 30
 
   independent_real_signed_source:
-    name: Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original
+    name: Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original (${{ matrix.name }})
     needs: nonpublishing_intake
     if: >-
       ${{ needs.nonpublishing_intake.outputs.has_candidates == 'true' &&
@@ -208,6 +208,7 @@ jobs:
       ${{ github.event_name == 'schedule' &&
           github.repository == 'pgextwin/build' &&
           github.ref == 'refs/heads/main' &&
+          needs.nonpublishing_intake.result == 'success' &&
           needs.nonpublishing_intake.outputs.has_candidates == 'true' &&
           needs.nonpublishing_intake.outputs.publisher_ready == 'true' &&
           needs.independent_real_signed_source.result == 'success' }}

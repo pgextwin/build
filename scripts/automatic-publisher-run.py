@@ -95,6 +95,10 @@ def main():
                 "current central protected main changed")
         formal.REPO=repository
         formal.absent(tag) # uses READ-only GitHub credential, denies 403/5xx
+        jobs_route=f"actions/runs/{publisher_id}/attempts/1/jobs?per_page=100"
+        separate_job=issuer.independent_source_job(
+            source.github("pgextwin/build",jobs_route),repository=repository,
+            run_id=publisher_id,central_sha=central_sha)
         # Key is read ONLY after original independent full proof and policies.
         key=os.environ.pop("PUBLISHER_PRIVATE_KEY")
         require(type(key) is str and bool(key),"publisher private key unavailable")
@@ -151,6 +155,10 @@ def main():
                     and current.get("conclusion") is None,
                     "live schedule Run identity changed before Release")
             formal.absent(tag)
+            require(issuer.independent_source_job(
+                source.github("pgextwin/build",jobs_route),repository=repository,
+                run_id=publisher_id,central_sha=central_sha)==separate_job,
+                "separate repository proof changed before Release")
             # Absolutely NO GitHub WRITE without valid typed independent
             # receipt, repeated gh signatures, protected ref and tag absence.
             original_read_token=os.environ["GH_TOKEN"]
