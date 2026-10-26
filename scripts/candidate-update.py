@@ -230,6 +230,104 @@ def execute(*args):
 
 
 
+
+def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, proposal, marker, branch):
+    """Repair only a verified two-parent base sync by a real scheduled bot push.
+
+    The human-authored merge is preserved, never relabeled or rewritten. A new
+    empty bot-authored commit restores the immutable marker. Its new HEAD must
+    obtain fresh original pull_request CI; old checks never authorize merging.
+    """
+    def require(ok, reason):
+        if not ok:
+            raise WatchError("candidate bot repair DENIED: " + reason)
+
+    require(os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+            and os.environ.get("GITHUB_RUN_ATTEMPT") == "1"
+            and os.environ.get("GITHUB_REF") == "refs/heads/main"
+            and os.environ.get("GITHUB_REPOSITORY") == repository
+            and bool(os.environ.get("GH_TOKEN")),
+            "genuine first-attempt protected-main schedule required")
+    main_sha = os.environ.get("GITHUB_SHA", "")
+    require(bool(HEX_SHA.fullmatch(main_sha))
+            and execute("git", "rev-parse", "HEAD") == main_sha,
+            "scheduled main checkout mismatch")
+    main = json.loads(execute("gh", "api", "repos/" + repository + "/branches/main"))
+    require(main.get("protected") is True
+            and (main.get("commit") or {}).get("sha") == main_sha,
+            "current protected main changed")
+    remote_head = execute("git", "rev-parse", "refs/remotes/origin/" + branch)
+    require(bool(HEX_SHA.fullmatch(remote_head)), "missing immutable remote HEAD")
+    listed = json.loads(execute("gh", "pr", "list", "--repo", repository,
+                                "--head", branch, "--state", "all", "--limit", "100",
+                                "--json", "number,body,state,headRefOid,headRefName,baseRefName,isDraft"))
+    require(len(listed) == 1 and type(listed[0].get("number")) is int
+            and listed[0].get("state") == "OPEN"
+            and listed[0].get("isDraft") is True
+            and listed[0].get("headRefOid") == remote_head
+            and listed[0].get("headRefName") == branch
+            and listed[0].get("baseRefName") == "main"
+            and marker in (listed[0].get("body") or ""),
+            "single exact draft candidate PR required")
+    pr = json.loads(execute("gh", "api", "repos/" + repository +
+                            "/pulls/" + str(listed[0]["number"])))
+    require(pr.get("number") == listed[0]["number"] and pr.get("state") == "open"
+            and pr.get("draft") is True and pr.get("merged") is not True
+            and (pr.get("user") or {}).get("login") == "github-actions[bot]"
+            and (pr.get("user") or {}).get("type") == "Bot"
+            and marker in (pr.get("body") or "")
+            and (pr.get("head") or {}).get("sha") == remote_head
+            and (pr.get("head") or {}).get("ref") == branch
+            and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repository
+            and (pr.get("base") or {}).get("ref") == "main"
+            and ((pr.get("base") or {}).get("repo") or {}).get("full_name") == repository
+            and (pr.get("base") or {}).get("sha") == main_sha,
+            "REST bot identity, current base, draft, branch or HEAD mismatch")
+    parents = execute("git", "rev-list", "--parents", "-n", "1", remote_head).split()
+    require(len(parents) == 3 and parents[0] == remote_head
+            and parents[2] == main_sha and bool(HEX_SHA.fullmatch(parents[1])),
+            "only exact bot-ancestor + protected-main two-parent sync is repairable")
+    original = parents[1]
+    require(execute("git", "log", "-1", "--format=%an", original) == "github-actions[bot]"
+            and execute("git", "log", "-1", "--format=%ae", original)
+                == "41898282+github-actions[bot]@users.noreply.github.com"
+            and marker in execute("git", "log", "-1", "--format=%B", original),
+            "original candidate must be immutable bot-authored marker commit")
+    require(execute("git", "diff", "--name-only", main_sha, remote_head).strip()
+            == proposal_file
+            and execute("git", "rev-parse", original + ":" + proposal_file)
+                == execute("git", "rev-parse", remote_head + ":" + proposal_file)
+            and json.loads(execute("git", "show", remote_head + ":" + proposal_file)) == proposal,
+            "synchronized tree differs from exact immutable candidate manifest")
+    runs = json.loads(execute("gh", "api", "repos/" + repository +
+                              "/actions/runs?event=pull_request&head_sha=" +
+                              remote_head + "&per_page=100"))
+    genuine = [run for run in runs.get("workflow_runs", [])
+               if run.get("event") == "pull_request"
+               and run.get("head_sha") == remote_head
+               and run.get("head_branch") == branch
+               and run.get("path") == ".github/workflows/windows.yml"
+               and run.get("status") == "completed"
+               and run.get("conclusion") == "success"
+               and run.get("run_attempt") == 1
+               and (run.get("repository") or {}).get("full_name") == repository]
+    require(len(genuine) == 1, "one genuine successful original native PR Run required")
+    # This bot-authored empty commit does not rewrite the human sync or the
+    # candidate tree; the new HEAD has no inherited CI or publication rights.
+    execute("git", "checkout", "-B", branch, "refs/remotes/origin/" + branch)
+    execute("git", "config", "user.name", "github-actions[bot]")
+    execute("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
+    execute("git", "commit", "--allow-empty", "-m",
+            "chore: reconcile verified candidate base (nonpublishing)\\n\\n" + marker)
+    new_head = execute("git", "rev-parse", "HEAD")
+    require(bool(HEX_SHA.fullmatch(new_head)) and new_head != remote_head
+            and execute("git", "diff", "--name-only", remote_head, new_head) == "",
+            "bot repair must be a new empty commit")
+    execute("git", "push", "origin", "HEAD:refs/heads/" + branch)
+    print("BOT_REPAIR_NONPUBLISHING: preserved " + remote_head +
+          "; new HEAD " + new_head + " requires fresh native PR CI")
+
+
 def recover_failed_first_release(record, repository, proposal_file, proposal, marker,
                                  remote, prs, runs):
     """Forward-only bot-owned branch repair after a *failed* candidate dispatch.
@@ -372,7 +470,9 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
         execute("git", "fetch", "--no-tags", "origin", "refs/heads/" + branch + ":refs/remotes/origin/" + branch)
         message = execute("git", "log", "-1", "--format=%B", "refs/remotes/origin/" + branch)
         if marker not in message:
-            raise WatchError("existing branch is human-owned or otherwise untrusted")
+            repair_exact_bot_candidate_base_sync(
+                record, repository, proposal_file, proposal, marker, branch)
+            return
         actual = json.loads(execute("git", "show", "refs/remotes/origin/" + branch + ":" + proposal_file))
         if actual != proposal:
             raise WatchError("existing branch differs from immutable candidate")
