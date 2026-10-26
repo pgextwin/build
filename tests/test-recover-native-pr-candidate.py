@@ -34,6 +34,23 @@ class CandidateNativeRecoveryTests(unittest.TestCase):
         prs,runs=data()
         self.assertIsNone(m.choose_candidate(REPO,[],runs))
 
+    def test_authenticated_discovery_query_exact_literal_question_mark(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        expected="actions/runs?event=pull_request&head_sha="+HEAD+"&per_page=100"
+        response=SimpleNamespace(returncode=0,stdout='{"total_count":0,"workflow_runs":[]}')
+        with patch.object(m.subprocess,"run",return_value=response) as call:
+            self.assertEqual(m.get_json(REPO,expected)["total_count"],0)
+            self.assertEqual(call.call_args.args[0][-1],"repos/"+REPO+"/"+expected)
+        for invalid in (
+            "actions/runsevent=pull_request&head_sha="+HEAD+"&per_page=100",
+            "actions/runs\\\\event=pull_request&head_sha="+HEAD+"&per_page=100",
+            "actions/runs?event=workflow_dispatch&head_sha="+HEAD+"&per_page=100",
+            "actions/runs?event=pull_request&head_sha="+HEAD+"&per_page=100&actor=evil",
+        ):
+            with self.subTest(invalid=invalid),self.assertRaises(m.Denied):
+                m.get_json(REPO,invalid)
+
     def test_risky_mutations_denied(self):
         changes=[
             lambda p,r:p[0]["head"].update(sha="d"*40),
