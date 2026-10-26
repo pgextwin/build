@@ -33,7 +33,7 @@ def require(ok, message):
 def get_json(repo, resource):
     require(native.REPO.fullmatch(repo) is not None, "repository not allowlisted")
     require(resource == "pulls?state=open&per_page=100" or
-            re.fullmatch(r"actions/runs\\?event=pull_request&head_sha=[a-f0-9]{40}&per_page=100",resource),
+            re.fullmatch(r"actions/runs\?event=pull_request&head_sha=[a-f0-9]{40}&per_page=100",resource),
             "non-read-only or unexpected discovery path")
     p = subprocess.run(["gh", "api", "--method", "GET", "repos/" + repo + "/" + resource],
                        capture_output=True, text=True, timeout=40, check=False)
