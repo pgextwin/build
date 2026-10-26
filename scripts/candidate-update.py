@@ -285,20 +285,26 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
             "REST bot identity, current base, draft, branch or HEAD mismatch")
     parents = execute("git", "rev-list", "--parents", "-n", "1", remote_head).split()
     require(len(parents) == 3 and parents[0] == remote_head
-            and parents[2] == main_sha and bool(HEX_SHA.fullmatch(parents[1])),
-            "only exact bot-ancestor + protected-main two-parent sync is repairable")
-    original = parents[1]
+            and bool(HEX_SHA.fullmatch(parents[1]))
+            and bool(HEX_SHA.fullmatch(parents[2])),
+            "only exact bot-ancestor + previously protected-main two-parent sync is repairable")
+    original, previous_main = parents[1], parents[2]
+    # The shared caller-pin update may advance protected main after the human
+    # base sync. Only a strict fast-forward main ancestry is acceptable.
+    execute("git", "merge-base", "--is-ancestor", previous_main, main_sha)
     require(execute("git", "log", "-1", "--format=%an", original) == "github-actions[bot]"
             and execute("git", "log", "-1", "--format=%ae", original)
                 == "41898282+github-actions[bot]@users.noreply.github.com"
             and marker in execute("git", "log", "-1", "--format=%B", original),
             "original candidate must be immutable bot-authored marker commit")
-    require(execute("git", "diff", "--name-only", main_sha, remote_head).strip()
+    require(execute("git", "diff", "--name-only", previous_main, remote_head).strip()
             == proposal_file
             and execute("git", "rev-parse", original + ":" + proposal_file)
                 == execute("git", "rev-parse", remote_head + ":" + proposal_file)
+            and execute("git", "rev-parse", previous_main + ":" + proposal_file)
+                == execute("git", "rev-parse", main_sha + ":" + proposal_file)
             and json.loads(execute("git", "show", remote_head + ":" + proposal_file)) == proposal,
-            "synchronized tree differs from exact immutable candidate manifest")
+            "synchronized tree or current main differs from immutable candidate manifest")
     runs = json.loads(execute("gh", "api", "repos/" + repository +
                               "/actions/runs?event=pull_request&head_sha=" +
                               remote_head + "&per_page=100"))
@@ -312,17 +318,27 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
                and run.get("run_attempt") == 1
                and (run.get("repository") or {}).get("full_name") == repository]
     require(len(genuine) == 1, "one genuine successful original native PR Run required")
-    # This bot-authored empty commit does not rewrite the human sync or the
-    # candidate tree; the new HEAD has no inherited CI or publication rights.
+    # Preserve both the original bot and human sync commits; never rewrite.
+    # A real scheduled GITHUB_TOKEN bot either adds an empty marker commit or
+    # merges the newly protected main forward. Neither path grants CI credit.
     execute("git", "checkout", "-B", branch, "refs/remotes/origin/" + branch)
     execute("git", "config", "user.name", "github-actions[bot]")
     execute("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
-    execute("git", "commit", "--allow-empty", "-m",
-            "chore: reconcile verified candidate base (nonpublishing)\\n\\n" + marker)
+    if previous_main == main_sha:
+        execute("git", "commit", "--allow-empty", "-m",
+                "chore: reconcile verified candidate base (nonpublishing)\n\n" + marker)
+    else:
+        execute("git", "merge", "--no-ff", "-m",
+                "chore: reconcile protected candidate base (nonpublishing)\n\n" + marker,
+                main_sha)
     new_head = execute("git", "rev-parse", "HEAD")
     require(bool(HEX_SHA.fullmatch(new_head)) and new_head != remote_head
-            and execute("git", "diff", "--name-only", remote_head, new_head) == "",
-            "bot repair must be a new empty commit")
+            and execute("git", "diff", "--name-only", main_sha, new_head).strip()
+                == proposal_file
+            and execute("git", "rev-parse", new_head + ":" + proposal_file)
+                == execute("git", "rev-parse", remote_head + ":" + proposal_file)
+            and json.loads(execute("git", "show", new_head + ":" + proposal_file)) == proposal,
+            "bot repair must preserve exact manifest-only diff on current protected main")
     execute("git", "push", "origin", "HEAD:refs/heads/" + branch)
     print("BOT_REPAIR_NONPUBLISHING: preserved " + remote_head +
           "; new HEAD " + new_head + " requires fresh native PR CI")
