@@ -22,7 +22,11 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 HASH = re.compile(r"^[0-9a-f]{64}$")
 BRANCH = re.compile(r"^auto-candidate/([0-9a-f]{20})$")
 HUMAN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
-ALLOWED_ACTORS = frozenset({"ShutenOishi"})
+_identity_spec = importlib.util.spec_from_file_location(
+    "postmerge_candidate_identity", HERE / "candidate-merge-identity.py")
+candidate_identity = importlib.util.module_from_spec(_identity_spec)
+_identity_spec.loader.exec_module(candidate_identity)
+ALLOWED_ACTORS = candidate_identity.ALLOWED_ACTORS
 
 
 _policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",HERE/"fleet-policy.py")

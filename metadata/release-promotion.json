@@ -19,5 +19,5 @@
     "pgextwin/pg_variables",
     "pgextwin/pg_store_plans"
   ],
-  "releasePolicy": "manual-dispatch"
+  "releasePolicy": "automatic-signed-schedule"
 }

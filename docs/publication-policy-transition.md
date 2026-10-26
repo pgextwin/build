@@ -1,9 +1,13 @@
 # Publication-policy transition contract
 
-The current deployment remains manual-only / manual-dispatch / OBSERVE /
-Publisher DENY. This change does not activate publication or assert a signed
-Release E2E. The source, branch, CI, signature, vulnerability, independent App,
-local opt-in, original schedule and create-only gates remain mandatory.
+The protected central declaration supports `automatic-signed-schedule`, explicit
+authenticated connected-Chat candidate merges and the independent Publisher App
+in ENFORCE mode. Central readiness is not publication authority. Each extension
+still needs its own protected local opt-in, current immutable support callers,
+a fresh manifest-only original signed main/push and the genuine central schedule.
+The source, branch, exact-head CI, Sigstore/SPDX, blocking vulnerability, scoped
+independent App, token revocation and create-only gates remain mandatory.
+During coordinated rollout, a manual local declaration remains denied.
 
 | Stage | Meaning |
 | --- | --- |
@@ -52,7 +56,8 @@ against registered fleet membership. Disabled legacy pilot configuration
 remains valid; an enabled declaration requires the complete fleet. Neither
 mode grants Catalog write or Release authority. The future-policy CI copy now
 projects this fifth declaration too, and manual-only regression tests use the
-frozen historical fixture. Live metadata remains unchanged.
+frozen historical fixture. The protected fifth declaration covers the complete
+registered fleet; actual Catalog local/App/runtime opt-ins remain independent.
 
 See [the review-only migration plan](publication-migration-plan.md) for the
 generated fleet diffs, source invalidation rule, deployment order and independent

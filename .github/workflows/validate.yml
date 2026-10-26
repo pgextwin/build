@@ -222,6 +222,9 @@ jobs:
       - name: Validate default-denied manual and automatic Catalog policy contracts
         run: python tests/test-manual-release-downstream.py
 
+      - name: Validate authenticated connected-Chat and dedicated Catalog identities
+        run: python tests/test-explicit-merge-identities.py
+
       - name: Validate Step 22 unattended publication safety contract
         run: |
           python tests/test-unattended-policy.py
