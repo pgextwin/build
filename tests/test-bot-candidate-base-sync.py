@@ -207,23 +207,23 @@ class BotRepairTests(TestCase):
             regression = "tests/test_required_windows_summary.py"
             workflow = ".github/workflows/update-watch.yml"
             d[("git", "diff", "--name-only", previous, MAIN_SHA)] = (
-                workflow + "\\nconfig/release-promotion.json\\n" + regression)
+                workflow + "\nconfig/release-promotion.json\n" + regression)
             old_operator, old_native = "7"*40, "8"*40
             old_workflow = (
                 "    uses: pgextwin/build/.github/workflows/operator-update-auto.yml@" +
-                old_operator + "\\n" +
+                old_operator + "\n" +
                 "    uses: pgextwin/build/.github/workflows/verify-native-pr-candidate.yml@" +
                 old_native)
             d[("git", "show", previous + ":" + workflow)] = old_workflow
             d[("git", "show", MAIN_SHA + ":" + workflow)] += (
-                "\\n    uses: pgextwin/build/.github/workflows/operator-update-auto.yml@" +
-                SHARED_SHA + "\\n" +
+                "\n    uses: pgextwin/build/.github/workflows/operator-update-auto.yml@" +
+                SHARED_SHA + "\n" +
                 "    uses: pgextwin/build/.github/workflows/verify-native-pr-candidate.yml@" +
                 SHARED_SHA)
-            old_tests = ("operator-update-auto.yml@" + old_operator + "\\n" +
-                         "verify-native-pr-candidate.yml@" + old_native + "\\n" +
-                         "operator-update-auto.yml@" + old_operator + "\\n" +
-                         "assertNotIn('old unsafe pin', workflow)\\n")
+            old_tests = ("operator-update-auto.yml@" + old_operator + "\n" +
+                         "verify-native-pr-candidate.yml@" + old_native + "\n" +
+                         "operator-update-auto.yml@" + old_operator + "\n" +
+                         "assertNotIn('old unsafe pin', workflow)\n")
             new_tests = (old_tests.replace(old_operator, SHARED_SHA)
                          .replace(old_native, SHARED_SHA))
             if corrupt:
@@ -237,7 +237,7 @@ class BotRepairTests(TestCase):
 
     def test_regression_cutover_rejects_test_weakening_or_unrelated_change(self):
         for change in (
-            lambda value: value + "assertTrue(True)\\n",
+            lambda value: value + "assertTrue(True)\n",
             lambda value: value.replace("assertNotIn", "assertIn"),
             lambda value: value.replace(SHARED_SHA, "0"*40, 1),
         ):
