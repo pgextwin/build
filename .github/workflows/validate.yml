@@ -55,6 +55,9 @@ jobs:
       - name: Validate Step 19 candidate update fixtures
         run: python tests/test-candidate-update.py
 
+      - name: Reject forged candidate base-sync repairs before bot commit (NONPUBLISHING)
+        run: python tests/test-bot-candidate-base-sync.py
+
       - name: Deny forged Wave3 failed-candidate recovery and preserve original attempts
         run: python tests/test-first-release-recovery.py
 
