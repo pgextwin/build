@@ -5,6 +5,8 @@ from datetime import datetime, timezone, timedelta
 import importlib.util
 from pathlib import Path
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from urllib.error import HTTPError
 
 path = Path(__file__).resolve().parents[1] / "scripts/publisher-scoped-token.py"
@@ -144,9 +146,16 @@ class TokenLifecycleTests(unittest.TestCase):
         for fault in ("revoke-still-live", "revoke-forbidden"):
             with self.subTest(fault=fault):
                 api=FakeAPI(fault)
-                with self.assertRaises(mod.Denied):
-                    with mod.single_repository_token(**args(api)):
-                        pass
+                stderr=StringIO()
+                with redirect_stderr(stderr):
+                    with self.assertRaises(mod.Denied):
+                        with mod.single_repository_token(**args(api)):
+                            pass
+                marker=("PUBLISHER_REVOKE_PROBE_TOKEN_STILL_ACTIVE"
+                        if fault=="revoke-still-live" else
+                        "PUBLISHER_REVOKE_PROBE_HTTP_403")
+                self.assertIn(marker,stderr.getvalue())
+                self.assertNotIn(TOKEN,stderr.getvalue())
                 self.assertTrue(api.revoked)
                 self.assertEqual(api.calls[-2:], [
                     ("DELETE","/installation/token"),
