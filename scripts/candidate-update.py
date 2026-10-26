@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -229,6 +230,64 @@ def execute(*args):
     return r.stdout.strip()
 
 
+def approved_automatic_candidate_policy(repository, main_sha, workflow_path):
+    """Authenticate only the protected policy transition used by bot repair.
+
+    This is permission to reconcile an unpublished candidate, never a Release
+    receipt. The source caller, actual immutable shared checkout and complete
+    live protected central policy must all identify the same approved snapshot.
+    """
+    def require(ok, reason):
+        if not ok:
+            raise WatchError("candidate policy transition DENIED: " + reason)
+    root = Path(__file__).resolve().parents[1]
+    shared_sha = execute("git", "-C", str(root), "rev-parse", "HEAD")
+    require(bool(HEX_SHA.fullmatch(shared_sha)), "immutable shared checkout SHA missing")
+    workflow = execute("git", "show", main_sha + ":" + workflow_path)
+    prefix = "pgextwin/build/.github/workflows/candidate-update.yml@"
+    callers = re.findall(r"^    uses: " + re.escape(prefix) + r"([0-9a-f]{40})$",
+                         workflow, re.M)
+    require(workflow.count(prefix) == 1 and callers == [shared_sha],
+            "candidate caller is not the exact immutable approved shared snapshot")
+    central = json.loads(execute("gh", "api", "--method", "GET",
+                                "repos/pgextwin/build/branches/main"))
+    require(type(central) is dict and central.get("protected") is True
+            and (central.get("commit") or {}).get("sha") == shared_sha,
+            "protected central main differs from the immutable caller")
+    required = (((central.get("protection") or {}).get("required_status_checks") or {})
+                .get("checks"))
+    require(type(required) is list and any(type(item) is dict
+            and item.get("context") == "resolver" and item.get("app_id") == 15368
+            for item in required), "central required App15368 resolver missing")
+    def load(name, file):
+        spec = importlib.util.spec_from_file_location(name, root / "scripts" / file)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    contents = load("candidate_repair_contents", "github_contents.py")
+    issuer = load("candidate_repair_policy_issuer", "automatic-publisher-receipt-issuer.py")
+    objects = []
+    for name in ("automation-fleet.json", "release-promotion.json",
+                 "unattended-publication.json", "publisher-write-boundary.json"):
+        path = "metadata/" + name
+        response = json.loads(execute("gh", "api", "--method", "GET",
+            "repos/pgextwin/build/contents/" + path + "?ref=" + shared_sha))
+        try:
+            objects.append(contents.decode_json_file(response, path))
+        except (ValueError, TypeError) as exc:
+            raise WatchError("candidate policy transition DENIED: unverified central policy blob") from exc
+    try:
+        decision = issuer.deployment_policy(*objects)
+    except (issuer.Denied, ValueError, TypeError, KeyError) as exc:
+        raise WatchError("candidate policy transition DENIED: incomplete automatic policy bundle") from exc
+    require(decision.get("staticPublisherReady") is True
+            and repository in decision.get("registeredRepositories", [])
+            and decision.get("publicationAuthorized") is False
+            and decision.get("publishableReceipt") is False,
+            "automatic policy does not cover this nonpublishing candidate repair")
+    return shared_sha
+
+
 
 
 def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, proposal, marker, branch):
@@ -271,6 +330,7 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
             "single exact draft candidate PR required")
     pr = json.loads(execute("gh", "api", "repos/" + repository +
                             "/pulls/" + str(listed[0]["number"])))
+    pr_base = (pr.get("base") or {}).get("sha")
     require(pr.get("number") == listed[0]["number"] and pr.get("state") == "open"
             and pr.get("draft") is True and pr.get("merged") is not True
             and (pr.get("user") or {}).get("login") == "github-actions[bot]"
@@ -281,17 +341,43 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
             and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repository
             and (pr.get("base") or {}).get("ref") == "main"
             and ((pr.get("base") or {}).get("repo") or {}).get("full_name") == repository
-            and (pr.get("base") or {}).get("sha") == main_sha,
-            "REST bot identity, current base, draft, branch or HEAD mismatch")
+            and type(pr_base) is str and bool(HEX_SHA.fullmatch(pr_base)),
+            "REST bot identity, base, draft, branch or HEAD mismatch")
     parents = execute("git", "rev-list", "--parents", "-n", "1", remote_head).split()
     require(len(parents) == 3 and parents[0] == remote_head
             and bool(HEX_SHA.fullmatch(parents[1]))
             and bool(HEX_SHA.fullmatch(parents[2])),
             "only exact bot-ancestor + previously protected-main two-parent sync is repairable")
     original, previous_main = parents[1], parents[2]
+    # REST can retain the base recorded at the prior human sync after a
+    # protected caller-pin merge advances main. Accept only that exact second
+    # parent or current main; arbitrary/ancestor-looking PR bases remain denied.
+    require(pr_base in (previous_main, main_sha),
+            "REST PR base is neither exact synchronized base nor current main")
     # The shared caller-pin update may advance protected main after the human
     # base sync. Only a strict fast-forward main ancestry is acceptable.
     execute("git", "merge-base", "--is-ancestor", previous_main, main_sha)
+    approved_central = None
+    if previous_main != main_sha:
+        workflow_path = ".github/workflows/update-watch.yml"
+        policy_path = "config/release-promotion.json"
+        paths = execute("git", "diff", "--name-only", previous_main, main_sha).splitlines()
+        require(len(paths) == len(set(paths)) and set(paths) in (
+                    {workflow_path}, {workflow_path, policy_path}),
+                "protected main advanced beyond the exact caller/policy cutover")
+        if policy_path in paths:
+            before = json.loads(execute("git", "show", previous_main + ":" + policy_path))
+            after = json.loads(execute("git", "show", main_sha + ":" + policy_path))
+            require(type(before) is dict and type(after) is dict
+                    and type(before.get("schemaVersion")) is int
+                    and type(after.get("schemaVersion")) is int
+                    and before == {"schemaVersion": 1, "enabled": True,
+                                   "releasePolicy": "manual-dispatch"}
+                    and after == {"schemaVersion": 1, "enabled": True,
+                                  "releasePolicy": "automatic-signed-schedule"}
+                    and before.get("enabled") is True and after.get("enabled") is True,
+                    "local publication policy is not the exact protected transition")
+            approved_central = approved_automatic_candidate_policy(repository, main_sha, workflow_path)
     require(execute("git", "log", "-1", "--format=%an", original) == "github-actions[bot]"
             and execute("git", "log", "-1", "--format=%ae", original)
                 == "41898282+github-actions[bot]@users.noreply.github.com"
@@ -318,6 +404,18 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
                and run.get("run_attempt") == 1
                and (run.get("repository") or {}).get("full_name") == repository]
     require(len(genuine) == 1, "one genuine successful original native PR Run required")
+    # Refuse a source or policy race before any bot commit. The subsequent
+    # non-forced push also refuses a concurrently advanced candidate branch.
+    final_main = json.loads(execute("gh", "api", "repos/" + repository + "/branches/main"))
+    require(final_main.get("protected") is True
+            and (final_main.get("commit") or {}).get("sha") == main_sha,
+            "protected main advanced during candidate verification")
+    if approved_central is not None:
+        final_central = json.loads(execute("gh", "api", "--method", "GET",
+                                          "repos/pgextwin/build/branches/main"))
+        require(final_central.get("protected") is True
+                and (final_central.get("commit") or {}).get("sha") == approved_central,
+                "approved central policy advanced during candidate verification")
     # Preserve both the original bot and human sync commits; never rewrite.
     # A real scheduled GITHUB_TOKEN bot either adds an empty marker commit or
     # merges the newly protected main forward. Neither path grants CI credit.

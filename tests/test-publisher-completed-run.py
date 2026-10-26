@@ -20,17 +20,18 @@ spec.loader.exec_module(guard)
 REPO = "pgextwin/pg_ivm"
 SHA = "a" * 40
 RUN = 12345
+ACTUAL = json.loads((ROOT / "tests/fixtures/signed-source-jobs-plpgsql-40250416760.json").read_text())
 
 def snapshot():
     run = {"id": RUN, "run_attempt": 1,
            "repository": {"full_name": REPO}, "head_sha": SHA,
            "head_branch": "main", "path": guard.PUSH_PATH,
            "event": "push", "status": "completed", "conclusion": "success"}
-    jobs = {"jobs": [
-        {"id": 100+i, "name": "Shared / "+name, "run_id": RUN,
-         "run_attempt": 1, "head_sha": SHA, "status": "completed",
-         "conclusion": "success"}
-        for i,name in enumerate(guard.SIGNED_PUSH_JOBS)]}
+    jobs = {"jobs": [copy.deepcopy(j) for j in ACTUAL["jobs"]["jobs"] if j["conclusion"] == "success"]}
+    for i,j in enumerate(jobs["jobs"]):
+        j.update(id=100+i,run_id=RUN,head_sha=SHA,
+            check_run_url=f"https://api.github.com/repos/{REPO}/check-runs/{100+i}",
+            html_url=f"https://github.com/{REPO}/actions/runs/{RUN}/job/{100+i}")
     jobs["total_count"] = len(jobs["jobs"])
     artifacts = {"artifacts": [
         {"name": name, "id": 200+i, "size_in_bytes": 100,
@@ -43,13 +44,13 @@ def verify(run,jobs,artifacts, **kwargs):
     return guard.validate_completed_push_snapshot(
         run,jobs,artifacts,repo=kwargs.get("repo",REPO),
         sha=kwargs.get("sha",SHA),run_id=kwargs.get("run_id",RUN),
-        attempt=kwargs.get("attempt",1))
+        attempt=kwargs.get("attempt",1), majors=kwargs.get("majors",[14,15,16,17,18]))
 
 class CompletedPushContract(unittest.TestCase):
     def test_original_protected_push_metadata_is_bound_but_not_authorized(self):
         result=verify(*snapshot())
         self.assertEqual(result[:4],(REPO,SHA,RUN,1))
-        self.assertEqual(len(result[4]),4)
+        self.assertEqual(len(result[4]),9)
         self.assertEqual(len(result[5]),2)
         self.assertNotIn("publicationAuthorized",str(result))
 

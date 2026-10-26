@@ -154,7 +154,8 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 get("actions/runs/" + str(run_id)),
                 get("actions/runs/" + str(run_id) + "/attempts/1/jobs?per_page=100"),
                 get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
-                repo=REPO, sha=commit, run_id=run_id, attempt=attempt)
+                repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
+                majors=maintained)
         else:
             attempt = guard.attempt_from_env(os.environ, run_id, REPO)
             initial_snapshot = guard.validate_snapshot(
@@ -245,7 +246,8 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 get("actions/runs/" + str(run_id)),
                 get("actions/runs/" + str(run_id) + "/attempts/1/jobs?per_page=100"),
                 get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
-                repo=REPO, sha=commit, run_id=run_id, attempt=1)
+                repo=REPO, sha=commit, run_id=run_id, attempt=1,
+                majors=maintained)
         else:
             final_snapshot = guard.validate_snapshot(
                 get("actions/runs/" + str(run_id)),

@@ -111,10 +111,6 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
     run_path=f"actions/runs/{run_id}"
     jobs_path=run_path+"/attempts/1/jobs?per_page=100"
     assets_path=run_path+"/artifacts?per_page=100"
-    original=guard.validate_completed_push_snapshot(
-        get(repository,run_path),get(repository,jobs_path),
-        get(repository,assets_path),repo=repository,sha=sha,
-        run_id=run_id,attempt=attempt)
     require(isinstance(folder, Path) and folder.is_dir() and not folder.is_symlink(),
             "signed ZIP directory unavailable")
     try:
@@ -123,6 +119,10 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
         files=ident.expected_assets(manifest,majors)-{"SHA256SUMS.txt"}
     except (ident.Denied,KeyError,ValueError,TypeError) as exc:
         raise Denied("protected PostgreSQL source identity invalid") from exc
+    original=guard.validate_completed_push_snapshot(
+        get(repository,run_path),get(repository,jobs_path),
+        get(repository,assets_path),repo=repository,sha=sha,
+        run_id=run_id,attempt=attempt,majors=majors)
     require({p.name for p in folder.iterdir()} == files
             and all(p.is_file() and not p.is_symlink()
                     and 0<p.stat().st_size<1024*1024*1024 for p in folder.iterdir()),
@@ -201,7 +201,7 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
     final=guard.validate_completed_push_snapshot(
         get(repository,run_path),get(repository,jobs_path),
         get(repository,assets_path),repo=repository,sha=sha,
-        run_id=run_id,attempt=attempt)
+        run_id=run_id,attempt=attempt,majors=majors)
     require(original==final,"original signed Run/jobs/artifacts changed")
     return {"schemaVersion":1,
             "status":"REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING",

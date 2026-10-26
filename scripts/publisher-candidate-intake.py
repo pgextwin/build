@@ -22,6 +22,14 @@ _spec = importlib.util.spec_from_file_location(
     "publisher_intake_scope", ROOT / "publisher-scoped-token.py")
 _scope = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_scope)
+def module(name, filename):
+    spec = importlib.util.spec_from_file_location(name, ROOT / filename)
+    value = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(value)
+    return value
+signed_jobs = module("intake_original_signed_jobs", "signed-source-jobs.py")
+ident = module("intake_manifest_identity", "fleet-release-identity.py")
+contents = module("intake_immutable_manifest_contents", "github_contents.py")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 SHA = re.compile(r"^[a-f0-9]{40}$")
 MAX_RUNS = 100
@@ -29,12 +37,6 @@ MAX_RUNS = 100
 # Per-hour schedule Runs must never evict the original signed main/push Run.
 SOURCE_PUSH_RUNS = "actions/workflows/update-watch.yml/runs?event=push&branch=main&per_page=100"
 MAX_ITEMS = 100
-SIGNED_JOBS = (
-    "Audit real single manifest-only protected candidate main push",
-    "Attest original candidate after verified protected main merge (NO PUBLISH)",
-    "Verify actual signed ZIP/SPDX/Grype provenance without Publisher rights",
-    "Independently reverify signed candidate before future Publisher (NO PUBLISH)",
-)
 SIGNED_ARTIFACTS = {
     "automatic-signed-candidate-audit-nonpublishing",
     "independent-signed-publisher-preflight-nonpublishing",
@@ -62,6 +64,7 @@ def github(repo, suffix):
         or suffix == SOURCE_PUSH_RUNS
         or re.fullmatch(r"actions/runs/[1-9][0-9]*/jobs\?per_page=100", suffix)
         or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", suffix)
+        or re.fullmatch(r"contents/config/extension\.json\?ref=[0-9a-f]{40}", suffix)
     )
     require(allowed, "non-allowlisted or mutating GitHub resource")
     require(bool(os.environ.get("GH_TOKEN")), "read-only GitHub token unavailable")
@@ -75,7 +78,7 @@ def github(repo, suffix):
     require(type(obj) is dict, "unexpected GitHub GET response")
     return obj
 
-def examine(repo, branch, runs, *, read_jobs, read_artifacts):
+def examine(repo, branch, runs, *, read_jobs, read_artifacts, read_manifest, lifecycle):
     """Evaluate the EXACT protected main and original signed push; never PUBLISH."""
     require(type(repo) is str and REPO.fullmatch(repo), "invalid source repository")
     require(type(branch) is dict and branch.get("name") == "main"
@@ -113,6 +116,13 @@ def examine(repo, branch, runs, *, read_jobs, read_artifacts):
         return row
     run_id = run["id"]
     row["candidateRunId"] = run_id
+    manifest = read_manifest(sha)
+    require(type(manifest) is dict and manifest.get("name") == repo.split("/")[1],
+            "immutable protected manifest repository differs")
+    try:
+        majors = ident.maintained_majors(manifest, lifecycle)
+    except (ident.Denied, KeyError, TypeError, ValueError) as exc:
+        raise Denied("immutable protected manifest PG matrix invalid") from exc
     jobs = read_jobs(run_id)
     require(type(jobs) is dict and type(jobs.get("total_count")) is int
             and 0 <= jobs["total_count"] < MAX_ITEMS
@@ -120,14 +130,12 @@ def examine(repo, branch, runs, *, read_jobs, read_artifacts):
             and len(jobs["jobs"]) == jobs["total_count"]
             and all(type(j) is dict for j in jobs["jobs"]),
             "incomplete signed job inventory")
-    names = [j.get("name") for j in jobs["jobs"]]
-    for needed in SIGNED_JOBS:
-        hits = [j for j in jobs["jobs"]
-                if type(j.get("name")) is str
-                and (j["name"] == needed or j["name"].endswith(" / " + needed))]
-        if len(hits) != 1 or hits[0].get("status") != "completed" or hits[0].get("conclusion") != "success":
-            row["status"] = "SIGNED_JOB_CHAIN_INCOMPLETE"
-            return row
+    try:
+        signed_jobs.verify(run, jobs, repository=repo, sha=sha,
+            run_id=run_id, attempt=1, majors=majors)
+    except signed_jobs.Denied:
+        row["status"] = "SIGNED_JOB_CHAIN_INCOMPLETE"
+        return row
     artifacts = read_artifacts(run_id)
     require(type(artifacts) is dict and type(artifacts.get("total_count")) is int
             and 0 <= artifacts["total_count"] < MAX_ITEMS
@@ -148,7 +156,7 @@ def examine(repo, branch, runs, *, read_jobs, read_artifacts):
     row["status"] = "SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED"
     return row
 
-def scan(fleet, *, get):
+def scan(fleet, *, get, lifecycle=None):
     require(type(fleet) is dict and type(fleet.get("entries")) is list
             and bool(fleet["entries"]), "missing protected Publisher fleet")
     names = [r.get("repository") for r in fleet["entries"] if type(r) is dict]
@@ -156,6 +164,9 @@ def scan(fleet, *, get):
             "duplicate/malformed fleet")
     for name in names:
         _scope.valid_fleet(fleet, name, release_policy=fleet.get('releasePolicy'))
+    if lifecycle is None:
+        lifecycle = json.loads((ROOT.parent / "metadata/postgresql.json").read_text("utf-8"),
+                               object_pairs_hook=unique)
     rows = []
     for repo in names:
         try:
@@ -165,7 +176,10 @@ def scan(fleet, *, get):
                 read_jobs=lambda run_id, r=repo: get(
                     r, f"actions/runs/{run_id}/jobs?per_page=100"),
                 read_artifacts=lambda run_id, r=repo: get(
-                    r, f"actions/runs/{run_id}/artifacts?per_page=100"))
+                    r, f"actions/runs/{run_id}/artifacts?per_page=100"),
+                read_manifest=lambda sha, r=repo: contents.decode_json_file(
+                    get(r, "contents/config/extension.json?ref=" + sha),
+                    "config/extension.json"), lifecycle=lifecycle)
         except (Denied, OSError, ValueError, KeyError, TypeError,
                 subprocess.TimeoutExpired):
             row = {"repository": repo, "mainSha": None,
