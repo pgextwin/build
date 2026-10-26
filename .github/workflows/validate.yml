@@ -166,7 +166,9 @@ jobs:
         run: python tests/test-automatic-postmerge-audit-bridge.py
 
       - name: Reject forged protected-main native audit event/release evidence
-        run: python tests/test-automatic-postmerge-audit-live.py
+        run: |
+          python tests/test-automatic-postmerge-audit-live.py
+          python tests/test-central-native-schedule-postmerge.py
 
       - name: Verify synthetic-only same-process Publisher integration and revocation (NO RELEASE)
         run: python tests/test-automatic-publisher-inprocess-e2e.py

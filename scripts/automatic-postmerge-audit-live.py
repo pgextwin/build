@@ -25,6 +25,7 @@ def load(name, path):
 
 bridge = load("postmerge_bridge", "automatic-postmerge-audit-bridge.py")
 binder = load("native_join", "bind-native-candidate-audit.py")
+central = load("central_schedule_join", "bind-central-native-schedule-live.py")
 downloaded = load("native_live", "bind-native-candidate-audit-live.py")
 contents = load("postmerge_contents", "github_contents.py")
 
@@ -98,7 +99,8 @@ def eligible_artifact(artifacts, audit_run):
     return rows[0] if rows else None
 
 
-def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None):
+def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None,
+         central_api=None, central_retrieve=None):
     """Return a proven *nonpublishing* observation using authentic run bytes."""
     require(type(repo) is str and REPO.fullmatch(repo)
             and type(event) is dict and event.get("ref") == "refs/heads/main"
@@ -178,7 +180,19 @@ def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None):
         except (binder.Denied, ValueError, TypeError, KeyError) as exc:
             raise Denied("matched native audit failed SHA/ZIP binding: "+str(exc)) from exc
         matched.append(bound)
-    require(len(matched) == 1, "unique prior authentic candidate audit is absent or ambiguous")
+    require(len(matched)<=1, "ambiguous extension-local original audit evidence")
+    if not matched:
+        # Distinct original auditor: current protected build/main genuine
+        # schedule. A skipped extension workflow_run can never be rewritten
+        # as a local success or substituted with a dispatch.
+        try:
+            matched.append(central.recover(
+                repo,before,head,n,extension,lifecycle,
+                api=central_api or central.gh,
+                download=central_retrieve or central.download_original))
+        except (central.Denied,ValueError,TypeError,KeyError) as exc:
+            raise Denied("separate central genuine schedule DENY: "+str(exc)) from exc
+    require(len(matched)==1, "no unique authenticated native audit witness")
     # Re-fetch the exact original native Run. A dispatch on the same HEAD can
     # have an identically named success; only this native check suite applies.
     original_ci=get("actions/runs/"+str(matched[0]["candidateCiRunId"]))
