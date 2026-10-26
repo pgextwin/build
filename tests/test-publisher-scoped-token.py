@@ -136,12 +136,9 @@ class TokenLifecycleTests(unittest.TestCase):
                 with self.assertRaises(mod.Denied):
                     with mod.single_repository_token(**args(api)):
                         pass
-                if fault == "revoke-still-live":
-                    self.assertEqual(api.revocation_probes, 4)
-                else:
-                    self.assertEqual(api.calls[-2:], [
-                        ("DELETE","/installation/token"),
-                        ("GET","/installation/repositories?per_page=100")])
+                self.assertEqual(api.calls[-2:], [
+                    ("DELETE","/installation/token"),
+                    ("GET","/installation/repositories?per_page=100")])
         for member in ([],[{"repository":"pgextwin/orafce",
                             "mode":"BUILD","candidateEnabled":True,
                             "releasePolicy":"manual-only"}]):
@@ -165,9 +162,12 @@ class TokenLifecycleTests(unittest.TestCase):
                 self.assertIn(marker,stderr.getvalue())
                 self.assertNotIn(TOKEN,stderr.getvalue())
                 self.assertTrue(api.revoked)
-                self.assertEqual(api.calls[-2:], [
-                    ("DELETE","/installation/token"),
-                    ("GET","/installation/repositories?per_page=100")])
+                if fault == "revoke-still-live":
+                    self.assertEqual(api.revocation_probes, 4)
+                else:
+                    self.assertEqual(api.calls[-2:], [
+                        ("DELETE","/installation/token"),
+                        ("GET","/installation/repositories?per_page=100")])
 
     def test_revocation_propagation_retries_but_requires_actual_401(self):
         api = FakeAPI("revoke-delayed")
