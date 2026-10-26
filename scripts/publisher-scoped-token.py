@@ -14,6 +14,7 @@ from urllib.error import HTTPError
 from datetime import datetime, timezone, timedelta
 import re
 import sys
+import time
 
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 
@@ -120,13 +121,19 @@ def single_repository_token(*, api, jwt, key, app, installation,
             except HTTPError as exc:
                 print("PUBLISHER_REVOKE_DELETE_HTTP_" + str(exc.code), file=sys.stderr)
                 raise
-            try:
-                api("GET", "/installation/repositories?per_page=100", token)
-            except HTTPError as exc:
-                if exc.code != 401:
+            # GitHub may briefly continue serving an already-revoked token.
+            # Retry only a still-successful read, with a strict finite bound.
+            # No response except an actual HTTP 401 grants revocation proof.
+            for delay in (0, 0.5, 1, 2):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    api("GET", "/installation/repositories?per_page=100", token)
+                except HTTPError as exc:
+                    if exc.code == 401:
+                        break
                     print("PUBLISHER_REVOKE_PROBE_HTTP_" + str(exc.code), file=sys.stderr)
-                require(exc.code == 401,
-                        "Publisher token revocation not independently confirmed")
+                    raise Denied("Publisher token revocation not independently confirmed") from None
             else:
                 print("PUBLISHER_REVOKE_PROBE_TOKEN_STILL_ACTIVE", file=sys.stderr)
                 raise Denied("Publisher token remains usable after revocation")
