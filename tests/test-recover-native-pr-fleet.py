@@ -64,6 +64,16 @@ class FleetRecoveryTests(TestCase):
         self.assertNotIn("contents: write",src)
         self.assertNotIn("id-token: write",src)
         self.assertNotIn("attestations: write",src)
+        # The first :47 schedule may be dropped by GitHub. Reuse the
+        # established scanner's true schedule without granting any publish
+        # rights or accepting its push/dispatch smoke as an audit.
+        fallback=(ROOT/".github/workflows/fleet-upstream-watch.yml").read_text()
+        self.assertIn("original-native-audit-fallback:",fallback)
+        self.assertIn("github.event_name == 'schedule'",fallback)
+        self.assertIn("python scripts/recover-native-pr-fleet.py",fallback)
+        self.assertIn("registered-original-native-pr-audits",fallback)
+        self.assertNotIn("contents: write",fallback)
+        self.assertNotIn("id-token: write",fallback)
         code=(ROOT/"scripts/recover-native-pr-fleet.py").read_text()
         self.assertIn("recovery.reconcile(",code)
         self.assertIn("candidate.audit(",code)
