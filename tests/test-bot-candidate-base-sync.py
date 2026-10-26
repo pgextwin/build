@@ -119,6 +119,10 @@ class BotRepairTests(TestCase):
     def test_advanced_protected_main_reconciles_forward_only(self):
         self.run_case(good=True, advanced=True)
 
+    def test_advanced_main_manifest_change_fails_closed(self):
+        self.run_case(advanced=True, change=lambda e,l,p,r,d: d.update({
+            ("git", "rev-parse", "9"*40 + ":" + PATH): "0"*40}))
+
     def test_all_provenance_mismatches_fail_before_any_write(self):
         cases = [
             lambda e,l,p,r,d: e.update(GITHUB_EVENT_NAME="workflow_dispatch"),
