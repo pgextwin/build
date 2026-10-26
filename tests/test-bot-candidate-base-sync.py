@@ -93,6 +93,8 @@ class BotRepairTests(TestCase):
                 return NEW if any(x[:2] in {("git", "commit"), ("git", "merge")} for x in calls) else MAIN_SHA
             if args in responses:
                 return responses[args]
+            if args[:3] == ("git", "merge-base", "--is-ancestor"):
+                raise c.WatchError("protected main is not a descendant of candidate base")
             if args[0] == "git" and args[1] in {"checkout", "config", "commit", "merge", "push"}:
                 return ""
             raise AssertionError("unexpected command " + repr(args))
