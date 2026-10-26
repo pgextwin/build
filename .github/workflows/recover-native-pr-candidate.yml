@@ -1,0 +1,81 @@
+name: Recover approved native PR CI audit from genuine schedule (NONPUBLISHING)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Exact native PR attempt revalidation and real artifact audit
+    if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      checks: read
+    steps:
+      - name: Checkout only immutable central trusted verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+          persist-credentials: false
+      - name: Python for read-only verifier
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Independently re-fetch original approved CI attempt and required App15368
+        id: original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python .pgextwin-build/scripts/recover-native-pr-candidate.py \
+            --output "$RUNNER_TEMP/native-pr-ci-context.json"
+      - name: Checkout only the selected immutable candidate manifest, no execution
+        if: steps.original.outputs.found == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.original.outputs.head }}
+          path: candidate
+          persist-credentials: false
+      - name: Independently download and verify original per-PG ZIP SPDX Grype bytes
+        if: steps.original.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.original.outputs.run_id }}
+          PR_NUMBER: ${{ steps.original.outputs.pr }}
+          HEAD_SHA: ${{ steps.original.outputs.head }}
+          MERGE_SHA: ${{ steps.original.outputs.merge }}
+          CANDIDATE_BRANCH: ${{ steps.original.outputs.branch }}
+        run: |
+          python .pgextwin-build/scripts/verify-candidate.py \
+            --extension candidate/config/extension.json \
+            --lifecycle .pgextwin-build/metadata/postgresql.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch "$CANDIDATE_BRANCH" \
+            --sha "$HEAD_SHA" \
+            --run-id "$RUN_ID" \
+            --event pull_request \
+            --merge-sha "$MERGE_SHA" \
+            --pr "$PR_NUMBER" \
+            --matrix-result success \
+            --output "$RUNNER_TEMP/candidate-audit-native-pr.json"
+      - name: Preserve distinct immutable schedule recovery evidence (NO RELEASE)
+        if: always() && steps.original.outputs.found == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-audit-native-pr-schedule-recovered
+          path: |
+            ${{ runner.temp }}/native-pr-ci-context.json
+            ${{ runner.temp }}/candidate-audit-native-pr.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Declare audited real bytes, never release authority
+        if: success() && steps.original.outputs.found == 'true'
+        run: echo 'NATIVE_CANDIDATE_SCHEDULE_RECOVERED_BYTES_VERIFIED_NONPUBLISHING; NO PUBLISH.' >> "$GITHUB_STEP_SUMMARY"
