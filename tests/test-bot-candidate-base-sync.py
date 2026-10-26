@@ -41,7 +41,7 @@ RUN = {"id": 40250481553, "event": "pull_request", "head_sha": HUMAN,
 
 
 class BotRepairTests(TestCase):
-    def run_case(self, *, change=None, good=False):
+    def run_case(self, *, change=None, good=False, advanced=False):
         env, listing, pr, run = copy.deepcopy(ENV), copy.deepcopy(LIST), copy.deepcopy(PR), copy.deepcopy(RUN)
         responses = {
             ("gh", "api", "repos/" + REPO + "/branches/main"):
@@ -56,6 +56,7 @@ class BotRepairTests(TestCase):
             ("git", "rev-parse", "refs/remotes/origin/" + BRANCH): HUMAN,
             ("git", "rev-list", "--parents", "-n", "1", HUMAN):
                 HUMAN + " " + ORIGINAL + " " + MAIN_SHA,
+            ("git", "merge-base", "--is-ancestor", MAIN_SHA, MAIN_SHA): "",
             ("git", "log", "-1", "--format=%an", ORIGINAL): "github-actions[bot]",
             ("git", "log", "-1", "--format=%ae", ORIGINAL):
                 "41898282+github-actions[bot]@users.noreply.github.com",
@@ -63,9 +64,19 @@ class BotRepairTests(TestCase):
             ("git", "diff", "--name-only", MAIN_SHA, HUMAN): PATH,
             ("git", "rev-parse", ORIGINAL + ":" + PATH): BLOB,
             ("git", "rev-parse", HUMAN + ":" + PATH): BLOB,
+            ("git", "rev-parse", MAIN_SHA + ":" + PATH): "f"*40,
+            ("git", "rev-parse", NEW + ":" + PATH): BLOB,
             ("git", "show", HUMAN + ":" + PATH): json.dumps(PROPOSAL),
-            ("git", "diff", "--name-only", HUMAN, NEW): "",
+            ("git", "show", NEW + ":" + PATH): json.dumps(PROPOSAL),
+            ("git", "diff", "--name-only", MAIN_SHA, NEW): PATH,
         }
+        if advanced:
+            previous = "9"*40
+            responses[("git", "rev-list", "--parents", "-n", "1", HUMAN)] = (
+                HUMAN + " " + ORIGINAL + " " + previous)
+            responses[("git", "merge-base", "--is-ancestor", previous, MAIN_SHA)] = ""
+            responses[("git", "diff", "--name-only", previous, HUMAN)] = PATH
+            responses[("git", "rev-parse", previous + ":" + PATH)] = "f"*40
         if change:
             change(env, listing, pr, run, responses)
             responses[("gh", "pr", "list", "--repo", REPO, "--head", BRANCH,
@@ -79,10 +90,10 @@ class BotRepairTests(TestCase):
         def execute(*args):
             calls.append(args)
             if args == ("git", "rev-parse", "HEAD"):
-                return NEW if any(x[:2] == ("git", "commit") for x in calls) else MAIN_SHA
+                return NEW if any(x[:2] in {("git", "commit"), ("git", "merge")} for x in calls) else MAIN_SHA
             if args in responses:
                 return responses[args]
-            if args[0] == "git" and args[1] in {"checkout", "config", "commit", "push"}:
+            if args[0] == "git" and args[1] in {"checkout", "config", "commit", "merge", "push"}:
                 return ""
             raise AssertionError("unexpected command " + repr(args))
         with patch.dict(os.environ, env, clear=True), patch.object(c, "execute", execute):
@@ -90,18 +101,23 @@ class BotRepairTests(TestCase):
                 RECORD, REPO, PATH, PROPOSAL, MARKER, BRANCH)
             if good:
                 task()
-                self.assertEqual(sum(x[:2] == ("git", "commit") for x in calls), 1)
+                self.assertEqual(sum(x[:2] in {("git", "commit"), ("git", "merge")}
+                                     for x in calls), 1)
                 self.assertEqual(sum(x[:2] == ("git", "push") for x in calls), 1)
                 self.assertFalse(any(x[:3] == ("gh", "workflow", "run") for x in calls))
                 self.assertFalse(any("force" in " ".join(x) for x in calls))
             else:
                 with self.assertRaises((c.WatchError, ValueError, KeyError, TypeError)):
                     task()
-                self.assertFalse(any(x[:2] == ("git", "commit") for x in calls))
+                self.assertFalse(any(x[:2] in {("git", "commit"), ("git", "merge")}
+                                     for x in calls))
                 self.assertFalse(any(x[:2] == ("git", "push") for x in calls))
 
     def test_exact_bot_origin_human_sync_can_only_be_repaired_by_real_bot_commit(self):
         self.run_case(good=True)
+
+    def test_advanced_protected_main_reconciles_forward_only(self):
+        self.run_case(good=True, advanced=True)
 
     def test_all_provenance_mismatches_fail_before_any_write(self):
         cases = [
