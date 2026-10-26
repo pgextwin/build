@@ -326,10 +326,10 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
     execute("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
     if previous_main == main_sha:
         execute("git", "commit", "--allow-empty", "-m",
-                "chore: reconcile verified candidate base (nonpublishing)\\n\\n" + marker)
+                "chore: reconcile verified candidate base (nonpublishing)\n\n" + marker)
     else:
         execute("git", "merge", "--no-ff", "-m",
-                "chore: reconcile protected candidate base (nonpublishing)\\n\\n" + marker,
+                "chore: reconcile protected candidate base (nonpublishing)\n\n" + marker,
                 main_sha)
     new_head = execute("git", "rev-parse", "HEAD")
     require(bool(HEX_SHA.fullmatch(new_head)) and new_head != remote_head
