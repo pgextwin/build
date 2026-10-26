@@ -32,8 +32,8 @@ def require(ok, message):
 
 def get_json(repo, resource):
     require(native.REPO.fullmatch(repo) is not None, "repository not allowlisted")
-    require(resource in ("pulls?state=open&per_page=100",
-                         "actions/runs?event=pull_request&per_page=100"),
+    require(resource == "pulls?state=open&per_page=100" or
+            re.fullmatch(r"actions/runs\\?event=pull_request&head_sha=[a-f0-9]{40}&per_page=100",resource),
             "non-read-only or unexpected discovery path")
     p = subprocess.run(["gh", "api", "--method", "GET", "repos/" + repo + "/" + resource],
                        capture_output=True, text=True, timeout=40, check=False)
@@ -118,10 +118,20 @@ def main():
         repo = os.environ["GITHUB_REPOSITORY"]
         require(bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")),
                 "authenticated read-only token unavailable")
+        pulls = get_json(repo, "pulls?state=open&per_page=100")
+        owned = [p for p in pulls if type(p) is dict
+                 and p.get("state") == "open"
+                 and (p.get("user") or {}).get("login") == "github-actions[bot]"
+                 and CANDIDATE.fullmatch((p.get("head") or {}).get("ref", ""))]
+        require(len(owned) <= 1, "ambiguous bot candidates")
+        sha = (owned[0].get("head") or {}).get("sha") if owned else None
+        require(sha is None or native.SHA.fullmatch(sha), "invalid candidate HEAD")
+        inventory = (get_json(repo, "actions/runs?event=pull_request&head_sha=" + sha + "&per_page=100")
+                     if sha else {"total_count":0,"workflow_runs":[]})
         result = reconcile(repo, os.environ.get("GITHUB_EVENT_NAME"),
                            os.environ.get("GITHUB_REF"), os.environ.get("GITHUB_SHA"),
-                           get_json(repo, "pulls?state=open&per_page=100"),
-                           get_json(repo, "actions/runs?event=pull_request&per_page=100"),
+                           pulls,
+                           inventory,
                            lambda resource: native.gh_get(repo, resource))
         if result is None:
             print("NO_OWNED_OPEN_CANDIDATE; no new audit artifact")
