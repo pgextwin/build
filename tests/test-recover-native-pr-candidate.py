@@ -37,7 +37,7 @@ class CandidateNativeRecoveryTests(unittest.TestCase):
     def test_risky_mutations_denied(self):
         changes=[
             lambda p,r:p[0]["head"].update(sha="d"*40),
-            lambda p,r:p[0]["head"].update(ref="attacker"),
+            lambda p,r:p[0]["head"].update(ref="auto-candidate/"+"d"*20),
             lambda p,r:p[0]["base"].update(ref="release/evil"),
             lambda p,r:r["workflow_runs"][0].update(event="workflow_dispatch"),
             lambda p,r:r["workflow_runs"][0].update(conclusion="action_required"),
