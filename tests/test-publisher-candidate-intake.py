@@ -6,6 +6,9 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 import subprocess
+import base64
+import hashlib
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
@@ -14,6 +17,15 @@ mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mod)
 REPO = "pgextwin/pg_ivm"
 SHA = "a"*40
+ACTUAL = json.loads((ROOT / "tests/fixtures/signed-source-jobs-plpgsql-40250416760.json").read_text())
+LIFECYCLE = {"schemaVersion": 1, "postgresql": [{"major": m, "eol": "2999-01-01"}
+    for m in (14, 15, 16, 17, 18)]}
+
+def encoded_manifest(value):
+    raw=json.dumps(value).encode()
+    return {"path":"config/extension.json", "encoding":"base64",
+        "content":base64.b64encode(raw).decode(),"size":len(raw),
+        "sha":hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()}
 
 def fleet():
     return {"schemaVersion":1, "releasePolicy":"manual-only",
@@ -26,19 +38,25 @@ def evidence():
            "head_sha":SHA, "head_branch":"main",
            "path":".github/workflows/update-watch.yml",
            "repository":{"full_name":REPO}}
-    jobs = {"total_count":4,"jobs":[{"name":name,"status":"completed",
-                                    "conclusion":"success"} for name in mod.SIGNED_JOBS]}
+    jobs = {"jobs": [deepcopy(j) for j in ACTUAL["jobs"]["jobs"] if j["conclusion"] == "success"]}
+    for i,j in enumerate(jobs["jobs"]):
+        j.update(id=100+i,run_id=1234,run_attempt=1,head_sha=SHA,
+            check_run_url=f"https://api.github.com/repos/{REPO}/check-runs/{100+i}",
+            html_url=f"https://github.com/{REPO}/actions/runs/1234/job/{100+i}")
+    jobs["total_count"] = len(jobs["jobs"])
     artifacts = {"total_count":2, "artifacts":[
         {"name":name, "size_in_bytes":100, "expired":False}
         for name in sorted(mod.SIGNED_ARTIFACTS)]}
     return {"branch":{"name":"main","protected":True,"commit":{"sha":SHA}},
             "runs":{"workflow_runs":[run]},
-            "jobs":jobs,"artifacts":artifacts}
+            "jobs":jobs,"artifacts":artifacts,
+            "manifest":{"name":REPO.split("/")[1],"postgresql":{"majors":[14,15,16,17,18]}}}
 
 def examine(d, repo=REPO):
     return mod.examine(repo, d["branch"],d["runs"],
                        read_jobs=lambda rid:d["jobs"],
-                       read_artifacts=lambda rid:d["artifacts"])
+                       read_artifacts=lambda rid:d["artifacts"],
+                       read_manifest=lambda sha:d["manifest"],lifecycle=LIFECYCLE)
 
 class IntakeTests(unittest.TestCase):
     def test_eligible_structural_candidate_is_explicitly_nonpublishing(self):
@@ -71,13 +89,35 @@ class IntakeTests(unittest.TestCase):
             d=evidence();d["runs"]["workflow_runs"][0].update(changes)
             self.assertEqual(examine(d)["status"],"ORIGINAL_PUSH_NOT_SUCCESSFULLY_ATTESTED")
 
+    def test_exact_protected_manifest_drives_full_signed_matrix(self):
+        d=evidence();d["manifest"]["postgresql"]["majors"]=[16,17,18]
+        self.assertEqual(examine(d)["status"],"SIGNED_JOB_CHAIN_INCOMPLETE")
+        d["jobs"]["jobs"]=[j for j in d["jobs"]["jobs"]
+            if " / PostgreSQL 14 / " not in j["name"] and " / PostgreSQL 15 / " not in j["name"]]
+        d["jobs"]["total_count"]=len(d["jobs"]["jobs"])
+        self.assertEqual(examine(d)["status"],"SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED")
+        d["manifest"]["name"]="other"
+        with self.assertRaises(mod.Denied):examine(d)
+
+    def test_manifest_must_be_git_blob_verified_at_exact_source_sha(self):
+        base=evidence()
+        def get(repo,suffix):
+            if suffix=="branches/main":return deepcopy(base["branch"])
+            if suffix==mod.SOURCE_PUSH_RUNS:return deepcopy(base["runs"])
+            if suffix=="contents/config/extension.json?ref="+SHA:
+                item=encoded_manifest(base["manifest"]);item["sha"]="f"*40;return item
+            raise AssertionError("unnecessary request before manifest authenticity: "+suffix)
+        result=mod.scan(fleet(),get=get,lifecycle=LIFECYCLE)
+        self.assertEqual(result["counts"],{"INDETERMINATE":1})
+        self.assertFalse(result["publicationAuthorized"])
+
     def test_protected_main_job_signing_and_artifact_fail_closed(self):
         d=evidence();d["branch"]["protected"]=False
         with self.assertRaises(mod.Denied):examine(d)
         d=evidence();d["jobs"]["jobs"][-1]["conclusion"]="skipped"
         self.assertEqual(examine(d)["status"],"SIGNED_JOB_CHAIN_INCOMPLETE")
         d=evidence();d["jobs"]["jobs"].append(deepcopy(d["jobs"]["jobs"][0]))
-        d["jobs"]["total_count"]=5
+        d["jobs"]["total_count"]=len(d["jobs"]["jobs"])
         self.assertEqual(examine(d)["status"],"SIGNED_JOB_CHAIN_INCOMPLETE")
         d=evidence();d["artifacts"]["artifacts"][0]["expired"]=True
         self.assertEqual(examine(d)["status"],"SIGNED_AUDIT_ARTIFACTS_INCOMPLETE")
@@ -118,8 +158,10 @@ class IntakeTests(unittest.TestCase):
             if suffix==mod.SOURCE_PUSH_RUNS:return deepcopy(base["runs"])
             if suffix.endswith("/jobs?per_page=100"):return deepcopy(base["jobs"])
             if suffix.endswith("/artifacts?per_page=100"):return deepcopy(base["artifacts"])
+            if suffix=="contents/config/extension.json?ref="+SHA:
+                return encoded_manifest(base["manifest"])
             raise AssertionError("unfiltered/unauthorized original Run discovery: "+suffix)
-        self.assertEqual(mod.scan(fleet(),get=get)["counts"],
+        self.assertEqual(mod.scan(fleet(),get=get,lifecycle=LIFECYCLE)["counts"],
                          {"SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED":1})
         self.assertEqual(seen[1],mod.SOURCE_PUSH_RUNS)
         self.assertEqual(mod.SOURCE_PUSH_RUNS,
@@ -141,8 +183,10 @@ class IntakeTests(unittest.TestCase):
             if "workflows/" in suffix:return deepcopy(base["runs"])
             if "/jobs?" in suffix:return deepcopy(base["jobs"])
             if "/artifacts?" in suffix:return deepcopy(base["artifacts"])
+            if suffix=="contents/config/extension.json?ref="+SHA:
+                return encoded_manifest(base["manifest"])
             raise AssertionError(suffix)
-        result=mod.scan(fleet(),get=get)
+        result=mod.scan(fleet(),get=get,lifecycle=LIFECYCLE)
         self.assertEqual(result["repositoryCount"],1)
         self.assertEqual(result["counts"],{"SIGNED_RUN_FOUND_REVERIFICATION_REQUIRED":1})
         for key in ("publicationAuthorized","publishableReceipt","publisherWriteAuthorized",

@@ -211,6 +211,9 @@ jobs:
       - name: Reject forged schedule-signed source joins before Publisher admission (NO RELEASE)
         run: python tests/test-automatic-publisher-admission.py
 
+      - name: Verify actual original signed main push job chain
+        run: python tests/test-signed-source-jobs.py
+
       - name: Verify hourly Publisher selects only genuine fleet signed runs (NO RELEASE)
         run: |
           python tests/test-select-signed-publisher-candidates.py

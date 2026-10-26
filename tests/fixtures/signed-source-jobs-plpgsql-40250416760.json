@@ -1,0 +1,226 @@
+{
+  "kind": "MINIMIZED_AUTHENTICATED_GITHUB_GET_NOT_CRYPTOGRAPHIC_PROOF",
+  "repository": "pgextwin/plpgsql_check",
+  "sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+  "majors": [
+    14,
+    15,
+    16,
+    17,
+    18
+  ],
+  "run": {
+    "id": 40250416760,
+    "run_attempt": 1,
+    "repository": {
+      "full_name": "pgextwin/plpgsql_check"
+    },
+    "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+    "head_branch": "main",
+    "event": "push",
+    "path": ".github/workflows/update-watch.yml",
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "jobs": {
+    "total_count": 13,
+    "jobs": [
+      {
+        "id": 121340866998,
+        "name": "Authenticate main merge and scheduled decision (NONPUBLISHING) / Authenticate protected candidate merge from real GitHub bytes",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340866998",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340866998"
+      },
+      {
+        "id": 121340868014,
+        "name": "Prepare requested SHA-pinned Windows candidate (never Release)",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "skipped",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340868014",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340868014"
+      },
+      {
+        "id": 121340868199,
+        "name": "Read-only latest 17-fleet success and exact protected main preflight",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "skipped",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340868199",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340868199"
+      },
+      {
+        "id": 121340868218,
+        "name": "Verify completed native candidate CI without rerunning Windows builds",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "skipped",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340868218",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340868218"
+      },
+      {
+        "id": 121340868308,
+        "name": "Explicit upstream check and Issue reconciliation",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "skipped",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340868308",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340868308"
+      },
+      {
+        "id": 121340950362,
+        "name": "Attest original candidate after verified protected main merge (NO PUBLISH) / Resolve extension and PostgreSQL matrix",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340950362",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340950362"
+      },
+      {
+        "id": 121340994811,
+        "name": "Attest original candidate after verified protected main merge (NO PUBLISH) / PostgreSQL 14 / Windows x64",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340994811",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340994811"
+      },
+      {
+        "id": 121340994823,
+        "name": "Attest original candidate after verified protected main merge (NO PUBLISH) / PostgreSQL 17 / Windows x64",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340994823",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340994823"
+      },
+      {
+        "id": 121340994829,
+        "name": "Attest original candidate after verified protected main merge (NO PUBLISH) / PostgreSQL 15 / Windows x64",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340994829",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340994829"
+      },
+      {
+        "id": 121340994839,
+        "name": "Attest original candidate after verified protected main merge (NO PUBLISH) / PostgreSQL 16 / Windows x64",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340994839",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340994839"
+      },
+      {
+        "id": 121340994840,
+        "name": "Attest original candidate after verified protected main merge (NO PUBLISH) / PostgreSQL 18 / Windows x64",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121340994840",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121340994840"
+      },
+      {
+        "id": 121344084372,
+        "name": "Independently verify signed candidate bytes and identity (NO PUBLISH) / Verify actual signed ZIP/SPDX/Grype provenance without Publisher rights",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121344084372",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121344084372"
+      },
+      {
+        "id": 121344303962,
+        "name": "Independently verify signed candidate bytes and identity (NO PUBLISH) / Independently reverify signed candidate before future Publisher (NO PUBLISH)",
+        "run_id": 40250416760,
+        "run_attempt": 1,
+        "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+        "status": "completed",
+        "conclusion": "success",
+        "check_run_url": "https://api.github.com/repos/pgextwin/plpgsql_check/check-runs/121344303962",
+        "html_url": "https://github.com/pgextwin/plpgsql_check/actions/runs/40250416760/job/121344303962"
+      }
+    ]
+  },
+  "artifacts": {
+    "total_count": 2,
+    "artifacts": [
+      {
+        "id": 12621000944,
+        "name": "automatic-signed-candidate-audit-nonpublishing",
+        "size_in_bytes": 3307,
+        "expired": false,
+        "digest": "sha256:b65cc7293c3215c7fdc72161f1987b2c9e62ec31e0b005c1f8ebc74703b8fd03",
+        "workflow_run": {
+          "id": 40250416760,
+          "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4"
+        }
+      },
+      {
+        "id": 12620886915,
+        "name": "independent-signed-publisher-preflight-nonpublishing",
+        "size_in_bytes": 1906,
+        "expired": false,
+        "digest": "sha256:b760626c78b02ef49a4ca9a1ca58d7c7b955ea2a193e9550f65053f26c7394b7",
+        "workflow_run": {
+          "id": 40250416760,
+          "head_sha": "8629cae26a75d9f5230cb80339bd393ee08997b4"
+        }
+      }
+    ]
+  },
+  "manifest": {
+    "schemaVersion": 1,
+    "name": "plpgsql_check",
+    "upstream": {
+      "repository": "okbob/plpgsql_check",
+      "ref": "v2.10.16",
+      "version": "2.10.16",
+      "commit": "9a5c0ec4babebd5eb8e0db104c54f7ddb43fcc07"
+    },
+    "postgresql": {
+      "majors": [
+        14,
+        15,
+        16,
+        17,
+        18
+      ]
+    },
+    "windows": {
+      "architecture": "x64"
+    },
+    "license": {
+      "verifyAgainstUpstream": true,
+      "upstreamPath": "LICENSE"
+    }
+  }
+}

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Fail-closed original-bot candidate base-sync repair tests (offline)."""
 import copy
+import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -18,6 +20,7 @@ spec.loader.exec_module(c)
 REPO = "pgextwin/hypopg"
 MAIN_SHA, ORIGINAL, HUMAN, NEW = ("a"*40, "b"*40, "c"*40, "d"*40)
 BLOB = "e"*40
+SHARED_SHA = "1"*40
 BRANCH = "auto-candidate/5860b6258e7d21085f38"
 MARKER = "<!-- pgextwin-candidate:v1:5860b6258e7d21085f38 -->"
 PATH = "config/extension.json"
@@ -41,7 +44,7 @@ RUN = {"id": 40250481553, "event": "pull_request", "head_sha": HUMAN,
 
 
 class BotRepairTests(TestCase):
-    def run_case(self, *, change=None, good=False, advanced=False):
+    def run_case(self, *, change=None, good=False, advanced=False, race_main=False):
         env, listing, pr, run = copy.deepcopy(ENV), copy.deepcopy(LIST), copy.deepcopy(PR), copy.deepcopy(RUN)
         responses = {
             ("gh", "api", "repos/" + REPO + "/branches/main"):
@@ -77,6 +80,8 @@ class BotRepairTests(TestCase):
             responses[("git", "merge-base", "--is-ancestor", previous, MAIN_SHA)] = ""
             responses[("git", "diff", "--name-only", previous, HUMAN)] = PATH
             responses[("git", "rev-parse", previous + ":" + PATH)] = "f"*40
+            responses[("git", "diff", "--name-only", previous, MAIN_SHA)] = (
+                ".github/workflows/update-watch.yml")
         if change:
             change(env, listing, pr, run, responses)
             responses[("gh", "pr", "list", "--repo", REPO, "--head", BRANCH,
@@ -89,6 +94,9 @@ class BotRepairTests(TestCase):
         calls = []
         def execute(*args):
             calls.append(args)
+            source_main = ("gh", "api", "repos/" + REPO + "/branches/main")
+            if race_main and args == source_main and calls.count(source_main) > 1:
+                return json.dumps({"protected": True, "commit": {"sha": "0"*40}})
             if args == ("git", "rev-parse", "HEAD"):
                 return NEW if any(x[:2] in {("git", "commit"), ("git", "merge")} for x in calls) else MAIN_SHA
             if args in responses:
@@ -121,9 +129,111 @@ class BotRepairTests(TestCase):
     def test_advanced_protected_main_reconciles_forward_only(self):
         self.run_case(good=True, advanced=True)
 
+    def test_rest_pr_can_retain_previous_base_after_protected_main_advance(self):
+        # Actual HypoPG #41 GET: base.sha=dccc3bb... still records the second
+        # parent of the human sync, while protected main advanced to906674d...
+        # for a shared caller-pin repair. Both immutable ancestry and unchanged
+        # source-manifest checks remain necessary before a forward bot merge.
+        self.run_case(good=True, advanced=True,
+                      change=lambda e,l,p,r,d: p["base"].update(sha="9"*40))
+
     def test_advanced_main_manifest_change_fails_closed(self):
         self.run_case(advanced=True, change=lambda e,l,p,r,d: d.update({
             ("git", "rev-parse", "9"*40 + ":" + PATH): "0"*40}))
+
+    def test_main_race_fails_before_bot_write(self):
+        self.run_case(advanced=True, race_main=True)
+
+    def test_retained_base_does_not_waive_main_ancestry_or_manifest(self):
+        def nonancestor(e,l,p,r,d):
+            p["base"]["sha"] = "9"*40
+            del d[("git", "merge-base", "--is-ancestor", "9"*40, MAIN_SHA)]
+        self.run_case(advanced=True, change=nonancestor)
+        def changed_manifest(e,l,p,r,d):
+            p["base"]["sha"] = "9"*40
+            d[("git", "rev-parse", "9"*40 + ":" + PATH)] = "0"*40
+        self.run_case(advanced=True, change=changed_manifest)
+        self.run_case(advanced=True,
+                      change=lambda e,l,p,r,d: p["base"].update(sha=ORIGINAL))
+
+    def cutover(self, *, corrupt=None):
+        def change(e,l,p,r,d):
+            previous = "9"*40
+            p["base"]["sha"] = previous
+            d[("git", "diff", "--name-only", previous, MAIN_SHA)] = (
+                ".github/workflows/update-watch.yml\nconfig/release-promotion.json")
+            d[("git", "show", previous + ":config/release-promotion.json")] = json.dumps({
+                "schemaVersion": 1, "enabled": True, "releasePolicy": "manual-dispatch"})
+            d[("git", "show", MAIN_SHA + ":config/release-promotion.json")] = json.dumps({
+                "schemaVersion": 1, "enabled": True,
+                "releasePolicy": "automatic-signed-schedule"})
+            d[("git", "-C", str(ROOT), "rev-parse", "HEAD")] = SHARED_SHA
+            d[("git", "show", MAIN_SHA + ":.github/workflows/update-watch.yml")] = (
+                "    uses: pgextwin/build/.github/workflows/candidate-update.yml@" + SHARED_SHA)
+            d[("gh", "api", "--method", "GET", "repos/pgextwin/build/branches/main")] = json.dumps({
+                "protected": True, "commit": {"sha": SHARED_SHA},
+                "protection": {"required_status_checks": {
+                    "checks": [{"context": "resolver", "app_id": 15368}]}}})
+            names = ("automation-fleet.json", "release-promotion.json",
+                     "unattended-publication.json", "publisher-write-boundary.json")
+            objects = [json.loads((ROOT / "metadata" / n).read_text()) for n in names]
+            objects[0]["releasePolicy"] = "automatic-signed-schedule"
+            for row in objects[0]["entries"]:
+                row["releasePolicy"] = "automatic-signed-schedule"
+            objects[1]["releasePolicy"] = "automatic-signed-schedule"
+            objects[2]["mode"] = "UNATTENDED"
+            objects[2]["controls"] = {key: True for key in objects[2]["controls"]}
+            objects[3].update(mode="ENFORCE", publisherAppId=5451798,
+                              publisherInstallationId=174720074)
+            for name, value in zip(names, objects):
+                path = "metadata/" + name
+                raw = (json.dumps(value, indent=2) + "\n").encode()
+                sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+                d[("gh", "api", "--method", "GET",
+                   "repos/pgextwin/build/contents/" + path + "?ref=" + SHARED_SHA)] = json.dumps({
+                       "path": path, "encoding": "base64", "sha": sha,
+                       "size": len(raw), "content": base64.encodebytes(raw).decode()})
+            if corrupt:
+                corrupt(e,l,p,r,d)
+        return change
+
+    def test_exact_cutover_requires_complete_live_protected_automatic_bundle(self):
+        self.run_case(good=True, advanced=True, change=self.cutover())
+
+    def test_partial_or_substituted_cutover_fails_before_bot_write(self):
+        central = ("gh", "api", "--method", "GET", "repos/pgextwin/build/branches/main")
+        metadata = ("gh", "api", "--method", "GET",
+                    "repos/pgextwin/build/contents/metadata/unattended-publication.json?ref=" + SHARED_SHA)
+        def partial_policy(e,l,p,r,d):
+            response = json.loads(d[metadata])
+            value = json.loads(base64.b64decode(response["content"]))
+            value["controls"]["automaticFormalRelease"] = False
+            raw = (json.dumps(value) + "\n").encode()
+            response.update(size=len(raw), content=base64.encodebytes(raw).decode(),
+                            sha=hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest())
+            d[metadata] = json.dumps(response)
+        cases = [
+            partial_policy,
+            lambda e,l,p,r,d: d.update({("git", "diff", "--name-only", "9"*40, MAIN_SHA):
+                ".github/workflows/update-watch.yml\nconfig/release-promotion.json\nwindows/ci/build.ps1"}),
+            lambda e,l,p,r,d: d.update({("git", "show", MAIN_SHA + ":config/release-promotion.json"):
+                json.dumps({"schemaVersion": 1, "enabled": False,
+                            "releasePolicy": "automatic-signed-schedule"})}),
+            lambda e,l,p,r,d: d.update({("git", "show", MAIN_SHA + ":.github/workflows/update-watch.yml"):
+                "    uses: pgextwin/build/.github/workflows/candidate-update.yml@" + "2"*40}),
+            lambda e,l,p,r,d: d.update({central: json.dumps({"protected": False,
+                "commit": {"sha": SHARED_SHA}})}),
+            lambda e,l,p,r,d: d.update({central: json.dumps({"protected": True,
+                "commit": {"sha": "2"*40}})}),
+            lambda e,l,p,r,d: d.update({central: json.dumps({"protected": True,
+                "commit": {"sha": SHARED_SHA}, "protection": {"required_status_checks": {
+                    "checks": [{"context": "resolver", "app_id": 42}]}}})}),
+            lambda e,l,p,r,d: d.update({metadata: json.dumps({"path": "metadata/unattended-publication.json",
+                "encoding": "base64", "sha": "0"*40, "content": "e30="})}),
+        ]
+        for i, corrupt in enumerate(cases):
+            with self.subTest(case=i):
+                self.run_case(advanced=True, change=self.cutover(corrupt=corrupt))
 
     def test_all_provenance_mismatches_fail_before_any_write(self):
         cases = [

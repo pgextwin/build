@@ -23,13 +23,10 @@ PROVENANCE = pin.SLSA
 SPDX = pin.SPDX
 PROMOTE_PATH = pin.offline.PROMOTE_PATH
 PUSH_PATH = ".github/workflows/update-watch.yml"
-# These are real protected main/push jobs, distinct from the manual Publisher.
-SIGNED_PUSH_JOBS = (
-    "Audit real single manifest-only protected candidate main push",
-    "Attest original candidate after verified protected main merge (NO PUBLISH)",
-    "Verify actual signed ZIP/SPDX/Grype provenance without Publisher rights",
-    "Independently reverify signed candidate before future Publisher (NO PUBLISH)",
-)
+_job_spec = importlib.util.spec_from_file_location(
+    "publisher_completed_signed_jobs", ROOT / "signed-source-jobs.py")
+signed_jobs = importlib.util.module_from_spec(_job_spec)
+_job_spec.loader.exec_module(signed_jobs)
 SIGNED_PUSH_ARTIFACTS = frozenset({
     "automatic-signed-candidate-audit-nonpublishing",
     "independent-signed-publisher-preflight-nonpublishing",
@@ -159,7 +156,7 @@ def validate_snapshot(run, page, *, repo, sha, run_id, attempt, majors):
 
 
 def validate_completed_push_snapshot(run, jobs, artifacts, *, repo, sha, run_id,
-                                     attempt):
+                                     attempt, majors):
     """Strict original completed signed main/push identity; NO publication grant.
 
     This checks authenticated GET metadata, not bytes or cryptographic
@@ -180,29 +177,11 @@ def validate_completed_push_snapshot(run, jobs, artifacts, *, repo, sha, run_id,
             and run.get("status") == "completed"
             and run.get("conclusion") == "success",
             "not original successful completed signed main/push run")
-    require(type(jobs) is dict and type(jobs.get("total_count")) is int
-            and 0 < jobs["total_count"] < 100
-            and type(jobs.get("jobs")) is list
-            and len(jobs["jobs"]) == jobs["total_count"],
-            "incomplete/paginated signed jobs")
-    matches = {}
-    for job in jobs["jobs"]:
-        require(type(job) is dict and positive(job.get("id"))
-                and positive(job.get("run_id")) and job["run_id"] == run_id
-                and type(job.get("run_attempt")) is int
-                and job["run_attempt"] == attempt
-                and job.get("head_sha") == sha
-                and type(job.get("name")) is str,
-                "cross-run/cross-attempt or incomplete signed job")
-        for expected in SIGNED_PUSH_JOBS:
-            if job["name"] == expected or job["name"].endswith(" / " + expected):
-                require(expected not in matches
-                        and job.get("status") == "completed"
-                        and job.get("conclusion") == "success",
-                        "duplicate/failed/skipped required signed job")
-                matches[expected] = job["id"]
-    require(set(matches) == set(SIGNED_PUSH_JOBS),
-            "missing required independent Sigstore/Windows job")
+    try:
+        matches = signed_jobs.verify(run, jobs, repository=repo, sha=sha,
+            run_id=run_id, attempt=attempt, majors=majors)
+    except signed_jobs.Denied as exc:
+        raise Deny("original signed job chain denied: " + str(exc)) from exc
     require(type(artifacts) is dict
             and type(artifacts.get("total_count")) is int
             and 0 < artifacts["total_count"] < 100
@@ -227,7 +206,7 @@ def validate_completed_push_snapshot(run, jobs, artifacts, *, repo, sha, run_id,
             "missing original and independent signed audit artifacts")
     # Stable fingerprint for pre/post independent byte verification comparison.
     # Do not return authorization flags or mistake GET metadata for signatures.
-    return (repo, sha, run_id, attempt, tuple(sorted(matches.items())),
+    return (repo, sha, run_id, attempt, matches,
             tuple(sorted(found.items())))
 
 
