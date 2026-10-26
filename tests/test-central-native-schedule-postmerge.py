@@ -56,10 +56,10 @@ class CentralNativeSchedulePostmergeTests(unittest.TestCase):
         if change:change(event,local,central,receipt)
         def api(repo,endpoint):
             if repo==fixtures.REPO:
-                if endpoint not in local: raise AssertionError(endpoint)
+                if endpoint not in local: raise mod.Denied("untrusted changed original native GET")
                 return deepcopy(local[endpoint])
             if repo==CENTRAL:
-                if endpoint not in central: raise AssertionError(endpoint)
+                if endpoint not in central: raise mod.Denied("untrusted changed central schedule GET")
                 return deepcopy(central[endpoint])
             raise AssertionError(repo)
         def download(run,asset,target):
