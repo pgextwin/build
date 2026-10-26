@@ -1,0 +1,164 @@
+name: Issue75 HypoPG 1.4.4 public bytes and Windows SQL smoke (READ ONLY)
+
+# 一度公開されたReleaseの実バイトを別のWindows Runnerで検査する。
+# Release、tag、Catalog、PUBLISHポリシーには一切書き込まない。
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/issue75-hypopg-public-144-readonly.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  public-windows:
+    name: Public PG${{ matrix.major }} actual ZIP and SQL smoke
+    runs-on: windows-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - major: 14
+            chocolatey: postgresql14
+            version: "14.24.0"
+            signed_zip_sha: 114a74c69c8552f68d373e364d2cb45c7902b2acb53766e59f7cfbc025b67765
+          - major: 15
+            chocolatey: postgresql15
+            version: "15.19.0"
+            signed_zip_sha: 12bba2aec37a46b191f63eba624bbe9ddd168baabaf8d622fb8f5f55fdf88ba9
+          - major: 16
+            chocolatey: postgresql16
+            version: "16.15.5"
+            signed_zip_sha: c1f1c5732696c633f31a716cbb50c9d1f31dbd0dc0416a8b14e3b432cacd63c9
+          - major: 17
+            chocolatey: postgresql17
+            version: "17.11.4"
+            signed_zip_sha: dc8f6e7259c7af7838ebaffffe508e196ca3403a6646985841f1c3d5ddf9aa77
+          - major: 18
+            chocolatey: postgresql18
+            version: "18.6.5"
+            signed_zip_sha: 686fd24362f185aeb774b851be9d4ca1c92dd0061f365db6c1390e50e9cbc3c0
+
+    steps:
+      - name: Checkout audit only (no trusted push credential)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact published HypoPG source for its existing SQL smoke
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/hypopg
+          ref: 771ef1c84db382d070b22d03c22be142f24c7fee
+          path: .hypopg
+          persist-credentials: false
+
+      - name: Download existing formal Release and independently rehash all 16 public assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_ZIP_SHA: ${{ matrix.signed_zip_sha }}
+          PG_MAJOR: ${{ matrix.major }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = 'v1.4.4-windows.1'
+          $sha = '771ef1c84db382d070b22d03c22be142f24c7fee'
+          $release = gh api "repos/pgextwin/hypopg/releases/tags/$tag" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $release.id -ne 424739121 -or
+              $release.draft -or $release.prerelease -or $release.tag_name -cne $tag -or
+              @($release.assets).Count -ne 16) { throw 'Exact formal Release identity DENY' }
+          $ref = gh api "repos/pgextwin/hypopg/git/ref/tags/$tag" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $ref.object.type -cne 'commit' -or
+              $ref.object.sha -cne $sha) { throw 'Immutable source tag DENY' }
+          New-Item -ItemType Directory -Path public -Force | Out-Null
+          gh release download $tag --repo pgextwin/hypopg --dir public
+          if ($LASTEXITCODE -ne 0) { throw 'Public asset download DENY' }
+          $assets = @($release.assets)
+          $files = @(Get-ChildItem public -File)
+          if ($files.Count -ne 16) { throw 'Public asset count DENY' }
+          $hashes = @{}
+          foreach ($asset in $assets) {
+            if ($hashes.ContainsKey([string]$asset.name)) { throw 'Duplicate asset DENY' }
+            $path = Join-Path 'public' ([string]$asset.name)
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'Missing public asset DENY' }
+            $size = (Get-Item -LiteralPath $path).Length
+            $digest = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($asset.state -cne 'uploaded' -or $size -ne $asset.size -or
+                [string]$asset.digest -cne "sha256:$digest") { throw 'Public asset digest DENY' }
+            $hashes[[string]$asset.name] = $digest
+          }
+          $lines = @(Get-Content -LiteralPath 'public/SHA256SUMS.txt')
+          $sums = @{}
+          foreach ($line in $lines) {
+            if ($line -cnotmatch '^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$') { throw 'SHA256SUMS syntax DENY' }
+            if ($sums.ContainsKey($Matches[2])) { throw 'Duplicate manifest name DENY' }
+            $sums[$Matches[2]] = $Matches[1]
+          }
+          if ($sums.Count -ne 15 -or $hashes.Count -ne 16) { throw 'SHA256SUMS inventory DENY' }
+          foreach ($asset in $assets) {
+            $name = [string]$asset.name
+            if ($name -cne 'SHA256SUMS.txt' -and
+                (-not $sums.ContainsKey($name) -or $sums[$name] -cne $hashes[$name])) {
+              throw 'Published manifest-to-byte digest DENY'
+            }
+          }
+          $stem = "hypopg-1.4.4-pg$env:PG_MAJOR-windows-x64"
+          $zip = Join-Path 'public' "$stem.zip"
+          if (-not $hashes.ContainsKey("$stem.zip") -or
+              $hashes["$stem.zip"] -cne $env:EXPECTED_ZIP_SHA) {
+            throw 'Signed original vs published actual bytes DENY'
+          }
+          $spdx = Get-Content -LiteralPath (Join-Path public "$stem.spdx.json") -Raw | ConvertFrom-Json
+          $grype = Get-Content -LiteralPath (Join-Path public "$stem.vulnerabilities.json") -Raw | ConvertFrom-Json
+          if ($spdx.spdxVersion -cne 'SPDX-2.3' -or $null -eq $grype.matches) {
+            throw 'Public SPDX / Grype content DENY'
+          }
+          $recheck = gh api "repos/pgextwin/hypopg/releases/tags/$tag" | ConvertFrom-Json
+          $ref2 = gh api "repos/pgextwin/hypopg/git/ref/tags/$tag" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $recheck.id -ne $release.id -or
+              $ref2.object.sha -cne $ref.object.sha -or @($recheck.assets).Count -ne 16) {
+            throw 'Release/tag mutated during verification DENY'
+          }
+          foreach ($asset in @($recheck.assets)) {
+            if ($hashes[[string]$asset.name] -cne ([string]$asset.digest).Replace('sha256:', '')) {
+              throw 'TOCTOU Release digest DENY'
+            }
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath "$env:RUNNER_TEMP/verified-hypopg-public" -Force
+          $folder = Join-Path $env:RUNNER_TEMP 'verified-hypopg-public'
+          foreach ($relative in @('PACKAGE-INFO.json', 'lib/hypopg.dll', 'share/extension/hypopg.control')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $folder $relative) -PathType Leaf)) {
+              throw 'Published ZIP missing runtime/identity member DENY'
+            }
+          }
+          $pkg = Get-Content -LiteralPath (Join-Path $folder 'PACKAGE-INFO.json') -Raw | ConvertFrom-Json
+          if ($pkg.source.packagingCommit -cne $sha -or $pkg.postgresql.major -ne [int]$env:PG_MAJOR -or
+              $pkg.workflowRun.id -ne 40367712430 -or $pkg.workflowRun.event -cne 'push') {
+            throw 'Published ZIP source-run provenance DENY'
+          }
+          Write-Host "PUBLIC_ACTUAL_BYTES_MATCH_ORIGINAL_SIGNED_SOURCE PG$env:PG_MAJOR sha256=$env:EXPECTED_ZIP_SHA; no Release mutation"
+
+      - name: Install selected PostgreSQL server for real published ZIP smoke
+        shell: pwsh
+        run: |
+          & './scripts/install-postgresql.ps1' -Major ([int]"${{ matrix.major }}") `
+            -ChocolateyPackage "${{ matrix.chocolatey }}" `
+            -ChocolateyVersion "${{ matrix.version }}" -TestPort 55432
+
+      - name: Install ONLY independently verified public binary and run actual SQL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'verified-hypopg-public'
+          if (-not (Test-Path (Join-Path $folder 'lib/hypopg.dll'))) {
+            throw 'No verified public HypoPG DLL to install'
+          }
+          Copy-Item -Path (Join-Path $folder 'lib/hypopg.dll') -Destination (Join-Path $env:PGROOT 'lib/hypopg.dll') -Force
+          $target = Join-Path $env:PGROOT 'share/extension'
+          Get-ChildItem -Path (Join-Path $folder 'share/extension') -File |
+            Where-Object { $_.Name -like 'hypopg*' } |
+            Copy-Item -Destination $target -Force
+          & './.hypopg/windows/ci/smoke-test.ps1' -PgRoot $env:PGROOT `
+            -PgPort ([int]$env:PGPORT) -PostgreSqlMajor ([int]"${{ matrix.major }}")
+          Write-Host "PUBLIC_RELEASE_WINDOWS_SQL_SMOKE_SUCCESS PG${{ matrix.major }}; publisher overall FAILURE remains unchanged"
