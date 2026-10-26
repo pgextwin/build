@@ -8,6 +8,8 @@ unattended publisher: runtime evidence and scoped App checks are separate gates.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -27,6 +29,18 @@ REQUIRED_CONTROLS = {
     "requireImmutableTags",
     "quarantineOnAmbiguity",
 }
+# Schema 1 is the frozen historical contract. Schema 2 describes the existing
+# connected-Chat candidate route and the separate dedicated Catalog App truthfully.
+# Neither route's declaration proves a real merge or grants Release authority.
+EXPLICIT_IDENTITY_CONTROLS = (REQUIRED_CONTROLS - {"requireDedicatedMergeApp"}) | {
+    "requireTrustedCandidateMergeIdentity", "requireDedicatedCatalogMergeApp"
+}
+POLICY_FIELDS = {"schemaVersion", "mode", "defaultAction", "scheduleUtc",
+                 "pilotRepository", "requiredMajorVersions", "controls", "notes"}
+_identity_spec = importlib.util.spec_from_file_location(
+    "unattended_candidate_identity", Path(__file__).with_name("candidate-merge-identity.py"))
+candidate_identity = importlib.util.module_from_spec(_identity_spec)
+_identity_spec.loader.exec_module(candidate_identity)
 AUTOMATIC_CONTROLS = {
     "automaticCandidateMerge", "automaticFormalRelease", "automaticCatalogMerge"
 }
@@ -45,13 +59,53 @@ def require(condition, reason):
         raise PolicyDenied(reason)
 
 
-def evaluate(policy, fleet):
-    require(type(policy) is dict and set(policy) ==
-            {"schemaVersion", "mode", "defaultAction", "scheduleUtc",
-             "pilotRepository", "requiredMajorVersions", "controls", "notes"},
+def policy_controls(policy):
+    require(type(policy) is dict and type(policy.get("schemaVersion")) is int
+            and policy["schemaVersion"] in (1, 2), "invalid policy schema")
+    explicit = policy["schemaVersion"] == 2
+    require(set(policy) == POLICY_FIELDS | ({"candidateMergeIdentity"} if explicit else set()),
             "unknown or missing unattended policy fields")
-    require(type(policy["schemaVersion"]) is int and policy["schemaVersion"] == 1 and
-            policy["mode"] in {"OBSERVE", "UNATTENDED"} and
+    controls = policy["controls"]
+    require(type(controls) is dict and set(controls) ==
+            (EXPLICIT_IDENTITY_CONTROLS if explicit else REQUIRED_CONTROLS),
+            "incomplete/unrecognized unattended controls")
+    require(all(type(v) is bool for v in controls.values()),
+            "all safety controls must be booleans")
+    if explicit:
+        require(controls["requireTrustedCandidateMergeIdentity"] is True
+                and controls["requireDedicatedCatalogMergeApp"] is True,
+                "both explicit merge identity defenses are mandatory")
+        try:
+            candidate_identity.validate(policy["candidateMergeIdentity"])
+        except candidate_identity.Denied as exc:
+            raise PolicyDenied("untrusted candidate merge identity declaration") from exc
+    return controls
+
+
+def with_explicit_merge_identities(policy):
+    """Return a strict review copy; preserve mode and every automation switch.
+
+    This pure conversion neither saves metadata nor issues a receipt, token,
+    App proof or automatic-publication grant. Catalog's separate actual
+    requireDedicatedMergeApp policy and scoped runtime checks stay unchanged.
+    """
+    controls = policy_controls(policy)
+    proposed = deepcopy(policy)
+    if policy["schemaVersion"] == 1:
+        require(controls["requireDedicatedMergeApp"] is True,
+                "historical identity guard cannot be disabled during conversion")
+        proposed["schemaVersion"] = 2
+        del proposed["controls"]["requireDedicatedMergeApp"]
+        proposed["controls"].update(requireTrustedCandidateMergeIdentity=True,
+                                     requireDedicatedCatalogMergeApp=True)
+        proposed["candidateMergeIdentity"] = candidate_identity.declaration()
+    policy_controls(proposed)
+    return proposed
+
+
+def evaluate(policy, fleet):
+    controls = policy_controls(policy)
+    require(policy["mode"] in {"OBSERVE", "UNATTENDED"} and
             policy["defaultAction"] == "DENY", "invalid mode/default-deny settings")
     require(policy["scheduleUtc"] == SCHEDULE and
             policy["pilotRepository"] == PILOT and
@@ -59,11 +113,6 @@ def evaluate(policy, fleet):
             "unsupported pilot, PostgreSQL majors or schedule")
     require(isinstance(policy["notes"], str) and bool(policy["notes"]),
             "missing explanatory rollout notes")
-    controls = policy["controls"]
-    require(type(controls) is dict and set(controls) == REQUIRED_CONTROLS,
-            "incomplete/unrecognized unattended controls")
-    require(all(type(v) is bool for v in controls.values()),
-            "all safety controls must be booleans")
     require(type(fleet) is dict and type(fleet.get("schemaVersion")) is int and
             fleet["schemaVersion"] == 1 and
             fleet.get("scheduleUtc") == SCHEDULE and

@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "mode": "OBSERVE",
+  "schemaVersion": 2,
+  "mode": "UNATTENDED",
   "defaultAction": "DENY",
   "scheduleUtc": "0 * * * *",
   "pilotRepository": "pgextwin/plpgsql_check",
@@ -11,18 +11,26 @@
     18
   ],
   "controls": {
-    "automaticCandidateMerge": false,
-    "automaticFormalRelease": false,
-    "automaticCatalogMerge": false,
+    "automaticCandidateMerge": true,
+    "automaticFormalRelease": true,
+    "automaticCatalogMerge": true,
     "automaticWebsiteVerification": true,
-    "requireDedicatedMergeApp": true,
     "requireFreshCandidateAudit": true,
     "requirePinnedUpstreamCommit": true,
     "requireBuildProvenance": true,
     "requireSbomAttestation": true,
     "requireBlockingVulnerabilityPolicy": true,
     "requireImmutableTags": true,
-    "quarantineOnAmbiguity": true
+    "quarantineOnAmbiguity": true,
+    "requireTrustedCandidateMergeIdentity": true,
+    "requireDedicatedCatalogMergeApp": true
   },
-  "notes": "OBSERVE is deliberate: never grant automatic publication until independent code-level checks, scoped App identity, and GitHub ruleset acceptance are validated."
+  "notes": "Standing owner authorization uses the existing authenticated connected-Chat candidate merge identity and the separate dedicated Catalog App. Every release still requires fresh original native CI, signed protected main/push, independent Sigstore/SPDX/Grype, genuine central schedule, local opt-in and independent scoped create-only Publisher with token revocation. Static policy is not a receipt.",
+  "candidateMergeIdentity": {
+    "mode": "authenticated-connected-chat",
+    "actors": [
+      "ShutenOishi"
+    ],
+    "requireSamePushAndMergeActor": true
+  }
 }

@@ -1,12 +1,28 @@
 {
   "schemaVersion": 1,
-  "enabled": false,
-  "mode": "POST_MANUAL_RELEASE_ONLY",
-  "releasePolicy": "manual-dispatch",
-  "automaticFormalRelease": false,
-  "automaticCatalogMerge": false,
+  "enabled": true,
+  "mode": "POST_VERIFIED_RELEASE_ONLY",
+  "releasePolicy": "automatic-signed-schedule",
+  "automaticFormalRelease": true,
+  "automaticCatalogMerge": true,
   "allowedExtensions": [
-    "plpgsql_check"
+    "hypopg",
+    "orafce",
+    "pg_bigm",
+    "pg_cron",
+    "pg_hint_plan",
+    "pg_ivm",
+    "pg_partman",
+    "pg_qualstats",
+    "pg_repack",
+    "pg_stat_monitor",
+    "pg_store_plans",
+    "pg_variables",
+    "pgaudit",
+    "pgtap",
+    "plpgsql_check",
+    "set_user",
+    "wal2json"
   ],
   "requiredCatalogWorkflow": "validate.yml",
   "requirePublishedPublicRelease": true,
@@ -16,5 +32,5 @@
   "requireExactHeadRequiredChecks": true,
   "requireDedicatedMergeApp": true,
   "denyUnknownOrDuplicate": true,
-  "notes": "Default denied. Independent verified Catalog auto-merge may be separately enabled only after an operator published a signed immutable Release. Never enable automatic formal Releases."
+  "notes": "Explicit downstream declaration only; Catalog local/App opt-ins, public signed Release verification and exact-head protected PR checks remain mandatory."
 }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "scheduleUtc": "0 * * * *",
-  "releasePolicy": "manual-only",
+  "releasePolicy": "automatic-signed-schedule",
   "entries": [
     {
       "repository": "pgextwin/pg_bigm",
@@ -9,8 +9,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_cron",
@@ -18,8 +18,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_hint_plan",
@@ -27,8 +27,8 @@
       "strategy": "github-releases-per-postgresql",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pgaudit",
@@ -36,8 +36,8 @@
       "strategy": "github-releases-per-postgresql",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/set_user",
@@ -45,8 +45,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_repack",
@@ -54,8 +54,8 @@
       "strategy": "github-tags",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_ivm",
@@ -63,8 +63,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_qualstats",
@@ -72,8 +72,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/plpgsql_check",
@@ -81,8 +81,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Step 23: SHA-pinned candidate draft PR and Windows CI; promotion remains manually controlled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/hypopg",
@@ -90,8 +90,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/wal2json",
@@ -99,8 +99,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_partman",
@@ -108,8 +108,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_stat_monitor",
@@ -117,8 +117,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/orafce",
@@ -126,8 +126,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Local main Windows CI and manual-only promotion gate verified; enable immutable stable candidate builds; formal Release requires separate operator PUBLISH and central allowlist"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pgtap",
@@ -135,8 +135,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_variables",
@@ -144,8 +144,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     },
     {
       "repository": "pgextwin/pg_store_plans",
@@ -153,8 +153,8 @@
       "strategy": "github-releases",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
-      "releasePolicy": "manual-only",
-      "reason": "Third-wave PG14-18 protected Windows postmerge 5/5 accepted; central candidate capability only; local candidate and Release gates remain disabled"
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     }
   ]
 }

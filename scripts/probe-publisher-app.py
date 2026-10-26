@@ -24,6 +24,11 @@ _scope_token_spec = importlib.util.spec_from_file_location(
 scope_token = importlib.util.module_from_spec(_scope_token_spec)
 _scope_token_spec.loader.exec_module(scope_token)
 
+_unattended_spec = importlib.util.spec_from_file_location(
+    "publisher_probe_unattended", Path(__file__).with_name("unattended-policy.py"))
+unattended = importlib.util.module_from_spec(_unattended_spec)
+_unattended_spec.loader.exec_module(unattended)
+
 def require(ok):
     if not ok:
         raise ValueError("Publisher probe rejected")
@@ -81,9 +86,17 @@ def run():
         pilot_policy = json.loads(
             Path("metadata/unattended-publication.json").read_text("utf-8"))
         pilot = pilot_policy.get("pilotRepository")
-        require(pilot_policy.get("schemaVersion") == 1
-                and pilot_policy.get("defaultAction") == "DENY"
-                and type(pilot) is str and pilot in names)
+        schema = pilot_policy.get("schemaVersion")
+        if type(schema) is int and schema == 2:
+            # Exact shared shape/actor/controls validation happens before key
+            # access. A valid new declaration is still not Release authority.
+            decision = unattended.evaluate(pilot_policy, fleet)
+            require(decision.get("automaticPublicationAuthorized") is False)
+        else:
+            # Preserve the historical minimal nonpublishing canary contract.
+            require(type(schema) is int and schema == 1
+                    and pilot_policy.get("defaultAction") == "DENY")
+        require(type(pilot) is str and pilot in names)
         names = [pilot]
     key = os.environ.pop("PUBLISHER_PRIVATE_KEY")
     # One central code path validates the authenticated issuer + installation

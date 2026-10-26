@@ -9,13 +9,14 @@ import tempfile
 import unittest
 from urllib.error import HTTPError
 from unittest.mock import patch
+from publication_policy_fixtures import manual_policy
 spec = importlib.util.spec_from_file_location("probe", Path(__file__).resolve().parents[1] / "scripts/probe-publisher-app.py")
 p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
 
 class ProofTests(unittest.TestCase):
     def exercise(self, bad=None, event="workflow_dispatch", extra_member=False,
-                 release_policy="manual-only"):
+                 release_policy="manual-only", explicit=False):
         fleet = {"schemaVersion": 1, "releasePolicy": "manual-only", "entries": [
             {"repository": "pgextwin/future_extension", "mode": "BUILD",
              "candidateEnabled": True, "releasePolicy": "manual-only"}]}
@@ -23,13 +24,16 @@ class ProofTests(unittest.TestCase):
             fleet["entries"].append({
                 "repository": "pgextwin/second_extension", "mode": "BUILD",
                 "candidateEnabled": True, "releasePolicy": "manual-only"})
+        if explicit:
+            fleet = manual_policy("automation-fleet.json")
         fleet["releasePolicy"]=release_policy
         for row in fleet["entries"]:
             row["releasePolicy"]=release_policy
         calls = []
         revoked = False
+        selected_repository = "pgextwin/future_extension"
         def api(method, path, token, body=None):
-            nonlocal revoked
+            nonlocal revoked, selected_repository
             calls.append((method, path))
             if path == "/app":
                 return {"id": 5451798 if bad != "identity" else 15368, "slug": "pgextwin-publisher"}
@@ -38,6 +42,8 @@ class ProofTests(unittest.TestCase):
                     "repository_selection":"all","permissions":{"contents":"write","metadata":"read"}}
             if path.endswith("/access_tokens"):
                 from datetime import datetime, timezone, timedelta
+                revoked = False
+                selected_repository = "pgextwin/" + body["repositories"][0]
                 return {"token":"synthetic-private-token-never-print","repository_selection":"selected",
                     "permissions":{"contents":"write","metadata":"read"},
                     "expires_at":(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat().replace("+00:00", "Z")}
@@ -46,7 +52,7 @@ class ProofTests(unittest.TestCase):
                     raise HTTPError("https://api.github.com", 403 if bad=="revocation-403"
                                     else 401, "revoked", {}, None)
                 return {"total_count": 2 if bad == "scope" else 1,
-                        "repositories":[{"full_name":"pgextwin/future_extension"}]}
+                        "repositories":[{"full_name":selected_repository}]}
             if path.endswith("/git/blobs"):
                 if bad == "write":
                     raise ValueError("synthetic-private-token-never-print")
@@ -66,10 +72,21 @@ class ProofTests(unittest.TestCase):
                 os.chdir(tmp)
                 Path("metadata").mkdir()
                 Path("metadata/automation-fleet.json").write_text(json.dumps(fleet))
-                Path("metadata/unattended-publication.json").write_text(json.dumps({
+                pilot_policy = {
                     "schemaVersion":1,"mode":"OBSERVE","defaultAction":"DENY",
                     "pilotRepository":"pgextwin/unknown_pilot" if bad=="pilot"
-                                      else "pgextwin/future_extension"}))
+                                      else "pgextwin/future_extension"}
+                if explicit:
+                    pilot_policy = p.unattended.with_explicit_merge_identities(
+                        manual_policy("unattended-publication.json"))
+                    if release_policy == "automatic-signed-schedule":
+                        pilot_policy["mode"] = "UNATTENDED"
+                        pilot_policy["controls"] = {name: True for name in pilot_policy["controls"]}
+                    if bad == "schema": pilot_policy["schemaVersion"] = 3
+                    if bad == "mode": pilot_policy["mode"] = "UNKNOWN"
+                    if bad == "actor": pilot_policy["candidateMergeIdentity"]["actors"] = ["other-operator"]
+                    if bad == "identity-control": pilot_policy["controls"]["requireTrustedCandidateMergeIdentity"] = False
+                Path("metadata/unattended-publication.json").write_text(json.dumps(pilot_policy))
                 output=io.StringIO()
                 with patch.dict(os.environ,env), patch.object(p,"jwt",return_value="synthetic-jwt"), patch.object(p,"api",side_effect=api), contextlib.redirect_stdout(output):
                     if bad or event not in ("workflow_dispatch", "schedule", "push"):
@@ -136,6 +153,24 @@ class ProofTests(unittest.TestCase):
             with self.subTest(event=event,bad=bad):
                 calls=self.exercise(bad=bad, event=event)
                 self.assertFalse(any(method=="POST" for method,path in calls))
+
+    def test_explicit_policy_uses_shared_validation_before_scoped_proof(self):
+        for event in ("push", "schedule"):
+            for release_policy in ("manual-only", "automatic-signed-schedule"):
+                with self.subTest(event=event, release_policy=release_policy):
+                    calls = self.exercise(event=event, explicit=True, release_policy=release_policy)
+                    self.assertEqual([path for method, path in calls
+                                      if method == "POST" and path.endswith("/git/blobs")],
+                                     ["/repos/pgextwin/plpgsql_check/git/blobs"])
+                    self.assertEqual(calls[-2:], [("DELETE", "/installation/token"),
+                        ("GET", "/installation/repositories?per_page=100")])
+
+    def test_unknown_explicit_policy_is_denied_before_key_or_app_use(self):
+        for bad in ("schema", "mode", "actor", "identity-control"):
+            with self.subTest(bad=bad):
+                calls = self.exercise(bad=bad, event="push", explicit=True,
+                                      release_policy="automatic-signed-schedule")
+                self.assertEqual(calls, [])
 
     def test_wrong_identity_never_mints(self):
         self.assertFalse(any(path.endswith("/access_tokens") for _,path in self.exercise("identity")))
