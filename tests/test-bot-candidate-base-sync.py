@@ -200,6 +200,50 @@ class BotRepairTests(TestCase):
     def test_exact_cutover_requires_complete_live_protected_automatic_bundle(self):
         self.run_case(good=True, advanced=True, change=self.cutover())
 
+    def regression_cutover(self, *, corrupt=None):
+        def change(e, l, p, r, d):
+            self.cutover()(e, l, p, r, d)
+            previous = "9"*40
+            regression = "tests/test_required_windows_summary.py"
+            workflow = ".github/workflows/update-watch.yml"
+            d[("git", "diff", "--name-only", previous, MAIN_SHA)] = (
+                workflow + "\nconfig/release-promotion.json\n" + regression)
+            old_operator, old_native = "7"*40, "8"*40
+            old_workflow = (
+                "    uses: pgextwin/build/.github/workflows/operator-update-auto.yml@" +
+                old_operator + "\n" +
+                "    uses: pgextwin/build/.github/workflows/verify-native-pr-candidate.yml@" +
+                old_native)
+            d[("git", "show", previous + ":" + workflow)] = old_workflow
+            d[("git", "show", MAIN_SHA + ":" + workflow)] += (
+                "\n    uses: pgextwin/build/.github/workflows/operator-update-auto.yml@" +
+                SHARED_SHA + "\n" +
+                "    uses: pgextwin/build/.github/workflows/verify-native-pr-candidate.yml@" +
+                SHARED_SHA)
+            old_tests = ("operator-update-auto.yml@" + old_operator + "\n" +
+                         "verify-native-pr-candidate.yml@" + old_native + "\n" +
+                         "operator-update-auto.yml@" + old_operator + "\n" +
+                         "assertNotIn('old unsafe pin', workflow)\n")
+            new_tests = (old_tests.replace(old_operator, SHARED_SHA)
+                         .replace(old_native, SHARED_SHA))
+            if corrupt:
+                new_tests = corrupt(new_tests)
+            d[("git", "show", previous + ":" + regression)] = old_tests
+            d[("git", "show", MAIN_SHA + ":" + regression)] = new_tests
+        return change
+
+    def test_exact_regression_pin_only_cutover_allows_bot_forward_sync(self):
+        self.run_case(good=True, advanced=True, change=self.regression_cutover())
+
+    def test_regression_cutover_rejects_test_weakening_or_unrelated_change(self):
+        for change in (
+            lambda value: value + "assertTrue(True)\n",
+            lambda value: value.replace("assertNotIn", "assertIn"),
+            lambda value: value.replace(SHARED_SHA, "0"*40, 1),
+        ):
+            with self.subTest(change=change):
+                self.run_case(advanced=True, change=self.regression_cutover(corrupt=change))
+
     def test_partial_or_substituted_cutover_fails_before_bot_write(self):
         central = ("gh", "api", "--method", "GET", "repos/pgextwin/build/branches/main")
         metadata = ("gh", "api", "--method", "GET",

@@ -362,9 +362,37 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
         workflow_path = ".github/workflows/update-watch.yml"
         policy_path = "config/release-promotion.json"
         paths = execute("git", "diff", "--name-only", previous_main, main_sha).splitlines()
-        require(len(paths) == len(set(paths)) and set(paths) in (
-                    {workflow_path}, {workflow_path, policy_path}),
+        regression_path = "tests/test_required_windows_summary.py"
+        regression_cutover = set(paths) == {workflow_path, policy_path, regression_path}
+        require(len(paths) == len(set(paths)) and
+                (set(paths) in ({workflow_path}, {workflow_path, policy_path})
+                 or regression_cutover),
                 "protected main advanced beyond the exact caller/policy cutover")
+        if regression_cutover:
+            # Some consumers update immutable caller assertions alongside the
+            # protected policy migration. Accept ONLY exact positive pin
+            # substitutions, not arbitrary test edits or relaxed negatives.
+            previous_workflow = execute("git", "show", previous_main + ":" + workflow_path)
+            current_workflow = execute("git", "show", main_sha + ":" + workflow_path)
+            old_tests = execute("git", "show", previous_main + ":" + regression_path)
+            new_tests = execute("git", "show", main_sha + ":" + regression_path)
+            expected_tests = old_tests
+            new_pins = []
+            for caller, count in (("operator-update-auto.yml", 2),
+                                  ("verify-native-pr-candidate.yml", 1)):
+                prefix = "pgextwin/build/.github/workflows/" + caller + "@"
+                pattern = r"^    uses: " + re.escape(prefix) + r"([0-9a-f]{40})$"
+                old_pins = re.findall(pattern, previous_workflow, re.M)
+                current_pins = re.findall(pattern, current_workflow, re.M)
+                require(len(old_pins) == len(current_pins) == 1
+                        and old_pins[0] != current_pins[0]
+                        and expected_tests.count(caller + "@" + old_pins[0]) == count,
+                        "regression change is not an exact positive caller-pin cutover")
+                expected_tests = expected_tests.replace(
+                    caller + "@" + old_pins[0], caller + "@" + current_pins[0])
+                new_pins.append(current_pins[0])
+            require(new_tests == expected_tests and len(set(new_pins)) == 1,
+                    "regression change modifies more than the three positive caller pins")
         if policy_path in paths:
             before = json.loads(execute("git", "show", previous_main + ":" + policy_path))
             after = json.loads(execute("git", "show", main_sha + ":" + policy_path))
@@ -378,6 +406,9 @@ def repair_exact_bot_candidate_base_sync(record, repository, proposal_file, prop
                     and before.get("enabled") is True and after.get("enabled") is True,
                     "local publication policy is not the exact protected transition")
             approved_central = approved_automatic_candidate_policy(repository, main_sha, workflow_path)
+            if regression_cutover:
+                require(new_pins == [approved_central, approved_central],
+                        "regression pin expectations are not the live protected central snapshot")
     require(execute("git", "log", "-1", "--format=%an", original) == "github-actions[bot]"
             and execute("git", "log", "-1", "--format=%ae", original)
                 == "41898282+github-actions[bot]@users.noreply.github.com"
