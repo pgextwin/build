@@ -136,6 +136,13 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
             and type(bound.get("nativeAuditArtifactId")) is int
             and bound["nativeAuditArtifactId"] > 0,
             "original audit not independently bound to exact parent main, head and PR")
+    # Typed provenance remains distinct downstream: central schedule never
+    # becomes an extension-local workflow_run or publication authorization.
+    origin=bound.get("nativeAuditEvent","workflow_run")
+    auditor=bound.get("nativeAuditRepository",repository)
+    require((origin=="workflow_run" and auditor==repository) or
+            (origin=="schedule" and auditor=="pgextwin/build"),
+            "untrusted original native auditor event/repository")
     for denial in ("signedArtifactsVerified", "publishableReceipt", "publicationAuthorized"):
         require(bound.get(denial) is False, "read-only audit illegally claims release authority")
     try:
@@ -167,6 +174,7 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
         "candidateRequiredCheckRunId": native_proof["checkRunId"],
         "nativeAuditRunId": bound["nativeAuditRunId"],
         "nativeAuditArtifactId": bound["nativeAuditArtifactId"],
+        "nativeAuditEvent": origin, "nativeAuditRepository": auditor,
         "maintainedMajors": majors, "releaseTagStem": tag_stem,
         "sourcesAndZipDigests": digests,
         "signedArtifactsVerified": False, "publishableReceipt": False,
