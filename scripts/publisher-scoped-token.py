@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from urllib.error import HTTPError
 from datetime import datetime, timezone, timedelta
 import re
+import sys
 
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 
@@ -111,11 +112,21 @@ def single_repository_token(*, api, jwt, key, app, installation,
             # Independently require the SAME scoped token to receive 401 from
             # its former authorized read endpoint. Any 403, transport failure
             # or still-usable token is a hard denial, never an accepted proof.
-            api("DELETE", "/installation/token", token)
+            # Emit only fixed stage labels and numeric HTTP codes. Never log
+            # tokens, credential-bearing URLs, exception bodies or API payloads.
+            # Any non-401 response still DENIES; this is diagnostics, not a waiver.
+            try:
+                api("DELETE", "/installation/token", token)
+            except HTTPError as exc:
+                print("PUBLISHER_REVOKE_DELETE_HTTP_" + str(exc.code), file=sys.stderr)
+                raise
             try:
                 api("GET", "/installation/repositories?per_page=100", token)
             except HTTPError as exc:
+                if exc.code != 401:
+                    print("PUBLISHER_REVOKE_PROBE_HTTP_" + str(exc.code), file=sys.stderr)
                 require(exc.code == 401,
                         "Publisher token revocation not independently confirmed")
             else:
+                print("PUBLISHER_REVOKE_PROBE_TOKEN_STILL_ACTIVE", file=sys.stderr)
                 raise Denied("Publisher token remains usable after revocation")
