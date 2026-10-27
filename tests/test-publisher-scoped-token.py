@@ -72,6 +72,27 @@ def args(api, repo=REPO, fleet=None):
             "repository":repo, "fleet":fixture() if fleet is None else fleet}
 
 class TokenLifecycleTests(unittest.TestCase):
+    def test_sanitized_401_receipt_requires_same_token_denial(self):
+        marker = "PUBLISHER_REVOKE_SAME_TOKEN_HTTP_401; NO_RELEASE"
+        for fault, expected in ((None, True), ("revoke-forbidden", False)):
+            with self.subTest(fault=fault):
+                api = FakeAPI(fault)
+                stderr = StringIO()
+                with redirect_stderr(stderr):
+                    if fault is None:
+                        with mod.single_repository_token(**args(api)):
+                            pass
+                    else:
+                        with self.assertRaises(mod.Denied):
+                            with mod.single_repository_token(**args(api)):
+                                pass
+                self.assertEqual(stderr.getvalue().count(marker), int(expected))
+                self.assertNotIn(TOKEN, stderr.getvalue())
+                self.assertTrue(api.revoked)
+                self.assertEqual(api.calls[-2:], [
+                    ("DELETE", "/installation/token"),
+                    ("GET", "/installation/repositories?per_page=100")])
+
     def test_one_repo_future_extension_and_revocation(self):
         api = FakeAPI()
         with mod.single_repository_token(**args(api)) as (token,minted,scope):
