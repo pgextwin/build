@@ -164,6 +164,8 @@ jobs:
         run: python tests/test-audit-merged-scheduled-signed-candidate.py
       - name: Reject mismatched independent scheduled OIDC auditors and source kinds (NO RELEASE)
         run: python tests/test-join-merged-scheduled-oidc-audits.py
+      - name: Reject malformed reusable scheduled OIDC Workflow syntax
+        run: python tests/test-merged-schedule-workflow-syntax.py
 
       - name: Deny forged cross-run native candidate audit evidence before signing
         run: python tests/test-bind-native-candidate-audit.py
