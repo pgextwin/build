@@ -77,12 +77,12 @@ def validate_schedule(run, central, snapshot, fleet, run_id, now):
         and run.get("run_attempt") == 1
         and (run.get("repository") or {}).get("full_name") == CENTRAL
         and run.get("head_sha") == (central.get("commit") or {}).get("sha")
-        and run.get("status") == "completed"
-        and run.get("conclusion") == "success",
+        and run.get("status") in ("in_progress", "completed")
+        and run.get("conclusion") in (None, "success"),
         "no completed genuine central fleet scan at exact protected main")
-    # During a parallel run, the entire workflow cannot yet be completed.
-    # An actual in-progress run is admitted only in the trusted scheduled job,
-    # once readonly-fleet has succeeded and its exact same-run snapshot exists.
+    # Whole-run completion is impossible inside its own dependency job.
+    # We validate its ORIGINAL in-progress schedule without altering run bytes;
+    # the same-run full snapshot comes from succeeded readonly-fleet.
     require(central.get("protected") is True
         and type(snapshot) is dict
         and snapshot.get("schemaVersion") == 1
@@ -181,6 +181,7 @@ def validate_merged(entry, *, current, pr, changed, associated, compare,
               and SHA.fullmatch(upstream["commit"])
               and bool(upstream.get("version")))
              or ("perPostgresql" in upstream and
+                 type(upstream["perPostgresql"]) is dict and bool(upstream["perPostgresql"]) and
                  all(type(x) is dict and SHA.fullmatch(str(x.get("commit","")))
                      and bool(x.get("version"))
                      for x in upstream["perPostgresql"].values()))),
@@ -231,10 +232,8 @@ def main():
             "not original current genuine scheduled central run")
         fleet = json.loads(Path(opts.fleet).read_text("utf-8"))
         scan = json.loads(Path(opts.scan).read_text("utf-8"))
-        # The full-run completion gate is deliberately not used while this
-        # same run is in progress; check the immutable original run above.
-        run_copy = dict(run, status="completed", conclusion="success")
-        by_repo = validate_schedule(run_copy, central, scan, fleet, run_id,
+        # Preserve the actual in-progress/completed original Run identity.
+        by_repo = validate_schedule(run, central, scan, fleet, run_id,
                                     datetime.now(timezone.utc))
         registry = json.loads(Path(opts.registry).read_text("utf-8"))
         require(registry.get("schemaVersion") == 1
