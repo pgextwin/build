@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "publication": "DENY",
+  "purpose": "Bounded known merged bot PR provenance only; no release or signer authority",
+  "entries": [
+    {
+      "repository": "pgextwin/orafce",
+      "pr": 8,
+      "candidateHead": "6331bed1f4e367f6c6ad9944476e878c7eb6f448",
+      "mergeSha": "9f09147b86703efd09e1ae1d5b23bd6c92c6b9b2",
+      "nativeRun": 39782466959,
+      "manifestBlob": "2c6cea58646b7224c1369e6863a22e90a043ae11"
+    },
+    {
+      "repository": "pgextwin/pg_ivm",
+      "pr": 28,
+      "candidateHead": "5d593d2e642788743b4b521820286ac8871cb43f",
+      "mergeSha": "40de60ee743a90b047f6a15b0917a139f4017a23",
+      "nativeRun": 39769754052,
+      "manifestBlob": "9a09c42f2bdac81c5ead5d4df72673d426a29afa"
+    },
+    {
+      "repository": "pgextwin/plpgsql_check",
+      "pr": 79,
+      "candidateHead": "c83e03b70d0a2a18b23be54bffc6be7451bc668c",
+      "mergeSha": "8629cae26a75d9f5230cb80339bd393ee08997b4",
+      "nativeRun": 40243414614,
+      "manifestBlob": "98a96797ce362bd754d66fb92a4997755a753dc6"
+    },
+    {
+      "repository": "pgextwin/pg_hint_plan",
+      "pr": 19,
+      "candidateHead": "fc7522174df7a28b3cc4dc049b0433c45bc4d1e1",
+      "mergeSha": "c289f94d630d50ecf8278bca1dc2f87e49f075a9",
+      "nativeRun": 39782515798,
+      "manifestBlob": "dac2c82fd5cb095380cd90f2867e1eabe2031589"
+    }
+  ]
+}
