@@ -158,6 +158,8 @@ jobs:
 
       - name: Reject forged merged-bot requalification origin and unsigned shortcuts (NO RELEASE)
         run: python tests/test-merged-candidate-requalification.py
+      - name: Reject fake local schedule and unsigned merged-bot signing shortcuts (NO RELEASE)
+        run: python tests/test-merged-schedule-signing-intent.py
 
       - name: Deny forged cross-run native candidate audit evidence before signing
         run: python tests/test-bind-native-candidate-audit.py
