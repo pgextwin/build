@@ -131,6 +131,10 @@ def single_repository_token(*, api, jwt, key, app, installation,
                     api("GET", "/installation/repositories?per_page=100", token)
                 except HTTPError as exc:
                     if exc.code == 401:
+                        # Same just-revoked token, same formerly authorized endpoint.
+                        # A fixed marker exposes the real HTTP outcome without secrets.
+                        print("PUBLISHER_REVOKE_SAME_TOKEN_HTTP_401; NO_RELEASE",
+                              file=sys.stderr)
                         break
                     print("PUBLISHER_REVOKE_PROBE_HTTP_" + str(exc.code), file=sys.stderr)
                     raise Denied("Publisher token revocation not independently confirmed") from None
