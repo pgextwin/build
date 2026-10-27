@@ -160,6 +160,10 @@ jobs:
         run: python tests/test-merged-candidate-requalification.py
       - name: Reject fake local schedule and unsigned merged-bot signing shortcuts (NO RELEASE)
         run: python tests/test-merged-schedule-signing-intent.py
+      - name: Reject forged scheduled OIDC/Sigstore ZIP, event and signing source (NO RELEASE)
+        run: python tests/test-audit-merged-scheduled-signed-candidate.py
+      - name: Reject mismatched independent scheduled OIDC auditors and source kinds (NO RELEASE)
+        run: python tests/test-join-merged-scheduled-oidc-audits.py
 
       - name: Deny forged cross-run native candidate audit evidence before signing
         run: python tests/test-bind-native-candidate-audit.py
