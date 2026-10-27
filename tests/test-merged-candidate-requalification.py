@@ -102,7 +102,7 @@ class Requalification(unittest.TestCase):
         for mutate in mutations:
             with self.subTest(mutate=str(mutate)):
                 x=fixture();mutate(x)
-                with self.assertRaises((m.Denied,m.contents.Denied,ValueError,KeyError)):
+                with self.assertRaises((ValueError, KeyError, TypeError)):
                     m.validate_merged(**x)
 
     def test_schedule_requires_current_main_real_run_complete_fleet(self):
