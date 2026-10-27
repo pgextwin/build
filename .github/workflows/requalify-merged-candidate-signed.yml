@@ -9,7 +9,7 @@ permissions:
 jobs:
   signing_intent:
     name: Authenticate original local schedule and merged native origin (NO PUBLISH)
-    if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }
+    if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -18,19 +18,19 @@ jobs:
       checks: read
       pull-requests: read
     outputs:
-      verified: ${{ steps.prove.outputs.verified }
+      verified: ${{ steps.prove.outputs.verified }}
     steps:
       - name: Checkout exact protected local manifest
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.sha }
+          ref: ${{ github.sha }}
       - name: Checkout SHA-pinned shared provenance gate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: ${{ job.workflow_repository }
-          ref: ${{ job.workflow_sha }
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -39,7 +39,7 @@ jobs:
       - name: Independently GET central genuine schedule + original bot PR/native CI
         id: prove
         env:
-          GH_TOKEN: ${{ github.token }
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -58,7 +58,7 @@ jobs:
   signed_windows:
     name: New genuine-schedule OIDC signed Windows PG build (NO PUBLISH)
     needs: signing_intent
-    if: ${{ needs.signing_intent.outputs.verified == 'true' && github.event_name == 'schedule' }
+    if: ${{ needs.signing_intent.outputs.verified == 'true' && github.event_name == 'schedule' }}
     permissions:
       contents: read
       id-token: write
@@ -72,7 +72,7 @@ jobs:
   signed_audit_first:
     name: First independent original Windows ZIP/SPDX/Grype Sigstore verification (NO PUBLISH)
     needs: [signing_intent, signed_windows]
-    if: ${{ github.event_name == 'schedule' && needs.signing_intent.outputs.verified == 'true' && needs.signed_windows.result == 'success' }
+    if: ${{ github.event_name == 'schedule' && needs.signing_intent.outputs.verified == 'true' && needs.signed_windows.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -84,13 +84,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.sha }
+          ref: ${{ github.sha }}
       - name: Checkout exact shared independent verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: ${{ job.workflow_repository }
-          ref: ${{ job.workflow_sha }
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -108,7 +108,7 @@ jobs:
           merge-multiple: true
       - name: Real cryptographic Sigstore verification on FIRST original bytes
         env:
-          GH_TOKEN: ${{ github.token }
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python .pgextwin-build/scripts/audit-merged-scheduled-signed-candidate.py \
@@ -128,7 +128,7 @@ jobs:
   signed_audit_second:
     name: SECOND independent re-download and Sigstore original-byte verification (NO PUBLISH)
     needs: [signing_intent, signed_windows, signed_audit_first]
-    if: ${{ github.event_name == 'schedule' && needs.signing_intent.outputs.verified == 'true' && needs.signed_windows.result == 'success' && needs.signed_audit_first.result == 'success' }
+    if: ${{ github.event_name == 'schedule' && needs.signing_intent.outputs.verified == 'true' && needs.signed_windows.result == 'success' && needs.signed_audit_first.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -139,12 +139,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.sha }
+          ref: ${{ github.sha }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: ${{ job.workflow_repository }
-          ref: ${{ job.workflow_sha }
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -160,7 +160,7 @@ jobs:
           merge-multiple: true
       - name: SECOND independent real cryptographic Sigstore verification
         env:
-          GH_TOKEN: ${{ github.token }
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python .pgextwin-build/scripts/audit-merged-scheduled-signed-candidate.py \
@@ -180,7 +180,7 @@ jobs:
   dual_audit_join:
     name: Require TWO independent source/PG/signature/byte receipts (DENY-only)
     needs: [signing_intent, signed_audit_first, signed_audit_second]
-    if: ${{ github.event_name == 'schedule' && needs.signing_intent.outputs.verified == 'true' && needs.signed_audit_first.result == 'success' && needs.signed_audit_second.result == 'success' }
+    if: ${{ github.event_name == 'schedule' && needs.signing_intent.outputs.verified == 'true' && needs.signed_audit_first.result == 'success' && needs.signed_audit_second.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -190,12 +190,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.sha }
+          ref: ${{ github.sha }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: ${{ job.workflow_repository }
-          ref: ${{ job.workflow_sha }
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .pgextwin-build
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
