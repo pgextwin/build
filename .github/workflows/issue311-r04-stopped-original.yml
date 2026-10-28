@@ -1,0 +1,40 @@
+name: Issue 311 R04 real stopped original Run after durable App checkpoint (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/execution-requests/r-20261029-r04stopped01.json']
+permissions:
+  contents: read
+concurrency:
+  group: issue311-r04-crashed-run-original-once
+  cancel-in-progress: false
+jobs:
+  admit:
+    name: Authenticate first fixed original protected main push
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: python scripts/issue311-r04-stopped-run.py admit-start
+  stopped:
+    name: Genuine App state checkpoint, token revoke401, then stop Run FAIL
+    needs: admit
+    if: needs.admit.result == 'success'
+    environment: issue311-state-writer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Store original read-only successful stage then deliberately end this worker with exit 137
+        env:
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r04-stopped-run.py start
