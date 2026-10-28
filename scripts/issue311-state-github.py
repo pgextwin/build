@@ -142,3 +142,39 @@ class GithubContentsCAS:
                 "[a-f0-9]{40}", str(response.get("content", {}).get("sha", ""))):
             raise UnknownWriteOutcome("unverifiable checkpoint write response")
         return response["content"]["sha"]
+
+
+    def reconcile_ambiguous_lease(self, request_id, original_blob_sha, previous, intended):
+        """READ-ONLY authoritative recheck after an ambiguous PUT; NEVER retries.
+
+        COMMITTED means the exact intended lease checkpoint is still the state
+        currently stored at the independently trusted state ref. UNRESOLVED
+        must remain quarantined; CONFLICT means another state was observed.
+        It does not prove that the caller owns Actions write scope or permit
+        any privileged action based solely on an expired lease.
+        """
+        check_state(previous, request_id)
+        check_state(intended, request_id)
+        if (type(original_blob_sha) is not str
+                or not re.fullmatch("[0-9a-f]{40}", original_blob_sha)
+                or intended.get("revision") != previous["revision"] + 1
+                or intended.get("requestSha256") != previous["requestSha256"]
+                or intended.get("lease", {}).get("scope") != "READONLY"
+                or previous.get("terminal") or intended.get("terminal")
+                or previous.get("writeOutcomeUnknown") is True
+                or intended.get("writeOutcomeUnknown") is True
+                or {k:v for k,v in previous.items() if k not in ("lease", "revision")}
+                   != {k:v for k,v in intended.items() if k not in ("lease", "revision")}):
+            raise Denied("invalid lease reconciliation transition")
+        try:
+            current_sha, current = self.read(request_id)
+        except Exception as exc:
+            raise UnknownWriteOutcome("read-only reconciliation unavailable; QUARANTINE") from exc
+        if current == intended and current_sha != original_blob_sha:
+            return {"status": "COMMITTED", "blobSha": current_sha,
+                    "revision": current["revision"], "readOnly": True}
+        if current == previous and current_sha == original_blob_sha:
+            return {"status": "UNRESOLVED", "blobSha": current_sha,
+                    "revision": current["revision"], "readOnly": True}
+        return {"status": "CONFLICT", "blobSha": current_sha,
+                "revision": current["revision"], "readOnly": True}
