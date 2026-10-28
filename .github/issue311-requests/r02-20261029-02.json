@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "type": "pgextwin-nonpublishing-event-proof",
+  "requestId": "issue311-r02-20261029-02",
+  "mode": "AUDIT_ONLY",
+  "targetRepos": [
+    "pgextwin/build"
+  ],
+  "baseMainSha": "d9a09ae962b077c4142599daebc6b57746bccf27",
+  "publishAuthorized": false,
+  "purpose": "Recover original immutable event receipt upload after hidden-file exclusion; never publish"
+}
