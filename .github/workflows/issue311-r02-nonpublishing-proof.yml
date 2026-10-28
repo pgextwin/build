@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/issue311-requests/r02-20261029.json"
+      - ".github/issue311-requests/r02-20261029-02.json"
 
 permissions:
   contents: read
@@ -47,7 +47,7 @@ jobs:
               return result
 
           event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text(), object_pairs_hook=unique_pairs)
-          path = pathlib.Path(".github/issue311-requests/r02-20261029.json")
+          path = pathlib.Path(".github/issue311-requests/r02-20261029-02.json")
           raw = path.read_bytes()
           request = json.loads(raw, object_pairs_hook=unique_pairs)
           expected_fields = {"schemaVersion", "type", "requestId", "mode", "targetRepos",
@@ -56,10 +56,10 @@ jobs:
               deny("unexpected request shape")
           if (type(request["schemaVersion"]) is not int or request["schemaVersion"] != 1
                   or request["type"] != "pgextwin-nonpublishing-event-proof"
-                  or request["requestId"] != "issue311-r02-20261029-01"
+                  or request["requestId"] != "issue311-r02-20261029-02"
                   or request["mode"] != "AUDIT_ONLY"
                   or request["targetRepos"] != ["pgextwin/build"]
-                  or request["baseMainSha"] != "d8904ebc377e33034b71108d42de940d6b6c9979"
+                  or request["baseMainSha"] != "d9a09ae962b077c4142599daebc6b57746bccf27"
                   or request["publishAuthorized"] is not False):
               deny("not the immutable nonpublishing fixture")
           if (os.environ["GITHUB_EVENT_NAME"] != "push"
@@ -89,7 +89,7 @@ jobs:
               "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
               "publishAuthorized": False, "permissionModel": "contents:read"
           }
-          pathlib.Path(".issue311-r02-receipt.json").write_text(
+          pathlib.Path("issue311-r02-receipt.json").write_text(
               json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
           print(json.dumps(receipt, sort_keys=True))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
@@ -100,6 +100,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: issue311-r02-original-push-receipt
-          path: .issue311-r02-receipt.json
+          path: issue311-r02-receipt.json
           if-no-files-found: error
           retention-days: 30
