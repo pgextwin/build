@@ -295,7 +295,89 @@ def replay_live_fleet(token):
     return scan(policy, lambda url: api(url, token))
 
 
-def run(repository, head, pin, token):
+
+def original_outer_sha256(blob, artifact, report):
+    """Actual original Actions archive bytes, not a metadata-only digest."""
+    from io import BytesIO
+    from zipfile import ZipFile, BadZipFile
+    digest = artifact.get("digest") if type(artifact) is dict else None
+    need(type(digest) is str and re.fullmatch(r"sha256:[0-9a-f]{64}", digest),
+         "original archive metadata digest absent")
+    need(type(blob) is bytes and 0 < len(blob) <= 2 * 1024 * 1024,
+         "original archive bytes absent/oversized")
+    computed = hashlib.sha256(blob).hexdigest()
+    need(computed == digest[7:], "original outer archive digest mismatch")
+    try:
+        with ZipFile(BytesIO(blob)) as z:
+            need(sorted(z.namelist()) ==
+                 ["fleet-upstream-watch.json", "fleet-upstream-watch.md"]
+                 and all(i.file_size <= 262144 for i in z.infolist()),
+                 "untrusted original outer ZIP layout")
+            decoded = strict_json(z.read("fleet-upstream-watch.json").decode("utf-8"))
+    except (BadZipFile, OSError, RuntimeError, KeyError, UnicodeError, ValueError) as exc:
+        raise Denied("invalid original outer ZIP") from exc
+    need(decoded == report, "original archive report differs from validated snapshot")
+    return computed
+
+
+def candidate_receipt(mode, central, artifact, report, build_branch,
+                      repository, head, source_kind, actual_outer_sha=None):
+    """A source-typed preflight record. Never creates Publisher authority."""
+    need(mode in ("none", "candidate"), "unaccepted receipt mode")
+    need(source_kind in ("ORIGINAL_OUTER_ZIP_VERIFIED",
+                         "ORIGINAL_EXTRACTED_UNVERIFIED_OUTER_ZIP",
+                         "INDEPENDENT_GET_ONLY_REPLAY"), "invalid receipt source kind")
+    need(type(artifact) is dict and type(artifact.get("id")) is int
+         and artifact["id"] > 0 and artifact.get("expired") is False
+         and type(artifact.get("digest")) is str
+         and re.fullmatch(r"sha256:[0-9a-f]{64}", artifact["digest"]),
+         "central original artifact identity/digest missing")
+    if actual_outer_sha is None:
+        need(source_kind != "ORIGINAL_OUTER_ZIP_VERIFIED",
+             "unverified original ZIP promoted as genuine bytes")
+    else:
+        need(source_kind == "ORIGINAL_OUTER_ZIP_VERIFIED"
+             and actual_outer_sha == artifact["digest"][7:],
+             "digest moved across source kinds")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    need(run_id.isdecimal() and int(run_id) > 0
+         and os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+         and os.environ.get("GITHUB_REF") == "refs/heads/main"
+         and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
+         "original local schedule identity absent")
+    need(central.get("event") == "schedule"
+         and central.get("path") == WATCH_PATH
+         and central.get("head_branch") == "main"
+         and central.get("run_attempt") == 1
+         and central.get("status") == "completed"
+         and central.get("conclusion") == "success"
+         and type(central.get("id")) is int and central["id"] > 0
+         and (central.get("repository") or {}).get("full_name") == BUILD,
+         "central schedule receipt identity absent")
+    need(report.get("fleetSize") == len(protected_fleet())
+         and len(report.get("extensions", [])) == len(protected_fleet()),
+         "partial fleet receipt denied")
+    canonical = json.dumps(report, sort_keys=True, ensure_ascii=False,
+                           separators=(",", ":")).encode("utf-8")
+    return {
+        "schemaVersion": 1, "status": "NONPUBLISHING_PREFLIGHT",
+        "sourceKind": source_kind, "repository": repository,
+        "localRunId": int(run_id), "localRunAttempt": 1,
+        "localProtectedMainSha": head,
+        "centralRunId": central["id"], "centralRunAttempt": 1,
+        "centralScheduledHeadSha": central["head_sha"],
+        "centralProtectedMainSha": build_branch["commit"]["sha"],
+        "centralArtifactId": artifact["id"],
+        "centralArtifactDigestMetadata": artifact["digest"],
+        "originalOuterZipSha256Verified": actual_outer_sha,
+        "originalOuterZipByteVerified": actual_outer_sha is not None,
+        "reportCanonicalSha256": hashlib.sha256(canonical).hexdigest(),
+        "registeredFleetCount": len(protected_fleet()), "decision": mode,
+        "publisherSourceKindAuthorized": False, "publicationAuthorized": False,
+    }
+
+
+def run(repository, head, pin, token, receipt_out=None):
     need(repository in protected_fleet() and type(head) is str and SHA.fullmatch(head),
          "unregistered or invalid caller identity")
     need(os.environ.get("GITHUB_EVENT_NAME") == "schedule"
@@ -338,6 +420,8 @@ def run(repository, head, pin, token):
         raise Deferred("LATEST_GENUINE_CENTRAL_SCAN_EXPIRED")
 
     source_equivalent = False
+    selected_artifact = None
+    actual_outer_sha = None
     if build_branch.get("commit", {}).get("sha") != exact.get("head_sha"):
         # The original successful schedule remains necessary, but its old
         # source cannot authorize fresh work unless the scanner/policy blobs
@@ -359,6 +443,7 @@ def run(repository, head, pin, token):
              and type(matches[0].get("size_in_bytes")) is int
              and 0 < matches[0]["size_in_bytes"] < 200000,
              "unique bounded unexpired central snapshot unavailable")
+        selected_artifact = matches[0]
         with TemporaryDirectory(prefix="pgextwin-fleet-candidate-") as temp:
             command = ["gh", "run", "download", str(exact["id"]), "--repo", BUILD,
                        "--name", "fleet-upstream-watch", "--dir", temp]
@@ -380,6 +465,16 @@ def run(repository, head, pin, token):
                 raw = (root / "fleet-upstream-watch.json").read_bytes()
                 need(len(raw) <= 262144, "oversized fleet JSON")
                 report = strict_json(raw.decode("utf-8"))
+                if receipt_out is not None:
+                    # A gh run extraction alone never proves outer ZIP bytes.
+                    result = subprocess.run(
+                        ["gh", "api", "repos/" + BUILD + "/actions/artifacts/"
+                         + str(selected_artifact["id"]) + "/zip"],
+                        capture_output=True, text=False, check=False,
+                        timeout=90, env=os.environ.copy())
+                    if result.returncode == 0:
+                        actual_outer_sha = original_outer_sha256(
+                            result.stdout, selected_artifact, report)
 
     try:
         mode = validate(report, exact, build_branch, target_branch, repository,
@@ -398,6 +493,7 @@ def run(repository, head, pin, token):
             exact["head_sha"], build_branch["commit"]["sha"], token)
         report = replay_live_fleet(token)
         live_replay = True
+        actual_outer_sha = None
         print("FLEET_EVIDENCE=FRESH_FLEET_REPLAY_AFTER_PROTECTED_TARGET_MAIN_CHANGE; "
               "central artifact target row was not accepted")
         mode = validate(report, exact, build_branch, target_branch, repository,
@@ -406,6 +502,23 @@ def run(repository, head, pin, token):
     need(api(HOST + BUILD + "/branches/main", token) == build_branch
          and api(HOST + repository + "/branches/main", token) == target_branch,
          "protected main changed during candidate authorization")
+    if receipt_out is not None:
+        if selected_artifact is None:
+            found = api(HOST + BUILD + "/actions/runs/" + str(exact["id"])
+                        + "/artifacts?per_page=100", token)
+            need(type(found) is dict and type(found.get("artifacts")) is list
+                 and found.get("total_count") == len(found["artifacts"]),
+                 "original artifact inventory incomplete")
+            matches = [a for a in found["artifacts"] if type(a) is dict
+                       and a.get("name") == "fleet-upstream-watch"]
+            need(len(matches) == 1, "original artifact ambiguous")
+            selected_artifact = matches[0]
+        source_kind = ("INDEPENDENT_GET_ONLY_REPLAY" if live_replay else
+                       "ORIGINAL_OUTER_ZIP_VERIFIED" if actual_outer_sha else
+                       "ORIGINAL_EXTRACTED_UNVERIFIED_OUTER_ZIP")
+        receipt_out.update(candidate_receipt(
+            mode, exact, selected_artifact, report, build_branch,
+            repository, head, source_kind, actual_outer_sha))
     return mode
 
 
@@ -416,12 +529,22 @@ def main():
     token = os.environ.get("GH_TOKEN", "")
     try:
         need(bool(token), "GitHub token missing")
-        mode = run(repo, sha, pin, token)
+        receipt = {}
+        mode = run(repo, sha, pin, token, receipt_out=receipt)
+        receipt_path = os.environ.get("PGEXTWIN_RECEIPT_PATH")
+        need(bool(receipt_path) and bool(receipt), "immutable receipt path missing")
+        Path(receipt_path).write_text(
+            json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         output = os.environ.get("GITHUB_OUTPUT")
         need(bool(output), "GitHub output not available")
         with open(output, "a", encoding="utf-8") as f:
-            f.write("mode=" + mode + "\n")
-        print("SCHEDULED_FLEET_CANDIDATE=" + mode + "; PUBLISH=DENY")
+            f.write("mode=" + mode + "\nreceipt_ready=true\n")
+        print("SCHEDULED_FLEET_CANDIDATE=" + mode + "; PUBLISH=DENY; "
+              "ORIGINAL_CENTRAL_RUN=" + str(receipt["centralRunId"]) +
+              "; ORIGINAL_CENTRAL_ARTIFACT_ID=" + str(receipt["centralArtifactId"]) +
+              "; SOURCE_KIND=" + receipt["sourceKind"] +
+              "; ORIGINAL_OUTER_SHA256_VERIFIED=" +
+              str(receipt["originalOuterZipByteVerified"]).lower())
         return 0
     except Deferred as exc:
         # An unavailable upstream schedule is not a candidate or a local code

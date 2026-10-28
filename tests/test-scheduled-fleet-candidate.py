@@ -467,3 +467,61 @@ for name, kwargs, expected_replays in (
     assert replay_count == expected_replays, name
 print("PASS: stale artifact target requires authenticated complete fresh replay;",
       "7 hostile archive/source/main-race variants DENY")
+
+# X02: original outer ZIP bytes versus a source-typed replay receipt.
+from io import BytesIO
+from zipfile import ZipFile
+with BytesIO() as stream:
+    with ZipFile(stream, "w") as archive:
+        archive.writestr("fleet-upstream-watch.json", '{"schemaVersion":1}')
+        archive.writestr("fleet-upstream-watch.md", "NONPUBLISHING")
+    zip_bytes = stream.getvalue()
+outer_metadata = {
+    "id": 982, "expired": False,
+    "digest": "sha256:" + m.hashlib.sha256(zip_bytes).hexdigest()
+}
+assert m.original_outer_sha256(zip_bytes, outer_metadata,
+                               {"schemaVersion": 1}) == outer_metadata["digest"][7:]
+for name, payload, metadata, report_data in (
+    ("replaced bytes", zip_bytes + b"tamper", outer_metadata, {"schemaVersion": 1}),
+    ("digest movement", zip_bytes, {**outer_metadata, "digest": "sha256:" + "a"*64},
+     {"schemaVersion": 1}),
+    ("wrong decoded report", zip_bytes, outer_metadata, {"schemaVersion": 2}),
+    ("missing metadata", zip_bytes, {"id": 982}, {"schemaVersion": 1}),
+):
+    try:
+        m.original_outer_sha256(payload, metadata, report_data)
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("original ZIP proof accepts " + name)
+with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
+                             "GITHUB_REF": "refs/heads/main",
+                             "GITHUB_RUN_ATTEMPT": "1", "GITHUB_RUN_ID": "23456"}):
+    good_receipt = m.candidate_receipt(
+        "none", run, outer_metadata, report, branch(build_sha),
+        repo, good_sha, "ORIGINAL_OUTER_ZIP_VERIFIED",
+        outer_metadata["digest"][7:])
+    assert good_receipt["centralRunId"] == 12345
+    assert good_receipt["centralArtifactId"] == 982
+    assert good_receipt["localRunId"] == 23456
+    assert good_receipt["originalOuterZipByteVerified"] is True
+    assert good_receipt["publicationAuthorized"] is False
+    for kind, digest in (("ORIGINAL_OUTER_ZIP_VERIFIED", None),
+                         ("INDEPENDENT_GET_ONLY_REPLAY", outer_metadata["digest"][7:]),
+                         ("ORIGINAL_EXTRACTED_UNVERIFIED_OUTER_ZIP", outer_metadata["digest"][7:]),
+                         ("FORGED_ARCHIVE_KIND", None)):
+        try:
+            m.candidate_receipt("none", run, outer_metadata, report,
+                                branch(build_sha), repo, good_sha, kind, digest)
+        except m.Denied:
+            pass
+        else:
+            raise AssertionError("source-kind/digest spoof accepted: " + kind)
+    replay = m.candidate_receipt(
+        "none", run, outer_metadata, report, branch(build_sha),
+        repo, good_sha, "INDEPENDENT_GET_ONLY_REPLAY")
+    assert replay["originalOuterZipByteVerified"] is False
+    assert replay["originalOuterZipSha256Verified"] is None
+    assert replay["centralArtifactDigestMetadata"] == outer_metadata["digest"]
+print("PASS: X02 source-kind and actual central outer ZIP SHA256 hostile fixtures")
