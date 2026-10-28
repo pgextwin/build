@@ -73,10 +73,15 @@ class Tests(unittest.TestCase):
 
     def test_verify_missing_artifact_denied_before_state_claim(self):
         artifact_index = json.dumps({"total_count": 0, "artifacts": []}).encode()
+        original_jobs = json.dumps({"total_count": 2, "jobs": [
+            {"name": "Fresh App scoped protected ledger contender " + str(i),
+             "conclusion": "success"} for i in (0, 1)]}).encode()
+        def pages(endpoint):
+            return original_jobs if endpoint.endswith("/jobs?per_page=100") else artifact_index
         with mock.patch.object(race, "provenance", return_value=(BASE, HASH)), \
              mock.patch.dict("os.environ", {"GITHUB_RUN_ID": "123",
                                             "GITHUB_RUN_ATTEMPT": "1", "GH_TOKEN": "opaque"}), \
-             mock.patch.object(race, "public_api", return_value=artifact_index):
+             mock.patch.object(race, "public_api", side_effect=pages):
             with self.assertRaises(race.writer.Denied):
                 race.verify()
 
