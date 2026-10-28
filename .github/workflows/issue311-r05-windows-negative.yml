@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/execution-requests/r-20261029-r05winnegative01.json"
+      - ".github/execution-requests/r-20261029-r05winnegative02.json"
 
 # Isolated opt-in canary. No cron/dispatch or cross-repo writes.
 permissions:
