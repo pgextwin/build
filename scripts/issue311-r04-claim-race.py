@@ -175,6 +175,14 @@ def verify_original(run_id, attempt, raw_sha):
     guard(type(run_id) is int and run_id > 0 and type(attempt) is int
           and attempt == 1 and writer.SHA256.fullmatch(raw_sha),
           "unrecognized original run/attempt/request")
+    jobs = json.loads(public_api(
+        f"repos/pgextwin/build/actions/runs/{run_id}/jobs?per_page=100"))
+    guard(jobs.get("total_count", 101) <= 100, "original jobs truncated")
+    for index in (0, 1):
+        matches = [j for j in jobs["jobs"] if j.get("name") ==
+                   "Fresh App scoped protected ledger contender " + str(index)]
+        guard(len(matches) == 1 and matches[0].get("conclusion") == "success",
+              "original independent contender job not successful")
     archive_list = json.loads(public_api(
         f"repos/pgextwin/build/actions/runs/{run_id}/artifacts?per_page=100"))
     guard(archive_list.get("total_count", 101) <= 100, "artifacts truncated")
