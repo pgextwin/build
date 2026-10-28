@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r05readonly17b",
+  "mode": "AUDIT_ONLY",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-28T17:00:00Z",
+  "expiresAt": "2026-10-29T08:00:00Z",
+  "purpose": "One-shot protected push, strict 17-repo read-only Actions-token GET and aggregated original failure/skip receipts; no candidates, Windows builds or publication.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "fda9e1b2a5b243851eb77a7280c1712855013f49",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 4,
+    "maxAttemptsPerStage": 2,
+    "maxOperations": 100,
+    "maxWallClockMinutes": 45
+  },
+  "approval": {
+    "scopeText": "Only authenticated GET of 17 exact protected mains, original nonpublishing receipts and terminal summary; no remote write, dispatch, signing, publish or credential expansion.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/pg_bigm",
+      "mainSha": "713a76b8650f61097b5d5a55f15cd7f2ebcb4ec0"
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "mainSha": "a36e180a3922e070cde03642ec9fcc40e171567e"
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "mainSha": "40e68cc8177a3d0707ac87f346e3d88c3247769c"
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "mainSha": "f53e97d7c4a51c089f8bdc7b33f3ae005f516b29"
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "mainSha": "4f02f925e7bc0534af421441c1b2fb1ecd755846"
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "mainSha": "b9da885a4ef132b5f3d5af448fb09e5bfe56e6a7"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "6e3904af78cccbd67ce84eef183ceda9f4eef553"
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "mainSha": "fa31026f041070c821d317041b8f973ccd0a794d"
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "mainSha": "b75d9c90f2c349788b21a7f47d59ca31f3c8ebdd"
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+    },
+    {
+      "repo": "pgextwin/hypopg",
+      "mainSha": "6c6ddfb7b62dd220fdea4004e5e5f6a0a054f271"
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "mainSha": "51850b29b4eca4cc85ac648342d490605557a2ff"
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "mainSha": "4e3be24b9b2523cc6b1979d61f6be912be6d3e31"
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "mainSha": "97f1f41054bed4a3900e0ae924d04cbe5b2f08e4"
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "mainSha": "c536e9d90760eea88f7c42ba4b675e05a0d0fcf8"
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "mainSha": "0662ed8757e2f0c821a0a300c6f98df9374d8a8c"
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "mainSha": "7d3d4a1b099fb5d408de4f50ee72b4e49854734b"
+    }
+  ],
+  "resumeFrom": null
+}

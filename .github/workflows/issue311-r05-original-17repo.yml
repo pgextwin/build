@@ -1,0 +1,201 @@
+name: Issue 311 R05 original 17-repository GET fanout (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths: [".github/execution-requests/r-20261029-r05readonly17b.json"]
+permissions:
+  contents: read
+concurrency:
+  group: issue311-r05-readonly-17
+  cancel-in-progress: false
+jobs:
+  admit:
+    name: Original main-push declaration gate
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      raw_sha: ${{ steps.validate.outputs.raw_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - id: validate
+        name: Verify exact original actor, event, schema, registry and byte hash
+        run: |
+          python - <<'PY'
+          import importlib.util,json,os,pathlib
+          p=pathlib.Path(".github/execution-requests/r-20261029-r05readonly17b.json")
+          spec=importlib.util.spec_from_file_location("req","scripts/issue311-request-contract.py")
+          mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+          r=mod.validate_declaration(p.read_bytes(),p.as_posix())
+          ev=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          fleet=json.loads(pathlib.Path("metadata/automation-fleet.json").read_text())
+          if not (r["requestId"]=="r-20261029-r05readonly17b" and r["mode"]=="AUDIT_ONLY"
+                  and not r["publicationAuthorized"] and len(r["targets"])==17
+                  and sorted(r["targets"])==sorted(x["repository"] for x in fleet["entries"])
+                  and os.environ["GITHUB_EVENT_NAME"]=="push"
+                  and ev.get("after")==os.environ["GITHUB_SHA"] and ev.get("created") is False
+                  and ev.get("deleted") is False and ev.get("ref")=="refs/heads/main"
+                  and ev.get("repository",{}).get("full_name")=="pgextwin/build"
+                  and os.environ["GITHUB_ACTOR"]=="ShutenOishi"):
+              raise SystemExit("R05_DENY: forged/inconsistent original request")
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write("raw_sha="+r["rawSha256"]+"\n")
+          print("R05_AUTHENTICATED_AUDIT_ONLY_17; SHA="+r["rawSha256"])
+          PY
+  inspect:
+    name: GET pgextwin/${{ matrix.name }}
+    needs: [admit]
+    if: needs.admit.result == 'success'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {name: pg_bigm, repo: pgextwin/pg_bigm, expected_sha: 713a76b8650f61097b5d5a55f15cd7f2ebcb4ec0}
+          - {name: pg_cron, repo: pgextwin/pg_cron, expected_sha: a36e180a3922e070cde03642ec9fcc40e171567e}
+          - {name: pg_hint_plan, repo: pgextwin/pg_hint_plan, expected_sha: 40e68cc8177a3d0707ac87f346e3d88c3247769c}
+          - {name: pgaudit, repo: pgextwin/pgaudit, expected_sha: f53e97d7c4a51c089f8bdc7b33f3ae005f516b29}
+          - {name: set_user, repo: pgextwin/set_user, expected_sha: 4f02f925e7bc0534af421441c1b2fb1ecd755846}
+          - {name: pg_repack, repo: pgextwin/pg_repack, expected_sha: b9da885a4ef132b5f3d5af448fb09e5bfe56e6a7}
+          - {name: pg_ivm, repo: pgextwin/pg_ivm, expected_sha: 6e3904af78cccbd67ce84eef183ceda9f4eef553}
+          - {name: pg_qualstats, repo: pgextwin/pg_qualstats, expected_sha: fa31026f041070c821d317041b8f973ccd0a794d}
+          - {name: plpgsql_check, repo: pgextwin/plpgsql_check, expected_sha: b75d9c90f2c349788b21a7f47d59ca31f3c8ebdd}
+          - {name: orafce, repo: pgextwin/orafce, expected_sha: e96941dd3ec09f88011feb1165a3f6f83231460f}
+          - {name: hypopg, repo: pgextwin/hypopg, expected_sha: 6c6ddfb7b62dd220fdea4004e5e5f6a0a054f271}
+          - {name: wal2json, repo: pgextwin/wal2json, expected_sha: 51850b29b4eca4cc85ac648342d490605557a2ff}
+          - {name: pg_partman, repo: pgextwin/pg_partman, expected_sha: 4e3be24b9b2523cc6b1979d61f6be912be6d3e31}
+          - {name: pg_stat_monitor, repo: pgextwin/pg_stat_monitor, expected_sha: 97f1f41054bed4a3900e0ae924d04cbe5b2f08e4}
+          - {name: pgtap, repo: pgextwin/pgtap, expected_sha: c536e9d90760eea88f7c42ba4b675e05a0d0fcf8}
+          - {name: pg_variables, repo: pgextwin/pg_variables, expected_sha: 0662ed8757e2f0c821a0a300c6f98df9374d8a8c}
+          - {name: pg_store_plans, repo: pgextwin/pg_store_plans, expected_sha: 7d3d4a1b099fb5d408de4f50ee72b4e49854734b}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Bind request raw SHA and GET actual protected remote main with existing token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMOTE_REPO: ${{ matrix.repo }}
+          REMOTE_SHA: ${{ matrix.expected_sha }}
+          REQUEST_RAW_SHA: ${{ needs.admit.outputs.raw_sha }}
+          TARGET_NAME: ${{ matrix.name }}
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,pathlib,sys,time,urllib.error,urllib.request
+          p=pathlib.Path(".github/execution-requests/r-20261029-r05readonly17b.json")
+          repo=os.environ["REMOTE_REPO"]
+          receipt={"requestId":"r-20261029-r05readonly17b","repository":repo,
+                   "runId":int(os.environ["GITHUB_RUN_ID"]),
+                   "runAttempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                   "result":"FAILED","publicationAuthorized":False}
+          try:
+              data=json.loads(p.read_bytes())
+              desired={t["repo"]:t["mainSha"] for t in data["targets"]}
+              if not (len(desired)==17 and repo in desired
+                      and desired[repo]==os.environ["REMOTE_SHA"]
+                      and hashlib.sha256(p.read_bytes()).hexdigest()==os.environ["REQUEST_RAW_SHA"]
+                      and os.environ["GITHUB_REPOSITORY"]=="pgextwin/build"
+                      and os.environ["GITHUB_EVENT_NAME"]=="push"):
+                  raise ValueError("unbound target or request bytes")
+              url="https://api.github.com/repos/"+repo+"/branches/main"
+              for n in range(2):
+                  try:
+                      call=urllib.request.Request(url,headers={
+                          "Authorization":"Bearer "+os.environ["GH_TOKEN"],
+                          "Accept":"application/vnd.github+json",
+                          "X-GitHub-Api-Version":"2022-11-28"})
+                      with urllib.request.urlopen(call,timeout=20) as result:
+                          remote=json.load(result)
+                      break
+                  except urllib.error.HTTPError as exc:
+                      if exc.code not in (429,500,502,503,504) or n==1: raise
+                      time.sleep(2)
+              if (remote.get("name")!="main" or remote.get("protected") is not True
+                      or remote.get("commit",{}).get("sha")!=desired[repo]):
+                  raise ValueError("protected main/expected SHA mismatch")
+              receipt.update(result="SUCCESS",mainSha=desired[repo],protected=True,
+                             rawSha256=os.environ["REQUEST_RAW_SHA"])
+          except Exception as exc:
+              receipt["reason"]=str(exc)[:250]
+          pathlib.Path("issue311-r05-target-receipt.json").write_text(json.dumps(receipt,sort_keys=True)+"\n")
+          print(json.dumps(receipt,sort_keys=True))
+          sys.exit(0 if receipt["result"]=="SUCCESS" else 1)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r05-target-${{ matrix.name }}
+          path: issue311-r05-target-receipt.json
+          if-no-files-found: warn
+          retention-days: 30
+  aggregate:
+    name: Always aggregate original 17 child statuses; no release
+    needs: [admit, inspect]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: terminal
+        name: GET original jobs; record failure/skip/missing as terminal FAILED
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADMIT_RESULT: ${{ needs.admit.result }}
+          INSPECT_RESULT: ${{ needs.inspect.result }}
+        run: |
+          python - <<'PY'
+          import importlib.util,json,os,pathlib,urllib.request
+          spec=importlib.util.spec_from_file_location("a","scripts/issue311-r05-aggregate.py")
+          mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+          result={"requestId":"r-20261029-r05readonly17b",
+                  "runId":int(os.environ["GITHUB_RUN_ID"]),
+                  "runAttempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "terminal":"FAILED","perTarget":{},"publishAuthorized":False,
+                  "persistenceAccepted":False}
+          try:
+              url="https://api.github.com/repos/pgextwin/build/actions/runs/"+str(result["runId"])+"/jobs?per_page=100"
+              call=urllib.request.Request(url,headers={
+                  "Authorization":"Bearer "+os.environ["GH_TOKEN"],
+                  "Accept":"application/vnd.github+json",
+                  "X-GitHub-Api-Version":"2022-11-28"})
+              with urllib.request.urlopen(call,timeout=20) as http:
+                  response=json.load(http)
+              if response.get("total_count",999)>100: raise ValueError("incomplete jobs page")
+              result["perTarget"]=mod.evaluate_jobs(response["jobs"])
+              if (os.environ["ADMIT_RESULT"]=="success"
+                      and os.environ["INSPECT_RESULT"]=="success"
+                      and all(x=="success" for x in result["perTarget"].values())):
+                  result["terminal"]="NO_UPDATE"
+              else:
+                  result["reason"]="failed/skipped/missing child or admission"
+          except Exception as exc:
+              result["reason"]=str(exc)[:250]
+          pathlib.Path("issue311-r05-17-terminal.json").write_text(json.dumps(result,sort_keys=True)+"\n")
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write("result="+result["terminal"]+"\n")
+          print(json.dumps(result,sort_keys=True))
+          PY
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r05-17-original-terminal
+          path: issue311-r05-17-terminal.json
+          if-no-files-found: error
+          retention-days: 30
+      - if: steps.terminal.outputs.result != 'NO_UPDATE'
+        run: exit 1
