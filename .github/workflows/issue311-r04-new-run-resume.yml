@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,6 +38,7 @@ jobs:
       - name: Read original protected durable state; never retry successful original stage
         env:
           STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: python scripts/issue311-r04-stopped-run.py resume
   terminal:
     name: Independent recovered state GET and NO_UPDATE, fail closed if recovery skipped
