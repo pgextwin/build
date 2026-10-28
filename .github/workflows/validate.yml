@@ -52,6 +52,9 @@ jobs:
       - name: Validate R04 durable failed-Run to separate-Run restart and ambiguous writer quarantine (NO PUBLISH)
         run: python tests/test-issue311-r04-stopped-run.py
 
+      - name: Reject unsafe R04 ambiguous App PUT response, publication scope and blind retry (NO RELEASE)
+        run: python tests/test-issue311-r04-ambiguous-put.py
+
       - name: Validate R05 original 17-repo readonly fanout and failure terminal (NO RELEASE)
         run: python tests/test-issue311-r05-original-17repo.py
 
