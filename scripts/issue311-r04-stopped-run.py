@@ -210,8 +210,38 @@ def start():
     raise SystemExit(137)
 
 
+def verify_original_failed_run(declaration):
+    """Authenticated independent GET; a source Run that is still live is not recoverable."""
+    import urllib.request
+    token=os.environ.get("GH_TOKEN","")
+    guard(bool(token),"missing scoped actions-read token")
+    prefix="https://api.github.com/repos/pgextwin/build/actions/runs/"
+    def original(url):
+        request=urllib.request.Request(url,headers={
+            "Authorization":"Bearer "+token,
+            "Accept":"application/vnd.github+json",
+            "X-GitHub-Api-Version":"2022-11-28"})
+        with urllib.request.urlopen(request,timeout=25) as response:
+            return json.load(response,object_pairs_hook=writer.unique_pairs)
+    run=declaration["sourceRunId"]
+    info=original(prefix+str(run))
+    guard(info.get("id")==run and info.get("status")=="completed"
+          and info.get("conclusion")=="failure" and info.get("event")=="push"
+          and info.get("head_sha")==declaration["sourceMainSha"]
+          and info.get("run_attempt")==declaration["sourceRunAttempt"],
+          "untrusted source workflow terminal")
+    jobs=original(prefix+str(run)+"/jobs?per_page=100")
+    guard(jobs.get("total_count",999)<=100,"source jobs truncated")
+    stopped=[j for j in jobs.get("jobs",[]) if
+             j.get("name")=="Genuine App state checkpoint, token revoke401, then stop Run FAIL"]
+    guard(len(stopped)==1 and stopped[0].get("conclusion")=="failure",
+          "source job was not actually stopped")
+    return info
+
+
 def resume():
     declaration,_=original_push("resume")
+    verify_original_failed_run(declaration)
     token=writer.mint_token(os.environ.get("STATE_WRITER_PRIVATE_KEY",""))
     error=None
     try:
