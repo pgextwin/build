@@ -1,0 +1,101 @@
+name: Issue 311 R05 original Windows and R04 state positive join (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/execution-requests/r-20261029-r05winpositive01.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue311-r05-windows-state-positive
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    name: Admit original bounded AUDIT_ONLY main push
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      raw_sha: ${{ steps.check.outputs.raw_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - id: check
+        name: Validate exact protected main-push actor/request scope
+        run: python scripts/issue311-r05-windows-positive.py admit
+
+  inspect:
+    name: WINDOWS STATE GET ${{ matrix.repo }}
+    needs: [admit]
+    if: needs.admit.result == 'success'
+    runs-on: windows-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {name: orafce, repo: pgextwin/orafce, expected_sha: e96941dd3ec09f88011feb1165a3f6f83231460f}
+          - {name: pg_ivm, repo: pgextwin/pg_ivm, expected_sha: 6e3904af78cccbd67ce84eef183ceda9f4eef553}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Genuine Windows remote protected GET and immutable R04 state binding
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMOTE_REPO: ${{ matrix.repo }}
+          REMOTE_SHA: ${{ matrix.expected_sha }}
+          REQUEST_SHA: ${{ needs.admit.outputs.raw_sha }}
+        run: python scripts/issue311-r05-windows-positive.py inspect
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r05-positive-${{ matrix.name }}
+          path: issue311-r05-positive-target.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    name: Verify original Windows ZIP bytes and fail closed on missing child
+    needs: [admit, inspect]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Strictly aggregate original Windows jobs, original artifact ZIP and digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_SHA: ${{ needs.admit.outputs.raw_sha }}
+          ADMIT_RESULT: ${{ needs.admit.result }}
+        run: python scripts/issue311-r05-windows-positive.py aggregate
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r05-positive-terminal
+          path: issue311-r05-positive-terminal.json
+          if-no-files-found: error
+          retention-days: 30
