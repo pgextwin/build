@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261029-r04claimrace001",
+  "mode": "AUDIT_ONLY",
+  "kind": "issue311-r04-claim-race-proof",
+  "candidate": {
+    "repo": "pgextwin/orafce",
+    "sha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+  },
+  "competitors": [
+    "r-20261029-claimracea01",
+    "r-20261029-claimraceb01"
+  ],
+  "baseMainSha": "4a3aa96ec2995efa4941506a5d974fe5a1f3d112",
+  "publicReleaseAuthorized": false
+}
