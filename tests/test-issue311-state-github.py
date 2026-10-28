@@ -78,6 +78,43 @@ class Tests(unittest.TestCase):
         with self.assertRaises(m.Conflict):
             store.commit_lease(R,sha,state,changed)
 
+
+    def test_readonly_unknown_write_reconciliation_never_retries(self):
+        api=FakeAPI()
+        store=m.GithubContentsCAS(api)
+        sha,old=store.read(R)
+        intended=m.acquire_lease(old,R,"lease-owner",NOW)
+        # No PUT occurred: GET cannot authorize a replay of unknown write.
+        unresolved=store.reconcile_ambiguous_lease(R,sha,old,intended)
+        self.assertEqual(unresolved["status"],"UNRESOLVED")
+        self.assertEqual(api.write_count,0)
+        # Server committed, then the response was lost.
+        api.bad_response=True
+        with self.assertRaises(m.UnknownWriteOutcome):
+            store.commit_lease(R,sha,old,intended)
+        committed=store.reconcile_ambiguous_lease(R,sha,old,intended)
+        self.assertEqual(committed["status"],"COMMITTED")
+        self.assertEqual(api.write_count,1)
+        # Another writer supersedes it; do NOT claim the old lease.
+        api.state["lease"]["owner"]="other-actor"
+        self.assertEqual(store.reconcile_ambiguous_lease(R,sha,old,intended)["status"],"CONFLICT")
+        self.assertEqual(api.write_count,1)
+
+    def test_reconciliation_denies_unsafe_scope_and_read_failure(self):
+        api=FakeAPI()
+        store=m.GithubContentsCAS(api)
+        sha,old=store.read(R)
+        intended=m.acquire_lease(old,R,"lease-owner",NOW)
+        bad=dict(intended,publisherAuthorized=True)
+        with self.assertRaises(m.Denied):
+            store.reconcile_ambiguous_lease(R,sha,old,bad)
+        with self.assertRaises(m.Denied):
+            store.reconcile_ambiguous_lease(R,"bad",old,intended)
+        def failing_api(method,endpoint,payload):
+            raise TimeoutError("GET temporarily unavailable")
+        with self.assertRaises(m.UnknownWriteOutcome):
+            m.GithubContentsCAS(failing_api).reconcile_ambiguous_lease(R,sha,old,intended)
+
     def test_denials_and_separate_writer_authority(self):
         base=FakeAPI().state
         for bad in ["not-id","../main","r-20261029-xx/aa"]:
