@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r05winpositive02",
+  "mode": "AUDIT_ONLY",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-28T23:20:00Z",
+  "expiresAt": "2026-10-29T11:00:00Z",
+  "purpose": "One-shot repaired Windows positive state-ref proof after first original Windows failed strictly on missing jsonschema; exact protected state and remote GET, no release.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "b41a0781d20d30cb69049641ddd56595a1b4e258",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 2,
+    "maxAttemptsPerStage": 2,
+    "maxOperations": 10,
+    "maxWallClockMinutes": 40
+  },
+  "approval": {
+    "scopeText": "Nonpublishing Windows readonly proof over two protected remote main snapshots and an exact immutable R04 state Git blob, original ZIP and SHA256 final aggregation. No App Writer token, remote write, signing, Publisher, Catalog, cron, dispatch, Release or tag.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "6e3904af78cccbd67ce84eef183ceda9f4eef553"
+    }
+  ],
+  "resumeFrom": null
+}
