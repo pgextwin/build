@@ -80,6 +80,28 @@ class Tests(unittest.TestCase):
             with self.assertRaises(race.writer.Denied):
                 race.verify()
 
+    def test_artifact_redirect_strips_all_cross_host_bearer_tokens(self):
+        import urllib.request
+        source = urllib.request.Request(
+            "https://api.github.com/repos/pgextwin/build/actions/artifacts/4/zip",
+            headers={"Authorization": "Bearer NEVER_FORWARD"})
+        handler = race.StripCrossHostAuthorization()
+        cross = handler.redirect_request(
+            source, None, 302, "Found", {},
+            "https://productionresultssa0.blob.core.windows.net/actions-results/example")
+        self.assertIsNotNone(cross)
+        self.assertIsNone(cross.get_header("Authorization"))
+        same = handler.redirect_request(
+            source, None, 302, "Found", {},
+            "https://api.github.com/repos/pgextwin/build/actions/artifacts/4/zip")
+        self.assertEqual(same.get_header("Authorization"), "Bearer NEVER_FORWARD")
+
+    def test_reconciliation_rejects_missing_original_jobs(self):
+        with mock.patch.object(race, "public_api",
+                               return_value=json.dumps({"total_count": 0, "jobs": []}).encode()):
+            with self.assertRaises(race.writer.Denied):
+                race.verify_original(40788234785, 1, HASH)
+
     def test_no_publication_or_dispatch_authority(self):
         src = Path(race.__file__).read_text()
         for forbidden in ("/releases", "/git/refs/tags", "/dispatches",
