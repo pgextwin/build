@@ -46,7 +46,16 @@ jobs:
           # GitHub-owned immutable source identity of this reusable workflow.
           # Future (18th+) callers must pin their detector to this exact SHA.
           PGEXTWIN_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          PGEXTWIN_RECEIPT_PATH: ${{ runner.temp }}/pgextwin-central-fleet-preflight-receipt.json
         run: python .pgextwin-automation/scripts/verify-scheduled-fleet-candidate.py
+      - name: Retain immutable genuine-schedule preflight source-kind receipt (NONPUBLISHING)
+        if: ${{ steps.verify.outputs.receipt_ready == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-fleet-preflight-receipt-nonpublishing
+          path: ${{ runner.temp }}/pgextwin-central-fleet-preflight-receipt.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Report candidate-only scheduled result
         if: ${{ always() }}
         env:
