@@ -1,0 +1,35 @@
+name: Issue 311 R04 original claim ZIP READ-ONLY reconciliation (NONPUBLISHING)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261029-r04claimread02.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue311-r04-original-claim-readonly-reconcile
+  cancel-in-progress: false
+
+jobs:
+  original:
+    name: No App credential, original-run ZIP SHA256 and protected state GET
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Strict original successful contender jobs, exact original ZIP hashes and committed claim (no retries)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r04-claim-reconcile.py
+      - name: Do not convert original failed terminal to success, never publish
+        run: echo 'ORIGINAL_RUN_FAILURE_PRESERVED; PUBLISH_DENY; no Writer/App/Publisher/Release'
