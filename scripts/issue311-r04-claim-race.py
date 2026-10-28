@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import urllib.request
+import urllib.parse
 import zipfile
 
 BASE = Path(__file__).resolve().parent
@@ -142,6 +143,17 @@ def race():
     print(json.dumps(receipt, sort_keys=True))
 
 
+class StripCrossHostAuthorization(urllib.request.HTTPRedirectHandler):
+    """Prevent GITHUB_TOKEN from being forwarded to artifact blob CDN."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if (redirected is not None and
+            urllib.parse.urlsplit(req.full_url).hostname
+                != urllib.parse.urlsplit(newurl).hostname):
+            redirected.remove_header("Authorization")
+        return redirected
+
+
 def public_api(endpoint):
     guard(endpoint.startswith("repos/pgextwin/build/actions/runs/")
           or endpoint.startswith("repos/pgextwin/build/actions/artifacts/")
@@ -151,14 +163,18 @@ def public_api(endpoint):
         headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
                  "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=30) as response:
-        return response.read()
+    with urllib.request.build_opener(StripCrossHostAuthorization()).open(
+            req, timeout=30) as response:
+        data = response.read(2_000_001)
+    guard(len(data) <= 2_000_000, "original response too large")
+    return data
 
 
-def verify():
-    _, raw_sha = provenance()
-    run_id = int(os.environ["GITHUB_RUN_ID"])
-    attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+def verify_original(run_id, attempt, raw_sha):
+    """Independent read-only reconciliation; never schedules or replays an App write."""
+    guard(type(run_id) is int and run_id > 0 and type(attempt) is int
+          and attempt == 1 and writer.SHA256.fullmatch(raw_sha),
+          "unrecognized original run/attempt/request")
     archive_list = json.loads(public_api(
         f"repos/pgextwin/build/actions/runs/{run_id}/artifacts?per_page=100"))
     guard(archive_list.get("total_count", 101) <= 100, "artifacts truncated")
@@ -169,7 +185,10 @@ def verify():
             continue
         guard(name not in found and artifact["workflow_run"]["id"] == run_id,
               "duplicate/foreign artifact")
+        guard(artifact.get("expired") is False, "expired original ZIP")
         raw = public_api(f"repos/pgextwin/build/actions/artifacts/{artifact['id']}/zip")
+        guard(artifact.get("digest") == "sha256:" + hashlib.sha256(raw).hexdigest(),
+              "original artifact ZIP digest mismatch")
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             guard(archive.namelist() == [RECEIPT_NAME], "unexpected ZIP members")
             value = json.loads(archive.read(RECEIPT_NAME),
@@ -204,6 +223,12 @@ def verify():
                       "claimWinner": winner, "claimLoserDenied": True,
                       "revoked401Both": True, "ledgerSha": contents["sha"],
                       "publisherAuthorized": False}, sort_keys=True))
+
+
+def verify():
+    _, raw_sha = provenance()
+    return verify_original(int(os.environ["GITHUB_RUN_ID"]),
+                           int(os.environ["GITHUB_RUN_ATTEMPT"]), raw_sha)
 
 
 def main():
