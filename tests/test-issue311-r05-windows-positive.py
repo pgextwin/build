@@ -68,8 +68,8 @@ class Tests(unittest.TestCase):
         workflow=Path(".github/workflows/issue311-r05-windows-positive.yml").read_text()
         self.assertEqual(p.REQUEST, "r-20261029-r05winpositive02")
         self.assertIn("r-20261029-r05winpositive02.json", workflow)
-        self.assertIn("python -m pip install --disable-pip-version-check 'jsonschema>=4,<5>'", workflow)
-        self.assertGreaterEqual(workflow.count("python -m pip install --disable-pip-version-check 'jsonschema>=4,<5>'"),2)
+        self.assertIn("python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'", workflow)
+        self.assertGreaterEqual(workflow.count("python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'"),2)
         for required in ("runs-on: windows-latest","if: always()","max-parallel: 2",
                          "actions: read","persist-credentials: false","paths:"):
             self.assertIn(required,workflow)
