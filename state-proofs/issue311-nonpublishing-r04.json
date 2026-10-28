@@ -2,8 +2,14 @@
   "kind": "issue311-state-proof",
   "schemaVersion": 1,
   "requestId": "r-20261029-r04probe001",
-  "revision": 0,
+  "revision": 1,
+  "requestSha256": "7a8761dd458aeb88c20d13ff5ac8e92aa5f07dd5b89e6b0c395cffa6d5aad75f",
+  "lastCompletedStage": "AUDIT_ONLY_PROBE",
   "publishAuthorized": false,
-  "scope": "isolated branch only; not trusted production ledger",
-  "lease": null
+  "scope": "isolated branch; connector-only proof, not production actions writer",
+  "lease": {
+    "owner": "authenticated-Chat-connector-probe",
+    "expiresAt": "2026-10-29T03:00:00Z",
+    "kind": "nonpublishing"
+  }
 }
