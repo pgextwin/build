@@ -15,6 +15,7 @@ from pathlib import Path
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -26,6 +27,17 @@ TARGETS = {
 }
 NEGATIVE_REPO = "pgextwin/pg_ivm"
 ARTIFACT_PREFIX = "issue311-r05win-"
+
+
+class StripCrossHostAuthorization(urllib.request.HTTPRedirectHandler):
+    """Do not forward GitHub bearer tokens to SAS-backed artifact blob hosts."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if (redirected is not None
+                and urllib.parse.urlsplit(req.full_url).hostname
+                    != urllib.parse.urlsplit(newurl).hostname):
+            redirected.remove_header("Authorization")
+        return redirected
 
 
 def get_json(url: str, token: str, *, attempts: int = 2):
@@ -187,7 +199,8 @@ def aggregate():
                 raise ValueError("duplicate/expired/unknown original artifact")
             request = urllib.request.Request(artifact["archive_download_url"], headers={
                 "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json"})
-            with urllib.request.urlopen(request, timeout=30) as response:
+            opener = urllib.request.build_opener(StripCrossHostAuthorization())
+            with opener.open(request, timeout=30) as response:
                 raw = response.read(2_000_001)
             if len(raw) > 2_000_000:
                 raise ValueError("oversized original receipt ZIP")
