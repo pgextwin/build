@@ -83,7 +83,7 @@ def app_jwt(private_key, now=None):
 
 def api(method, endpoint, token, payload=None):
     require(endpoint.startswith("repos/pgextwin/build/") or
-            endpoint.startswith("app/installations/") or endpoint == "installation/repositories" or
+            endpoint.startswith("app/installations/") or endpoint.startswith("installation/repositories?") or
             endpoint == "installation/token", "API endpoint outside Writer allowlist")
     require(".." not in endpoint and not endpoint.startswith("/"), "unsafe API endpoint")
     request = urllib.request.Request(
