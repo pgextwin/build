@@ -1,0 +1,105 @@
+name: Issue 311 R02 genuine protected-push observer (NO PUBLISH)
+
+# A one-shot, read-only probe. Does NOT authorize candidate, signing,
+# publisher, release, catalog mutation, or any workflow dispatch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/issue311-requests/r02-20261029.json"
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    name: Original GitHub main-push actor and immutable request receipt (NONPUBLISHING)
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the real triggering commit without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Strictly authenticate the original GitHub event and AUDIT_ONLY file
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          def deny(reason):
+              raise SystemExit("R02_DENY: " + reason)
+
+          def unique_pairs(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      deny("duplicate JSON field")
+                  result[key] = value
+              return result
+
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text(), object_pairs_hook=unique_pairs)
+          path = pathlib.Path(".github/issue311-requests/r02-20261029.json")
+          raw = path.read_bytes()
+          request = json.loads(raw, object_pairs_hook=unique_pairs)
+          expected_fields = {"schemaVersion", "type", "requestId", "mode", "targetRepos",
+                             "baseMainSha", "publishAuthorized", "purpose"}
+          if set(request) != expected_fields:
+              deny("unexpected request shape")
+          if (type(request["schemaVersion"]) is not int or request["schemaVersion"] != 1
+                  or request["type"] != "pgextwin-nonpublishing-event-proof"
+                  or request["requestId"] != "issue311-r02-20261029-01"
+                  or request["mode"] != "AUDIT_ONLY"
+                  or request["targetRepos"] != ["pgextwin/build"]
+                  or request["baseMainSha"] != "d8904ebc377e33034b71108d42de940d6b6c9979"
+                  or request["publishAuthorized"] is not False):
+              deny("not the immutable nonpublishing fixture")
+          if (os.environ["GITHUB_EVENT_NAME"] != "push"
+                  or os.environ["GITHUB_REF"] != "refs/heads/main"
+                  or os.environ["GITHUB_REPOSITORY"] != "pgextwin/build"
+                  or event.get("ref") != "refs/heads/main"
+                  or event.get("repository", {}).get("full_name") != "pgextwin/build"
+                  or event.get("deleted") is not False
+                  or event.get("created") is not False):
+              deny("not a genuine existing protected main push event")
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if event.get("after") != head or os.environ["GITHUB_SHA"] != head:
+              deny("event, checkout and GitHub SHA disagree")
+          receipt = {
+              "schemaVersion": 1, "type": "issue311-r02-event-observation",
+              "result": "NONPUBLISHING_ORIGINAL_PUSH_OBSERVED",
+              "requestId": request["requestId"],
+              "requestBytesSha256": hashlib.sha256(raw).hexdigest(),
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "event": os.environ["GITHUB_EVENT_NAME"],
+              "headSha": head, "beforeSha": event.get("before"),
+              "actor": os.environ["GITHUB_ACTOR"],
+              "triggeringActor": os.environ.get("GITHUB_TRIGGERING_ACTOR"),
+              "sender": (event.get("sender") or {}).get("login"),
+              "pusher": (event.get("pusher") or {}).get("name"),
+              "runId": int(os.environ["GITHUB_RUN_ID"]),
+              "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "publishAuthorized": False, "permissionModel": "contents:read"
+          }
+          pathlib.Path(".issue311-r02-receipt.json").write_text(
+              json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(receipt, sort_keys=True))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("R02: original GitHub protected-main push observed; "
+                        "AUDIT_ONLY; PUBLISH_DENY; no dispatch or write.\n")
+          PY
+      - name: Preserve original nonpublishing run receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r02-original-push-receipt
+          path: .issue311-r02-receipt.json
+          if-no-files-found: error
+          retention-days: 30
