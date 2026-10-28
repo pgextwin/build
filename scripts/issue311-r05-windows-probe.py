@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import time
@@ -17,7 +18,7 @@ import urllib.error
 import urllib.request
 import zipfile
 
-REQUEST_ID = "r-20261029-r05winnegative01"
+REQUEST_ID = "r-20261029-r05winnegative02"
 REQUEST_PATH = Path(".github/execution-requests/" + REQUEST_ID + ".json")
 TARGETS = {
     "pgextwin/orafce": "e96941dd3ec09f88011feb1165a3f6f83231460f",
@@ -44,6 +45,19 @@ def get_json(url: str, token: str, *, attempts: int = 2):
     raise ValueError("bounded API attempts exhausted")
 
 
+def original_request_bytes():
+    """Use committed Git blob; Windows checkout can rewrite LF to CRLF.
+
+    The original request raw SHA256 must be computed over the immutable Git
+    blob, never over a platform-dependent working tree checkout.
+    """
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    if head != os.environ["GITHUB_SHA"]:
+        raise ValueError("checked out HEAD differs from original event SHA")
+    return subprocess.check_output(
+        ["git", "show", "HEAD:" + REQUEST_PATH.as_posix()])
+
+
 def request_binding(raw, expected_hash):
     if hashlib.sha256(raw).hexdigest() != expected_hash:
         raise ValueError("request original-byte SHA mismatch")
@@ -60,7 +74,7 @@ def admit():
     spec = importlib.util.spec_from_file_location("contract", "scripts/issue311-request-contract.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    raw = REQUEST_PATH.read_bytes()
+    raw = original_request_bytes()
     validated = mod.validate_declaration(raw, REQUEST_PATH.as_posix())
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     if not (validated["requestId"] == REQUEST_ID and validated["mode"] == "AUDIT_ONLY"
@@ -91,7 +105,7 @@ def inspect():
         "remoteVerified": False, "result": "FAILED", "publishAuthorized": False,
     }
     try:
-        raw = REQUEST_PATH.read_bytes()
+        raw = original_request_bytes()
         request_binding(raw, os.environ["REQUEST_SHA"])
         if not (repo in TARGETS and os.environ["REMOTE_SHA"] == TARGETS[repo]
                 and os.environ["RUNNER_OS"] == "Windows"
