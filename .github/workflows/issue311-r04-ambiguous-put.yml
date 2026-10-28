@@ -1,0 +1,67 @@
+name: Issue 311 R04 original App PUT response-loss reconciliation proof (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/execution-requests/r-20261029-r04ambiguous01.json']
+permissions:
+  contents: read
+concurrency:
+  group: issue311-r04-ambiguous-original-once
+  cancel-in-progress: false
+jobs:
+  admit:
+    name: Validate original immutable authenticated AUDIT_ONLY main push
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: python scripts/issue311-r04-ambiguous-put.py admit
+  original:
+    name: Dedicated App real PUT, discarded response, original GET reconcile, no retry, revoke401
+    needs: admit
+    if: needs.admit.result == 'success'
+    environment: issue311-state-writer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - env:
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r04-ambiguous-put.py run
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r04-ambiguous-original
+          path: issue311-r04-ambiguous-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+  terminal:
+    name: Independent GITHUB_TOKEN GET of protected original state, NO_UPDATE
+    needs: [admit, original]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          ADMIT_RESULT: ${{ needs.admit.result }}
+          ORIGINAL_RESULT: ${{ needs.original.result }}
+        run: |
+          test "$ADMIT_RESULT" = success && test "$ORIGINAL_RESULT" = success
+          python scripts/issue311-r04-ambiguous-put.py verify
+      - run: echo 'PUBLISH_DENY; original response injection only, no Publisher/Catalog/Release'
