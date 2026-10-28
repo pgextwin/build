@@ -40,6 +40,9 @@ jobs:
       - name: Validate Issue 311 pure CAS checkpoints and fail-closed replay states (NO WRITER)
         run: python tests/test-issue311-state-core.py
 
+      - name: Validate Issue 311 GitHub Contents CAS lease and ambiguous-write isolation (NO WRITER)
+        run: python tests/test-issue311-state-github.py
+
       - name: Validate GitHub Actions trust policy
         run: python tests/test-github-actions-security.py
 
