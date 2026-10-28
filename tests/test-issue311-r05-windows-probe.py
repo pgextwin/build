@@ -29,6 +29,34 @@ class Tests(unittest.TestCase):
             for repo in m.TARGETS
         ]
 
+    def test_cross_host_artifact_redirect_strips_github_bearer(self):
+        from urllib.request import Request
+        original=Request("https://api.github.com/repos/pgextwin/build/actions/artifacts/1/zip",
+                         headers={"Authorization":"Bearer secret-no-leak"})
+        handler=m.StripCrossHostAuthorization()
+        redirected=handler.redirect_request(
+            original,None,302,"Found",{},
+            "https://download.example.net/artifact.zip?sig=temporary")
+        self.assertIsNotNone(redirected)
+        self.assertIsNone(redirected.get_header("Authorization"))
+        retained=handler.redirect_request(
+            original,None,302,"Found",{},
+            "https://api.github.com/alternative")
+        self.assertEqual(retained.get_header("Authorization"),"Bearer secret-no-leak")
+
+    def test_original_git_blob_not_windows_worktree_bytes(self):
+        from unittest.mock import patch
+        raw=b'{"sample":"original"}\n'
+        self.assertNotEqual(raw,raw.replace(b"\n",b"\r\n"))
+        with patch.dict("os.environ", {"GITHUB_SHA":"a"*40}):
+            with patch.object(m.subprocess,"check_output",
+                              side_effect=["a"*40+"\n",raw]) as command:
+                self.assertEqual(m.original_request_bytes(),raw)
+        self.assertEqual(command.call_args_list[1].args[0],
+                         ["git","show","HEAD:"+m.REQUEST_PATH.as_posix()])
+        self.assertNotIn("REQUEST_PATH.read_bytes()",Path(
+            "scripts/issue311-r05-windows-probe.py").read_text())
+
     def test_expected_failure_never_upgraded_to_success(self):
         outcome=m.evaluate(self.jobs,self.receipts,"success")
         self.assertEqual(outcome["terminal"],"FAILED")
