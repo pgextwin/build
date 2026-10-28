@@ -1,0 +1,87 @@
+name: Issue 311 R04 two distinct real App claims, protected global CAS (NONPUBLISHING)
+
+# Single-use, protected main-push-only proof. No cron or workflow_dispatch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261029-r04claimrace001.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue311-r04-claim-race-original
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    name: Admit exact nonpublishing request/actor/original main push
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: python scripts/issue311-r04-claim-race.py admit
+
+  claim:
+    name: Fresh App scoped protected ledger contender ${{ matrix.index }}
+    needs: admit
+    if: needs.admit.result == 'success'
+    environment: issue311-state-writer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {index: 0}
+          - {index: 1}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Two fresh build-only App tokens, atomic same-key candidate claim, loser deny, revoke 401
+        env:
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+          COMPETITOR_INDEX: ${{ matrix.index }}
+        run: python scripts/issue311-r04-claim-race.py race
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r04-claim-${{ matrix.index }}
+          path: issue311-r04-claim-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+  verify:
+    name: Original two ZIPs, authoritative protected ledger GET and NO_UPDATE
+    if: always()
+    needs: [admit, claim]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fail closed on skipped/failed matrix and independently verify original artifacts/state
+        env:
+          ADMIT_RESULT: ${{ needs.admit.result }}
+          CLAIM_RESULT: ${{ needs.claim.result }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$ADMIT_RESULT" = success && test "$CLAIM_RESULT" = success
+          python scripts/issue311-r04-claim-race.py verify
+      - name: Never infer publication authority from this request
+        run: echo 'PUBLISH_DENY; READONLY candidate claim proof; no Publisher/Catalog/Release/tag/dispatch'
