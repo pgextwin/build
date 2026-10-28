@@ -1,0 +1,116 @@
+name: Issue 311 R04 dedicated App state Writer proof (NONPUBLISHING)
+
+# The path does not exist until a separately reviewed proof request is merged.
+# No cron, no dispatch and NO Release/Publisher/Catalog permissions.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261029-r04writerproof001.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue311-r04-dedicated-writer-proof
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    name: Verify immutable original protected-main push (NO WRITE)
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify original event, protected ancestry and AUDIT_ONLY fixture
+        env:
+          REQUIRED_ANCESTOR: a0cf784edf3cea11df9d925a605a78177c46f9c8
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.util,json,os,pathlib,subprocess
+          spec=importlib.util.spec_from_file_location("writer","scripts/issue311-writer-runtime.py")
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          sha=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
+          event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
+                           object_pairs_hook=m.unique_pairs)
+          assert sha==os.environ["GITHUB_SHA"]==event["after"]
+          assert event.get("ref")=="refs/heads/main"
+          assert event.get("deleted") is False and event.get("created") is False
+          assert event.get("repository",{}).get("full_name")=="pgextwin/build"
+          subprocess.run(["git","merge-base","--is-ancestor",
+                          os.environ["REQUIRED_ANCESTOR"],sha],check=True)
+          print("AUDIT_ONLY_ORIGINAL_MAIN_PUSH",m.request_bytes_hash(),sha)
+          PY
+
+  lease:
+    name: Dedicated App minted token, real protected Contents CAS/lease, stale deny, revoke401
+    needs: admit
+    if: needs.admit.result == 'success'
+    environment: issue311-state-writer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Mint exact-App/installation/repository token and commit protected lease
+        env:
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-writer-runtime.py --phase lease
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r04-original-lease
+          path: issue311-r04-lease-receipt.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  recover:
+    name: Fresh runner/App token, wait real 120s lease expiry, fenced recovery, revoke401
+    needs: [admit, lease]
+    if: needs.admit.result == 'success' && needs.lease.result == 'success'
+    environment: issue311-state-writer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Recover one immutable request after the previous runner loses its lease
+        env:
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-writer-runtime.py --phase recover
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r04-original-recovery
+          path: issue311-r04-recover-receipt.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  terminal:
+    name: Aggregate real Writer phases, never grant publication
+    if: always()
+    needs: [admit, lease, recover]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require all phases to pass and never interpret as Release approval
+        env:
+          ADMIT: ${{ needs.admit.result }}
+          LEASE: ${{ needs.lease.result }}
+          RECOVER: ${{ needs.recover.result }}
+        run: |
+          echo "admit=$ADMIT lease=$LEASE recover=$RECOVER"
+          echo "PUBLISH_DENY; AUDIT_ONLY; no Release, tags, dispatch or Catalog write"
+          test "$ADMIT" = success && test "$LEASE" = success && test "$RECOVER" = success
