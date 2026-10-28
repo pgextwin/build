@@ -534,7 +534,7 @@ def main():
         receipt_path = os.environ.get("PGEXTWIN_RECEIPT_PATH")
         need(bool(receipt_path) and bool(receipt), "immutable receipt path missing")
         Path(receipt_path).write_text(
-            json.dumps(receipt, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+            json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         output = os.environ.get("GITHUB_OUTPUT")
         need(bool(output), "GitHub output not available")
         with open(output, "a", encoding="utf-8") as f:
