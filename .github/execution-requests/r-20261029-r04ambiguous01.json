@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261029-r04ambiguous01",
+  "kind": "issue311-r04-ambiguous-put-proof",
+  "mode": "AUDIT_ONLY",
+  "baseMainSha": "9bfc844ae60e96bc0c17f4aae93a3c9639bfdf05",
+  "publicReleaseAuthorized": false
+}
