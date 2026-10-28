@@ -19,7 +19,7 @@ import urllib.request
 import zipfile
 
 HERE = Path(__file__).resolve().parents[1]
-REQUEST = "r-20261029-r05winpositive01"
+REQUEST = "r-20261029-r05winpositive02"
 REQUEST_PATH = ".github/execution-requests/" + REQUEST + ".json"
 TARGETS = {"pgextwin/orafce": "e96941dd3ec09f88011feb1165a3f6f83231460f",
            "pgextwin/pg_ivm": "6e3904af78cccbd67ce84eef183ceda9f4eef553"}
