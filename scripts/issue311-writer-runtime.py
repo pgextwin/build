@@ -115,15 +115,20 @@ def mint_token(private_key):
     token = result.get("token")
     require(type(token) is str and len(token) > 30, "missing runtime token")
     print("::add-mask::" + token, flush=True)
-    permissions = result.get("permissions", {})
-    require(permissions.get("contents") == "write", "missing contents write scope")
-    require(set(permissions) <= {"contents", "metadata"}, "unapproved token permission")
-    repos = api("GET", "installation/repositories?per_page=100", token)
-    require(repos.get("total_count") == 1 and len(repos.get("repositories", [])) == 1,
-            "App token not restricted to exactly one repository")
-    repo = repos["repositories"][0]
-    require(repo.get("full_name") == REPOSITORY and repo.get("id") == REPOSITORY_ID,
-            "token selected repository mismatch")
+    try:
+        permissions = result.get("permissions", {})
+        require(permissions.get("contents") == "write", "missing contents write scope")
+        require(set(permissions) <= {"contents", "metadata"}, "unapproved token permission")
+        repos = api("GET", "installation/repositories?per_page=100", token)
+        require(repos.get("total_count") == 1 and len(repos.get("repositories", [])) == 1,
+                "App token not restricted to exactly one repository")
+        repo = repos["repositories"][0]
+        require(repo.get("full_name") == REPOSITORY and repo.get("id") == REPOSITORY_ID,
+                "token selected repository mismatch")
+    except BaseException:
+        # Even a validly minted but rejected scoped token must not escape.
+        revoke_and_prove_401(token)
+        raise
     return token
 
 
