@@ -256,15 +256,30 @@ def resume():
 def main():
     import argparse
     p=argparse.ArgumentParser()
-    p.add_argument("phase",choices=("admit-start","admit-resume","start","resume"))
+    p.add_argument("phase",choices=("admit-start","admit-resume","start","resume","verify"))
     phase=p.parse_args().phase
     if phase.startswith("admit-"):
         _,digest=original_push(phase.removeprefix("admit-"))
         print("AUDIT_ONLY_ORIGINAL_MAIN_PUSH "+digest)
     elif phase=="start":
         start()
-    else:
+    elif phase=="resume":
         resume()
+    else:
+        original_push("resume")
+        _,state=read(os.environ["GH_TOKEN"])
+        guard(state["revision"]==2 and state["phase"]=="RECOVERED_ANOTHER_RUN"
+              and state["resumedByRunId"]==int(os.environ["GITHUB_RUN_ID"])
+              and state["sourceRunId"]!=state["resumedByRunId"]
+              and state["completedStages"]==[STAGE]
+              and state["publisherAuthorized"] is False,
+              "independent recovery check")
+        print(json.dumps({"terminal":"NO_UPDATE","readOnly":True,
+                          "sourceRunId":state["sourceRunId"],
+                          "recoveredByRunId":state["resumedByRunId"],
+                          "fencingGeneration":state["lease"]["generation"],
+                          "completedStagePreserved":True,
+                          "publisherAuthorized":False},sort_keys=True))
 
 
 if __name__=="__main__":
