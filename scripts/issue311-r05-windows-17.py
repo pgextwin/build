@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Issue311 R05: genuinely linked Windows read-only positive transport (NO RELEASE).
 
-A separate protected-main one-shot request triggers two Windows remote GETs,
+A separate protected-main one-shot request triggers seventeen Windows remote GETs,
 binding R04's immutable genuine separated-run checkpoint, then a Linux original-ZIP
 aggregator. No Writer, dispatch, cron, signing, Publisher or Catalog access.
 """
@@ -79,7 +79,7 @@ def strict_request(raw):
     if (sorted(TARGETS)!=sorted(x["repository"] for x in fleet["entries"])
             or hashlib.sha1(
                 b"blob "+str(len((HERE/"metadata"/"automation-fleet.json").read_bytes())).encode()
-                +b"\\0"+(HERE/"metadata"/"automation-fleet.json").read_bytes()
+                +b"\0"+(HERE/"metadata"/"automation-fleet.json").read_bytes()
                ).hexdigest()!=FLEET_BLOB):
         raise ValueError("fleet names or original registry Git blob mismatch")
     return result
