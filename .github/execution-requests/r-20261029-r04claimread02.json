@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261029-r04claimread02",
+  "mode": "AUDIT_ONLY",
+  "kind": "issue311-r04-original-zip-readonly-reconcile",
+  "baseMainSha": "52513eab85dd9165cb74437bde2848b4f8b896e2",
+  "originalRunId": 40788234785,
+  "originalRunAttempt": 1,
+  "originalMainSha": "a209d0ac8d451dfec8180dca1effed1a1434d31e",
+  "originalRequestSha256": "d44f836a0a50ee1e4f840918b0c74565b1763ec87a92f1b1b6969d90579c088b",
+  "publicReleaseAuthorized": false
+}
