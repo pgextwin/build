@@ -1,0 +1,9 @@
+{
+  "kind": "issue311-state-proof",
+  "schemaVersion": 1,
+  "requestId": "r-20261029-r04probe001",
+  "revision": 0,
+  "publishAuthorized": false,
+  "scope": "isolated branch only; not trusted production ledger",
+  "lease": null
+}
