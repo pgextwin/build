@@ -45,7 +45,7 @@ def create_state(request_id: str, original_request_sha256: str, targets: list[st
             "requestSha256": original_request_sha256, "revision": 0,
             "maxAttempts": max_attempts, "maxOperations": max_operations,
             "events": {}, "terminal": False,
-            "targets": {repo: {"stage": STAGES[0], "attempts": {},
+            "targets": {repo: {"stage": STAGES[0], "attempts": {}, "inputDigests": {},
                                "outcome": "PENDING", "lastReceiptSha256": None,
                                "reason": None} for repo in targets}}
 
@@ -88,6 +88,10 @@ def advance(state: dict, expected_revision: int, event: dict) -> dict:
 
     new = copy.deepcopy(state)
     item = new["targets"][event["repo"]]
+    expected_input = item["inputDigests"].get(event["stage"])
+    require(expected_input is None or expected_input == event["inputSha256"],
+            "same-stage retry input changed without fresh authorization")
+    item["inputDigests"][event["stage"]] = event["inputSha256"]
     count = item["attempts"].get(event["stage"], 0) + 1
     require(count <= new["maxAttempts"], "retry budget exhausted")
     item["attempts"][event["stage"]] = count
