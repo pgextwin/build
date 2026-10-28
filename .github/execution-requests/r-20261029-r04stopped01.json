@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261029-r04stopped01",
+  "kind": "issue311-r04-start-proof",
+  "mode": "AUDIT_ONLY",
+  "baseMainSha": "ddb7bdec05dd81e50da249abab5529542b3c00ed",
+  "publicReleaseAuthorized": false
+}
