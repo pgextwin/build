@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261029-r04writerproof001",
+  "kind": "issue311-r04-writer-proof",
+  "mode": "AUDIT_ONLY",
+  "publicReleaseAuthorized": false,
+  "baseMainSha": "a0cf784edf3cea11df9d925a605a78177c46f9c8"
+}
