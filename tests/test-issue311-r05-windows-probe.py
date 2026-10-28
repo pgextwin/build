@@ -29,6 +29,21 @@ class Tests(unittest.TestCase):
             for repo in m.TARGETS
         ]
 
+    def test_cross_host_artifact_redirect_strips_github_bearer(self):
+        from urllib.request import Request
+        original=Request("https://api.github.com/repos/pgextwin/build/actions/artifacts/1/zip",
+                         headers={"Authorization":"Bearer secret-no-leak"})
+        handler=m.StripCrossHostAuthorization()
+        redirected=handler.redirect_request(
+            original,None,302,"Found",{},
+            "https://download.example.net/artifact.zip?sig=temporary")
+        self.assertIsNotNone(redirected)
+        self.assertIsNone(redirected.get_header("Authorization"))
+        retained=handler.redirect_request(
+            original,None,302,"Found",{},
+            "https://api.github.com/alternative")
+        self.assertEqual(retained.get_header("Authorization"),"Bearer secret-no-leak")
+
     def test_original_git_blob_not_windows_worktree_bytes(self):
         from unittest.mock import patch
         raw=b'{"sample":"original"}\n'
