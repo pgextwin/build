@@ -37,6 +37,9 @@ jobs:
       - name: Validate Issue 311 request scope and deny untrusted publication claims (NO RELEASE)
         run: python tests/test-issue311-request-contract.py
 
+      - name: Validate Issue 311 pure CAS checkpoints and fail-closed replay states (NO WRITER)
+        run: python tests/test-issue311-state-core.py
+
       - name: Validate GitHub Actions trust policy
         run: python tests/test-github-actions-security.py
 
