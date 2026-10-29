@@ -133,13 +133,20 @@ def mint_token(private_key):
 
 
 def revoke_and_prove_401(token):
+    # GitHub token revocation can propagate after DELETE acknowledgement.
+    # Only bounded GET checks on the SAME revoked token, never mint or regrant.
     api("DELETE", "installation/token", token)
-    try:
-        api("GET", "repos/pgextwin/build/contents/README.md?ref=main", token)
-    except HTTPStatus as error:
-        require(error.code == 401, "revoked token did not produce HTTP 401")
-        return
-    raise Denied("revoked token was still accepted")
+    for attempt in range(10):
+        try:
+            api("GET", "repos/pgextwin/build/contents/README.md?ref=main", token)
+        except HTTPStatus as error:
+            require(error.code == 401, "revoked token did not produce HTTP 401")
+            if attempt:
+                print("STATE_WRITER_REVOKE_401_BOUNDED_OBSERVED", attempt + 1, flush=True)
+            return
+        if attempt < 9:
+            time.sleep(2)
+    raise Denied("revoked token was still accepted after bounded GET checks")
 
 
 def ledger_endpoint():
