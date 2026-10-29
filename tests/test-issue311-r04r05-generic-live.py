@@ -69,7 +69,7 @@ class Evidence(unittest.TestCase):
         # unsubscribed source still starts the independent push watchdog.
         with mock.patch.dict("os.environ", {"ISSUE311_PROOF_CASE":"missing-event"}):
             gap=load("livegap","scripts/issue311-r04r05-generic-live.py")
-        self.assertEqual(gap.REQUEST,"r-20261029-r05eventgap001")
+        self.assertEqual(gap.REQUEST,"r-20261029-r05eventgap002")
         self.assertEqual(gap.SOURCE_PATH,".github/workflows/issue311-r05-eventgap-source.yml")
         subscribe=Path(".github/workflows/issue311-r04r05-bridge.yml").read_text()
         self.assertNotIn(gap.SOURCE_NAME,subscribe)
