@@ -1,0 +1,55 @@
+name: Issue 311 R05 genuine 17-target bounded timed-out child source (NONPUBLISHING)
+# Controlled missing-subscriber proof. NOT a claim that GitHub lost an event.
+# This workflow runs only on an exact new nonpublishing request main push.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261029-r05timeout17e01.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r05-controlled-timeout-17-source
+  cancel-in-progress: false
+jobs:
+  source:
+    name: Actual 17 protected-main GETs and state-only App CAS
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Bind real source Run to 17 exact protected main SHAs and immutable App checkpoint
+        env:
+          ISSUE311_PROOF_CASE: timed-out-17
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r04r05-generic-live.py source
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r04r05-original-source
+          path: issue311-r04r05-original.json
+          if-no-files-found: error
+          retention-days: 30
+
+  intentionally_timed_out:
+    name: Deliberately timed-out original child (must never count as successful 17)
+    needs: [source]
+    if: ${{ needs.source.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions:
+      contents: read
+    steps:
+      - name: Bound one actual GitHub Actions job timeout; no network or credentials
+        run: sleep 125
