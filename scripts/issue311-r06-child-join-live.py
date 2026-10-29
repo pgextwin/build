@@ -317,7 +317,7 @@ def central_original(request):
     need(proof.get("requestId") == c["requestId"] and proof.get("sourceRunId") == r["id"]
          and proof.get("sourceRunAttempt") == 1 and proof.get("sourceHeadSha") == r["head_sha"]
          and proof.get("sourceEvent") == "push" and proof.get("result") == "SCANNED"
-         and proof.get("publisherAuthorized") is False and proof.get("fleetSize") == 17
+         and central_scope(proof) and proof.get("fleetSize") == 17
          and set(proof.get("targetMainSha", {})) == targets(), "central original receipt scope")
     path = ".github/execution-requests/" + c["requestId"] + ".json"
     raw = contents("pgextwin/build", path, c["headSha"])
@@ -342,6 +342,12 @@ def central_original(request):
         "created_at": r["created_at"], "sourceEvent": "push", "publicationAuthorized": False,
         "targetMainSha": proof["targetMainSha"]}
     return central, req
+
+
+def central_scope(proof):
+    # The authentic PREPARE scan uses publicationAuthorized, whereas App
+    # lifecycle state uses publisherAuthorized. Never interchange the schemas.
+    return proof.get("publicationAuthorized") is False and "publisherAuthorized" not in proof
 
 
 def receipt_binding(receipt, local, run, parent, central):
