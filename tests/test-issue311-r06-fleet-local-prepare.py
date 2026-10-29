@@ -100,7 +100,7 @@ class ReadonlyFleetTests(TestCase):
                     if cmd[:3] == ["git", "rev-parse", "HEAD"]:
                         return head
                     if cmd[:3] == ["git", "diff", "--name-status"]:
-                        return changed_path.splitlines()
+                        return changed_path
                     if cmd[:2] == ["git", "show"]:
                         return json.dumps(original).encode()
                     raise AssertionError("unexpected subprocess")
