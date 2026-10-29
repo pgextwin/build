@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r05eventgap001",
+  "mode": "AUDIT_ONLY",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-29T01:06:45Z",
+  "expiresAt": "2026-10-29T01:12:30Z",
+  "purpose": "Controlled actual GitHub source Run without a subscribed workflow_run listener: independent same-main-push finite watchdog must identify genuine absent bridge Run, produce durable FAILED via state-only App, and never publish.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "c129fe83c62c9b72603446e5c7951ad9b4a34ca6",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 1,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 10,
+    "maxWallClockMinutes": 7
+  },
+  "approval": {
+    "scopeText": "One protected orafce remote GET source Run with existing dedicated state-only App CAS. Intentionally no workflow_run subscriber, separately push-triggered finite watchdog must record FAILED missing event or QUARANTINED unknown. No build, no Publisher, Catalog, tag or Release.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+    }
+  ],
+  "resumeFrom": null
+}
