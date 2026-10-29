@@ -115,10 +115,14 @@ def original_zip(source):
     return raw, sha, entry["id"]
 
 
-def verify():
-    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
-                       object_pairs_hook=store.unique_pairs)
-    source = authenticated_source(event)
+def cross_repo_protected_main(repo):
+    require(repo in scan.win.TARGETS, "remote repo outside frozen 17 allowlist")
+    return scan.win.old.get_json(
+        "https://api.github.com/repos/" + repo + "/branches/main",
+        os.environ["GH_TOKEN"])
+
+
+def verify_for_source(source, *, transport="workflow_run.completed"):
     declaration, request = original_request(source)
     proof, zip_sha, artifact_id = original_zip(source)
     targets = {x["repo"]: x["mainSha"] for x in request["targets"]}
@@ -140,9 +144,10 @@ def verify():
             {repo: x["status"] for repo, x in found.items()},
             "report and supplied target status differ")
     for repo, sha in sorted(targets.items()):
-        # A current independent protected-main GET is an independent local
-        # preflight, not replay of an untrusted artifact's local assertion.
-        remote = bridge.get_json("repos/" + repo + "/branches/main")
+        # R05's vetted cross-repository protected branch GET is intentionally
+        # separate from the strictly build-only original-artifact API helper.
+        # Never widen the build-only reader or transfer the Writer App token.
+        remote = cross_repo_protected_main(repo)
         require(remote.get("name") == "main"
                 and remote.get("protected") is True
                 and remote.get("commit", {}).get("sha") == sha,
@@ -158,10 +163,16 @@ def verify():
             "originalZipArtifactId": artifact_id,
             "originalZipSha256": zip_sha,
             "updatesDetected": proof["report"]["updatesDetected"],
-            "eventTransport": "workflow_run.completed",
+            "eventTransport": transport,
             "publicationAuthorized": False, "candidateAdmissionAuthorized": False,
             "sourceKind": "AUTHENTICATED_REQUEST_READONLY_SCAN",
             "genuineSchedule": False}
+
+
+def verify():
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
+                       object_pairs_hook=store.unique_pairs)
+    return verify_for_source(authenticated_source(event))
 
 
 def main():
