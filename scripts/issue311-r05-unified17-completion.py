@@ -71,7 +71,8 @@ def validated_source(event):
     declaration = contract.validate_declaration(raw, source.REQUEST_PATH)
     data = json.loads(raw, object_pairs_hook=store.unique_pairs)
     require(declaration["requestId"] == REQUEST and declaration["mode"] == "AUDIT_ONLY"
-            and declaration["targets"] == tuple(sorted(source.win.TARGETS))
+            and set(declaration["targets"]) == set(source.win.TARGETS)
+            and len(declaration["targets"]) == 17
             and {x["repo"]: x["mainSha"] for x in data["targets"]} == source.win.TARGETS
             and data["approval"]["publicReleaseAuthorized"] is False
             and data["approval"]["publicationGrants"] == []
