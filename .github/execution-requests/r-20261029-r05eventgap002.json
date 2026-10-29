@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r05eventgap002",
+  "mode": "AUDIT_ONLY",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-29T01:13:30Z",
+  "expiresAt": "2026-10-29T01:19:30Z",
+  "purpose": "Second unique controlled no-listener source with existing real App token and bounded revoke401 verification; independent push watchdog must persist original source-complete missing-listener FAILED with exact REST evidence; no publication.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "8709567c234798f148ef506ae77858887a5363bc",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 1,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 10,
+    "maxWallClockMinutes": 7
+  },
+  "approval": {
+    "scopeText": "Genuine protected orafce remote GET, original real App CAS and same-token bounded 401 revocation, deliberately absent completion-listener subscriber, finite independent push watcher with exact failed or quarantined terminal. No Publisher/Catalog/Release.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+    }
+  ],
+  "resumeFrom": null
+}
