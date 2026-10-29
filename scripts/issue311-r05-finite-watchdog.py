@@ -155,7 +155,7 @@ def finalize():
         try:
             completed,lookup,count=snapshot(report["headSha"],state)
         except Exception:
-            completed,lookup=False,"UNKNOWN"
+            completed,lookup=None,"UNKNOWN"
         if datetime.now(timezone.utc)<life.parse_utc(state["expiresAt"]):
             raise ValueError("deadline not reached")
         expired=life.event_deadline(state,state["revision"],"finite-event-deadline",
