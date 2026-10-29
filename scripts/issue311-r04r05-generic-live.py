@@ -19,7 +19,7 @@ import urllib.request
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
-REQUEST="r-20261029-r04r05generic01"
+REQUEST="r-20261029-r04r05generic02"
 REQUEST_PATH=".github/execution-requests/"+REQUEST+".json"
 SOURCE_NAME="Issue 311 R04/R05 generic real App source (NONPUBLISHING)"
 SOURCE_PATH=".github/workflows/issue311-r04r05-source.yml"
@@ -105,7 +105,9 @@ def source():
     token=None
     try:
         data,decl,head=source_context()
-        repo=bridge.get_json("repos/pgextwin/orafce/branches/main")
+        repo=bridge.win17.old.get_json(
+            "https://api.github.com/repos/pgextwin/orafce/branches/main",
+            os.environ["GH_TOKEN"])
         require(repo.get("name")=="main" and repo.get("protected") is True
                 and repo.get("commit",{}).get("sha")==data["targets"][0]["mainSha"],
                 "local protected main drift")
