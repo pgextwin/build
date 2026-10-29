@@ -34,6 +34,8 @@ SOURCE_WORKFLOW="issue311-r04r05-source.yml"
 BRIDGE_WORKFLOW="issue311-r04r05-bridge.yml"
 MAX_POLL=60
 POLL_SECONDS=10
+_CONTROLLED_FAULT_CALLS=0  # test-only; never observes a real GitHub 429/503 here
+
 
 def require(ok,why):
     if not ok:raise ValueError("WATCHDOG_DENY "+why)
@@ -94,6 +96,23 @@ def snapshot(head,state):
             and original.get("event")=="push"
             and original.get("actor",{}).get("login")=="ShutenOishi",
             "original Run metadata mismatch")
+    if (m._CASE=="http-fault-17" and original.get("status")=="completed"
+            and original.get("conclusion")=="success"):
+        # First authenticate the genuine source and actual one-file original
+        # artifact bytes. Only then inject read-only REST 429/503 failures at
+        # the downstream lookup boundary. No GitHub request is claimed to have
+        # returned these statuses. Never fabricate source or success.
+        raw=m.contents_original(head)
+        require(hashlib.sha256(raw).hexdigest()==state["requestSha256"],
+                "original request hash drift")
+        data=json.loads(raw,object_pairs_hook=m.json_unique)
+        m.verify_source_zip(original,{"rawSha256":state["requestSha256"]},data)
+        global _CONTROLLED_FAULT_CALLS
+        code=429 if _CONTROLLED_FAULT_CALLS % 2 == 0 else 503
+        _CONTROLLED_FAULT_CALLS+=1
+        if _CONTROLLED_FAULT_CALLS<=2:
+            print("CONTROLLED_POST_AUTH_REST_FAULT_INJECTION",code,flush=True)
+        raise RuntimeError("CONTROLLED_POST_AUTH_REST_HTTP_"+str(code))
     others=listed(BRIDGE_WORKFLOW,head)
     require(all(x.get("event")=="workflow_run" for x in others),
             "non-event bridge Run")

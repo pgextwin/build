@@ -120,6 +120,24 @@ class EventGap17Tests(TestCase):
         with self.assertRaises(ValueError):
             verify(dict(jobs,jobs=[source_job,dict(timed_job,name="foreign job")]))
 
+    def test_controlled_post_auth_http_fault_case_remains_no_publication(self):
+        with mock.patch.dict(os.environ,{"ISSUE311_PROOF_CASE":"http-fault-17"}):
+            spec=importlib.util.spec_from_file_location(
+                "issue311_httpfault17",ROOT/"scripts/issue311-r04r05-generic-live.py")
+            m=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+        self.assertEqual(m.REQUEST,"r-20261029-r05httpfault17f01")
+        self.assertEqual(m.SOURCE_PATH,".github/workflows/issue311-r05-httpfault17-source.yml")
+        self.assertEqual(len(m.bridge.win17.TARGETS),17)
+        watcher=(ROOT/"scripts/issue311-r05-finite-watchdog.py").read_text()
+        self.assertIn('m.verify_source_zip(original,{"rawSha256":state["requestSha256"]},data)',watcher)
+        self.assertIn('CONTROLLED_POST_AUTH_REST_FAULT_INJECTION',watcher)
+        for name in ("source","watchdog"):
+            yml=(ROOT/f".github/workflows/issue311-r05-httpfault17-{name}.yml").read_text()
+            self.assertIn("ISSUE311_PROOF_CASE: http-fault-17",yml)
+            self.assertNotIn("workflow_dispatch:",yml)
+            self.assertNotIn("contents: write",yml)
+
     def test_not_16_not_foreign_not_publish_not_unbounded(self):
         m=self.mod
         variations=[]

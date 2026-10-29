@@ -43,6 +43,9 @@ _CASES={
     "timed-out-17":("r-20261029-r05timeout17e01",
                     "Issue 311 R05 genuine 17-target bounded timed-out child source (NONPUBLISHING)",
                     ".github/workflows/issue311-r05-timeout17-source.yml"),
+    "http-fault-17":("r-20261029-r05httpfault17f01",
+                     "Issue 311 R05 genuine 17-target controlled REST fault source (NONPUBLISHING)",
+                     ".github/workflows/issue311-r05-httpfault17-source.yml"),
 }
 if _CASE not in _CASES:
     raise ValueError("ISSUE311_CASE_DENY: unsupported privileged case")
@@ -85,7 +88,7 @@ def contents_original(head):
 def read_request(raw, head):
     decl=contract.validate_declaration(raw,REQUEST_PATH)
     data=json.loads(raw,object_pairs_hook=json_unique)
-    expected=(set(bridge.win17.TARGETS) if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17") else {TARGET})
+    expected=(set(bridge.win17.TARGETS) if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17","http-fault-17") else {TARGET})
     require(decl["requestId"]==REQUEST and decl["mode"]=="AUDIT_ONLY"
             and len(decl["targets"])==len(expected) and set(decl["targets"])==expected
             and data["approval"]["publicReleaseAuthorized"] is False
@@ -114,7 +117,7 @@ def source_context():
             "invalid protected original push")
     checkout=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
     require(checkout==head,"not original event checkout")
-    if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17"):
+    if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17","http-fault-17"):
         changes=subprocess.check_output(
             ["git","diff","--name-status",ev["before"],head],text=True).splitlines()
         require(changes==["A\t"+REQUEST_PATH],
@@ -155,7 +158,7 @@ def source():
         data,decl,head=source_context()
         requested={row["repo"]:row["mainSha"] for row in data["targets"]}
         require(len(requested)==len(decl["targets"]), "duplicate local source target")
-        if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17"):
+        if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17","http-fault-17"):
             require(set(requested)==set(bridge.win17.TARGETS)
                     and len(requested)==17, "not exact 17 source target")
         for target,sha in sorted(requested.items()):
@@ -262,7 +265,7 @@ def verify_source_zip(original,decl,data):
             and receipt.get("runAttempt")==1
             and receipt.get("originalRequestSha256")==decl["rawSha256"]
             and receipt.get("targetMainSha")==data["targets"][0]["mainSha"]
-            and (_CASE not in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17") or
+            and (_CASE not in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17","http-fault-17") or
                  receipt.get("perTarget")=={t["repo"]:t["mainSha"] for t in data["targets"]})
             and receipt.get("remoteProtected") is True
             and receipt.get("publisherAuthorized") is False
