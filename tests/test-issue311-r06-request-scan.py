@@ -19,6 +19,7 @@ def load(name, path):
 
 scan = load("scan_r06_tests", "scripts/issue311-r06-request-scan.py")
 verify = load("verify_r06_tests", "scripts/issue311-r06-request-preflight.py")
+recovery = load("recover_r06_tests", "scripts/issue311-r06-original-recovery.py")
 
 
 class RequestScanTests(unittest.TestCase):
@@ -39,6 +40,17 @@ class RequestScanTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'R06_PREFLIGHT_DENY'):
                     verify.cross_repo_protected_main('foreign/repo')
                 self.assertEqual(getter.call_count, 1)
+
+    def test_original_recovery_is_exact_and_does_not_replay_source(self):
+        self.assertEqual(recovery.SOURCE_RUN, 40809608059)
+        self.assertEqual(recovery.SOURCE_ARTIFACT_ID, 12869343975)
+        self.assertEqual(recovery.SOURCE_ZIP_SHA256,
+                         "7691f86ee80f9b7783d607ced481874b9bcdec7b00fdc6f9f4017f77dd78db3e")
+        self.assertNotEqual(recovery.RECOVERY, recovery.scan.REQUEST)
+        workflow = (ROOT / ".github/workflows/issue311-r06-original-recovery.yml").read_text()
+        self.assertIn('r-20261029-r06recovery001.json', workflow)
+        self.assertNotIn('schedule:', workflow)
+        self.assertNotIn('workflow_dispatch:', workflow)
 
     def test_full_17_exact_original_preflight(self):
         found = scan.inspect_report(self.report(), scan.win.TARGETS)
