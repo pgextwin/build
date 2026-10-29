@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-expired-state-recovery",
+  "requestId": "r-20261029-r04r05terminalproof01",
+  "mode": "AUDIT_ONLY",
+  "baseMainSha": "bfbaeb56a55313d1309bef27022bb2d31cd1216e",
+  "expiresAt": "2026-10-29T11:50:00Z",
+  "publicReleaseAuthorized": false,
+  "recoveries": [
+    {
+      "requestId": "r-20261029-r05unified17a01",
+      "stateBlobSha": "7c167444156312079e62444758a2e390a2643326",
+      "sourceRunId": 40807366784,
+      "sourceHeadSha": "e968fb99d07f7d9eda3fb3206c6b71647dfcb332",
+      "requestSha256": "3b1302339767d2f1222eabf133afc8cc54279a4c8ccc27155d79be56aa122e07"
+    }
+  ]
+}
