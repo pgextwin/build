@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/execution-requests/r-20261029-r05unified17a01.json"
+      - ".github/execution-requests/r-20261029-r05unified17a02.json"
 
 permissions:
   contents: read
