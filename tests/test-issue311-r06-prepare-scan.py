@@ -3,11 +3,13 @@
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, mock
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location("r06_prepare", ROOT / "scripts/issue311-r06-prepare-scan.py")
 prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
