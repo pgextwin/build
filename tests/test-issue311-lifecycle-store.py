@@ -97,6 +97,16 @@ class StoreTests(unittest.TestCase):
                  raw.replace(b'"schemaVersion":1',b'"schemaVersion":1,"schemaVersion":1')
                 ).decode(),"sha":store.blob_hash(raw)},REQ)
 
+    def test_original_github_contents_wrapped_base64_is_strict(self):
+        raw=store.canonical(self.state())
+        encoded=base64.b64encode(raw).decode()
+        wrapped="\\n".join(encoded[i:i+60] for i in range(0,len(encoded),60))+"\\n"
+        original={"encoding":"base64","content":wrapped,"sha":store.blob_hash(raw)}
+        self.assertEqual(store.unpack(original,REQ)[1],self.state())
+        for poisoned in (" "+wrapped,wrapped+"!",wrapped.replace("\\n","!\\n",1)):
+            with self.subTest(poisoned=poisoned[:30]),self.assertRaises(store.Denied):
+                store.unpack(dict(original,content=poisoned),REQ)
+
     def test_old_terminal_can_never_be_reopened(self):
         s=self.state()
         bound=store.lifecycle.bind_source(s,0,"source",run_id=123,attempt=1,head_sha=HEAD)
