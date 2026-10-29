@@ -96,7 +96,7 @@ class Tests(unittest.TestCase):
             ["git","show","HEAD:metadata/automation-fleet.json"])
         self.assertEqual(len(p.verify_immutable_registry_bytes(raw)["entries"]),17)
         with self.assertRaises(ValueError):
-            p.verify_immutable_registry_bytes(raw.replace(b"\\n",b"\\r\\n"))
+            p.verify_immutable_registry_bytes(raw.replace(b"\n",b"\r\n"))
         with self.assertRaises(ValueError):
             p.verify_immutable_registry_bytes(raw.replace(b"pgextwin/pg_bigm",
                                                          b"pgextwin/pg_fake"))
