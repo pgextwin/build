@@ -101,7 +101,7 @@ def snapshot(head,state):
     # receipt ZIP and verify all 17 protected-main GET outcomes first.
     complete=(original.get("status")=="completed"
               and original.get("conclusion")=="success")
-    if complete and m._CASE in ("missing-event-17","skipped-17"):
+    if complete and m._CASE in ("missing-event-17","skipped-17","ambiguous-write-17"):
         raw=m.contents_original(head)
         require(hashlib.sha256(raw).hexdigest()==state["requestSha256"],
                 "original request hash drift")
