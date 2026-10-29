@@ -43,6 +43,9 @@ jobs:
       - name: Reject R04/R05 generic lifecycle replay, missing event, expiry and privilege (NO WRITER)
         run: python tests/test-issue311-request-lifecycle.py
 
+      - name: Reject expired 17-target recovery forgeries and preserve failed original state (NO CREDENTIALS)
+        run: python tests/test-issue311-r04r05-terminal-recovery.py
+
       - name: Validate R04 generalized original Contents CAS, ambiguity and immutable scope (NO CREDENTIALS)
         run: python tests/test-issue311-lifecycle-store.py
 
