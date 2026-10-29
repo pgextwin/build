@@ -107,7 +107,7 @@ def source_context():
     if _CASE=="missing-event-17":
         changes=subprocess.check_output(
             ["git","diff","--name-status",ev["before"],head],text=True).splitlines()
-        require(changes==["A\\t"+REQUEST_PATH],
+        require(changes==["A\t"+REQUEST_PATH],
                 "17-target source must be request-only protected addition")
         main=bridge.get_json("repos/pgextwin/build/branches/main")
         require(main.get("protected") is True
