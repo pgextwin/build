@@ -36,6 +36,9 @@ _CASES={
     "skipped-17":("r-20261029-r05skip17c01",
                   "Issue 311 R05 real 17-target skipped-child source (NONPUBLISHING)",
                   ".github/workflows/issue311-r05-skip17-source.yml"),
+    "ambiguous-write-17":("r-20261029-r05ambiguous17d01",
+                          "Issue 311 R04 real 17-target controlled ambiguous App CAS source (NONPUBLISHING)",
+                          ".github/workflows/issue311-r04-ambiguous17-source.yml"),
 }
 if _CASE not in _CASES:
     raise ValueError("ISSUE311_CASE_DENY: unsupported privileged case")
@@ -78,7 +81,7 @@ def contents_original(head):
 def read_request(raw, head):
     decl=contract.validate_declaration(raw,REQUEST_PATH)
     data=json.loads(raw,object_pairs_hook=json_unique)
-    expected=(set(bridge.win17.TARGETS) if _CASE in ("missing-event-17","skipped-17") else {TARGET})
+    expected=(set(bridge.win17.TARGETS) if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17") else {TARGET})
     require(decl["requestId"]==REQUEST and decl["mode"]=="AUDIT_ONLY"
             and len(decl["targets"])==len(expected) and set(decl["targets"])==expected
             and data["approval"]["publicReleaseAuthorized"] is False
@@ -107,7 +110,7 @@ def source_context():
             "invalid protected original push")
     checkout=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
     require(checkout==head,"not original event checkout")
-    if _CASE in ("missing-event-17","skipped-17"):
+    if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17"):
         changes=subprocess.check_output(
             ["git","diff","--name-status",ev["before"],head],text=True).splitlines()
         require(changes==["A\t"+REQUEST_PATH],
@@ -126,6 +129,19 @@ def app_cas():
     key=os.environ.get("STATE_WRITER_PRIVATE_KEY","")
     require(bool(key),"dedicated state Writer environment missing")
     token=writer.mint_token(key)
+    if _CASE=="ambiguous-write-17":
+        # A controlled lost ACK, not a natural network outage. Perform exactly
+        # ONE real App PUT, then discard its HTTP response on the second PUT.
+        # CAS.write may only reconcile the intended state via original GET.
+        calls={"puts":0}
+        def transport(method,path,body):
+            if method=="PUT":
+                calls["puts"]+=1
+                if calls["puts"]==2:
+                    writer.api(method,path,token,body)
+                    raise ConnectionError("CONTROLLED_LOST_ACK_AFTER_REAL_APP_PUT")
+            return writer.api(method,path,token,body)
+        return token, store.CAS(transport)
     return token, store.CAS(lambda m,p,b:writer.api(m,p,token,b))
 
 def source():
@@ -135,7 +151,7 @@ def source():
         data,decl,head=source_context()
         requested={row["repo"]:row["mainSha"] for row in data["targets"]}
         require(len(requested)==len(decl["targets"]), "duplicate local source target")
-        if _CASE in ("missing-event-17","skipped-17"):
+        if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17"):
             require(set(requested)==set(bridge.win17.TARGETS)
                     and len(requested)==17, "not exact 17 source target")
         for target,sha in sorted(requested.items()):
@@ -155,6 +171,9 @@ def source():
         committed=cas.write(bound,previous=old,expected_blob=blob)
         _,confirm=cas.read(REQUEST)
         require(confirm==bound,"source state failed readback")
+        if _CASE=="ambiguous-write-17":
+            require(committed=="RECONCILED_BY_ORIGINAL_GET",
+                    "actual App ambiguous ACK was not byte-reconciled")
         receipt.update(result="SUCCESS",sourceSha=head,originalRequestSha256=decl["rawSha256"],
                 sourceRunId=int(os.environ["GITHUB_RUN_ID"]),runAttempt=1,
                 targetMainSha=data["targets"][0]["mainSha"],remoteProtected=True,

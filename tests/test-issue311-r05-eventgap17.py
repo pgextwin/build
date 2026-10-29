@@ -56,6 +56,17 @@ class EventGap17Tests(TestCase):
         self.assertEqual(m.SOURCE_PATH,".github/workflows/issue311-r05-skip17-source.yml")
         self.assertEqual(len(m.bridge.win17.TARGETS),17)
 
+    def test_controlled_ambiguous_ack_case_exact_request_only(self):
+        with mock.patch.dict(os.environ,{"ISSUE311_PROOF_CASE":"ambiguous-write-17"}):
+            spec=importlib.util.spec_from_file_location(
+                "issue311_ambiguous17",ROOT/"scripts/issue311-r04r05-generic-live.py")
+            m=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+        self.assertEqual(m._CASE,"ambiguous-write-17")
+        self.assertEqual(m.REQUEST,"r-20261029-r05ambiguous17d01")
+        self.assertEqual(m.SOURCE_PATH,".github/workflows/issue311-r04-ambiguous17-source.yml")
+        self.assertEqual(len(m.bridge.win17.TARGETS),17)
+
     def test_not_16_not_foreign_not_publish_not_unbounded(self):
         m=self.mod
         variations=[]
