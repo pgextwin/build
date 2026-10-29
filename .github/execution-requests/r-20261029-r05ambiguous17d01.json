@@ -4,8 +4,8 @@
   "requestId": "r-20261029-r05ambiguous17d01",
   "mode": "AUDIT_ONLY",
   "requestedBy": "ShutenOishi",
-  "createdAt": "2026-10-29T11:34:36Z",
-  "expiresAt": "2026-10-29T11:41:36Z",
+  "createdAt": "2026-10-29T12:01:46Z",
+  "expiresAt": "2026-10-29T12:10:46Z",
   "purpose": "Actual approved state App 17-target CAS PUT, controlled lost second PUT response with no retry, independent original GET exact byte reconciliation then finite controlled no-listener deadline termination; never claim natural network outage",
   "allowFutureUpdates": false,
   "source": {
@@ -16,7 +16,7 @@
     "maxParallel": 1,
     "maxAttemptsPerStage": 1,
     "maxOperations": 25,
-    "maxWallClockMinutes": 7
+    "maxWallClockMinutes": 9
   },
   "approval": {
     "scopeText": "One genuine 17-protected-repo GET and real build-only state App CAS PUT; intentionally discard second PUT response only to test durable original GET reconciliation, strict same-token revoke401, original ZIP independent SHA256, finite App state terminal. No cron, Publisher, Signer, Catalog or Release.",
