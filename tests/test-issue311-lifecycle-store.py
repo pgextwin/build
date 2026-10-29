@@ -24,6 +24,7 @@ class Backend:
         self.conflict=False
         self.drop=False
         self.store_before_drop=False
+        self.response_mode="normal"
 
     def __call__(self,method,endpoint,body):
         assert endpoint.startswith(store.REPOSITORY+store.PREFIX)
@@ -42,6 +43,9 @@ class Backend:
         raw=base64.b64decode(body["content"])
         if not self.drop or self.store_before_drop:self.files[path]=raw
         if self.drop:raise RuntimeError("network response lost")
+        if self.response_mode=="missing":return {}
+        if self.response_mode=="malformed":return {"content":{"sha":None}}
+        if self.response_mode=="wrong_sha":return {"content":{"sha":"f"*40}}
         return {"content":{"sha":store.blob_hash(raw)}}
 
 
@@ -75,6 +79,63 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(store.UnknownWrite):
             cas.write(second,previous=first,expected_blob=sha)
         self.assertEqual(cas.read(REQ)[1],first)
+
+    def test_17_target_ambiguous_http_success_original_get_only(self):
+        targets = sorted([
+            "pgextwin/" + name for name in (
+                "pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit",
+                "set_user", "pg_repack", "pg_ivm", "pg_qualstats",
+                "plpgsql_check", "orafce", "hypopg", "wal2json",
+                "pg_partman", "pg_stat_monitor", "pgtap",
+                "pg_variables", "pg_store_plans")])
+        for response_mode in ("missing", "malformed", "wrong_sha"):
+            with self.subTest(response_mode=response_mode):
+                backend=Backend()
+                cas=store.CAS(backend)
+                pending=store.lifecycle.new(REQ,FIRST,HEAD,targets,EXPIRE)
+                self.assertEqual(cas.write(pending),"ORIGINAL_GET_VERIFIED")
+                old_blob, old=cas.read(REQ)
+                terminal=store.lifecycle.event_deadline(
+                    store.lifecycle.bind_source(old,0,"original",run_id=123,
+                                                attempt=1,head_sha=HEAD),
+                    1,"expired",now=EXPIRE,source_completed=False,
+                    original_source_sha=HEAD,completion_lookup="UNKNOWN")
+                # Create the bound state first; terminalization then exercises
+                # an actual 17-target state transition.
+                bound=store.lifecycle.bind_source(old,0,"original",run_id=123,
+                                                 attempt=1,head_sha=HEAD)
+                cas.write(bound,previous=old,expected_blob=old_blob)
+                bound_blob,bound=cas.read(REQ)
+                backend.response_mode=response_mode
+                if response_mode=="wrong_sha":
+                    with self.assertRaises(store.UnknownWrite):
+                        cas.write(terminal,previous=bound,expected_blob=bound_blob)
+                else:
+                    self.assertEqual(
+                        cas.write(terminal,previous=bound,expected_blob=bound_blob),
+                        "RECONCILED_BY_ORIGINAL_GET")
+                actual_blob,actual=cas.read(REQ)
+                self.assertEqual(actual,terminal)
+                self.assertEqual(actual_blob,store.blob_hash(store.canonical(terminal)))
+                self.assertEqual(len(actual["targets"]),17)
+                self.assertEqual(set(actual["targets"].values()),{"QUARANTINED"})
+                with self.assertRaises(store.Denied):
+                    store.require_transition(actual,actual)
+
+        # If the response claims success but the original GET remains at the
+        # previous revision, the writer must not retry or report success.
+        backend=Backend()
+        cas=store.CAS(backend)
+        previous=store.lifecycle.new(REQ,FIRST,HEAD,targets,EXPIRE)
+        cas.write(previous)
+        blob,previous=cas.read(REQ)
+        intended=store.lifecycle.bind_source(previous,0,"original",
+                                             run_id=124,attempt=1,head_sha=HEAD)
+        backend.drop=True
+        backend.store_before_drop=False
+        with self.assertRaises(store.UnknownWrite):
+            cas.write(intended,previous=previous,expected_blob=blob)
+        self.assertEqual(cas.read(REQ)[1],previous)
 
     def test_wrong_scope_mutation_and_blob_tampering(self):
         s=self.state()

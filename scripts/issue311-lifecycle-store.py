@@ -137,13 +137,22 @@ class CAS:
             if actual == proposed:
                 return "RECONCILED_BY_ORIGINAL_GET"
             raise UnknownWrite("QUARANTINED: PUT uncertain, no exact-byte match") from exc
-        require(type(response) is dict
-                and SHA1.fullmatch(str(response.get("content", {}).get("sha", ""))),
-                "unverifiable PUT response")
+        # Even an HTTP success can have a missing/garbled response body.
+        # Never repeat the PUT to compensate. Independently GET original Git
+        # Contents and match the exact canonical bytes (including Git blob).
         try:
             actual_blob, actual = self.read(request_id)
         except Exception as exc:
             raise UnknownWrite("QUARANTINED: committed state readback unavailable") from exc
-        require(actual_blob == response["content"]["sha"] and actual == proposed,
-                "postwrite original byte mismatch")
+        if actual != proposed or actual_blob != blob_hash(canonical(proposed)):
+            raise UnknownWrite("QUARANTINED: PUT outcome differs from intended checkpoint")
+        returned_sha = None
+        if type(response) is dict and type(response.get("content")) is dict:
+            candidate = response["content"].get("sha")
+            if type(candidate) is str and SHA1.fullmatch(candidate):
+                returned_sha = candidate
+        if returned_sha is None:
+            return "RECONCILED_BY_ORIGINAL_GET"
+        if returned_sha != actual_blob:
+            raise UnknownWrite("QUARANTINED: PUT SHA conflicts with original GET")
         return "ORIGINAL_GET_VERIFIED"
