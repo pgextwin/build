@@ -46,6 +46,12 @@ jobs:
       - name: Validate R04 generalized original Contents CAS, ambiguity and immutable scope (NO CREDENTIALS)
         run: python tests/test-issue311-lifecycle-store.py
 
+      - name: Validate R06 original request scan, recovered 17 local SHA and no schedule spoof (READ ONLY)
+        run: python tests/test-issue311-r06-request-scan.py
+
+      - name: Deny forged R06 original ZIP source kinds and local candidate admission (NO WRITER)
+        run: python tests/test-issue311-r06-local-sourcekind.py
+
       - name: Validate Issue 311 GitHub Contents CAS lease and ambiguous-write isolation (NO WRITER)
         run: python tests/test-issue311-state-github.py
 
