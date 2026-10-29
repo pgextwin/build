@@ -1,0 +1,39 @@
+name: Issue 311 finite expired original state recovery (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/execution-requests/r-*-r04r05terminal*.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r04r05-terminal-recovery
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    name: Authenticate expired failed original 17 state and persist fail-closed terminal
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    environment: issue311-state-writer
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Original GET gates then dedicated build-state App CAS, revoke same token and prove 401
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r04r05-terminal-recovery.py
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r04r05-terminal-recovery
+          path: issue311-r04r05-terminal-recovery.json
+          if-no-files-found: error
+          retention-days: 30
