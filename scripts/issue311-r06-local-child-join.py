@@ -89,6 +89,18 @@ def validate_child(central, child):
          "any publication privilege")
     receipt = child.get("receipt")
     conclusion = run.get("conclusion")
+    # GitHub can report workflow=success even when every relevant local job
+    # was SKIPPED. Source original job REST must independently attest it.
+    if conclusion in ("success", "skipped") and child.get("originalJobConclusion") == "skipped":
+        need(receipt is None and child.get("completionEventDelivered") is not True,
+             "skipped original job cannot supply successful receipt/event")
+        conclusion = "skipped"
+    # A timed-out step frequently produces workflow/job conclusion=failure;
+    # only a separately verified original Actions timeout-step observation
+    # may distinguish that from generic failure. Never guess timeout by age.
+    if (conclusion == "failure" and child.get("originalJobConclusion") == "failure"
+            and child.get("originalTimeoutStepVerified") is True):
+        conclusion = "timed_out"
     if conclusion == "success" and child.get("completionEventDelivered") is False:
         watch = child.get("watchdog")
         need(isinstance(watch, dict)
@@ -162,8 +174,10 @@ def validate_child(central, child):
         need(child.get("originalJobConclusion") == "failure",
              "not actual failed child job")
     if conclusion == "timed_out":
-        need(child.get("originalJobConclusion") == "timed_out",
-             "not actual timed-out child job")
+        need(child.get("originalJobConclusion") == "timed_out" or
+             (child.get("originalJobConclusion") == "failure" and
+              child.get("originalTimeoutStepVerified") is True),
+             "not actual timed-out original child job/step")
     need(receipt is None or
          (receipt.get("result") == "FAILED"
           and receipt.get("publicationAuthorized") is False),
