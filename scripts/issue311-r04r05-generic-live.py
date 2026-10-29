@@ -104,6 +104,15 @@ def source_context():
             "invalid protected original push")
     checkout=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
     require(checkout==head,"not original event checkout")
+    if _CASE=="missing-event-17":
+        changes=subprocess.check_output(
+            ["git","diff","--name-status",ev["before"],head],text=True).splitlines()
+        require(changes==["A\\t"+REQUEST_PATH],
+                "17-target source must be request-only protected addition")
+        main=bridge.get_json("repos/pgextwin/build/branches/main")
+        require(main.get("protected") is True
+                and main.get("commit",{}).get("sha")==head,
+                "original source not exact protected main")
     raw=subprocess.check_output(["git","show","HEAD:"+REQUEST_PATH])
     data,decl=read_request(raw,head)
     require(data["source"]["centralMainSha"]==ev["before"],"source before commit mismatch")
