@@ -55,6 +55,7 @@ def new(request_id, request_sha, source_head, targets, expires_at, *, max_events
         "sourceHeadSha": source_head, "expiresAt": expires_at,
         "maxEvents": max_events, "revision": 0, "events": {},
         "sourceRun": None, "completionRun": None, "eventTransport": None,
+        "targetScope": sorted(targets),
         "targets": {t: "PENDING" for t in targets}, "terminal": None,
         "publisherAuthorized": False, "writeOutcomeUnknown": False
     }
@@ -64,7 +65,7 @@ def validate(state):
     require(type(state) is dict and set(state) == {
         "schemaVersion", "scope", "requestId", "requestSha256",
         "sourceHeadSha", "expiresAt", "maxEvents", "revision", "events",
-        "sourceRun", "completionRun", "eventTransport", "targets", "terminal",
+        "sourceRun", "completionRun", "eventTransport", "targetScope", "targets", "terminal",
         "publisherAuthorized", "writeOutcomeUnknown"}, "unknown state fields")
     require(state["schemaVersion"] == 1 and state["scope"] == "AUDIT_ONLY_READONLY"
             and state["publisherAuthorized"] is False and state["writeOutcomeUnknown"] is False,
@@ -78,9 +79,20 @@ def validate(state):
     require(type(state["events"]) is dict and len(state["events"]) <= state["maxEvents"]
             and all(type(k) is str and SHA256.fullmatch(v) for k, v in state["events"].items()),
             "invalid event log")
-    require(type(state["targets"]) is dict and 1 <= len(state["targets"]) <= 17
+    require(type(state["targetScope"]) is list and 1 <= len(state["targetScope"]) <= 17
+            and len(set(state["targetScope"])) == len(state["targetScope"]), "invalid target allowlist")
+    require(type(state["targets"]) is dict and set(state["targets"]) == set(state["targetScope"])
+            and 1 <= len(state["targets"]) <= 17
             and all(TARGET.fullmatch(k) and v in OUTCOMES for k, v in state["targets"].items()),
             "invalid per-target states")
+    for key in ("sourceRun", "completionRun"):
+        value = state[key]
+        require(value is None or (type(value) is dict and set(value) == {"id", "attempt"}
+                and type(value["id"]) is int and value["id"] > 0
+                and type(value["attempt"]) is int and 1 <= value["attempt"] <= 3),
+                "malformed source/completion run")
+    require(state["eventTransport"] in (None, "workflow_run.completed", "BOUNDED_WATCHDOG"),
+            "invalid event transport")
     if state["terminal"] is not None:
         require(state["terminal"] in TERMINALS
                 and all(v in TERMINALS for v in state["targets"].values()),
@@ -155,7 +167,7 @@ def event_deadline(state, revision, key, *, now, source_completed,
     def action(s):
         require(parse_utc(now) >= parse_utc(s["expiresAt"]), "watch window not expired")
         require(s["sourceRun"] is not None, "cannot infer a source run")
-        require(source_completed in (True, False, None), "invalid original run state")
+        require(source_completed is None or type(source_completed) is bool, "invalid original run state")
         require(original_source_sha == s["sourceHeadSha"], "source commit changed")
         require(completion_lookup in ("MISSING_VERIFIED", "UNKNOWN", "DELIVERED"),
                 "invalid observed lookup")
