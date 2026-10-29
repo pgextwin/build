@@ -58,7 +58,8 @@ def child(i):
                "publisherSourceKindAuthorized": False,
                "publicationAuthorized": False, "genuineSchedule": False}
     return {"repo": repo, "request": req, "run": run, "parentSha": parent,
-            "receipt": receipt, "publisherAuthorized": False, "publicationRequested": False}
+            "receipt": receipt, "publisherAuthorized": False, "publicationRequested": False,
+            "originalJobConclusion": "success", "completionEventDelivered": True}
 
 
 def abnormal(c, conclusion):
@@ -128,6 +129,28 @@ class JoinPolicyOnly(unittest.TestCase):
         self.denied(lambda xs: xs[0]["run"].update(conclusion="failure"))
         self.denied(lambda xs: xs[0].update(watchdog={"terminal": "QUARANTINED"}))
         self.denied(lambda xs: xs[0]["run"].update(created_at="2026-10-29T11:00:01Z"))
+
+    def test_missing_completion_event_requires_bounded_durable_original(self):
+        cases = copy.deepcopy(self.items)
+        cases[0]["completionEventDelivered"] = False
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, cases)
+        cases[0]["watchdog"] = {
+            "sourceRunId": cases[0]["run"]["id"], "sourceRunAttempt": 1,
+            "centralRunId": CENTRAL["sourceRunId"],
+            "centralRequestId": CENTRAL["requestId"],
+            "localRequestId": cases[0]["request"]["requestId"],
+            "status": "MISSING_EVENT", "terminal": "QUARANTINED",
+            "originalGetVerified": True, "durableAppCasReadbackVerified": True,
+            "noReexecute": True, "publisherAuthorized": False,
+            "watchdogRunId": 11111,
+            "observedAt": "2026-10-29T11:01:00Z",
+        }
+        self.assertEqual(mod.validate_17_original_children(CENTRAL, cases)["result"],
+                         "QUARANTINED")
+        cases[0]["watchdog"]["observedAt"] = "2026-10-29T10:01:00Z"
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, cases)
 
     def test_missing_event_cannot_be_claimed_from_absent_watchdog(self):
         self.denied(lambda xs: xs[0].update(receipt=None))
