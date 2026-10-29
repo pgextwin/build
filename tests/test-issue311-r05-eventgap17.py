@@ -45,6 +45,17 @@ class EventGap17Tests(TestCase):
         data,_=self.evaluate(self.request())
         self.assertEqual(len(data["targets"]),17)
 
+    def test_skipped_original_child_case_is_fixed_to_same_17_and_new_id(self):
+        with mock.patch.dict(os.environ,{"ISSUE311_PROOF_CASE":"skipped-17"}):
+            spec=importlib.util.spec_from_file_location(
+                "issue311_skip17",ROOT/"scripts/issue311-r04r05-generic-live.py")
+            m=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+        self.assertEqual(m._CASE,"skipped-17")
+        self.assertEqual(m.REQUEST,"r-20261029-r05skip17c01")
+        self.assertEqual(m.SOURCE_PATH,".github/workflows/issue311-r05-skip17-source.yml")
+        self.assertEqual(len(m.bridge.win17.TARGETS),17)
+
     def test_not_16_not_foreign_not_publish_not_unbounded(self):
         m=self.mod
         variations=[]

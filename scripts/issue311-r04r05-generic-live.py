@@ -33,6 +33,9 @@ _CASES={
     "missing-event-17":("r-20261029-r05eventgap17b01",
                         "Issue 311 R05 real 17-target bounded unbridged source (NONPUBLISHING)",
                         ".github/workflows/issue311-r05-eventgap17-source.yml"),
+    "skipped-17":("r-20261029-r05skip17c01",
+                  "Issue 311 R05 real 17-target skipped-child source (NONPUBLISHING)",
+                  ".github/workflows/issue311-r05-skip17-source.yml"),
 }
 if _CASE not in _CASES:
     raise ValueError("ISSUE311_CASE_DENY: unsupported privileged case")
@@ -75,7 +78,7 @@ def contents_original(head):
 def read_request(raw, head):
     decl=contract.validate_declaration(raw,REQUEST_PATH)
     data=json.loads(raw,object_pairs_hook=json_unique)
-    expected=(set(bridge.win17.TARGETS) if _CASE=="missing-event-17" else {TARGET})
+    expected=(set(bridge.win17.TARGETS) if _CASE in ("missing-event-17","skipped-17") else {TARGET})
     require(decl["requestId"]==REQUEST and decl["mode"]=="AUDIT_ONLY"
             and len(decl["targets"])==len(expected) and set(decl["targets"])==expected
             and data["approval"]["publicReleaseAuthorized"] is False
@@ -104,7 +107,7 @@ def source_context():
             "invalid protected original push")
     checkout=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
     require(checkout==head,"not original event checkout")
-    if _CASE=="missing-event-17":
+    if _CASE in ("missing-event-17","skipped-17"):
         changes=subprocess.check_output(
             ["git","diff","--name-status",ev["before"],head],text=True).splitlines()
         require(changes==["A\t"+REQUEST_PATH],
@@ -132,7 +135,7 @@ def source():
         data,decl,head=source_context()
         requested={row["repo"]:row["mainSha"] for row in data["targets"]}
         require(len(requested)==len(decl["targets"]), "duplicate local source target")
-        if _CASE=="missing-event-17":
+        if _CASE in ("missing-event-17","skipped-17"):
             require(set(requested)==set(bridge.win17.TARGETS)
                     and len(requested)==17, "not exact 17 source target")
         for target,sha in sorted(requested.items()):
@@ -190,10 +193,21 @@ def authenticated_completed_source(event):
 def verify_source_zip(original,decl,data):
     sid=original["id"]
     jobs=bridge.get_json("repos/pgextwin/build/actions/runs/"+str(sid)+"/jobs?per_page=100")
-    require(jobs.get("total_count")==len(jobs.get("jobs",[]))==1
-            and jobs["jobs"][0].get("conclusion")=="success"
-            and jobs["jobs"][0].get("run_id")==sid,
-            "original source job failed or missing")
+    original_jobs=jobs.get("jobs",[])
+    require(type(original_jobs) is list
+            and jobs.get("total_count")==len(original_jobs),
+            "incomplete original job list")
+    if _CASE=="skipped-17":
+        require(len(original_jobs)==2
+                and sum(j.get("conclusion")=="success" and j.get("run_id")==sid
+                        for j in original_jobs)==1
+                and sum(j.get("conclusion")=="skipped" and j.get("run_id")==sid
+                        for j in original_jobs)==1,
+                "missing actual skipped original child")
+    else:
+        require(len(original_jobs)==1 and original_jobs[0].get("conclusion")=="success"
+                and original_jobs[0].get("run_id")==sid,
+                "original source job failed or missing")
     arts=bridge.get_json("repos/pgextwin/build/actions/runs/"+str(sid)+"/artifacts?per_page=100")
     require(arts.get("total_count")==len(arts.get("artifacts",[]))==1,
             "missing or duplicated source ZIP")
