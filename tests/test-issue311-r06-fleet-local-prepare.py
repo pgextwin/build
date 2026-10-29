@@ -42,6 +42,20 @@ class ReadonlyFleetTests(TestCase):
                           "PUBLISH=ALLOW", "contents: write", "release create"):
             self.assertNotIn(forbidden, src)
 
+    def test_frozen_central_source_allows_sequential_local_request_mains(self):
+        # Central SCANNED original ZIP already binds 17 protected refs.
+        # Later request-only local main commits must not invalidate the frozen
+        # source as long as this local push exactly matches its own original ref.
+        import inspect
+        original = inspect.getsource(gate.authenticate_original)
+        self.assertIn('targets.get(REPO) == base_sha', original)
+        self.assertIn('original.get("targetMainSha") == targets', original)
+        self.assertIn('prepare.inspect_report(original.get("report"), targets)', original)
+        self.assertNotIn('remote_branch(repo)', original)
+        self.assertIn('remote_branch(REPO)', inspect.getsource(gate.authenticate_local))
+        self.assertIn('and branch.get("commit", {}).get("sha") == head',
+                      inspect.getsource(gate.authenticate_local))
+
     def test_unregistered_repository_never_opens_github_event(self):
         with mock.patch.object(gate, "REPO", "untrusted/private"):
             with self.assertRaisesRegex(ValueError, "unregistered local repository"):
