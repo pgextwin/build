@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "status": "PROPOSAL_REQUIRES_EXPLICIT_APPROVAL",
+  "runtimeEnabled": false,
+  "role": "ISSUE311_NONPUBLISHING_LOCAL_PREPARE_DISPATCH",
+  "requestedName": "pgextwin-issue311-prepare-coordinator",
+  "owner": "pgextwin",
+  "visibility": "private",
+  "appId": null,
+  "installationId": null,
+  "botUserId": null,
+  "repositorySelection": "selected",
+  "repositories": [
+    "pgextwin/hypopg",
+    "pgextwin/orafce",
+    "pgextwin/pg_bigm",
+    "pgextwin/pg_cron",
+    "pgextwin/pg_hint_plan",
+    "pgextwin/pg_ivm",
+    "pgextwin/pg_partman",
+    "pgextwin/pg_qualstats",
+    "pgextwin/pg_repack",
+    "pgextwin/pg_stat_monitor",
+    "pgextwin/pg_store_plans",
+    "pgextwin/pg_variables",
+    "pgextwin/pgaudit",
+    "pgextwin/pgtap",
+    "pgextwin/plpgsql_check",
+    "pgextwin/set_user",
+    "pgextwin/wal2json"
+  ],
+  "requestedRepositoryPermissions": {
+    "actions": "write",
+    "metadata": "read"
+  },
+  "explicitlyExcludedPermissions": [
+    "contents",
+    "workflows",
+    "pull_requests",
+    "administration",
+    "secrets",
+    "environments",
+    "deployments",
+    "attestations"
+  ],
+  "webhooks": false,
+  "userAuthorizationFlow": false,
+  "privateKeyStorage": {
+    "repository": "pgextwin/build",
+    "newEnvironment": "issue311-prepare-coordinator",
+    "deploymentBranch": "main",
+    "newSecret": "ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY",
+    "reuseStatePublisherOrCatalogKeys": false
+  },
+  "futureRuntimePolicy": {
+    "allowedMode": "PREPARE",
+    "publicReleaseAuthorized": false,
+    "workflow": ".github/workflows/issue311-request-local-prepare.yml",
+    "actualEvent": "workflow_dispatch",
+    "actorMustBePinnedAppBot": true,
+    "pretendHumanOrSchedule": false,
+    "maxParallel": 4,
+    "perTokenRepositoryCount": 1,
+    "singleDispatchThenRevokeAndProveSameToken401": true,
+    "ambiguousPost": "QUARANTINED_NO_BLIND_RETRY",
+    "reuseSuccessfulOriginalStages": true,
+    "publisherAndCatalogCredentialsAvailable": false,
+    "apiVersionToVerifyInPilot": "2026-03-10"
+  },
+  "approvalRequiredFor": [
+    "create_private_github_app",
+    "install_on_exact_selected_17_repositories",
+    "create_dedicated_build_environment_and_secret",
+    "pin_real_app_installation_and_bot_identity_by_protected_pr"
+  ],
+  "notAuthorizedByThisProposal": [
+    "create_app_or_installation",
+    "create_environment_or_secret",
+    "enable_runtime",
+    "expand_existing_app_permissions",
+    "reuse_existing_credentials",
+    "sign_or_publish_release",
+    "catalog_or_website_write",
+    "cron_or_external_scheduler"
+  ]
+}
