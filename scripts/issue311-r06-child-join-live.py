@@ -198,10 +198,25 @@ def step(job, name, conclusion):
     return found[0]
 
 
-def original_verification_step(repo, job):
-    # The three anomaly witnesses retained their original explicit step name;
-    # the other fourteen repositories use the already deployed shared caller.
-    name = VERIFY_STEP if repo in {"pgextwin/pg_bigm", "pgextwin/pg_cron", "pgextwin/pg_hint_plan"} else SHARED_VERIFY_STEP
+def original_verification_step(repo, job, workflow_text):
+    # Derive the display name from the authentic immutable workflow, not from
+    # a repository-name heuristic. Both deployed labels execute the same pin.
+    need(repo in targets() and type(workflow_text) is str, "unknown original verifier workflow")
+    lines = workflow_text.splitlines()
+    command = "        run: python .pgextwin-build/scripts/issue311-r06-fleet-local-prepare.py run"
+    hits = [i for i, line in enumerate(lines) if line == command]
+    need(len(hits) == 1 and
+         "          ref: ff551bd2ea20da869e644691090b5ee7c82553ba\n          path: .pgextwin-build" in workflow_text,
+         "original verifier command/pin mismatch")
+    index = hits[0]
+    headers = [i for i in range(index) if lines[i].startswith("      - ")]
+    need(bool(headers), "original verifier step header missing")
+    start = headers[-1]
+    need(lines[start].startswith("      - name: ")
+         and lines[start+1:index] == ["        env:", "          GH_TOKEN: ${{ github.token }}"],
+         "original verifier step ownership/env mismatch")
+    name = lines[start].removeprefix("      - name: ")
+    need(name in {VERIFY_STEP, SHARED_VERIFY_STEP}, "unknown deployed original verifier label")
     return step(job, name, "success")
 
 
@@ -428,7 +443,9 @@ def collect_child(item, central):
     else:
         receipt, meta = artifact(repo, run["id"], "issue311-fleet-local-prepare-receipt", LOCAL_ENTRY)
         receipt_binding(receipt, local, run, parent, central)
-        original_verification_step(repo, local_job)
+        original_workflow = contents(repo, policy.LOCAL_WORKFLOW, run["head_sha"]).decode("utf-8")
+        original_verification_step(repo, local_job, original_workflow)
+        result["originalVerifierWorkflowSha256"] = hashlib.sha256(original_workflow.encode()).hexdigest()
         result.update(receipt=receipt, originalArtifact=meta)
         if classification in ("FAILED", "TIMEOUT"):
             need(run["conclusion"] == "failure" and local_job["conclusion"] == "failure"
@@ -442,7 +459,6 @@ def collect_child(item, central):
                      and "Process completed with exit code 17" in log, "failure not authenticated exit17")
             else:
                 s = step(local_job, TIMEOUT_STEP, "failure")
-                original_workflow = contents(repo, policy.LOCAL_WORKFLOW, run["head_sha"]).decode("utf-8")
                 duration = (utc(s["completed_at"]) - utc(s["started_at"])).total_seconds()
                 need(receipt.get("reason") == "ISSUE311_R06_GENUINE_TIMEOUT_ONE_SHOT_NONPUBLISHING"
                      and TIMEOUT_STEP + "\n        timeout-minutes: 1" in original_workflow
