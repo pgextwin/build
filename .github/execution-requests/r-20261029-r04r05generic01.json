@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r04r05generic01",
+  "mode": "AUDIT_ONLY",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-29T00:45:00Z",
+  "expiresAt": "2026-10-29T00:51:30Z",
+  "purpose": "A single new nonpublishing protected App CAS generic request, original orafce GET, real completion event and independent finite no-cron watchdog, with durable terminal.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "bc407d16e2646698f287a26cdee34e36cc3cea36",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 1,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 10,
+    "maxWallClockMinutes": 8
+  },
+  "approval": {
+    "scopeText": "One genuine original orafce protected GET plus immutable source ZIP, dedicated state Writer App request checkpoint, independent workflow_run.completed bridge, and push-triggered bounded watchdog; no build, no Publisher, Catalog, tag or Release.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+    }
+  ],
+  "resumeFrom": null
+}
