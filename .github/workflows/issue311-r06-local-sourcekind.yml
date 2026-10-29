@@ -1,0 +1,42 @@
+name: Issue 311 R06 original ZIP local source-kind pilot (NONPUBLISHING)
+
+# One distinct protected AUDIT_ONLY request. No schedule alias or candidate writer.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/execution-requests/r-20261029-r06sourcepilot01.json"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-r06-local-kind-immutable-source-pilot
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    name: Independent original ZIP and 17-main GET, classify orafce read-only
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Verify real new source-kind original bytes and local candidate decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r06-local-sourcekind.py run
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-local-sourcekind-readonly-pilot
+          path: issue311-r06-local-sourcekind-pilot.json
+          if-no-files-found: error
+          retention-days: 30
