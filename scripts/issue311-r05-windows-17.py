@@ -75,11 +75,13 @@ def strict_request(raw):
             or data["approval"]["publicationGrants"] != []
             or {x["repo"]: x["mainSha"] for x in data["targets"]} != TARGETS):
         raise ValueError("unexpected untrusted request or target")
-    fleet=json.loads((HERE/"metadata"/"automation-fleet.json").read_bytes())
+    # Windows checkout may CRLF-convert worktree JSON. Trust the exact Git blob
+    # for the original pinned HEAD, not platform-dependent read_bytes().
+    fleet_raw=subprocess.check_output(["git","show","HEAD:metadata/automation-fleet.json"])
+    fleet=json.loads(fleet_raw)
     if (sorted(TARGETS)!=sorted(x["repository"] for x in fleet["entries"])
             or hashlib.sha1(
-                b"blob "+str(len((HERE/"metadata"/"automation-fleet.json").read_bytes())).encode()
-                +b"\0"+(HERE/"metadata"/"automation-fleet.json").read_bytes()
+                b"blob "+str(len(fleet_raw)).encode()+b"\0"+fleet_raw
                ).hexdigest()!=FLEET_BLOB):
         raise ValueError("fleet names or original registry Git blob mismatch")
     return result
