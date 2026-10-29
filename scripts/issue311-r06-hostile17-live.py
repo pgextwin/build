@@ -94,7 +94,7 @@ def original_central():
     need(proof.get("result") == "SCANNED" and proof.get("sourceRunId") == ORIGINAL_RUN
          and proof.get("sourceRunAttempt") == 1 and proof.get("sourceHeadSha") == ORIGINAL_HEAD
          and proof.get("sourceEvent") == "push" and proof.get("fleetSize") == 17
-         and proof.get("publicationAuthorized") is False
+         and proof.get("publisherAuthorized") is False
          and len(proof.get("targetMainSha", {})) == 17
          and set(proof["targetMainSha"]) == set(scan.win.TARGETS),
          "central receipt identity/17/scope")
@@ -258,11 +258,14 @@ def verified_source_event():
     return original, declaration
 
 
-def complete():
+def complete(original_override=None, declaration_override=None):
     report = {"requestId": REQ, "result": "FAILED", "publisherAuthorized": False}
     token = None
     try:
-        original, decl = verified_source_event()
+        if original_override is None:
+            original, decl = verified_source_event()
+        else:
+            original, decl = original_override, declaration_override
         artifacts = bridge.get_json("repos/pgextwin/build/actions/runs/" +
                                     str(original["id"]) + "/artifacts?per_page=100")
         listed = artifacts.get("artifacts", [])
@@ -336,6 +339,154 @@ def complete():
     return 0 if report["result"] == "CONTROLLED_HOSTILE_TERMINAL" else 1
 
 
+
+RECOVERY_REQ = "r-20261029-r06recovery17h01"
+RECOVERY_PATH = ".github/execution-requests/" + RECOVERY_REQ + ".json"
+RECOVERY_NAME = "Issue 311 R06 original failed listener recovery source (NONPUBLISHING)"
+RECOVERY_WORKFLOW = ".github/workflows/issue311-r06-hostile17-recovery-source.yml"
+RECOVERY_ARTIFACT = "issue311-r06-hostile17-recovery-original"
+RECOVERY_RECEIPT = "issue311-r06-hostile17-recovery-original.json"
+FAILED_LISTENER = 40876850679
+SOURCE_ORIGINAL = 40876766677
+SOURCE_ORIGINAL_HEAD = "7cefe10b6ac3d70e2fd0c8378cae2bc763c064c0"
+
+
+def original_failed_listener():
+    run = bridge.get_json("repos/pgextwin/build/actions/runs/" + str(FAILED_LISTENER))
+    need(run.get("id") == FAILED_LISTENER and run.get("event") == "workflow_run"
+         and run.get("status") == "completed" and run.get("conclusion") == "failure"
+         and run.get("run_attempt") == 1 and run.get("head_sha") == SOURCE_ORIGINAL_HEAD,
+         "old original failed listener not preserved")
+    return run
+
+
+def verified_old_source():
+    run = bridge.get_json("repos/pgextwin/build/actions/runs/" + str(SOURCE_ORIGINAL))
+    need(run.get("id") == SOURCE_ORIGINAL and run.get("head_sha") == SOURCE_ORIGINAL_HEAD
+         and run.get("path") == SOURCE_PATH and run.get("event") == "push"
+         and run.get("actor", {}).get("login") == "ShutenOishi"
+         and run.get("run_attempt") == 1
+         and run.get("status") == "completed" and run.get("conclusion") == "success",
+         "old successful source not original")
+    original_raw = contents(PATH, SOURCE_ORIGINAL_HEAD)
+    decl = contract.validate_declaration(original_raw, PATH)
+    need(decl["requestId"] == REQ and decl["mode"] == "AUDIT_ONLY",
+         "original request expired/mismatched")
+    return run, decl
+
+
+def recover_source():
+    receipt = {"requestId": RECOVERY_REQ, "result": "FAILED", "publisherAuthorized": False}
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
+                           object_pairs_hook=store.unique_pairs)
+        head = os.environ["GITHUB_SHA"]
+        need(os.environ["GITHUB_REPOSITORY"] == "pgextwin/build"
+             and os.environ["GITHUB_WORKFLOW"] == RECOVERY_NAME
+             and os.environ["GITHUB_EVENT_NAME"] == "push"
+             and os.environ["GITHUB_REF"] == "refs/heads/main"
+             and os.environ["GITHUB_ACTOR"] == "ShutenOishi"
+             and os.environ["GITHUB_RUN_ATTEMPT"] == "1"
+             and event.get("after") == head and event.get("before") != head
+             and event.get("sender", {}).get("login") == "ShutenOishi"
+             and event.get("created") is False and event.get("deleted") is False,
+             "not genuine protected recovery request")
+        need(subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == head,
+             "recovery checkout not original")
+        changed = subprocess.check_output(
+            ["git", "diff", "--name-status", event["before"], head],
+            text=True).splitlines()
+        need(changed == ["A\\t" + RECOVERY_PATH], "recovery not request-only")
+        main = bridge.get_json("repos/pgextwin/build/branches/main")
+        need(main.get("protected") is True and main.get("commit", {}).get("sha") == head,
+             "recovery main not exact protected")
+        raw = subprocess.check_output(["git", "show", "HEAD:" + RECOVERY_PATH])
+        need(raw == contents(RECOVERY_PATH, head), "recovery original Git bytes")
+        declaration = contract.validate_declaration(raw, RECOVERY_PATH)
+        req = json.loads(raw, object_pairs_hook=store.unique_pairs)
+        need(declaration["requestId"] == RECOVERY_REQ
+             and declaration["mode"] == "AUDIT_ONLY"
+             and set(declaration["targets"]) == set(scan.win.TARGETS)
+             and len(declaration["targets"]) == 17
+             and req["source"]["centralMainSha"] == event["before"]
+             and req["source"]["fleetRegistryBlobSha"] == scan.FLEET_BLOB
+             and req["approval"]["publicReleaseAuthorized"] is False
+             and req["approval"]["publicationGrants"] == []
+             and req["allowFutureUpdates"] is False,
+             "recovery declaration privilege/target mismatch")
+        old, old_decl = verified_old_source()
+        original_failed_listener()
+        old_state = bridge.get_json("repos/pgextwin/build/contents/" +
+            store.PREFIX + REQ + ".json?ref=issue311-state")
+        _, state = store.unpack(old_state, REQ)
+        need(state["sourceRun"] == {"id": SOURCE_ORIGINAL, "attempt": 1}
+             and state["revision"] == 1 and state["terminal"] is None
+             and state["requestSha256"] == old_decl["rawSha256"]
+             and len(state["targets"]) == 17
+             and all(v == "PENDING" for v in state["targets"].values()),
+             "old durable source checkpoint already changed")
+        receipt.update(result="RECOVERY_ORIGINAL_VERIFIED",
+                       recoveryRunId=int(os.environ["GITHUB_RUN_ID"]),
+                       recoveryHeadSha=head, recoveryRequestSha256=declaration["rawSha256"],
+                       originalSourceRunId=SOURCE_ORIGINAL,
+                       originalSourceHeadSha=SOURCE_ORIGINAL_HEAD,
+                       oldListenerRunId=FAILED_LISTENER,
+                       originalStateRevision=1, targetCount=17)
+    except Exception as exc:
+        receipt["reason"] = str(exc)[:400]
+    Path(RECOVERY_RECEIPT).write_text(json.dumps(receipt, sort_keys=True) + "\\n")
+    print(json.dumps(receipt, sort_keys=True))
+    return 0 if receipt["result"] == "RECOVERY_ORIGINAL_VERIFIED" else 1
+
+
+def recover_complete():
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
+                       object_pairs_hook=store.unique_pairs)
+    run = event.get("workflow_run", {})
+    need(os.environ["GITHUB_REPOSITORY"] == "pgextwin/build"
+         and os.environ["GITHUB_EVENT_NAME"] == "workflow_run"
+         and os.environ["GITHUB_REF"] == "refs/heads/main"
+         and os.environ["GITHUB_RUN_ATTEMPT"] == "1"
+         and event.get("action") == "completed"
+         and event.get("repository", {}).get("full_name") == "pgextwin/build"
+         and run.get("name") == RECOVERY_NAME
+         and run.get("path") == RECOVERY_WORKFLOW
+         and run.get("event") == "push" and run.get("head_branch") == "main"
+         and run.get("actor", {}).get("login") == "ShutenOishi"
+         and run.get("run_attempt") == 1
+         and run.get("status") == "completed" and run.get("conclusion") == "success",
+         "recovery completion event not genuine")
+    current = bridge.get_json("repos/pgextwin/build/actions/runs/" + str(run["id"]))
+    for k in ("id", "head_sha", "run_attempt", "path", "event", "conclusion", "workflow_id"):
+        need(current.get(k) == run.get(k), "recovery REST/event mismatch " + k)
+    raw = contents(RECOVERY_PATH, run["head_sha"])
+    declaration = contract.validate_declaration(raw, RECOVERY_PATH)
+    need(declaration["requestId"] == RECOVERY_REQ, "recovery request invalid")
+    source_artifacts = bridge.get_json("repos/pgextwin/build/actions/runs/" +
+                                      str(run["id"]) + "/artifacts?per_page=100")
+    entries = source_artifacts.get("artifacts", [])
+    need(source_artifacts.get("total_count") == len(entries) == 1
+         and entries[0].get("name") == RECOVERY_ARTIFACT
+         and entries[0].get("expired") is False
+         and entries[0].get("workflow_run", {}).get("id") == run["id"],
+         "recovery original ZIP not unique")
+    proof, _digest = bridge.original_zip(entries[0], RECOVERY_RECEIPT)
+    need(proof.get("result") == "RECOVERY_ORIGINAL_VERIFIED"
+         and proof.get("requestId") == RECOVERY_REQ
+         and proof.get("recoveryRunId") == run["id"]
+         and proof.get("recoveryHeadSha") == run["head_sha"]
+         and proof.get("recoveryRequestSha256") == declaration["rawSha256"]
+         and proof.get("oldListenerRunId") == FAILED_LISTENER
+         and proof.get("originalSourceRunId") == SOURCE_ORIGINAL
+         and proof.get("originalStateRevision") == 1
+         and proof.get("targetCount") == 17
+         and proof.get("publisherAuthorized") is False,
+         "recovery original ZIP failed independent comparison")
+    original_failed_listener()
+    source, source_decl = verified_old_source()
+    return complete(original_override=source, declaration_override=source_decl)
+
+
 if __name__ == "__main__":
     raise SystemExit(source() if sys.argv[1:] == ["source"]
-                     else complete() if sys.argv[1:] == ["complete"] else 2)
+                     else complete() if sys.argv[1:] == ["complete"]\n                     else recover_source() if sys.argv[1:] == ["recover-source"]\n                     else recover_complete() if sys.argv[1:] == ["recover-complete"] else 2)
