@@ -157,12 +157,25 @@ def inspect():
 
 
 def aggregate():
-    declaration, _ = original_request()
-    blob, _ = read_original_state(declaration)
-    win.R04_BLOB = blob
-    # Reuse original SHA256 checks for 17 freshly generated ZIP bytes.
-    # This stage is read-only; listener subsequently re-fetches every ZIP.
-    return win.aggregate()
+    try:
+        declaration, _ = original_request()
+        blob, _ = read_original_state(declaration)
+        win.R04_BLOB = blob
+        # Reuse original SHA256 checks for 17 freshly generated ZIP bytes.
+        # This stage is read-only; listener subsequently re-fetches every ZIP.
+        return win.aggregate()
+    except Exception as exc:
+        # Even missing dependencies must leave an explicit original failure
+        # receipt; never claim NO_UPDATE or silently skip the aggregate.
+        terminal = {"requestId": REQUEST, "terminal": "FAILED",
+                    "runId": int(os.environ["GITHUB_RUN_ID"]),
+                    "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                    "publicReleaseAuthorized": False,
+                    "reason": str(exc)[:320]}
+        Path("issue311-r05-win17-terminal.json").write_text(
+            json.dumps(terminal, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(terminal, sort_keys=True))
+        return 1
 
 
 if __name__ == "__main__":

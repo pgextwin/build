@@ -19,6 +19,10 @@ complete = load("unified_complete", "scripts/issue311-r05-unified17-completion.p
 
 
 class Unified17Tests(unittest.TestCase):
+    def test_all_three_python_stages_install_json_schema(self):
+        workflow = (ROOT / ".github/workflows/issue311-r05-unified17.yml").read_text()
+        self.assertEqual(workflow.count("jsonschema>=4,<5"), 3)
+
     def test_full_allowlist_is_frozen_nonpublishing(self):
         self.assertEqual(len(source.win.TARGETS), 17)
         self.assertEqual(len(set(source.win.TARGETS)), 17)
