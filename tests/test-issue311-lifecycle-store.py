@@ -56,8 +56,14 @@ class StoreTests(unittest.TestCase):
         next_state=store.lifecycle.bind_source(old,0,"source",run_id=123,attempt=1,head_sha=HEAD)
         self.assertEqual(cas.write(next_state,previous=old,expected_blob=sha),"ORIGINAL_GET_VERIFIED")
         self.assertEqual(cas.read(REQ)[1]["revision"],1)
+        # A repeated request whose exact bytes already committed is reconciled
+        # by GET, not retried. A competing new state must fail closed.
+        self.assertEqual(cas.write(next_state,previous=old,expected_blob=sha),
+                         "RECONCILED_BY_ORIGINAL_GET")
+        competing=copy.deepcopy(next_state)
+        competing["events"]["source"] = "f"*64
         with self.assertRaises(store.UnknownWrite):
-            cas.write(next_state,previous=old,expected_blob=sha)
+            cas.write(competing,previous=old,expected_blob=sha)
 
     def test_lost_response_reconciled_only_when_bytes_match(self):
         backend=Backend(); cas=store.CAS(backend); initial=self.state()
