@@ -66,7 +66,11 @@ def unpack(payload, request_id):
             and type(payload.get("sha")) is str and SHA1.fullmatch(payload["sha"]),
             "invalid authenticated Contents response")
     try:
-        raw = base64.b64decode(payload["content"], validate=True)
+        encoded = payload["content"]
+        require(type(encoded) is str, "missing original base64 content")
+        # GitHub Contents returns RFC 2045 wrapped base64 with CR/LF only.
+        # Keep strict validation against other whitespace and invalid characters.
+        raw = base64.b64decode(encoded.replace("\r", "").replace("\n", ""), validate=True)
         state = json.loads(raw, object_pairs_hook=unique_pairs)
     except (ValueError, KeyError, TypeError) as exc:
         raise Denied("corrupt original checkpoint") from exc
