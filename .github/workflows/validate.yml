@@ -61,6 +61,9 @@ jobs:
       - name: Validate original Windows read-only negative terminal and strict scopes (NO RELEASE)
         run: python tests/test-issue311-r05-windows-probe.py
 
+      - name: Deny missing/fake R05 completion events and original 17-target receipt ZIPs (NO RELEASE)
+        run: python tests/test-issue311-r05-event-bridge.py
+
       - name: Validate R05 real Windows-positive state join and hostile receipts (NO RELEASE)
         run: python tests/test-issue311-r05-windows-positive.py
 
