@@ -25,7 +25,8 @@ class PrepareContractTests(TestCase):
 
     def test_prepare_workflow_requires_single_protected_push_and_read_only_permissions(self):
         wf = (ROOT / prepare.WORKFLOW_PATH).read_text(encoding="utf-8")
-        self.assertIn(prepare.REQUEST_PATH, wf)
+        self.assertIn('r-*-r06prepare*.json', wf)
+        self.assertIn('fetch-depth: 0', wf)
         self.assertIn("branches: [main]", wf)
         self.assertIn("contents: read", wf)
         self.assertIn("actions: read", wf)
@@ -38,6 +39,9 @@ class PrepareContractTests(TestCase):
     def test_source_requires_prepare_and_still_does_not_grant_candidate(self):
         code = (ROOT / "scripts/issue311-r06-prepare-scan.py").read_text(encoding="utf-8")
         self.assertIn('declaration["mode"] == "PREPARE"', code)
+        self.assertIn('"git", "diff", "--name-only"', code)
+        self.assertIn('declared exact protected main not current', code)
+        self.assertIn('len(changed) == 1', code)
         self.assertIn('"PREPARE_REQUEST_ORIGINAL_READONLY_SCAN_NO_WRITER"', code)
         self.assertIn('"publicationAuthorized": False', code)
         self.assertNotIn('"schedule"', code)
