@@ -43,6 +43,7 @@ LOCAL_ENTRY = "issue311-r06-fleet-local-prepare-receipt.json"
 LOCAL_NAME = "Issue 311 R06 fleet local PREPARE verifier (NONPUBLISHING)"
 LOCAL_JOB = "Verify exact original 17 protected mains and immutable PREPARE ZIP"
 VERIFY_STEP = "Verify original central source Run/job/ZIP and 17 exact SHA (NEVER WRITE)"
+SHARED_VERIFY_STEP = "Authenticate protected request / central original Run-job-ZIP (NO WRITER)"
 TIMEOUT_STEP = "R06 original one-shot timed-out step (real Actions timeout)"
 FAIL_STEP = "R06 one-shot failure witness (nonpublishing, exact request-only push)"
 MISSING_REPO = "pgextwin/orafce"
@@ -195,6 +196,13 @@ def step(job, name, conclusion):
     need(len(found) == 1 and found[0].get("status") == "completed"
          and found[0].get("conclusion") == conclusion, "original step result mismatch " + name)
     return found[0]
+
+
+def original_verification_step(repo, job):
+    # The three anomaly witnesses retained their original explicit step name;
+    # the other fourteen repositories use the already deployed shared caller.
+    name = VERIFY_STEP if repo in {"pgextwin/pg_bigm", "pgextwin/pg_cron", "pgextwin/pg_hint_plan"} else SHARED_VERIFY_STEP
+    return step(job, name, "success")
 
 
 def protected_merge(repo, head, parent, request_path):
@@ -420,7 +428,7 @@ def collect_child(item, central):
     else:
         receipt, meta = artifact(repo, run["id"], "issue311-fleet-local-prepare-receipt", LOCAL_ENTRY)
         receipt_binding(receipt, local, run, parent, central)
-        step(local_job, VERIFY_STEP, "success")
+        original_verification_step(repo, local_job)
         result.update(receipt=receipt, originalArtifact=meta)
         if classification in ("FAILED", "TIMEOUT"):
             need(run["conclusion"] == "failure" and local_job["conclusion"] == "failure"
