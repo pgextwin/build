@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r04r05generic03",
+  "mode": "AUDIT_ONLY",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-29T00:59:30Z",
+  "expiresAt": "2026-10-29T01:08:30Z",
+  "purpose": "One new protected orafce read-only request with App state CAS, independently verified original ZIP completion listener and separate finite no-cron watchdog; originals 01/02 failures preserved.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "407d390426fb560776d741781710fc9ccbd3d509",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 1,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 10,
+    "maxWallClockMinutes": 10
+  },
+  "approval": {
+    "scopeText": "Single genuine protected-main orafce read-only GET, App5517840 build-only request checkpoint and GitHub original ZIP/digest, independent workflow_run completion and same-push bounded watchdog; NO candidate build, signing, Catalog, Publisher, tag or release.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+    }
+  ],
+  "resumeFrom": null
+}
