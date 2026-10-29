@@ -30,6 +30,17 @@ def declaration():
 
 
 class BoundaryTests(unittest.TestCase):
+    def test_original_shared_and_anomaly_step_names_are_scoped_not_interchangeable(self):
+        def job(name, conclusion="success"):
+            return {"steps": [{"name": name, "status": "completed", "conclusion": conclusion}]}
+        mod.original_verification_step("pgextwin/orafce", job(mod.SHARED_VERIFY_STEP))
+        mod.original_verification_step("pgextwin/pg_bigm", job(mod.VERIFY_STEP))
+        for repo, record in [("pgextwin/orafce", job(mod.VERIFY_STEP)),
+                             ("pgextwin/pg_hint_plan", job(mod.SHARED_VERIFY_STEP)),
+                             ("pgextwin/set_user", job(mod.SHARED_VERIFY_STEP, "failure"))]:
+            with self.assertRaises(ValueError):
+                mod.original_verification_step(repo, record)
+
     def test_authentic_central_scan_flag_is_not_the_app_state_flag(self):
         self.assertTrue(mod.central_scope({"publicationAuthorized": False}))
         self.assertFalse(mod.central_scope({"publisherAuthorized": False}))
