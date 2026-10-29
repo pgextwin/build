@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r04r05generic02",
+  "mode": "AUDIT_ONLY",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-29T00:49:45Z",
+  "expiresAt": "2026-10-29T00:57:00Z",
+  "purpose": "New bounded one-shot protected orafce read-only request for real App checkpoint and genuine workflow_run completion with independent push watcher after failed original request01.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "7b859ec25450d5879310b38aa03a13c823288a01",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 1,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 10,
+    "maxWallClockMinutes": 8
+  },
+  "approval": {
+    "scopeText": "One actual orafce protected GET, original source receipt ZIP, dedicated build-only state Writer App persistent CAS, independent completed-event bridge plus finite no-cron watchdog. No candidate build, Publisher, Catalog, tag, Release or third-party write.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e96941dd3ec09f88011feb1165a3f6f83231460f"
+    }
+  ],
+  "resumeFrom": null
+}
