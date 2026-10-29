@@ -40,6 +40,9 @@ jobs:
       - name: Validate Issue 311 pure CAS checkpoints and fail-closed replay states (NO WRITER)
         run: python tests/test-issue311-state-core.py
 
+      - name: Reject R04/R05 generic lifecycle replay, missing event, expiry and privilege (NO WRITER)
+        run: python tests/test-issue311-request-lifecycle.py
+
       - name: Validate Issue 311 GitHub Contents CAS lease and ambiguous-write isolation (NO WRITER)
         run: python tests/test-issue311-state-github.py
 
