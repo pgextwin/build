@@ -19,7 +19,7 @@ import urllib.request
 import zipfile
 
 HERE = Path(__file__).resolve().parents[1]
-REQUEST = "r-20261029-r05win17new01"
+REQUEST = "r-20261029-r05win17new02"
 REQUEST_PATH = ".github/execution-requests/" + REQUEST + ".json"
 TARGETS = {
     "pgextwin/pg_bigm": "713a76b8650f61097b5d5a55f15cd7f2ebcb4ec0",
@@ -75,11 +75,15 @@ def strict_request(raw):
             or data["approval"]["publicationGrants"] != []
             or {x["repo"]: x["mainSha"] for x in data["targets"]} != TARGETS):
         raise ValueError("unexpected untrusted request or target")
-    fleet=json.loads((HERE/"metadata"/"automation-fleet.json").read_bytes())
+    # Windows checkout may convert CRLF. Only Git's immutable source blob
+    # bytes, never the worktree's filesystem line endings, identify registry.
+    registry_bytes=subprocess.check_output(
+        ["git","show","HEAD:metadata/automation-fleet.json"])
+    fleet=json.loads(registry_bytes)
     if (sorted(TARGETS)!=sorted(x["repository"] for x in fleet["entries"])
             or hashlib.sha1(
-                b"blob "+str(len((HERE/"metadata"/"automation-fleet.json").read_bytes())).encode()
-                +b"\0"+(HERE/"metadata"/"automation-fleet.json").read_bytes()
+                b"blob "+str(len(registry_bytes)).encode()
+                +b"\0"+registry_bytes
                ).hexdigest()!=FLEET_BLOB):
         raise ValueError("fleet names or original registry Git blob mismatch")
     return result
