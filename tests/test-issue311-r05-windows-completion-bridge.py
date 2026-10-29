@@ -85,11 +85,10 @@ class Tests(unittest.TestCase):
               "runAttempt":1,"result":"SUCCESS","publicationAuthorized":False,
               "remoteProtected":True,"runnerOS":"Windows","completionEvent":"WINDOWS_ORIGINAL_REMOTE_GET","stateGitBlobSha":bridge.win17.R04_BLOB,"requestSha256":"b"*64,"targetMainSha":"a"*40}
         terminal={"requestId":bridge.REQUEST,"runId":42,"runAttempt":1,
-                  "terminal":"NO_UPDATE","publishAuthorized":False,
-                  "persistenceAccepted":False,
+                  "terminal":"NO_UPDATE","publicReleaseAuthorized":False,
                   "perTarget":{x:"success" for x in frozenset(bridge.win17.TARGETS)}}
         def original(entry,name):
-            if name=="issue311-r05-17-terminal.json":
+            if name=="issue311-r05-win17-terminal.json":
                 return terminal,"c"*64
             item=dict(good,repository=entry["repo"])
             if entry["repo"]==repo:item["runAttempt"]=2
@@ -104,7 +103,7 @@ class Tests(unittest.TestCase):
                     {x:"success" for x in frozenset(bridge.win17.TARGETS)})
 
     def test_no_publisher_permissions_or_second_stage_trigger(self):
-        y=Path(".github/workflows/issue311-r05-event-bridge.yml").read_text()
+        y=Path(".github/workflows/issue311-r05-windows-completion-bridge.yml").read_text()
         src=Path(".github/workflows/issue311-r05-windows-17.yml").read_text()
         for forbidden in ("contents: write","id-token: write","workflow_dispatch",
                           "repository_dispatch","schedule:","pull_request_target"):
