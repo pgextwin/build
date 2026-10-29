@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-r06-original-child-join",
+  "requestId": "r-20261030-r06join17anom07v01",
+  "mode": "AUDIT_ONLY",
+  "createdAt": "2026-10-29T22:59:27Z",
+  "expiresAt": "2026-10-29T23:29:27Z",
+  "requestedBy": "ShutenOishi",
+  "central": {
+    "requestId": "r-20261029-r06prepare17anom07",
+    "runId": 40962984014,
+    "headSha": "782d817ade82bbcc5007db54efd0d564d679d200",
+    "artifactId": 12935853174,
+    "zipSha256": "15040c5aac00282255417ff9b5668b02b4a236e3e36db1b0ebb1428515821a70"
+  },
+  "children": [
+    {
+      "repo": "pgextwin/hypopg",
+      "runId": 40967867996,
+      "requestId": "r-20261030-r06localhypopganom07"
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "runId": 40964693225,
+      "requestId": "r-20261030-r06localorafceanom07"
+    },
+    {
+      "repo": "pgextwin/pg_bigm",
+      "runId": 40964701579,
+      "requestId": "r-20261030-r06localpgbigmanom07"
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "runId": 40964710678,
+      "requestId": "r-20261030-r06localpgcronanom07"
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "runId": 40964580851,
+      "requestId": "r-20261030-r06localhintan07"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "runId": 40966567175,
+      "requestId": "r-20261030-r06localpgivmanom07"
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "runId": 40968597005,
+      "requestId": "r-20261030-r06localpgpartmananom07"
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "runId": 40967147925,
+      "requestId": "r-20261030-r06localpgqualstatsanom07"
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "runId": 40966204283,
+      "requestId": "r-20261030-r06localpgrepackanom07"
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "runId": 40969128947,
+      "requestId": "r-20261030-r06localpgstatmonitoranom07"
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "runId": 40969729071,
+      "requestId": "r-20261030-r06localpgstoreplansanom07"
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "runId": 40969137997,
+      "requestId": "r-20261030-r06localpgvariablesanom07"
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "runId": 40966319001,
+      "requestId": "r-20261030-r06localpgauditanom07"
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "runId": 40969492588,
+      "requestId": "r-20261030-r06localpgtapanom07"
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "runId": 40967566607,
+      "requestId": "r-20261030-r06localplpgsqlcheckanom07"
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "runId": 40966213462,
+      "requestId": "r-20261030-r06localsetuseranom07"
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "runId": 40967875539,
+      "requestId": "r-20261030-r06localwal2jsonanom07"
+    }
+  ],
+  "missingCompletionRepo": "pgextwin/orafce",
+  "publicReleaseAuthorized": false,
+  "stateWriteScope": "BUILD_ONLY_REQUEST_LIFECYCLE"
+}
