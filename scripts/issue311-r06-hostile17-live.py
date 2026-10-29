@@ -287,7 +287,7 @@ def verified_recovery_original():
          "recovery checkout not original protected SHA")
     changed = subprocess.check_output(
         ["git", "diff", "--name-status", ev["before"], head], text=True).splitlines()
-    need(changed == ["A\\t" + RECOVERY_PATH], "recovery must be one new request only")
+    need(changed == ["A\t" + RECOVERY_PATH], "recovery must be one new request only")
     main = bridge.get_json("repos/pgextwin/build/branches/main")
     need(main.get("protected") is True and main.get("commit", {}).get("sha") == head,
          "recovery main not protected/current")
