@@ -94,7 +94,8 @@ def original_central():
     need(proof.get("result") == "SCANNED" and proof.get("sourceRunId") == ORIGINAL_RUN
          and proof.get("sourceRunAttempt") == 1 and proof.get("sourceHeadSha") == ORIGINAL_HEAD
          and proof.get("sourceEvent") == "push" and proof.get("fleetSize") == 17
-         and proof.get("publicationAuthorized") is False
+         and proof.get("publisherAuthorized") is False
+             and "publicationAuthorized" not in proof
          and len(proof.get("targetMainSha", {})) == 17
          and set(proof["targetMainSha"]) == set(scan.win.TARGETS),
          "central receipt identity/17/scope")
@@ -258,11 +259,84 @@ def verified_source_event():
     return original, declaration
 
 
-def complete():
+
+# Recovery is a NEW authenticated request-only push, not a rerun or a
+# synthetic workflow_run callback. Original source run/ZIP/state remain fixed.
+RECOVERY_REQ = "r-20261029-r06hostile17-recover01"
+RECOVERY_PATH = ".github/execution-requests/" + RECOVERY_REQ + ".json"
+RECOVERY_WORKFLOW = "Issue 311 R06 original hostile terminal recovery (NONPUBLISHING)"
+RECOVERY_SOURCE_RUN = 40876766677
+RECOVERY_SOURCE_SHA = "7cefe10b6ac3d70e2fd0c8378cae2bc763c064c0"
+
+
+def verified_recovery_original():
+    ev = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
+                    object_pairs_hook=store.unique_pairs)
+    head = os.environ["GITHUB_SHA"]
+    need(os.environ["GITHUB_REPOSITORY"] == "pgextwin/build"
+         and os.environ["GITHUB_EVENT_NAME"] == "push"
+         and os.environ["GITHUB_REF"] == "refs/heads/main"
+         and os.environ["GITHUB_WORKFLOW"] == RECOVERY_WORKFLOW
+         and os.environ["GITHUB_RUN_ATTEMPT"] == "1"
+         and os.environ["GITHUB_ACTOR"] == "ShutenOishi"
+         and ev.get("before") != head and ev.get("after") == head
+         and ev.get("created") is False and ev.get("deleted") is False
+         and ev.get("sender", {}).get("login") == "ShutenOishi",
+         "unauthorized recovery event")
+    need(subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == head,
+         "recovery checkout not original protected SHA")
+    changed = subprocess.check_output(
+        ["git", "diff", "--name-status", ev["before"], head], text=True).splitlines()
+    need(changed == ["A\\t" + RECOVERY_PATH], "recovery must be one new request only")
+    main = bridge.get_json("repos/pgextwin/build/branches/main")
+    need(main.get("protected") is True and main.get("commit", {}).get("sha") == head,
+         "recovery main not protected/current")
+
+    original = bridge.get_json(
+        "repos/pgextwin/build/actions/runs/" + str(RECOVERY_SOURCE_RUN))
+    need(original.get("id") == RECOVERY_SOURCE_RUN
+         and original.get("head_sha") == RECOVERY_SOURCE_SHA
+         and original.get("name") == SOURCE_NAME
+         and original.get("path") == SOURCE_PATH
+         and original.get("run_attempt") == 1
+         and original.get("event") == "push"
+         and original.get("head_branch") == "main"
+         and original.get("actor", {}).get("login") == "ShutenOishi"
+         and original.get("status") == "completed"
+         and original.get("conclusion") == "success",
+         "original successful source run identity mismatch")
+    orig_raw = contents(PATH, RECOVERY_SOURCE_SHA)
+    orig_decl = contract.validate_declaration(orig_raw, PATH)
+    orig_req = json.loads(orig_raw, object_pairs_hook=store.unique_pairs)
+    need(orig_decl["requestId"] == REQ and orig_decl["mode"] == "AUDIT_ONLY"
+         and len(orig_req["targets"]) == 17
+         and orig_req["approval"]["publicReleaseAuthorized"] is False,
+         "source request not scoped to nonpublishing 17")
+
+    raw = subprocess.check_output(["git", "show", "HEAD:" + RECOVERY_PATH])
+    need(raw == contents(RECOVERY_PATH, head), "recovery request byte mismatch")
+    new_decl = contract.validate_declaration(raw, RECOVERY_PATH)
+    req = json.loads(raw, object_pairs_hook=store.unique_pairs)
+    need(new_decl["requestId"] == RECOVERY_REQ
+         and new_decl["mode"] == "AUDIT_ONLY"
+         and req["resumeFrom"] == REQ
+         and req["source"]["centralMainSha"] == ev["before"]
+         and req["source"]["fleetRegistryBlobSha"] == scan.FLEET_BLOB
+         and req["targets"] == orig_req["targets"]
+         and req["approval"]["publicationGrants"] == []
+         and req["approval"]["publicReleaseAuthorized"] is False
+         and req["allowFutureUpdates"] is False
+         and req["limits"]["maxParallel"] == 1
+         and req["limits"]["maxAttemptsPerStage"] == 1,
+         "recovery scope mismatch or publication escalation")
+    return original, orig_decl
+
+def complete(*, recovery=False):
     report = {"requestId": REQ, "result": "FAILED", "publisherAuthorized": False}
     token = None
     try:
-        original, decl = verified_source_event()
+        original, decl = (verified_recovery_original() if recovery
+                          else verified_source_event())
         artifacts = bridge.get_json("repos/pgextwin/build/actions/runs/" +
                                     str(original["id"]) + "/artifacts?per_page=100")
         listed = artifacts.get("artifacts", [])
@@ -338,4 +412,5 @@ def complete():
 
 if __name__ == "__main__":
     raise SystemExit(source() if sys.argv[1:] == ["source"]
-                     else complete() if sys.argv[1:] == ["complete"] else 2)
+                     else complete() if sys.argv[1:] == ["complete"]
+                     else complete(recovery=True) if sys.argv[1:] == ["recover"] else 2)
