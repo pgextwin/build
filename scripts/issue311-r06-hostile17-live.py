@@ -285,7 +285,8 @@ def complete(original_override=None, declaration_override=None):
              and proof.get("centralRunId") == ORIGINAL_RUN
              and proof.get("centralArtifactId") == ORIGINAL_ARTIFACT
              and proof.get("centralZipSha256") == ORIGINAL_DIGEST
-             and proof.get("publicationAuthorized") is False
+             and proof.get("publisherAuthorized") is False
+             and "publicationAuthorized" not in proof
              and set(proof.get("negativeDenials", {})) == {
                  "tamperedOriginalZip", "missingTargetOuterDigest",
                  "missingTargetSchema", "expiredOriginalRequest"},
@@ -340,7 +341,7 @@ def complete(original_override=None, declaration_override=None):
 
 
 
-RECOVERY_REQ = "r-20261029-r06recovery17h01"
+RECOVERY_REQ = "r-20261029-r06recovery17h02"
 RECOVERY_PATH = ".github/execution-requests/" + RECOVERY_REQ + ".json"
 RECOVERY_NAME = "Issue 311 R06 original failed listener recovery source (NONPUBLISHING)"
 RECOVERY_WORKFLOW = ".github/workflows/issue311-r06-hostile17-recovery-source.yml"
