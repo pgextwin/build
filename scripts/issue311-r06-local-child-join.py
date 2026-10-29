@@ -176,7 +176,8 @@ def validate_17_original_children(central, children):
     need(isinstance(central, dict)
          and central.get("sourceRunAttempt") == 1
          and central.get("sourceEvent") == "push"
-         and central.get("publisherAuthorized") is False
+         and central.get("publicationAuthorized") is False
+         and "publisherAuthorized" not in central
          and SHA40.fullmatch(central.get("sourceHeadSha", "")) is not None
          and SHA64.fullmatch(central.get("sourceZipSha256", "")) is not None
          and isinstance(central.get("sourceRunId"), int)
