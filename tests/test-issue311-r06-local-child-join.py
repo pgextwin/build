@@ -20,7 +20,7 @@ CENTRAL = {
     "sourceArtifactId": 12886559374,
     "sourceZipSha256": "b81a14c98b7fcc403970b7bde40028799a99938bef595a8ea1400154b35e5262",
     "created_at": "2026-10-29T09:00:00Z",
-    "sourceEvent": "push", "publisherAuthorized": False,
+    "sourceEvent": "push", "publicationAuthorized": False,
     "targetMainSha": {f"pgextwin/ext{i}": f"{i + 1:040x}" for i in range(17)},
 }
 
