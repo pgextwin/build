@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r06prepare17anom07",
+  "mode": "PREPARE",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-29T22:02:55Z",
+  "expiresAt": "2026-10-30T01:02:55Z",
+  "purpose": "R06-05-02-02-02 distinct fresh 17-target NONPUBLISHING original cycle after executable original-byte child join/watchdog/readback integration. Preserve expired anom06 originals, no successful rerun.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "ffecfcf1f4891b3de44e6d265cb589213ee4645e",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 4,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 100,
+    "maxWallClockMinutes": 45
+  },
+  "approval": {
+    "scopeText": "PREPARE original exact 17 protected main source; true pg_bigm failure, pg_cron skipped job, pg_hint_plan real one-minute Actions timeout, one controlled orafce completion-bundle omission after its actual expiry. Independent finite build-only App CAS terminal and no-App-key original readback. PUBLISH_DENY; no signature/Publisher/Release/Catalog/cron/dispatch/token reuse.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/pg_bigm",
+      "mainSha": "7e5b0e579c6bfde8107a72e074ca4e98b5079aa4"
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "mainSha": "d2d90603de4387f81b4bfaf4d57ff612b3de2ed4"
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "mainSha": "a585e9f33641ebd79a98cfe121fdff2a7eaad826"
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "mainSha": "951f0dbe36eaa88a951f619ab86cf89091a4d9f8"
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "mainSha": "c1926d48b9e9b9056824522316d9e186890faf07"
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "mainSha": "64ef345ff40ece9d70d84edf3b818d8508834c2b"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "6f9c5b98d4a0db56bdd211b19af9897bd050ad71"
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "mainSha": "123b2e0c30c0db3e7c34608cfaf345af4a1b386f"
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "mainSha": "01445e9aad792e125632d103ca3275d9d6bb53f0"
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "c17ea76e2899b7c64fb92f2cbba2fae943730c8c"
+    },
+    {
+      "repo": "pgextwin/hypopg",
+      "mainSha": "638c4918c43294753c2453bc85b5ea4a90a2f0da"
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "mainSha": "3053c7b53de2a79e483fe7674acaba400c9499f6"
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "mainSha": "4177b60f1244ae429315f916f0537c3cd80b0db3"
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "mainSha": "756461fa40351d12ae94037dd7a97ea2c37a2611"
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "mainSha": "2234f0e4e25e199a1d30bf916df00b90cd067b3e"
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "mainSha": "d5846cafe8505b37d79dda596a840373c9f29c5f"
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "mainSha": "8e8a888b7118e2019337ef78d41f5182294fa7e1"
+    }
+  ],
+  "resumeFrom": null
+}
