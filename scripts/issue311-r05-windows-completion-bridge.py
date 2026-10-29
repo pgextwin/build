@@ -20,7 +20,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WORKFLOW = ".github/workflows/issue311-r05-windows-17.yml"
-REQUEST = "r-20261029-r05win17new01"
+REQUEST = "r-20261029-r05win17new02"
 REQUEST_PATH = ".github/execution-requests/" + REQUEST + ".json"
 ZIP_PREFIX = "issue311-r05-win17-"
 ZIP_TERMINAL = "issue311-r05-win17-terminal"
