@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/execution-requests/r-20261029-r04r05generic02.json'
+      - '.github/execution-requests/r-20261029-r04r05generic03.json'
 
 permissions:
   contents: read
