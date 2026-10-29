@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261029-r06prepare17anom06",
+  "mode": "PREPARE",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-29T15:10:00Z",
+  "expiresAt": "2026-10-29T21:30:00Z",
+  "purpose": "R06-05-02-02-02 distinct NONPUBLISHING true child anomalies after verified correction of merge-push classification; immutable new 17 protected main snapshots; no prior successful scan rerun.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "4c655a666ce236da054ca1f690b9f319f19f3a5d",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 4,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 100,
+    "maxWallClockMinutes": 45
+  },
+  "approval": {
+    "scopeText": "PREPARE original 17 exact-main child evidence and true failure/skipped-job/timeout/missing-event, independently bounded durable App CAS/expiry/replay/source-kind denial. No candidate, signature, privileged Publisher, Catalog, tag, Release, cron, fake schedule, expanded token. PUBLISH_DENY.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/pg_bigm",
+      "mainSha": "44ee8fa168c99ab9739f18d7c45c2aa4a2081264"
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "mainSha": "2bb5dc59b9690b46c543ee01f705618611e30f82"
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "mainSha": "f24e1135d8f8a9f3aafd5e8a86a881e4aab14ca8"
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "mainSha": "951f0dbe36eaa88a951f619ab86cf89091a4d9f8"
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "mainSha": "c1926d48b9e9b9056824522316d9e186890faf07"
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "mainSha": "64ef345ff40ece9d70d84edf3b818d8508834c2b"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "6f9c5b98d4a0db56bdd211b19af9897bd050ad71"
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "mainSha": "123b2e0c30c0db3e7c34608cfaf345af4a1b386f"
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "mainSha": "01445e9aad792e125632d103ca3275d9d6bb53f0"
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "4667523bcc4502790eeb2370c6067972f4c14530"
+    },
+    {
+      "repo": "pgextwin/hypopg",
+      "mainSha": "638c4918c43294753c2453bc85b5ea4a90a2f0da"
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "mainSha": "3053c7b53de2a79e483fe7674acaba400c9499f6"
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "mainSha": "4177b60f1244ae429315f916f0537c3cd80b0db3"
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "mainSha": "756461fa40351d12ae94037dd7a97ea2c37a2611"
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "mainSha": "2234f0e4e25e199a1d30bf916df00b90cd067b3e"
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "mainSha": "d5846cafe8505b37d79dda596a840373c9f29c5f"
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "mainSha": "8e8a888b7118e2019337ef78d41f5182294fa7e1"
+    }
+  ],
+  "resumeFrom": null
+}
