@@ -122,10 +122,7 @@ def cross_repo_protected_main(repo):
         os.environ["GH_TOKEN"])
 
 
-def verify():
-    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
-                       object_pairs_hook=store.unique_pairs)
-    source = authenticated_source(event)
+def verify_for_source(source, *, transport="workflow_run.completed"):
     declaration, request = original_request(source)
     proof, zip_sha, artifact_id = original_zip(source)
     targets = {x["repo"]: x["mainSha"] for x in request["targets"]}
@@ -166,10 +163,16 @@ def verify():
             "originalZipArtifactId": artifact_id,
             "originalZipSha256": zip_sha,
             "updatesDetected": proof["report"]["updatesDetected"],
-            "eventTransport": "workflow_run.completed",
+            "eventTransport": transport,
             "publicationAuthorized": False, "candidateAdmissionAuthorized": False,
             "sourceKind": "AUTHENTICATED_REQUEST_READONLY_SCAN",
             "genuineSchedule": False}
+
+
+def verify():
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes(),
+                       object_pairs_hook=store.unique_pairs)
+    return verify_for_source(authenticated_source(event))
 
 
 def main():
