@@ -55,6 +55,9 @@ jobs:
       - name: Deny forged R06 original ZIP source kinds and local candidate admission (NO WRITER)
         run: python tests/test-issue311-r06-local-sourcekind.py
 
+      - name: Deny forged shared 17-local PREPARE request, source ZIP and writer claims (NO WRITER)
+        run: python tests/test-issue311-r06-fleet-local-prepare.py
+
       - name: Validate Issue 311 GitHub Contents CAS lease and ambiguous-write isolation (NO WRITER)
         run: python tests/test-issue311-state-github.py
 
