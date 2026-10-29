@@ -396,7 +396,7 @@ def recover_source():
         changed = subprocess.check_output(
             ["git", "diff", "--name-status", event["before"], head],
             text=True).splitlines()
-        need(changed == ["A\\t" + RECOVERY_PATH], "recovery not request-only")
+        need(changed == ["A\t" + RECOVERY_PATH], "recovery not request-only")
         main = bridge.get_json("repos/pgextwin/build/branches/main")
         need(main.get("protected") is True and main.get("commit", {}).get("sha") == head,
              "recovery main not exact protected")
@@ -434,7 +434,7 @@ def recover_source():
                        originalStateRevision=1, targetCount=17)
     except Exception as exc:
         receipt["reason"] = str(exc)[:400]
-    Path(RECOVERY_RECEIPT).write_text(json.dumps(receipt, sort_keys=True) + "\\n")
+    Path(RECOVERY_RECEIPT).write_text(json.dumps(receipt, sort_keys=True) + "\n")
     print(json.dumps(receipt, sort_keys=True))
     return 0 if receipt["result"] == "RECOVERY_ORIGINAL_VERIFIED" else 1
 
@@ -489,4 +489,6 @@ def recover_complete():
 
 if __name__ == "__main__":
     raise SystemExit(source() if sys.argv[1:] == ["source"]
-                     else complete() if sys.argv[1:] == ["complete"]\n                     else recover_source() if sys.argv[1:] == ["recover-source"]\n                     else recover_complete() if sys.argv[1:] == ["recover-complete"] else 2)
+                     else complete() if sys.argv[1:] == ["complete"]
+                     else recover_source() if sys.argv[1:] == ["recover-source"]
+                     else recover_complete() if sys.argv[1:] == ["recover-complete"] else 2)
