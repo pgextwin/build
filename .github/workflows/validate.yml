@@ -70,6 +70,9 @@ jobs:
       - name: Validate original Windows read-only negative terminal and strict scopes (NO RELEASE)
         run: python tests/test-issue311-r05-windows-probe.py
 
+      - name: Reject R04/R05 generic App original source/bridge/finite watchdog forgeries (NO CREDS)
+        run: python tests/test-issue311-r04r05-generic-live.py
+
       - name: Deny fake R05 17-Windows workflow_run completion event and missing original ZIP (NO RELEASE)
         run: python tests/test-issue311-r05-windows-completion-bridge.py
 
