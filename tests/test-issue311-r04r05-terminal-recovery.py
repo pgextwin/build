@@ -35,6 +35,39 @@ class RecoveryTests(TestCase):
             with self.subTest(key=key,val=val):
                 self.setUp();self.f['run'][key]=val
                 with self.assertRaisesRegex(ValueError,'source is successful'):self.evaluate()
+    def test_all_authentic_completed_nonsuccess_conclusions_quarantine_17(self):
+        # An original skipped/neutral/timeout must not remain pending forever.
+        # Only an exact, authenticated, expired and source-bound 17-request
+        # can be reconciled. This test does not simulate delivery of an event.
+        for conclusion in ('failure', 'cancelled', 'timed_out', 'skipped',
+                           'neutral', 'stale', 'action_required', 'startup_failure'):
+            with self.subTest(conclusion=conclusion):
+                self.setUp()
+                self.f['run']['conclusion'] = conclusion
+                before = copy.deepcopy(self.f['state'])
+                terminal = self.evaluate()
+                self.assertEqual(terminal['terminal'], 'QUARANTINED')
+                self.assertEqual(len(terminal['targets']), 17)
+                self.assertEqual(set(terminal['targets'].values()), {'QUARANTINED'})
+                self.assertEqual(terminal['revision'], before['revision'] + 1)
+                self.assertEqual(terminal['sourceRun'], before['sourceRun'])
+                self.assertEqual(terminal['requestSha256'], before['requestSha256'])
+                self.assertFalse(terminal['publisherAuthorized'])
+                self.assertFalse(terminal['writeOutcomeUnknown'])
+                m.store.require_transition(before, terminal)
+
+    def test_success_unknown_incomplete_and_missing_identity_never_quarantine(self):
+        for field, value in (('conclusion', 'success'), ('conclusion', 'unknown'),
+                             ('conclusion', None), ('status', 'queued'),
+                             ('status', 'in_progress'), ('run_attempt', 2),
+                             ('id', 999), ('head_branch', 'dev')):
+            with self.subTest(field=field, value=value):
+                self.setUp()
+                self.f['run'][field] = value
+                with self.assertRaisesRegex(ValueError, 'source is successful'):
+                    self.evaluate()
+                self.assertIsNone(self.f['state']['terminal'])
+
     def test_deadline_not_reached_and_already_terminal_denied(self):
         with self.assertRaises(ValueError):self.evaluate(datetime(2026,10,29,3,0,tzinfo=timezone.utc))
         self.f['state']=self.evaluate()

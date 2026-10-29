@@ -3,7 +3,8 @@
 
 Only the approved build-only state App persists a fail-closed terminal. This is
 an explicit recovery, not a delivered workflow_run event, source rerun, or
-publication grant. Successful and already-terminal requests are never changed.
+publication grant. Authenticated non-success terminal conclusions (including
+skipped/timeout) are quarantined, never interpreted as successful work. Successful and already-terminal requests are never changed.
 """
 from datetime import datetime, timedelta, timezone
 import base64
@@ -104,7 +105,9 @@ def authenticate_failed_source(x, state, run, original, commit, now):
          and run.get('name') == SOURCE_NAME and run.get('path') == SOURCE_WORKFLOW
          and run.get('event') == 'push' and run.get('head_branch') == 'main'
          and run.get('actor', {}).get('login') == 'ShutenOishi' and run.get('run_attempt') == 1
-         and run.get('status') == 'completed' and run.get('conclusion') in ('failure', 'cancelled', 'timed_out'),
+         and run.get('status') == 'completed' and run.get('conclusion') in (
+             'failure', 'cancelled', 'timed_out', 'skipped', 'neutral',
+             'stale', 'action_required', 'startup_failure'),
          'source is successful, running, foreign or rerun')
     path = '.github/execution-requests/' + x['requestId'] + '.json'
     # Historical validation only: this does not renew expired execution rights.
