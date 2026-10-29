@@ -35,7 +35,7 @@ class ReadonlyFleetTests(TestCase):
                          "sourceArtifactId", "sourceZipSha256", "targetMainSha",
                          "GITHUB_RUN_ATTEMPT", "GITHUB_ACTOR", "protected",
                          "originalOuterZipSha256Verified", "NO_UPDATE",
-                         "UPDATE_PRESENT_NOT_AUTHORIZED", "A\\\\t",
+                         "UPDATE_PRESENT_NOT_AUTHORIZED", "A\\t",
                          "candidateAdmissionAuthorized", "publisherSourceKindAuthorized"):
             self.assertIn(required, src)
         for forbidden in ("workflow_dispatch", "create_pull_request(", "git push",
