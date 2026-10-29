@@ -30,16 +30,28 @@ def declaration():
 
 
 class BoundaryTests(unittest.TestCase):
-    def test_original_shared_and_anomaly_step_names_are_scoped_not_interchangeable(self):
+    def test_original_step_name_must_match_immutable_command_pin_and_actual_success(self):
         def job(name, conclusion="success"):
             return {"steps": [{"name": name, "status": "completed", "conclusion": conclusion}]}
-        mod.original_verification_step("pgextwin/orafce", job(mod.SHARED_VERIFY_STEP))
-        mod.original_verification_step("pgextwin/pg_bigm", job(mod.VERIFY_STEP))
-        for repo, record in [("pgextwin/orafce", job(mod.VERIFY_STEP)),
-                             ("pgextwin/pg_hint_plan", job(mod.SHARED_VERIFY_STEP)),
-                             ("pgextwin/set_user", job(mod.SHARED_VERIFY_STEP, "failure"))]:
+        def workflow(name):
+            return ("          ref: ff551bd2ea20da869e644691090b5ee7c82553ba\n"
+                    "          path: .pgextwin-build\n      - name: " + name + "\n"
+                    "        env:\n          GH_TOKEN: ${{ github.token }}\n"
+                    "        run: python .pgextwin-build/scripts/issue311-r06-fleet-local-prepare.py run\n")
+        for repo, name in [("pgextwin/orafce", mod.SHARED_VERIFY_STEP),
+                           ("pgextwin/pg_ivm", mod.SHARED_VERIFY_STEP),
+                           ("pgextwin/pg_repack", mod.VERIFY_STEP),
+                           ("pgextwin/pg_bigm", mod.VERIFY_STEP)]:
+            mod.original_verification_step(repo, job(name), workflow(name))
+        original = workflow(mod.VERIFY_STEP)
+        cases = [(job(mod.SHARED_VERIFY_STEP), original),
+                 (job(mod.VERIFY_STEP, "failure"), original),
+                 (job(mod.VERIFY_STEP), original.replace("ff551bd2", "00000000")),
+                 (job(mod.VERIFY_STEP), original.replace(".py run", ".py fake")),
+                 (job(mod.VERIFY_STEP), original.replace("GH_TOKEN:", "OTHER_TOKEN:"))]
+        for record, text in cases:
             with self.assertRaises(ValueError):
-                mod.original_verification_step(repo, record)
+                mod.original_verification_step("pgextwin/pg_repack", record, text)
 
     def test_authentic_central_scan_flag_is_not_the_app_state_flag(self):
         self.assertTrue(mod.central_scope({"publicationAuthorized": False}))

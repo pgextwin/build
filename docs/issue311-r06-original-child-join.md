@@ -8,6 +8,8 @@
 
 元のZIPはAPIで再取得し、provider digestと実圧縮バイトSHA256、単一エントリ、中央要求および17 SHAとの結合を独立検証する。実skipped jobには架空のreceiptを作らず、元jobのSKIPPEDとartifact不在を保存する。実failureはexit17、timeoutは原本workflowのtimeout-minutes:1、実stepのfailure、60秒以上の実時間とGitHub timeoutログを照合する。workflowの結論がfailureでも、実step timeoutをworkflow-level timed_outと偽称しない。
 
+検証ステップの表示名は各原本Workflowの固定コマンドと`ff551bd2`完全SHA pinから対応付け、実ジョブの同名ステップSUCCESSを照合する。リポジトリ名から表示名を推測しない。原本のコマンド・pin・環境・表示名が変わった場合は拒否する。
+
 ## 制御したcompletion欠落と独立終端
 
 Source workflowは実16件のcompletion bundleを作り、orafceの1件だけを意図的に含めない。このprovider ZIPからの欠落が今回の制御した障害であり、GitHub自然障害の発生を主張しない。別のpushで同時起動する有限watchdogはsourceを最大36回・5秒間隔で観測し、元ZIPの16件と独立した17子原本の再GETを照合する。orafceの元local要求の実期限後だけmissing completionを確定する。
