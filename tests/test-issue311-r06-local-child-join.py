@@ -102,6 +102,8 @@ class JoinPolicyOnly(unittest.TestCase):
             with self.subTest(conclusion=conclusion):
                 copies = copy.deepcopy(self.items)
                 copies[0] = abnormal(copies[0], conclusion)
+                if conclusion == "skipped":
+                    copies[0]["completionEventDelivered"] = False
                 self.assertEqual(mod.validate_17_original_children(CENTRAL, copies)["result"], "QUARANTINED")
                 copies[0]["watchdog"]["durableAppCasReadbackVerified"] = False
                 with self.assertRaises(mod.Denied):
