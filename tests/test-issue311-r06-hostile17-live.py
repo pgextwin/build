@@ -33,6 +33,32 @@ class ControlledHostileTest(unittest.TestCase):
             "missingTargetSchema", "expiredOriginalRequest"})
         self.assertIsInstance(expired_now, bool)
 
+
+    def test_original_receipt_publisher_flag_strict(self):
+        original = {"id": 40876766677, "head_sha": "7cefe10b6ac3d70e2fd0c8378cae2bc763c064c0"}
+        declaration = {"rawSha256": "c" * 64}
+        proof = {
+            "result": "CONTROLLED_DENY_VERIFIED", "requestId": mod.REQ,
+            "sourceHeadSha": original["head_sha"], "sourceRunId": original["id"],
+            "sourceAttempt": 1, "requestSha256": declaration["rawSha256"],
+            "targetCount": 17, "centralRunId": mod.ORIGINAL_RUN,
+            "centralArtifactId": mod.ORIGINAL_ARTIFACT,
+            "centralZipSha256": mod.ORIGINAL_DIGEST,
+            "publisherAuthorized": False,
+            "negativeDenials": {key: "DENY" for key in [
+                "tamperedOriginalZip", "missingTargetOuterDigest",
+                "missingTargetSchema", "expiredOriginalRequest"]}
+        }
+        mod.validate_original_source_receipt(proof, original, declaration)
+        for invalid in [
+            {**proof, "publicationAuthorized": False},
+            {key: value for key, value in proof.items() if key != "publisherAuthorized"},
+            {**proof, "publisherAuthorized": True},
+            {**proof, "sourceAttempt": 2}
+        ]:
+            with self.assertRaises(ValueError):
+                mod.validate_original_source_receipt(invalid, original, declaration)
+
     def test_persisted_terminal_replay_denied_before_write(self):
         targets = [f"pgextwin/ext{i}" for i in range(17)]
         state = mod.life.new(mod.REQ, "c"*64, "d"*40, targets,
