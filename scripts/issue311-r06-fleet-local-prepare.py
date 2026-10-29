@@ -84,7 +84,7 @@ def authenticate_local():
                                        before, head], text=True).splitlines()
     need(len(changed) == 1, "local request push has unrelated changes")
     hit = re.fullmatch(
-        r"A\\t(\\.github/execution-requests/(r-20\\d{6}-r06local[a-z0-9-]{4,40})\\.json)",
+        r"A\t(\.github/execution-requests/(r-20\d{6}-r06local[a-z0-9-]{4,40})\.json)",
         changed[0])
     need(hit is not None, "only a newly added local PREPARE request is accepted")
     REQUEST_PATH, REQUEST = hit.group(1), hit.group(2)
@@ -99,7 +99,7 @@ def authenticate_local():
         and type(data["sourceRunId"]) is int and data["sourceRunId"] > 0
         and type(data["sourceArtifactId"]) is int and data["sourceArtifactId"] > 0
         and SHA40.fullmatch(data["sourceHeadSha"]) is not None
-        and re.fullmatch(r"r-20\\d{6}-r06prepare[a-z0-9-]{4,40}",
+        and re.fullmatch(r"r-20\d{6}-r06prepare[a-z0-9-]{4,40}",
                          data["centralRequestId"]) is not None
         and SHA64.fullmatch(data["sourceZipSha256"]) is not None
         and data["targetMainSha"] == before
