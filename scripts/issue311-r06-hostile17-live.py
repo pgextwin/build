@@ -258,6 +258,26 @@ def verified_source_event():
     return original, declaration
 
 
+
+def validate_original_source_receipt(proof, original, declaration):
+    """Verify source original ZIP contract without trusting synthetic publication aliases."""
+    need(proof.get("result") == "CONTROLLED_DENY_VERIFIED"
+         and proof.get("requestId") == REQ
+         and proof.get("sourceHeadSha") == original["head_sha"]
+         and proof.get("sourceRunId") == original["id"]
+         and proof.get("sourceAttempt") == 1
+         and proof.get("requestSha256") == declaration["rawSha256"]
+         and proof.get("targetCount") == 17
+         and proof.get("centralRunId") == ORIGINAL_RUN
+         and proof.get("centralArtifactId") == ORIGINAL_ARTIFACT
+         and proof.get("centralZipSha256") == ORIGINAL_DIGEST
+         and proof.get("publisherAuthorized") is False
+         and "publicationAuthorized" not in proof
+         and set(proof.get("negativeDenials", {})) == {
+             "tamperedOriginalZip", "missingTargetOuterDigest",
+             "missingTargetSchema", "expiredOriginalRequest"},
+         "original source hostile proof not complete")
+
 def complete(original_override=None, declaration_override=None):
     report = {"requestId": REQ, "result": "FAILED", "publisherAuthorized": False}
     token = None
@@ -275,22 +295,7 @@ def complete(original_override=None, declaration_override=None):
              and art.get("workflow_run", {}).get("id") == original["id"],
              "original source ZIP metadata")
         proof, digest = bridge.original_zip(art, SOURCE_RECEIPT)
-        need(proof.get("result") == "CONTROLLED_DENY_VERIFIED"
-             and proof.get("requestId") == REQ
-             and proof.get("sourceHeadSha") == original["head_sha"]
-             and proof.get("sourceRunId") == original["id"]
-             and proof.get("sourceAttempt") == 1
-             and proof.get("requestSha256") == decl["rawSha256"]
-             and proof.get("targetCount") == 17
-             and proof.get("centralRunId") == ORIGINAL_RUN
-             and proof.get("centralArtifactId") == ORIGINAL_ARTIFACT
-             and proof.get("centralZipSha256") == ORIGINAL_DIGEST
-             and proof.get("publisherAuthorized") is False
-             and "publicationAuthorized" not in proof
-             and set(proof.get("negativeDenials", {})) == {
-                 "tamperedOriginalZip", "missingTargetOuterDigest",
-                 "missingTargetSchema", "expiredOriginalRequest"},
-             "original source hostile proof not complete")
+        validate_original_source_receipt(proof, original, decl)
         token, cas = app()
         blob, state = cas.read(REQ)
         need(state["revision"] == 1 and state["terminal"] is None
