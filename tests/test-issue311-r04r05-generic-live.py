@@ -64,6 +64,26 @@ class Evidence(unittest.TestCase):
              "total_count":101,"workflow_runs":[{"head_sha":SHA}]}):
             with self.assertRaises(ValueError):watch.listed(watch.BRIDGE_WORKFLOW,SHA)
 
+    def test_unbridged_genuine_source_has_independent_bounded_watcher(self):
+        # Only these two exact source cases are permitted. A deliberately
+        # unsubscribed source still starts the independent push watchdog.
+        with mock.patch.dict("os.environ", {"ISSUE311_PROOF_CASE":"missing-event"}):
+            gap=load("livegap","scripts/issue311-r04r05-generic-live.py")
+        self.assertEqual(gap.REQUEST,"r-20261029-r05eventgap001")
+        self.assertEqual(gap.SOURCE_PATH,".github/workflows/issue311-r05-eventgap-source.yml")
+        subscribe=Path(".github/workflows/issue311-r04r05-bridge.yml").read_text()
+        self.assertNotIn(gap.SOURCE_NAME,subscribe)
+        gap_source=Path(gap.SOURCE_PATH).read_text()
+        gap_watch=Path(".github/workflows/issue311-r05-eventgap-watchdog.yml").read_text()
+        for workflow in (gap_source,gap_watch):
+            self.assertIn("push:",workflow)
+            self.assertIn(gap.REQUEST+".json",workflow)
+            self.assertIn("issue311-state-writer",workflow)
+            self.assertIn("ISSUE311_PROOF_CASE: missing-event",workflow)
+            for prohibited in ("workflow_dispatch:", "schedule:", "contents: write",
+                               "id-token: write", "PUBLISH_ELIGIBLE"):
+                self.assertNotIn(prohibited,workflow)
+
     def test_namespaces_and_workflows_are_nonpublishing(self):
         paths=[
            ".github/workflows/issue311-r04r05-source.yml",
