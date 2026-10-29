@@ -1,0 +1,41 @@
+name: Issue 311 R06 durable 17-target hostile event terminal (NONPUBLISHING)
+# Real workflow_run completion on original protected request; read-only source
+# GitHub credential, existing build-only App for nonpublishing CAS only.
+on:
+  workflow_run:
+    workflows:
+      - Issue 311 R06 real central ZIP hostile 17 source (NONPUBLISHING)
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r06-hostile17-terminal
+  cancel-in-progress: false
+jobs:
+  terminal:
+    name: Independent original source ZIP, App CAS 17 QUARANTINED, durable replay DENY
+    if: github.repository == 'pgextwin/build' && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Original independent ZIP digest, scoped App terminal, replay denial
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r06-hostile17-live.py complete
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-hostile17-durable-replay
+          path: issue311-r06-hostile17-durable-replay.json
+          if-no-files-found: error
+          retention-days: 30
