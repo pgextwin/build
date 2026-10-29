@@ -89,7 +89,19 @@ def validate_child(central, child):
          "any publication privilege")
     receipt = child.get("receipt")
     conclusion = run.get("conclusion")
-    if conclusion == "success" and child.get("completionEventDelivered") is False:
+    job_conclusion = child.get("originalJobConclusion")
+    # GitHub can conclude a workflow SUCCESS when its relevant job is SKIPPED.
+    # A timeout-minutes step normally produces a FAILED job/run; never claim
+    # a workflow-level "timed_out" event from that step.
+    genuine_job_skip = conclusion == "success" and job_conclusion == "skipped"
+    genuine_step_timeout = (conclusion == "failure" and
+                            job_conclusion == "failure" and
+                            child.get("originalTimeoutStepVerified") is True and
+                            child.get("originalTimeoutStepConclusion") == "failure" and
+                            child.get("originalTimeoutStepTimeoutMinutes") == 1)
+    classified = ("skipped" if genuine_job_skip else
+                  "timed_out" if genuine_step_timeout else conclusion)
+    if classified == "success" and child.get("completionEventDelivered") is False:
         watch = child.get("watchdog")
         need(isinstance(watch, dict)
              and watch.get("sourceRunId") == run["id"]
@@ -107,8 +119,8 @@ def validate_child(central, child):
              and timestamp(watch["observedAt"]) >= timestamp(req["expiresAt"]),
              "missing completion event has no finite original watchdog")
         return "QUARANTINED"
-    if conclusion == "success":
-        need(child.get("watchdog") is None
+    if classified == "success":
+        need(job_conclusion == "success" and child.get("watchdog") is None
              and child.get("completionEventDelivered") is True
              and child.get("originalJobConclusion") == "success",
              "child success has conflicting watchdog or no authentic completion/job")
@@ -132,7 +144,7 @@ def validate_child(central, child):
              "successful original local ZIP receipt cannot bind to central cycle")
         return receipt["result"]
 
-    need(conclusion in ABNORMAL, "unrecognized local workflow conclusion")
+    need(classified in ABNORMAL, "unrecognized local original job/step conclusion")
     # A non-success original run does NOT prove a successful local receipt.
     # A missing receipt, failed job or skipped job requires a separately
     # authenticated original finite watchdog, including durable terminal.
@@ -143,7 +155,7 @@ def validate_child(central, child):
          and watchdog.get("centralRunId") == central["sourceRunId"]
          and watchdog.get("centralRequestId") == central["requestId"]
          and watchdog.get("localRequestId") == req.get("requestId")
-         and watchdog.get("status") == ABNORMAL[conclusion]
+         and watchdog.get("status") == ABNORMAL[classified]
          and watchdog.get("terminal") == "QUARANTINED"
          and watchdog.get("originalGetVerified") is True
          and watchdog.get("durableAppCasReadbackVerified") is True
@@ -155,15 +167,18 @@ def validate_child(central, child):
          "non-success child missing independent finite original watchdog")
     # A skipped job can have workflow conclusion success: it must never be
     # misclassified as a failed/skipped workflow without original job proof.
-    if conclusion == "skipped":
-        need(child.get("originalJobConclusion") == "skipped",
-             "not actual skipped child job")
-    if conclusion == "failure":
-        need(child.get("originalJobConclusion") == "failure",
-             "not actual failed child job")
-    if conclusion == "timed_out":
-        need(child.get("originalJobConclusion") == "timed_out",
-             "not actual timed-out child job")
+    if classified == "skipped":
+        need(genuine_job_skip or
+             (conclusion == "skipped" and job_conclusion == "skipped"),
+             "not actual original skipped child job")
+    if classified == "failure":
+        need(conclusion == "failure" and job_conclusion == "failure"
+             and child.get("originalTimeoutStepVerified") is not True,
+             "not actual failed original child job")
+    if classified == "timed_out":
+        need(genuine_step_timeout or
+             (conclusion == "timed_out" and job_conclusion == "timed_out"),
+             "not authenticated timeout original job/step")
     need(receipt is None or
          (receipt.get("result") == "FAILED"
           and receipt.get("publicationAuthorized") is False),

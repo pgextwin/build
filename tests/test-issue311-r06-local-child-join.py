@@ -158,5 +158,40 @@ class JoinPolicyOnly(unittest.TestCase):
         self.denied(lambda xs: xs[0]["run"].update(conclusion="skipped"))
 
 
+    def test_real_github_skipped_job_workflow_success_requires_original_watchdog(self):
+        original = abnormal(child(0), "skipped")
+        original["run"]["conclusion"] = "success"
+        original["completionEventDelivered"] = False
+        items = copy.deepcopy(self.items)
+        items[0] = original
+        self.assertEqual(mod.validate_17_original_children(CENTRAL, items)["result"],
+                         "QUARANTINED")
+        original["watchdog"]["durableAppCasReadbackVerified"] = False
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, items)
+        original["watchdog"]["durableAppCasReadbackVerified"] = True
+        original["originalJobConclusion"] = "success"
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, items)
+
+    def test_real_timeout_step_workflow_failure_not_fabricated_timed_out_run(self):
+        original = abnormal(child(1), "failure")
+        original["originalTimeoutStepVerified"] = True
+        original["originalTimeoutStepConclusion"] = "failure"
+        original["originalTimeoutStepTimeoutMinutes"] = 1
+        original["watchdog"]["status"] = "TIMEOUT"
+        items = copy.deepcopy(self.items)
+        items[1] = original
+        self.assertEqual(mod.validate_17_original_children(CENTRAL, items)["result"],
+                         "QUARANTINED")
+        original["originalTimeoutStepVerified"] = False
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, items)
+        original["originalTimeoutStepVerified"] = True
+        original["originalTimeoutStepTimeoutMinutes"] = 2
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, items)
+
+
 if __name__ == "__main__":
     unittest.main()
