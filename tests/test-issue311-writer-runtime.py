@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 spec=importlib.util.spec_from_file_location(
     "issue311_writer", Path(__file__).resolve().parents[1] /
@@ -84,6 +85,29 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(writer.STATE_PATH,"checkpoints/issue311-ledger-v1.json")
         self.assertEqual(writer.APP_ID,5517840)
         self.assertEqual(writer.INSTALLATION_ID,176347451)
+
+    def test_revoke401_bounded_readonly_propagation_or_denial(self):
+        def eventual(method,endpoint,token,payload=None):
+            if method == "DELETE":
+                self.assertEqual(endpoint,"installation/token")
+                return {}
+            if method == "GET":
+                self.assertIn("README.md",endpoint)
+                if eventual.count < 2:
+                    eventual.count += 1
+                    return {"notYetRevoked":True}
+                raise writer.HTTPStatus(401)
+            self.fail("unexpected API method")
+        eventual.count=0
+        with mock.patch.object(writer,"api",side_effect=eventual),mock.patch.object(writer.time,"sleep") as pause:
+            writer.revoke_and_prove_401("masked-token")
+            self.assertEqual(pause.call_count,2)
+        def never(method,endpoint,token,payload=None):
+            return {}
+        with mock.patch.object(writer,"api",side_effect=never),mock.patch.object(writer.time,"sleep") as pause:
+            with self.assertRaises(writer.Denied):
+                writer.revoke_and_prove_401("masked-token")
+            self.assertEqual(pause.call_count,9)
 
     def test_no_publisher_endpoints_in_runtime(self):
         source=Path(writer.__file__).read_text()

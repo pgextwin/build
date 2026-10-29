@@ -27,7 +27,7 @@ _CASES={
     "normal":("r-20261029-r04r05generic03",
               "Issue 311 R04/R05 generic real App source (NONPUBLISHING)",
               ".github/workflows/issue311-r04r05-source.yml"),
-    "missing-event":("r-20261029-r05eventgap001",
+    "missing-event":("r-20261029-r05eventgap002",
                      "Issue 311 R05 intentionally unbridged source (NONPUBLISHING)",
                      ".github/workflows/issue311-r05-eventgap-source.yml"),
 }

@@ -96,7 +96,10 @@ def snapshot(head,state):
     others=listed(BRIDGE_WORKFLOW,head)
     require(all(x.get("event")=="workflow_run" for x in others),
             "non-event bridge Run")
-    return (original.get("status")=="completed",
+    # A failed original source cannot establish successful prerequisite
+    # completion; the missing listener must not mask the true source failure.
+    return (original.get("status")=="completed"
+            and original.get("conclusion")=="success",
             "MISSING_VERIFIED" if not others else "UNKNOWN",
             len(others))
 
