@@ -1,0 +1,44 @@
+name: Issue 311 R05 independent 17-target completion event bridge (NONPUBLISHING)
+
+# Runs on first-stage original Actions completion. No cron/dispatch, no Writer,
+# no Publisher/Catalog/Release permissions; trigger payload is untrusted data.
+on:
+  workflow_run:
+    workflows:
+      - Issue 311 R05 original 17 Windows event-linked GET/ZIP terminal (NONPUBLISHING)
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-r05-event-bridge-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  join:
+    name: Independently bind original 17 real jobs and ZIP bytes or FAILED terminal
+    if: github.repository == 'pgextwin/build' && github.event_name == 'workflow_run' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Read original source Run and every child ZIP, allow no missing/skip/failed event
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r05-windows-completion-bridge.py
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r05-event-bridge-original-terminal
+          path: issue311-r05-event-terminal.json
+          if-no-files-found: error
+          retention-days: 30
