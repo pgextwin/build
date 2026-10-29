@@ -1,0 +1,40 @@
+name: Issue 311 R06 original failed listener recovery source (NONPUBLISHING)
+# New protected one-file request, only reads old genuine source/failed terminal/state.
+# Does NOT rerun previously successful source or original failed listener.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261029-r06recovery17h01.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r06-hostile17-failed-listener-recovery-source
+  cancel-in-progress: false
+jobs:
+  source:
+    name: Authentic original failed listener and 17 pending state read-only recovery source
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: New genuine recovery request bound to original red Run and persisted source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r06-hostile17-live.py recover-source
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-hostile17-recovery-original
+          path: issue311-r06-hostile17-recovery-original.json
+          if-no-files-found: error
+          retention-days: 30
