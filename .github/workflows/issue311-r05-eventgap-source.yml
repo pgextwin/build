@@ -1,0 +1,47 @@
+name: Issue 311 R05 intentionally unbridged source (NONPUBLISHING)
+
+# Explicitly excluded from the normal workflow_run listener workflow-name list.
+# This is a controlled test of an ABSENT downstream event/Run, not an
+# assertion that GitHub naturally lost event delivery.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261029-r05eventgap001.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-r05-controlled-unbridged-original
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: Genuine protected single App checkpoint with NO subscribed second workflow
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Verify genuine App state write, original SHA, protected orafce GET
+        env:
+          ISSUE311_PROOF_CASE: missing-event
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r04r05-generic-live.py source
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r04r05-original-source
+          path: issue311-r04r05-original.json
+          if-no-files-found: warn
+          retention-days: 30
