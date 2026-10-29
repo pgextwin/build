@@ -101,15 +101,18 @@ def snapshot(head,state):
     # receipt ZIP and verify all 17 protected-main GET outcomes first.
     complete=(original.get("status")=="completed"
               and original.get("conclusion")=="success")
-    if complete and m._CASE in ("missing-event-17","skipped-17","ambiguous-write-17"):
+    if (original.get("status")=="completed"
+            and (complete or m._CASE=="timed-out-17")
+            and m._CASE in ("missing-event-17","skipped-17",
+                            "ambiguous-write-17","timed-out-17")):
         raw=m.contents_original(head)
         require(hashlib.sha256(raw).hexdigest()==state["requestSha256"],
                 "original request hash drift")
         data=json.loads(raw,object_pairs_hook=m.json_unique)
         m.verify_source_zip(original,{"rawSha256":state["requestSha256"]},data)
-        # A genuine skipped child cannot be promoted to source-complete
-        # merely because GitHub marks the overall workflow successful.
-        if m._CASE=="skipped-17":
+        # No skipped or genuinely timed-out child can be mistaken for a fully
+        # successful source even if a parent workflow reports overall success.
+        if m._CASE in ("skipped-17","timed-out-17"):
             complete=False
     return complete,"MISSING_VERIFIED" if not others else "UNKNOWN",len(others)
 
