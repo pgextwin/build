@@ -67,6 +67,9 @@ jobs:
       - name: Deny cross-cycle or spoofed R06 17 local child Runs before any App CAS (POLICY ONLY)
         run: python tests/test-issue311-r06-local-child-join.py
 
+      - name: Reject forged original child bundles, unsafe App terminals and replay (NO CREDENTIALS)
+        run: python tests/test-issue311-r06-child-join-live.py
+
       - name: Validate Issue 311 GitHub Contents CAS lease and ambiguous-write isolation (NO WRITER)
         run: python tests/test-issue311-state-github.py
 

@@ -1,0 +1,70 @@
+name: Issue 311 R06 independent finite child watchdog (NONPUBLISHING)
+# Independent original push, no cron/dispatch/workflow_run dependency.
+# Only the terminal job has the existing build-scoped state App key.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-*-r06join*.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r06-independent-child-watchdog
+  cancel-in-progress: false
+jobs:
+  finite:
+    name: Rehash all 17 original children and persist bounded App terminal
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Independently observe original bundle omission, expired local request and genuine anomalies
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r06-child-join-live.py watchdog
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-child-join-terminal
+          path: issue311-r06-child-join-terminal.json
+          if-no-files-found: error
+          retention-days: 30
+  independent_readback:
+    name: Independent original Git blob readback and durable replay rejection (NO APP KEY)
+    needs: finite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Reacquire original 17 ZIPs and state with read-only credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r06-child-join-live.py readback
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-child-join-independent-readback
+          path: issue311-r06-child-join-independent-readback.json
+          if-no-files-found: error
+          retention-days: 30
