@@ -107,6 +107,31 @@ class JoinPolicyOnly(unittest.TestCase):
                 with self.assertRaises(mod.Denied):
                     mod.validate_17_original_children(CENTRAL, copies)
 
+    def test_real_actions_job_skipped_with_workflow_success_is_not_normal(self):
+        xs = copy.deepcopy(self.items)
+        xs[0] = abnormal(xs[0], "skipped")
+        xs[0]["run"]["conclusion"] = "success"
+        xs[0]["completionEventDelivered"] = False
+        self.assertEqual(mod.validate_17_original_children(CENTRAL, xs)["result"],
+                         "QUARANTINED")
+        xs[0]["watchdog"]["durableAppCasReadbackVerified"] = False
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, xs)
+
+    def test_real_actions_failed_workflow_requires_authenticated_timeout_step(self):
+        xs = copy.deepcopy(self.items)
+        xs[0] = abnormal(xs[0], "timed_out")
+        xs[0]["run"]["conclusion"] = "failure"
+        xs[0]["originalJobConclusion"] = "failure"
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, xs)
+        xs[0]["originalTimeoutStepVerified"] = True
+        self.assertEqual(mod.validate_17_original_children(CENTRAL, xs)["result"],
+                         "QUARANTINED")
+        xs[0]["watchdog"]["originalGetVerified"] = False
+        with self.assertRaises(mod.Denied):
+            mod.validate_17_original_children(CENTRAL, xs)
+
     def test_wrong_central_cycle_is_never_reused(self):
         self.denied(lambda xs: xs[0]["request"].update(sourceRunId=40864238327))
         self.denied(lambda xs: xs[0]["request"].update(centralRequestId="foreign"))
