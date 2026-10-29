@@ -166,13 +166,16 @@ def event_deadline(state, revision, key, *, now, source_completed,
                    sourceSha=original_source_sha, lookup=completion_lookup)
     def action(s):
         require(parse_utc(now) >= parse_utc(s["expiresAt"]), "watch window not expired")
-        require(s["sourceRun"] is not None, "cannot infer a source run")
+        if s["sourceRun"] is None:
+            require(source_completed is not True and completion_lookup == "UNKNOWN",
+                    "unregistered original source cannot claim missing completed event")
         require(source_completed is None or type(source_completed) is bool, "invalid original run state")
         require(original_source_sha == s["sourceHeadSha"], "source commit changed")
         require(completion_lookup in ("MISSING_VERIFIED", "UNKNOWN", "DELIVERED"),
                 "invalid observed lookup")
         require(completion_lookup != "DELIVERED", "delivered event must be verified")
-        result = "FAILED" if source_completed is True and completion_lookup == "MISSING_VERIFIED" else "QUARANTINED"
+        result = "FAILED" if (s["sourceRun"] is not None
+            and source_completed is True and completion_lookup == "MISSING_VERIFIED") else "QUARANTINED"
         s["targets"] = {t: (v if v in TERMINALS else result) for t, v in s["targets"].items()}
         s["terminal"] = result
         s["eventTransport"] = "BOUNDED_WATCHDOG"
