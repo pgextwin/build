@@ -106,8 +106,8 @@ class EventGap17Tests(TestCase):
                 if path.endswith("/artifacts?per_page=100"):
                     return arts
                 raise AssertionError("unexpected GitHub API")
-            with mock.patch.object(m.bridge,"get_json",side_effect=get_json), \\
-                 mock.patch.object(m.bridge,"original_zip",return_value=(receipt,"e"*64)):
+            with (mock.patch.object(m.bridge,"get_json",side_effect=get_json),
+                  mock.patch.object(m.bridge,"original_zip",return_value=(receipt,"e"*64))):
                 return m.verify_source_zip(original,{"rawSha256":"d"*64},data)
         self.assertEqual(verify(jobs),"e"*64)
         for short_elapsed in (0,12,30):
