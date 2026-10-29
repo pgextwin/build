@@ -21,6 +21,10 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+# The existing fleet watcher imports its shared sibling as an ordinary module.
+# Match the verified script execution path when this probe is imported by tests.
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
 REQ = "r-20261029-r06hostile17g01"
 PATH = ".github/execution-requests/" + REQ + ".json"
 SOURCE_NAME = "Issue 311 R06 real central ZIP hostile 17 source (NONPUBLISHING)"
