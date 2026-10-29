@@ -19,10 +19,22 @@ import urllib.request
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
-REQUEST="r-20261029-r04r05generic03"
+# These are two exact, protected-main nonpublishing test cases. Neither case
+# expands credentials or publication scope. The gap case has intentionally NO
+# matching workflow_run listener, but an independently push-started watcher.
+_CASE=os.environ.get("ISSUE311_PROOF_CASE","normal")
+_CASES={
+    "normal":("r-20261029-r04r05generic03",
+              "Issue 311 R04/R05 generic real App source (NONPUBLISHING)",
+              ".github/workflows/issue311-r04r05-source.yml"),
+    "missing-event":("r-20261029-r05eventgap001",
+                     "Issue 311 R05 intentionally unbridged source (NONPUBLISHING)",
+                     ".github/workflows/issue311-r05-eventgap-source.yml"),
+}
+if _CASE not in _CASES:
+    raise ValueError("ISSUE311_CASE_DENY: unsupported privileged case")
+REQUEST,SOURCE_NAME,SOURCE_PATH=_CASES[_CASE]
 REQUEST_PATH=".github/execution-requests/"+REQUEST+".json"
-SOURCE_NAME="Issue 311 R04/R05 generic real App source (NONPUBLISHING)"
-SOURCE_PATH=".github/workflows/issue311-r04r05-source.yml"
 SOURCE_ZIP="issue311-r04r05-original-source"
 SOURCE_RECEIPT="issue311-r04r05-original.json"
 REPO="pgextwin/build"
