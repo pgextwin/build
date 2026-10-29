@@ -33,6 +33,38 @@ class ControlledHostileTest(unittest.TestCase):
             "missingTargetSchema", "expiredOriginalRequest"})
         self.assertIsInstance(expired_now, bool)
 
+    def test_authentic_publisher_flag_and_spoofed_alias(self):
+        original = {"id": 40876766677, "head_sha": "7cefe10b6ac3d70e2fd0c8378cae2bc763c064c0"}
+        declaration = {"rawSha256": "a" * 64}
+        proof = {
+            "result": "CONTROLLED_DENY_VERIFIED",
+            "requestId": mod.REQ,
+            "sourceHeadSha": original["head_sha"], "sourceRunId": original["id"],
+            "sourceAttempt": 1, "requestSha256": declaration["rawSha256"],
+            "targetCount": 17, "centralRunId": mod.ORIGINAL_RUN,
+            "centralArtifactId": mod.ORIGINAL_ARTIFACT,
+            "centralZipSha256": mod.ORIGINAL_DIGEST,
+            "publisherAuthorized": False,
+            "negativeDenials": {
+                key: "DENY" for key in (
+                    "tamperedOriginalZip", "missingTargetOuterDigest",
+                    "missingTargetSchema", "expiredOriginalRequest")
+            }
+        }
+        mod.validate_original_source_receipt(proof, original, declaration)
+        malformed = [
+            {**proof, "publisherAuthorized": True},
+            {**proof, "publicationAuthorized": False},
+            {k: v for k, v in proof.items() if k != "publisherAuthorized"},
+            {**proof, "sourceAttempt": 2},
+            {**proof, "sourceRunId": original["id"] + 1},
+            {**proof, "negativeDenials": {}},
+        ]
+        for item in malformed:
+            with self.subTest(item=item):
+                with self.assertRaises(ValueError):
+                    mod.validate_original_source_receipt(item, original, declaration)
+
     def test_persisted_terminal_replay_denied_before_write(self):
         targets = [f"pgextwin/ext{i}" for i in range(17)]
         state = mod.life.new(mod.REQ, "c"*64, "d"*40, targets,
