@@ -30,6 +30,12 @@ def declaration():
 
 
 class BoundaryTests(unittest.TestCase):
+    def test_authentic_central_scan_flag_is_not_the_app_state_flag(self):
+        self.assertTrue(mod.central_scope({"publicationAuthorized": False}))
+        self.assertFalse(mod.central_scope({"publisherAuthorized": False}))
+        self.assertFalse(mod.central_scope({"publicationAuthorized": True}))
+        self.assertFalse(mod.central_scope({"publicationAuthorized": False, "publisherAuthorized": False}))
+
     def validate(self, request):
         path = ".github/execution-requests/" + request["requestId"] + ".json"
         return mod.validate_request(json.dumps(request).encode(), path,
