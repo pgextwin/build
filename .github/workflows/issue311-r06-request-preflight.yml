@@ -1,0 +1,42 @@
+name: Issue 311 R06 independent original scan and 17-local preflight (NONPUBLISHING)
+
+on:
+  workflow_run:
+    workflows:
+      - Issue 311 R06 original request-bound central fleet scan (NONPUBLISHING)
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-r06-original-completion-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Independently hash original scan ZIP and exact 17 protected local mains
+    if: github.repository == 'pgextwin/build' && github.event_name == 'workflow_run' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Original source job and ZIP SHA256 then independent 17-main GET
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r06-request-preflight.py verify
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-original-local-preflight
+          path: issue311-r06-original-preflight.json
+          if-no-files-found: error
+          retention-days: 30
