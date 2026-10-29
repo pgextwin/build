@@ -1,0 +1,119 @@
+name: Issue 311 R05 original 17 Windows event-linked GET/ZIP terminal (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/execution-requests/r-20261029-r05win17new01.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue311-r05-windows-17-positive
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    name: Admit original bounded AUDIT_ONLY main push
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      raw_sha: ${{ steps.check.outputs.raw_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - id: check
+        name: Validate exact protected main-push actor/request scope
+        run: python scripts/issue311-r05-windows-17.py admit
+
+  inspect:
+    name: WINDOWS STATE GET ${{ matrix.repo }}
+    needs: [admit]
+    if: needs.admit.result == 'success'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {name: pg_bigm, repo: pgextwin/pg_bigm, expected_sha: 713a76b8650f61097b5d5a55f15cd7f2ebcb4ec0}
+          - {name: pg_cron, repo: pgextwin/pg_cron, expected_sha: a36e180a3922e070cde03642ec9fcc40e171567e}
+          - {name: pg_hint_plan, repo: pgextwin/pg_hint_plan, expected_sha: 40e68cc8177a3d0707ac87f346e3d88c3247769c}
+          - {name: pgaudit, repo: pgextwin/pgaudit, expected_sha: f53e97d7c4a51c089f8bdc7b33f3ae005f516b29}
+          - {name: set_user, repo: pgextwin/set_user, expected_sha: 4f02f925e7bc0534af421441c1b2fb1ecd755846}
+          - {name: pg_repack, repo: pgextwin/pg_repack, expected_sha: b9da885a4ef132b5f3d5af448fb09e5bfe56e6a7}
+          - {name: pg_ivm, repo: pgextwin/pg_ivm, expected_sha: 6e3904af78cccbd67ce84eef183ceda9f4eef553}
+          - {name: pg_qualstats, repo: pgextwin/pg_qualstats, expected_sha: fa31026f041070c821d317041b8f973ccd0a794d}
+          - {name: plpgsql_check, repo: pgextwin/plpgsql_check, expected_sha: b75d9c90f2c349788b21a7f47d59ca31f3c8ebdd}
+          - {name: orafce, repo: pgextwin/orafce, expected_sha: e96941dd3ec09f88011feb1165a3f6f83231460f}
+          - {name: hypopg, repo: pgextwin/hypopg, expected_sha: 6c6ddfb7b62dd220fdea4004e5e5f6a0a054f271}
+          - {name: wal2json, repo: pgextwin/wal2json, expected_sha: 51850b29b4eca4cc85ac648342d490605557a2ff}
+          - {name: pg_partman, repo: pgextwin/pg_partman, expected_sha: 4e3be24b9b2523cc6b1979d61f6be912be6d3e31}
+          - {name: pg_stat_monitor, repo: pgextwin/pg_stat_monitor, expected_sha: 97f1f41054bed4a3900e0ae924d04cbe5b2f08e4}
+          - {name: pgtap, repo: pgextwin/pgtap, expected_sha: c536e9d90760eea88f7c42ba4b675e05a0d0fcf8}
+          - {name: pg_variables, repo: pgextwin/pg_variables, expected_sha: 0662ed8757e2f0c821a0a300c6f98df9374d8a8c}
+          - {name: pg_store_plans, repo: pgextwin/pg_store_plans, expected_sha: 7d3d4a1b099fb5d408de4f50ee72b4e49854734b}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Install the pinned-major request schema validator on Windows
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Genuine Windows remote protected GET and immutable R04 state binding
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMOTE_REPO: ${{ matrix.repo }}
+          REMOTE_SHA: ${{ matrix.expected_sha }}
+          REQUEST_SHA: ${{ needs.admit.outputs.raw_sha }}
+        run: python scripts/issue311-r05-windows-17.py inspect
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r05-win17-${{ matrix.name }}
+          path: issue311-r05-win17-target.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    name: Independently verify 17 original Windows child events, ZIP SHA256 or terminate FAILED
+    needs: [admit, inspect]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Strictly aggregate original Windows jobs, original artifact ZIP and digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_SHA: ${{ needs.admit.outputs.raw_sha }}
+          ADMIT_RESULT: ${{ needs.admit.result }}
+        run: python scripts/issue311-r05-windows-17.py aggregate
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r05-win17-terminal
+          path: issue311-r05-win17-terminal.json
+          if-no-files-found: error
+          retention-days: 30

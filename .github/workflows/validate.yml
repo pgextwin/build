@@ -58,6 +58,9 @@ jobs:
       - name: Validate R05 original 17-repo readonly fanout and failure terminal (NO RELEASE)
         run: python tests/test-issue311-r05-original-17repo.py
 
+      - name: Reject R05 forged and missing 17 Windows original completion events/ZIP receipts (NO RELEASE)
+        run: python tests/test-issue311-r05-windows-17.py
+
       - name: Validate original Windows read-only negative terminal and strict scopes (NO RELEASE)
         run: python tests/test-issue311-r05-windows-probe.py
 
