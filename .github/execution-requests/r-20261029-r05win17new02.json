@@ -9,7 +9,7 @@
   "purpose": "Single-use repaired 17 Windows original read-only Git blob proof using immutable git show bytes after first original Run failure, no release.",
   "allowFutureUpdates": false,
   "source": {
-    "centralMainSha": "901c273df7434f1cbde37fafc6cd5f0b65062307",
+    "centralMainSha": "a28920844ce5eecff315d2711fdc76a074f21f72",
     "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
   },
   "limits": {
