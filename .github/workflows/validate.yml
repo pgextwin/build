@@ -61,6 +61,12 @@ jobs:
       - name: Deny forged shared 17-local PREPARE request, source ZIP and writer claims (NO WRITER)
         run: python tests/test-issue311-r06-fleet-local-prepare.py
 
+      - name: Reject R06 authentic original publisher flag mismatch and durable replay (NO WRITER)
+        run: python tests/test-issue311-r06-hostile17-live.py
+
+      - name: Deny cross-cycle or spoofed R06 17 local child Runs before any App CAS (POLICY ONLY)
+        run: python tests/test-issue311-r06-local-child-join.py
+
       - name: Validate Issue 311 GitHub Contents CAS lease and ambiguous-write isolation (NO WRITER)
         run: python tests/test-issue311-state-github.py
 
