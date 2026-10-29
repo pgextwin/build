@@ -19,7 +19,7 @@ import urllib.request
 import zipfile
 
 HERE = Path(__file__).resolve().parents[1]
-REQUEST = "r-20261029-r05win17new01"
+REQUEST = "r-20261029-r05win17new02"
 REQUEST_PATH = ".github/execution-requests/" + REQUEST + ".json"
 TARGETS = {
     "pgextwin/pg_bigm": "713a76b8650f61097b5d5a55f15cd7f2ebcb4ec0",
