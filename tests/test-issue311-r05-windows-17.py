@@ -90,6 +90,17 @@ class Tests(unittest.TestCase):
             with self.subTest(field=field),self.assertRaises(ValueError):
                 p.evaluate(self.jobs(),altered,"success")
 
+    def test_original_git_blob_bytes_ignore_windows_worktree_crlf(self):
+        raw=Path("metadata/automation-fleet.json").read_bytes()
+        original=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
+        crlf=raw.replace(b"\n",b"\r\n")
+        converted=hashlib.sha1(b"blob "+str(len(crlf)).encode()+b"\0"+crlf).hexdigest()
+        self.assertEqual(original,p.FLEET_BLOB)
+        self.assertNotEqual(converted,original)
+        source=Path(p.__file__).read_text()
+        self.assertIn('subprocess.check_output(["git","show","HEAD:metadata/automation-fleet.json"])',source)
+        self.assertNotIn('(HERE/"metadata"/"automation-fleet.json").read_bytes()',source)
+
     def test_one_shot_17_window_scope_and_missing_event_terminal(self):
         y=Path(".github/workflows/issue311-r05-windows-17.yml").read_text()
         self.assertIn(p.REQUEST+".json",y)
