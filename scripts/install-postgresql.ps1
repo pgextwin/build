@@ -17,6 +17,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # Bounded retry for transient Chocolatey community feed failures.
+# HTTP 406 from this exact V2 feed is also a documented operational failure
+# in the actual Issue #311 fleet Windows jobs; it is NOT a package-version
+# acceptance and can only unlock independently fixed-size/SHA256 EDB bytes.
 # The final status and PostgreSQL server installation remain hard gates.
 $successCodes = @(0, 1641, 3010)
 $maxAttempts = 3
@@ -35,7 +38,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     # A failed checksum, mismatching version, or non-gateway-outage error must DENY.
     $failureText = $attemptOutput -join [Environment]::NewLine
     if ($failureText.Contains('https://community.chocolatey.org/api/v2/') -and
-        ($failureText -match '(502 \(Bad Gateway\)|503 \(Service Unavailable\)|504 \(Gateway Timeout\))')) {
+        ($failureText -match '(406 \(Not Acceptable\)|502 \(Bad Gateway\)|503 \(Service Unavailable\)|504 \(Gateway Timeout\))')) {
         $feedOutageCount++
     }
     if ($attempt -lt $maxAttempts) {
@@ -45,7 +48,7 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 }
 if ($successCodes -notcontains $code) {
     if ($feedOutageCount -ne $maxAttempts) {
-        throw "Chocolatey failed after $maxAttempts attempts, without verified V2 HTTP 502/503/504 in every attempt; EDB fallback DENY."
+        throw "Chocolatey failed after $maxAttempts attempts, without verified V2 HTTP 406/502/503/504 in every attempt; EDB fallback DENY."
     }
     # Only the exact EDB installer bytes independently retrieved and SHA256
     # verified in successful Issue #75 Runs 39038000517 + 39038162434 may be
