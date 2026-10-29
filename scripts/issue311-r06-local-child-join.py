@@ -108,9 +108,10 @@ def validate_child(central, child):
              "missing completion event has no finite original watchdog")
         return "QUARANTINED"
     if conclusion == "success":
-        need(child.get("completionEventDelivered") is True
+        need(child.get("watchdog") is None
+             and child.get("completionEventDelivered") is True
              and child.get("originalJobConclusion") == "success",
-             "child success has no authenticated completion and successful job")
+             "child success has conflicting watchdog or no authentic completion/job")
         need(isinstance(receipt, dict)
              and receipt.get("schemaVersion") == 1
              and receipt.get("requestId") == req.get("requestId")
