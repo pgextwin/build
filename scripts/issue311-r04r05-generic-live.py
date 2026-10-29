@@ -6,6 +6,7 @@ issue311-state. The original GITHUB_TOKEN only reads GitHub. No Publisher API.
 """
 from __future__ import annotations
 import base64
+from datetime import datetime
 import hashlib
 import importlib.util
 import io
@@ -39,6 +40,9 @@ _CASES={
     "ambiguous-write-17":("r-20261029-r05ambiguous17d01",
                           "Issue 311 R04 real 17-target controlled ambiguous App CAS source (NONPUBLISHING)",
                           ".github/workflows/issue311-r04-ambiguous17-source.yml"),
+    "timed-out-17":("r-20261029-r05timeout17e01",
+                    "Issue 311 R05 genuine 17-target bounded timed-out child source (NONPUBLISHING)",
+                    ".github/workflows/issue311-r05-timeout17-source.yml"),
 }
 if _CASE not in _CASES:
     raise ValueError("ISSUE311_CASE_DENY: unsupported privileged case")
@@ -81,7 +85,7 @@ def contents_original(head):
 def read_request(raw, head):
     decl=contract.validate_declaration(raw,REQUEST_PATH)
     data=json.loads(raw,object_pairs_hook=json_unique)
-    expected=(set(bridge.win17.TARGETS) if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17") else {TARGET})
+    expected=(set(bridge.win17.TARGETS) if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17") else {TARGET})
     require(decl["requestId"]==REQUEST and decl["mode"]=="AUDIT_ONLY"
             and len(decl["targets"])==len(expected) and set(decl["targets"])==expected
             and data["approval"]["publicReleaseAuthorized"] is False
@@ -110,7 +114,7 @@ def source_context():
             "invalid protected original push")
     checkout=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
     require(checkout==head,"not original event checkout")
-    if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17"):
+    if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17"):
         changes=subprocess.check_output(
             ["git","diff","--name-status",ev["before"],head],text=True).splitlines()
         require(changes==["A\t"+REQUEST_PATH],
@@ -151,7 +155,7 @@ def source():
         data,decl,head=source_context()
         requested={row["repo"]:row["mainSha"] for row in data["targets"]}
         require(len(requested)==len(decl["targets"]), "duplicate local source target")
-        if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17"):
+        if _CASE in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17"):
             require(set(requested)==set(bridge.win17.TARGETS)
                     and len(requested)==17, "not exact 17 source target")
         for target,sha in sorted(requested.items()):
@@ -216,7 +220,23 @@ def verify_source_zip(original,decl,data):
     require(type(original_jobs) is list
             and jobs.get("total_count")==len(original_jobs),
             "incomplete original job list")
-    if _CASE=="skipped-17":
+    if _CASE=="timed-out-17":
+        require(len(original_jobs)==2, "missing original timed-out child")
+        healthy=[j for j in original_jobs if j.get("name")==
+                 "Actual 17 protected-main GETs and state-only App CAS"
+                 and j.get("conclusion")=="success" and j.get("run_id")==sid]
+        timed=[j for j in original_jobs if j.get("name")==
+               "Deliberately timed-out original child (must never count as successful 17)"
+               and j.get("conclusion") in ("failure","cancelled","timed_out")
+               and j.get("run_id")==sid]
+        require(len(healthy)==len(timed)==1, "unverified actual timed-out child")
+        try:
+            elapsed=(datetime.fromisoformat(timed[0]["completed_at"].replace("Z","+00:00"))-
+                     datetime.fromisoformat(timed[0]["started_at"].replace("Z","+00:00"))).total_seconds()
+        except (TypeError,KeyError,ValueError) as exc:
+            raise ValueError("original timeout clock missing") from exc
+        require(45 <= elapsed <= 300, "quick failed child is not a real timeout")
+    elif _CASE=="skipped-17":
         require(len(original_jobs)==2
                 and sum(j.get("conclusion")=="success" and j.get("run_id")==sid
                         for j in original_jobs)==1
@@ -242,7 +262,7 @@ def verify_source_zip(original,decl,data):
             and receipt.get("runAttempt")==1
             and receipt.get("originalRequestSha256")==decl["rawSha256"]
             and receipt.get("targetMainSha")==data["targets"][0]["mainSha"]
-            and (_CASE!="missing-event-17" or
+            and (_CASE not in ("missing-event-17","skipped-17","ambiguous-write-17","timed-out-17") or
                  receipt.get("perTarget")=={t["repo"]:t["mainSha"] for t in data["targets"]})
             and receipt.get("remoteProtected") is True
             and receipt.get("publisherAuthorized") is False
