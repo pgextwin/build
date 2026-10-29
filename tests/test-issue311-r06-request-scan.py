@@ -4,6 +4,7 @@ from pathlib import Path
 import importlib.util
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -28,6 +29,16 @@ class RequestScanTests(unittest.TestCase):
                 "extensions": [{"repository": repo, "mainSha": sha,
                                 "status": "up-to-date", "updates": []}
                                for repo, sha in scan.win.TARGETS.items()]}
+
+    def test_cross_repository_read_is_allowlisted_and_uses_existing_r05_get(self):
+        repo = 'pgextwin/orafce'
+        with mock.patch.dict('os.environ', {'GH_TOKEN': 'unit-test-readonly'}, clear=False):
+            with mock.patch.object(verify.scan.win.old, 'get_json', return_value={'name': 'main'}) as getter:
+                self.assertEqual(verify.cross_repo_protected_main(repo), {'name': 'main'})
+                getter.assert_called_once_with('https://api.github.com/repos/pgextwin/orafce/branches/main', 'unit-test-readonly')
+                with self.assertRaisesRegex(ValueError, 'R06_PREFLIGHT_DENY'):
+                    verify.cross_repo_protected_main('foreign/repo')
+                self.assertEqual(getter.call_count, 1)
 
     def test_full_17_exact_original_preflight(self):
         found = scan.inspect_report(self.report(), scan.win.TARGETS)
