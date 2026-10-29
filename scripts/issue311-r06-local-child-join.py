@@ -89,7 +89,28 @@ def validate_child(central, child):
          "any publication privilege")
     receipt = child.get("receipt")
     conclusion = run.get("conclusion")
+    if conclusion == "success" and child.get("completionEventDelivered") is False:
+        watch = child.get("watchdog")
+        need(isinstance(watch, dict)
+             and watch.get("sourceRunId") == run["id"]
+             and watch.get("sourceRunAttempt") == 1
+             and watch.get("centralRunId") == central["sourceRunId"]
+             and watch.get("centralRequestId") == central["requestId"]
+             and watch.get("localRequestId") == req.get("requestId")
+             and watch.get("status") == "MISSING_EVENT"
+             and watch.get("terminal") == "QUARANTINED"
+             and watch.get("originalGetVerified") is True
+             and watch.get("durableAppCasReadbackVerified") is True
+             and watch.get("noReexecute") is True
+             and watch.get("publisherAuthorized") is False
+             and isinstance(watch.get("watchdogRunId"), int)
+             and timestamp(watch["observedAt"]) >= timestamp(req["expiresAt"]),
+             "missing completion event has no finite original watchdog")
+        return "QUARANTINED"
     if conclusion == "success":
+        need(child.get("completionEventDelivered") is True
+             and child.get("originalJobConclusion") == "success",
+             "child success has no authenticated completion and successful job")
         need(isinstance(receipt, dict)
              and receipt.get("schemaVersion") == 1
              and receipt.get("requestId") == req.get("requestId")
