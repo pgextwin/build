@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -61,6 +62,18 @@ def authenticated_request():
             "not a genuine protected original push")
     require(subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == head,
             "local checkout not event head")
+    # One new request-only protected merge; never allow arbitrary PREPARE
+    # mode to be acquired from an existing file or an unrelated push.
+    global REQUEST, REQUEST_PATH
+    changed = subprocess.check_output(
+        ["git", "diff", "--name-only", ev["before"], head], text=True).splitlines()
+    require(len(changed) == 1, "more than one changed file in PREPARE request")
+    hit = re.fullmatch(
+        r"\.github/execution-requests/(r-20261029-r06prepare[a-z0-9-]{4,40})\.json",
+        changed[0])
+    require(hit is not None, "not a dedicated PREPARE request-only change")
+    REQUEST = hit.group(1)
+    REQUEST_PATH = changed[0]
     raw = subprocess.check_output(["git", "show", "HEAD:" + REQUEST_PATH])
     declaration = contract.validate_declaration(raw, REQUEST_PATH)
     request = json.loads(raw, object_pairs_hook=store.unique_pairs)
@@ -68,7 +81,7 @@ def authenticated_request():
             and declaration["mode"] == "PREPARE"
             and len(declaration["targets"]) == 17
             and set(declaration["targets"]) == set(win.TARGETS)
-            and {x["repo"]: x["mainSha"] for x in request["targets"]} == win.TARGETS
+            and {x["repo"] for x in request["targets"]} == set(win.TARGETS)
             and request["source"]["centralMainSha"] == ev["before"]
             and request["source"]["fleetRegistryBlobSha"] == FLEET_BLOB
             and request["limits"]["maxParallel"] <= 4
@@ -79,6 +92,20 @@ def authenticated_request():
             and request["approval"]["publicReleaseAuthorized"] is False
             and request["approval"]["publicationGrants"] == [],
             "wrong bounded 17-target nonpublishing PREPARE request")
+    declared_targets = {x["repo"]: x["mainSha"] for x in request["targets"]}
+    require(len(declared_targets) == 17
+            and all(type(v) is str and re.fullmatch(r"[0-9a-f]{40}", v)
+                    for v in declared_targets.values()),
+            "invalid pinned local main SHAs")
+    for repo, sha in sorted(declared_targets.items()):
+        # Independently authenticate each *current* local protected main.
+        # Never use yesterday's fixed SHA or user JSON as self-proof.
+        branch = win.old.get_json(
+            "https://api.github.com/repos/" + repo + "/branches/main",
+            os.environ["GH_TOKEN"])
+        require(branch.get("name") == "main" and branch.get("protected") is True
+                and branch.get("commit", {}).get("sha") == sha,
+                "declared exact protected main not current " + repo)
     record = bridge.get_json("repos/pgextwin/build/contents/" + REQUEST_PATH + "?ref=" + head)
     require(record.get("encoding") == "base64"
             and type(record.get("sha")) is str
