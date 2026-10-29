@@ -30,6 +30,9 @@ _CASES={
     "missing-event":("r-20261029-r05eventgap002",
                      "Issue 311 R05 intentionally unbridged source (NONPUBLISHING)",
                      ".github/workflows/issue311-r05-eventgap-source.yml"),
+    "missing-event-17":("r-20261029-r05eventgap17b01",
+                        "Issue 311 R05 real 17-target bounded unbridged source (NONPUBLISHING)",
+                        ".github/workflows/issue311-r05-eventgap17-source.yml"),
 }
 if _CASE not in _CASES:
     raise ValueError("ISSUE311_CASE_DENY: unsupported privileged case")
@@ -72,8 +75,9 @@ def contents_original(head):
 def read_request(raw, head):
     decl=contract.validate_declaration(raw,REQUEST_PATH)
     data=json.loads(raw,object_pairs_hook=json_unique)
+    expected=(set(bridge.win17.TARGETS) if _CASE=="missing-event-17" else {TARGET})
     require(decl["requestId"]==REQUEST and decl["mode"]=="AUDIT_ONLY"
-            and decl["targets"]==(TARGET,)
+            and len(decl["targets"])==len(expected) and set(decl["targets"])==expected
             and data["approval"]["publicReleaseAuthorized"] is False
             and data["approval"]["publicationGrants"]==[]
             and data["allowFutureUpdates"] is False
@@ -100,6 +104,15 @@ def source_context():
             "invalid protected original push")
     checkout=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
     require(checkout==head,"not original event checkout")
+    if _CASE=="missing-event-17":
+        changes=subprocess.check_output(
+            ["git","diff","--name-status",ev["before"],head],text=True).splitlines()
+        require(changes==["A\t"+REQUEST_PATH],
+                "17-target source must be request-only protected addition")
+        main=bridge.get_json("repos/pgextwin/build/branches/main")
+        require(main.get("protected") is True
+                and main.get("commit",{}).get("sha")==head,
+                "original source not exact protected main")
     raw=subprocess.check_output(["git","show","HEAD:"+REQUEST_PATH])
     data,decl=read_request(raw,head)
     require(data["source"]["centralMainSha"]==ev["before"],"source before commit mismatch")
@@ -117,13 +130,19 @@ def source():
     token=None
     try:
         data,decl,head=source_context()
-        repo=bridge.win17.old.get_json(
-            "https://api.github.com/repos/pgextwin/orafce/branches/main",
-            os.environ["GH_TOKEN"])
-        require(repo.get("name")=="main" and repo.get("protected") is True
-                and repo.get("commit",{}).get("sha")==data["targets"][0]["mainSha"],
-                "local protected main drift")
-        start=lifecycle.new(REQUEST,decl["rawSha256"],head,[TARGET],
+        requested={row["repo"]:row["mainSha"] for row in data["targets"]}
+        require(len(requested)==len(decl["targets"]), "duplicate local source target")
+        if _CASE=="missing-event-17":
+            require(set(requested)==set(bridge.win17.TARGETS)
+                    and len(requested)==17, "not exact 17 source target")
+        for target,sha in sorted(requested.items()):
+            repo=bridge.win17.old.get_json(
+                "https://api.github.com/repos/"+target+"/branches/main",
+                os.environ["GH_TOKEN"])
+            require(repo.get("name")=="main" and repo.get("protected") is True
+                    and repo.get("commit",{}).get("sha")==sha,
+                    "local protected main drift "+target)
+        start=lifecycle.new(REQUEST,decl["rawSha256"],head,sorted(requested),
                             data["expiresAt"],max_events=data["limits"]["maxOperations"])
         token,cas=app_cas()
         create=cas.write(start)
@@ -136,7 +155,7 @@ def source():
         receipt.update(result="SUCCESS",sourceSha=head,originalRequestSha256=decl["rawSha256"],
                 sourceRunId=int(os.environ["GITHUB_RUN_ID"]),runAttempt=1,
                 targetMainSha=data["targets"][0]["mainSha"],remoteProtected=True,
-                revision=bound["revision"],persistence=[create,committed])
+                perTarget=requested,revision=bound["revision"],persistence=[create,committed])
     except Exception as exc:
         receipt["reason"]=str(exc)[:340]
     finally:
@@ -190,6 +209,8 @@ def verify_source_zip(original,decl,data):
             and receipt.get("runAttempt")==1
             and receipt.get("originalRequestSha256")==decl["rawSha256"]
             and receipt.get("targetMainSha")==data["targets"][0]["mainSha"]
+            and (_CASE!="missing-event-17" or
+                 receipt.get("perTarget")=={t["repo"]:t["mainSha"] for t in data["targets"]})
             and receipt.get("remoteProtected") is True
             and receipt.get("publisherAuthorized") is False
             and receipt.get("revision")==1,

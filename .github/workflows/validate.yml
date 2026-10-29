@@ -87,6 +87,8 @@ jobs:
 
       - name: Reject R04/R05 generic App original source/bridge/finite watchdog forgeries (NO CREDS)
         run: python tests/test-issue311-r04r05-generic-live.py
+      - name: Enforce exact 17-target controlled missing-event contract (NO CREDS)
+        run: python tests/test-issue311-r05-eventgap17.py
 
       - name: Deny fake R05 17-Windows workflow_run completion event and missing original ZIP (NO RELEASE)
         run: python tests/test-issue311-r05-windows-completion-bridge.py

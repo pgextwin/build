@@ -8,6 +8,7 @@ fail-closed terminal via the approved dedicated App state-only CAS. No cron.
 from __future__ import annotations
 from datetime import datetime, timezone
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -49,7 +50,7 @@ def initial_event():
             and event.get("created") is False and event.get("deleted") is False,
             "not protected original push")
     original=m.contents_original(event["after"])
-    data=json.loads(original,object_pairs_hook=m.json_unique)
+    data,decl=m.read_request(original,event["after"])
     require(data["requestId"]==REQ and data["mode"]=="AUDIT_ONLY"
             and data["source"]["centralMainSha"]==event["before"]
             and data["approval"]["publicReleaseAuthorized"] is False
@@ -96,12 +97,17 @@ def snapshot(head,state):
     others=listed(BRIDGE_WORKFLOW,head)
     require(all(x.get("event")=="workflow_run" for x in others),
             "non-event bridge Run")
-    # A failed original source cannot establish successful prerequisite
-    # completion; the missing listener must not mask the true source failure.
-    return (original.get("status")=="completed"
-            and original.get("conclusion")=="success",
-            "MISSING_VERIFIED" if not others else "UNKNOWN",
-            len(others))
+    # An original success is not enough: independently hash the actual source
+    # receipt ZIP and verify all 17 protected-main GET outcomes first.
+    complete=(original.get("status")=="completed"
+              and original.get("conclusion")=="success")
+    if complete and m._CASE=="missing-event-17":
+        raw=m.contents_original(head)
+        require(hashlib.sha256(raw).hexdigest()==state["requestSha256"],
+                "original request hash drift")
+        data=json.loads(raw,object_pairs_hook=m.json_unique)
+        m.verify_source_zip(original,{"rawSha256":state["requestSha256"]},data)
+    return complete,"MISSING_VERIFIED" if not others else "UNKNOWN",len(others)
 
 def observe():
     report={"requestId":REQ,"result":"QUARANTINED",
