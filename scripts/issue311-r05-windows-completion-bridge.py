@@ -153,7 +153,7 @@ def require_jobs(jobs, source_id, outcome):
     require(all(x == "success" for x in found.values()), "failed/skipped/missing 17 child")
     require(outcome == "success", "source workflow is not successful")
     terminal = [j for j in jobs["jobs"]
-                if j.get("name") == "Always aggregate original 17 target jobs even when skipped or failed"]
+                if j.get("name") == "Independently verify 17 original Windows child events, ZIP SHA256 or terminate FAILED"]
     require(len(terminal) == 1 and terminal[0].get("conclusion") == "success",
             "source final aggregate missing")
     require(all(j.get("run_id") == source_id for j in jobs["jobs"]),
