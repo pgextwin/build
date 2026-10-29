@@ -70,6 +70,16 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(quarantine["terminal"],"QUARANTINED")
             self.assertFalse(quarantine["publisherAuthorized"])
 
+    def test_initial_state_missing_original_registration_quarantined(self):
+        s=self.fresh()
+        out=life.event_deadline(s,0,"unbound",now=EXP,
+              source_completed=None,original_source_sha=SHA,completion_lookup="UNKNOWN")
+        self.assertTrue(out["terminal"]=="QUARANTINED")
+        self.assertEqual(set(out["targets"].values()),{"QUARANTINED"})
+        with self.assertRaises(life.Denied):
+            life.event_deadline(s,0,"lie",now=EXP,source_completed=True,
+               original_source_sha=SHA,completion_lookup="MISSING_VERIFIED")
+
     def test_immutability_poison_and_exhaustion(self):
         s=self.bound()
         for patch in ({"publisherAuthorized":True},{"writeOutcomeUnknown":True},
