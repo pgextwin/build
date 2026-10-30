@@ -83,7 +83,7 @@ with patch.object(m.r10, "readonly_case", side_effect=fake_readonly), \
     receipt["children"][0]["publicationAuthorized"] = True
     deny("child publishing", lambda: m.fleet(m.SOURCE, "skip"))
     receipt["children"][0]["publicationAuthorized"] = False
-    receipt["children"][1]["result"] = "QUARANTINED"
+    receipt["children"][2]["result"] = "QUARANTINED"
     deny("additional unproven child", lambda: m.fleet(m.SOURCE, "skip"))
 
 assert m.serial({"accepted": False}) == b'{\n  "accepted": false\n}\n'
