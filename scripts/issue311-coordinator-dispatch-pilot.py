@@ -52,8 +52,6 @@ def check_request(request, policy):
             request["workflowRef"] == "main" and request["actorRequestId"] == ACTOR_REQUEST_ID and
             request["baseMainSha"] == BASE_SHA, "unapproved dispatch path")
     require(type(request["localMainSha"]) is str and
-            identity.SHA1.fullmatch(request["localMainSha"]) if hasattr(identity, "SHA1")
-            else isinstance(request["localMainSha"], str) and
             len(request["localMainSha"]) == 40 and
             all(x in "0123456789abcdef" for x in request["localMainSha"]),
             "invalid pinned local protected main")
