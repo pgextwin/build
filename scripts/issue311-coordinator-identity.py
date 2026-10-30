@@ -134,7 +134,7 @@ def api(method, path, token, body=None):
         path == "installation/repositories?per_page=100" or
         path == "installation/token" or
         path == "users/" + APP_SLUG + "%5Bbot%5D" or
-        path == "repos/pgextwin/orafce/actions/workflows/issue311-request-local-prepare.yml"
+        path == "repos/pgextwin/orafce/actions/workflows/issue311-fleet-local-prepare.yml"
     )
     require(allowed and ".." not in path, "endpoint outside exact read-only identity probe allowlist")
     require((method, path) in {
@@ -143,7 +143,7 @@ def api(method, path, token, body=None):
         ("GET", "installation/repositories?per_page=100"),
         ("DELETE", "installation/token"),
         ("GET", "users/" + APP_SLUG + "%5Bbot%5D"),
-        ("GET", "repos/pgextwin/orafce/actions/workflows/issue311-request-local-prepare.yml")
+        ("GET", "repos/pgextwin/orafce/actions/workflows/issue311-fleet-local-prepare.yml")
     }, "wrong API method")
     payload = None if body is None else json.dumps(body, separators=(",", ":")).encode()
     headers = {"Authorization": "Bearer " + token,
@@ -190,10 +190,7 @@ def probe():
             installation.get("account", {}).get("login") == "pgextwin" and
             installation.get("repository_selection") == "selected",
             "real App installation scope mismatch")
-    bot = api("GET", "users/" + APP_SLUG + "%5Bbot%5D", jwt)
-    require(bot.get("login") == APP_SLUG + "[bot]" and
-            bot.get("type") == "Bot" and
-            type(bot.get("id")) is int and bot["id"] > 0, "actual App bot identity mismatch")
+    bot = None
     token = None
     try:
         response = api("POST", "app/installations/" + str(INSTALLATION_ID) +
@@ -202,6 +199,11 @@ def probe():
         token = response.get("token")
         require(type(token) is str and len(token) > 30, "no App token")
         print("::add-mask::" + token, flush=True)
+        bot = api("GET", "users/" + APP_SLUG + "%5Bbot%5D", token)
+        require(bot.get("login") == APP_SLUG + "[bot]" and
+                bot.get("type") == "Bot" and
+                type(bot.get("id")) is int and bot["id"] > 0,
+                "actual App bot identity mismatch")
         scope = response.get("permissions", {})
         require(scope.get("actions") == "write" and
                 set(scope) <= {"actions", "metadata"}, "overbroad installation token")
@@ -211,9 +213,9 @@ def probe():
                 selected[0].get("full_name") == TARGET,
                 "per-token repository count not exactly one")
         workflow = api("GET",
-                       "repos/pgextwin/orafce/actions/workflows/issue311-request-local-prepare.yml",
+                       "repos/pgextwin/orafce/actions/workflows/issue311-fleet-local-prepare.yml",
                        token)
-        require(workflow.get("path") == ".github/workflows/issue311-request-local-prepare.yml",
+        require(workflow.get("path") == ".github/workflows/issue311-fleet-local-prepare.yml",
                 "unexpected local workflow identity")
     finally:
         if token:
