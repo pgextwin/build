@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261030-r06preparer08appoidcretry02",
+  "mode": "PREPARE",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-30T14:35:00.000Z",
+  "expiresAt": "2026-10-30T17:35:00.000Z",
+  "purpose": "One distinct R08-01 genuine new protected OIDC App workflow_dispatch attempt after prior immutable genuine PG16 Chocolatey HTTP503 original FAILED (never rerun); use fixed protected pwsh signer with 3-attempt approved fallback, original PG14-18 attested ZIP/SPDX/Grype, independent dual real Sigstore/strict join, 17 exact App child and State; strictly NONPUBLISHING.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "407130721c20b17aa1a562c9696613840818a6c6",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 4,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 100,
+    "maxWallClockMinutes": 45
+  },
+  "approval": {
+    "scopeText": "Authorized ONE new distinct v2.1 R08-01 PREPARE only, exact 17 protected SHA and signed orafce new App source, independent Sigstore original bytes twice, separately scoped App actor, immutable central request, finite watchdog and keyless readback. Existing failed original remains failed, previous successes never rerun. NO Publisher, Release, tag, Catalog or public write; PUBLISH_DENY/runtimeEnabled=false, no new cron, credentials, approval or rights.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/pg_bigm",
+      "mainSha": "8c4b88ec13a060b16383a3909ec743e7a5ff9508"
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "mainSha": "bf6ad0df99b47a19b6ae9e5d6b9e4d3145019efe"
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "mainSha": "2a82ccd115bf8db8990e1bdf33ffa860a2346b56"
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "mainSha": "b753d7c1b18fa0c19866c3f537b1bf53ec359f05"
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "mainSha": "f936b2f405afd6176da201ae8aff002109e7518b"
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "mainSha": "c0f758b166bd1ea0452d3969214e44af31ce0e31"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "b348ffd2b4139b45547d44accde248dd86ccb9ce"
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "mainSha": "1d60d8aff5f75516a19f56bdda781155e7421357"
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "mainSha": "4145a022cfd3d53b4439e87c901d3cd3f6aadcee"
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "49038ac8ea55c401d10a43001e0b8923bd1c579a"
+    },
+    {
+      "repo": "pgextwin/hypopg",
+      "mainSha": "e4f2ae7c0e13ce921286d0ce79479be9928d649b"
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "mainSha": "ef8f6c72b9a9d244d32d8af364b8acb19d3dbec8"
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "mainSha": "5d77b374693cc63aae0234c76f29c7087b61fdf8"
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "mainSha": "8264e30d96a777f53540122cab96631eeeedb4bd"
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "mainSha": "d1085a7f1e3d500b246647da0cee7572605bbece"
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "mainSha": "d8fe8ad357e2975b25dcc5984b9a82d8f0dce551"
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "mainSha": "3c92af11d13c4c17a52dc4a3a238318044128552"
+    }
+  ],
+  "resumeFrom": null
+}
