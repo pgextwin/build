@@ -257,8 +257,10 @@ def finalize():
             # Quarantine it rather than creating an unrelated success record.
             # Prefer the coordinator checkpoint identity even when absent: a
             # late workflow_run then cannot create a second success checkpoint.
-            identifier=snap["stateId"] or origin["watchId"]
-            existing=snap["checkpoint"] if snap["checkpoint"] else contents_state(identifier)
+            identifier=(origin["watchId"] if snap["watchdog"] else
+                        snap["stateId"] or origin["watchId"])
+            existing=(snap["watchdog"] if snap["watchdog"] else
+                      snap["checkpoint"] if snap["checkpoint"] else contents_state(identifier))
             token=writer.mint_token(os.environ.get("STATE_WRITER_PRIVATE_KEY",""))
             cas=store.CAS(lambda method,endpoint,body:writer.api(method,endpoint,token,body))
             if existing is None:
