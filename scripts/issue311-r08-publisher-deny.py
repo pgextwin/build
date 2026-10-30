@@ -42,6 +42,10 @@ R08_JOBS={
     "R08 SECOND independent original-byte OIDC Sigstore verification (NO PUBLISH)",
     "R08 strict independent 2 Sigstore original-byte source agreement (PUBLISH_DENY)",
 }
+APPROVED_17=frozenset("pgextwin/"+n for n in (
+    "pg_bigm","pg_cron","pg_hint_plan","pgaudit","set_user","pg_repack",
+    "pg_ivm","pg_qualstats","plpgsql_check","orafce","hypopg","wal2json",
+    "pg_partman","pg_stat_monitor","pgtap","pg_variables","pg_store_plans"))
 R08_ARTIFACTS={
     "issue311-app-local-prepare-original-receipt",
     "issue311-r08-app-oidc-intent-nonpublishing",
@@ -96,7 +100,7 @@ def assess(*, local, central, fleet, local_branch, state, state_blob,
          and request.get("source",{}).get("centralMainSha")!=central_sha
          and type(request.get("targets")) is list
          and len(request["targets"])==17
-         and len({x.get("repo") for x in request["targets"]})==17
+         and {x.get("repo") for x in request["targets"]}==APPROVED_17
          and {x.get("repo"):x.get("mainSha") for x in request["targets"]}.get(REPOSITORY)==local_sha
          and type(request_raw_sha) is str and SHA64.fullmatch(request_raw_sha),
          "new App source is not a unique nonpublishing immutable 17-request")
