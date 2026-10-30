@@ -237,6 +237,8 @@ jobs:
 
       - name: Reject forged merged-bot requalification origin and unsigned shortcuts (NO RELEASE)
         run: python tests/test-merged-candidate-requalification.py
+      - name: Reject forged R08 App-origin OIDC intent before any signing (NO CREDENTIALS)
+        run: python tests/test-issue311-r08-app-oidc-intent.py
       - name: Reject fake local schedule and unsigned merged-bot signing shortcuts (NO RELEASE)
         run: python tests/test-merged-schedule-signing-intent.py
       - name: Reject forged scheduled OIDC/Sigstore ZIP, event and signing source (NO RELEASE)
