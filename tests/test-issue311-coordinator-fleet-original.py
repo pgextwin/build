@@ -3,6 +3,7 @@
 import ast
 import importlib.util
 import os
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +22,17 @@ assert len(table) == len(set(table)) == len(set(table.values())) == 17
 assert "pg_store_plans" in table and "orafce" in table
 assert all(x.startswith("r-20261030-r06coordlocal") for x in table.values())
 assert "r-20261030-r06preparecoordfleet03" in main
+assert "global REQUEST_ID, REQUEST_PATH" in main
+assert 'terminal["requestId"] = REQUEST_ID' in main
+pattern=r"\.github/execution-requests/(r-20261030-r06prepare[a-z0-9-]{4,40})\.json"
+assert re.fullmatch(pattern,".github/execution-requests/r-20261030-r06prepareautochain04.json")
+for unsafe in [
+ ".github/execution-requests/r-20261029-r06prepareold01.json",
+ ".github/execution-requests/r-20261030-r06appcas17terminal001.json",
+ ".github/execution-requests/../r-20261030-r06prepareother04.json",
+ ".github/execution-requests/r-20261030-r06prepareautochain04.yml",
+]:
+    assert re.fullmatch(pattern,unsafe) is None
 assert "ThreadPoolExecutor(max_workers=4)" in main
 assert "compare/" not in main
 assert "commit.get(\"files\", [])" in main
