@@ -1,0 +1,56 @@
+name: Issue 311 R10 key-free final original results (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue311-r10-final-readonly-report.py'
+      - 'tests/test-issue311-r10-final-readonly-report.py'
+      - '.github/workflows/issue311-r10-final-readonly-report.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source_report:
+    if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Test read-only evidence guards without remote calls
+        run: python tests/test-issue311-r10-final-readonly-report.py
+      - name: GET original six State blobs and original 17 children without App key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r10-final-readonly-report.py --output issue311-r10-final-report.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r10-original-readonly-report
+          path: issue311-r10-final-report.json
+          if-no-files-found: error
+          retention-days: 30
+  independent_readback:
+    needs: source_report
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Download first Runner report from original same Run (read only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name issue311-r10-original-readonly-report --dir .
+      - name: Independently GET and rehash every original as separate Runner without App key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r10-final-readonly-report.py --verify --output issue311-r10-final-report.json
