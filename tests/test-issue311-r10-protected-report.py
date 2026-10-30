@@ -17,7 +17,7 @@ def deny(name, data):
         return
     raise AssertionError("R10_PROTECTED_REPORT_FALSE_ACCEPT " + name)
 archive = m.ARCHIVE.read_bytes()
-deny("changed compressed digest", archive[:-2] + b"A\n")
+deny("changed compressed digest", archive[:-2] + b"B\n")
 deny("extra line", archive + b"\n")
 deny("truncated", archive[:99] + b"\n")
 deny("bad base64", b"!\n")
