@@ -113,6 +113,20 @@ def source_original():
     need(len(commit.get("parents", [])) == 1, "unexpected request commit parents")
     before = commit["parents"][0]["sha"]
     need(SHA40.fullmatch(before) is not None, "invalid parent SHA")
+    # A new one-shot protected PREPARE request must be discovered from the
+    # authentic merged commit, never pinned to the previous successful cycle.
+    # This does not authorize any extra App permission or repeat old sources.
+    global REQUEST_ID, REQUEST_PATH
+    changes = commit.get("files", [])
+    need(type(changes) is list and len(changes) == 1
+         and changes[0].get("status") == "added",
+         "not a one-file original source request")
+    match = re.fullmatch(
+        r"\\.github/execution-requests/(r-20261030-r06prepare[a-z0-9-]{4,40})\\.json",
+        changes[0].get("filename", ""))
+    need(match is not None, "unexpected central request namespace")
+    REQUEST_ID = match.group(1)
+    REQUEST_PATH = changes[0]["filename"]
     record = bridge.get_json("repos/pgextwin/build/contents/" + REQUEST_PATH
                              + "?ref=" + run["head_sha"])
     need(record.get("encoding") == "base64", "source request missing")
@@ -275,6 +289,7 @@ def run():
                 "parallelLimit": 4, "children": []}
     try:
         source = source_original()
+        terminal["requestId"] = REQUEST_ID
         terminal["central"] = {k: v for k, v in source.items() if k != "targets"}
         identity.check_policy(identity.read_json(identity.POLICY),
                               identity.read_json(identity.REQUEST))
