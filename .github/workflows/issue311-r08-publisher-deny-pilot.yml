@@ -1,0 +1,73 @@
+name: Issue 311 R08 separated App-source Publisher DENY original (NO RELEASE)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/issue311-r08-publisher-deny-pilot.yml'
+      - 'scripts/issue311-r08-publisher-deny.py'
+      - 'tests/test-issue311-r08-publisher-deny.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue311-r08-publisher-deny-pilot.yml'
+      - 'scripts/issue311-r08-publisher-deny.py'
+      - 'tests/test-issue311-r08-publisher-deny.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-r08-app-publisher-deny-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  hostile_source_policy:
+    if: github.event_name == 'pull_request'
+    name: R08 deny wrong App/actor/source-kind, PG/SBOM/Grype and unsafe write (NO CREDENTIALS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pure forged App/Publisher source and ambiguous-write denial
+        run: python tests/test-issue311-r08-publisher-deny.py
+
+  actual_denied_admission:
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    name: Live authenticated R08 original source -> separated PUBLISH_DENY (NO WRITER)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Live independent GitHub GET of protected original App+Sigstore receipt metadata, 17 CAS, separate Publisher identity (NO RELEASE)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/issue311-r08-publisher-deny.py \
+            --central-run 41073991273 \
+            --fleet-run 41074138918 \
+            --local-run 41074341848 \
+            --request-id r-20261030-r06preparer08appoidcretry02 \
+            --output "$RUNNER_TEMP/issue311-r08-publisher-app-denied.json"
+          echo 'New App source-kind verified by read-only independent original GET; separate Publisher identity; effective PUBLISH_DENY; NO WRITE TOKEN/RELEASE.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve signed App-source Publisher DENY original receipt only (NO RELEASE)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: issue311-r08-publisher-app-denied-nonpublishing
+          path: ${{ runner.temp }}/issue311-r08-publisher-app-denied.json
+          if-no-files-found: error
+          retention-days: 30
