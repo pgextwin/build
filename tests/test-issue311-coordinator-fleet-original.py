@@ -195,3 +195,13 @@ print("ISSUE311_R08_REAL_APP_OIDC_JOB_AND_FOUR_ARTIFACT_ADMISSION_NEGATIVE_PASS"
 assert "SafeArchiveRedirect" in helper
 assert "ISSUE311_R07_ORIGINAL_WINDOWS_ZIP_ACTUAL_SHA256" in helper_path.read_text()
 print("ISSUE311_R07_REAL_WINDOWS_PACKAGE_ZIP_NEGATIVE_PASS")
+
+# R08 genuine signed App original has real Windows PG14–18 and two separately
+# verified Sigstore jobs within ONE local Run. Bounded GET only, orafce only.
+assert 'original_child_max_polls = 240 if name == "orafce" else 70' in main
+assert 'for _ in range(original_child_max_polls):' in main
+assert 'time.sleep(10)' in main
+assert main.count('m.api("POST", m.POST') == 1
+assert main.count('result["dispatchCount"] = 1') == 1
+assert 'max_workers=4' in main
+print("ISSUE311_R08_SIGNED_ORAFCE_FINITE_CHILD_POLL_POLICY_PASS")
