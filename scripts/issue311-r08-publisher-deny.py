@@ -218,6 +218,10 @@ def main():
              and os.environ.get("GITHUB_RUN_ATTEMPT")=="1"
              and os.environ.get("GITHUB_ACTOR")=="ShutenOishi",
              "not original protected build postmerge read-only proof")
+        current=api(f"repos/{CENTRAL_REPO}/branches/main")
+        need(current.get("name")=="main" and current.get("protected") is True
+             and current.get("commit",{}).get("sha")==os.environ.get("GITHUB_SHA"),
+             "current read-only Publisher pilot not on exact protected main")
         central=api(f"repos/{CENTRAL_REPO}/actions/runs/{a.central_run}")
         fleet=api(f"repos/{CENTRAL_REPO}/actions/runs/{a.fleet_run}")
         local=api(f"repos/{REPOSITORY}/actions/runs/{a.local_run}")
