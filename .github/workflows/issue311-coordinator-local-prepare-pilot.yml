@@ -1,0 +1,57 @@
+name: Issue 311 single App-bot local PREPARE (NO RELEASE)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/issue311-coordinator-local-prepare-pilot.yml'
+      - 'scripts/issue311-coordinator-local-prepare-pilot.py'
+      - 'tests/test-issue311-coordinator-local-prepare-pilot.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261030-r06coordlocalpilotlaunch001.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-app-local-prepare-launch-one-shot
+  cancel-in-progress: false
+
+jobs:
+  offline_policy:
+    if: github.event_name == 'pull_request'
+    name: R06-06 App local PREPARE negative policy tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python tests/test-issue311-coordinator-local-prepare-pilot.py
+
+  coordinator:
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    name: Trusted request -> one scoped App PREPARE and finite terminal
+    runs-on: ubuntu-latest
+    environment: issue311-prepare-coordinator
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Protected-source PREPARE request check
+        run: python scripts/issue311-coordinator-local-prepare-pilot.py --check
+      - name: Bounded actual App dispatch and original local Run acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY: ${{ secrets.ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY }}
+        run: python scripts/issue311-coordinator-local-prepare-pilot.py --pilot
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-coordinator-local-prepare-terminal
+          path: issue311-coordinator-local-prepare-original.json
+          if-no-files-found: error
+          retention-days: 30
