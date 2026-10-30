@@ -1,0 +1,146 @@
+name: Issue 311 R06 independent two-runner real State App CAS contention (NONPUBLISHING)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/execution-requests/r-20261030-r06parallelcasproof12.json']
+  pull_request:
+    paths:
+      - '.github/workflows/issue311-r06-parallel-cas-original.yml'
+      - 'scripts/issue311-r06-parallel-cas-original.py'
+      - 'tests/test-issue311-r06-parallel-cas-original.py'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r06-parallel-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  offline_negative:
+    if: github.event_name == 'pull_request'
+    name: R06 parallel CAS only QUARANTINED17, publication/terminal/replay denial
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python tests/test-issue311-r06-parallel-cas-original.py
+  init:
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    name: Protected one-shot source and initial original isolated revision1
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 10
+    outputs:
+      expected_sha: ${{ steps.prepare.outputs.expected_sha }}
+      start_epoch: ${{ steps.prepare.outputs.start_epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - id: prepare
+        name: Authenticate exact original, persist rev0/1, revoke State App token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r06-parallel-cas-original.py init
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-parallel-init
+          path: issue311-r06-parallel-init.json
+          if-no-files-found: warn
+          retention-days: 30
+  writer_a:
+    if: needs.init.result == 'success'
+    needs: init
+    name: Independent runner A single authorized QUARANTINED17 CAS PUT
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Independently arm same rev1 then one real GitHub PUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+          EXPECTED_SHA: ${{ needs.init.outputs.expected_sha }}
+          START_EPOCH: ${{ needs.init.outputs.start_epoch }}
+        run: python scripts/issue311-r06-parallel-cas-original.py A
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-parallel-A
+          path: issue311-r06-parallel-A.json
+          if-no-files-found: warn
+          retention-days: 30
+  writer_b:
+    if: needs.init.result == 'success'
+    needs: init
+    name: Independent runner B single authorized QUARANTINED17 CAS PUT
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Independently arm same rev1 then one real GitHub PUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+          EXPECTED_SHA: ${{ needs.init.outputs.expected_sha }}
+          START_EPOCH: ${{ needs.init.outputs.start_epoch }}
+        run: python scripts/issue311-r06-parallel-cas-original.py B
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-parallel-B
+          path: issue311-r06-parallel-B.json
+          if-no-files-found: warn
+          retention-days: 30
+  independent_keyless_readback:
+    if: needs.writer_a.result == 'success' && needs.writer_b.result == 'success'
+    needs: [init, writer_a, writer_b]
+    name: App-keyless independent two original PUT receipts and Git blob/replay DENY
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Verify both original provider ZIP SHA256, State Git bytes and one 409
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r06-parallel-cas-original.py readback
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-parallel-keyless-readback
+          path: issue311-r06-parallel-keyless-readback.json
+          if-no-files-found: warn
+          retention-days: 30
