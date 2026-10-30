@@ -1,0 +1,74 @@
+name: Issue 311 R09-01 private Catalog CLI feed EN JA original (NO RELEASE)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/issue311-r09-private-chain.yml'
+      - 'scripts/issue311-r09-private-chain.py'
+      - 'tests/test-issue311-r09-private-chain.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/issue311-r09-private-chain.yml'
+      - 'scripts/issue311-r09-private-chain.py'
+      - 'tests/test-issue311-r09-private-chain.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-r09-private-chain-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  private_hostile:
+    if: github.event_name == 'pull_request'
+    name: Reject forged Catalog feed or untranslated EN JA private evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python tests/test-issue311-r09-private-chain.py
+
+  live_nonpublishing:
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    name: Authenticated original source to protected Catalog CLI feed EN JA shadow DENY
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Repeat real R08 signed source and immutable CAS live original GET
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/issue311-r08-publisher-deny.py --central-run 41073991273 --fleet-run 41074138918 --local-run 41074341848 --request-id r-20261030-r06preparer08appoidcretry02 --output "$RUNNER_TEMP/r09-r08-signed-original-deny.json"
+      - name: Independently read actual Catalog and Website protected files; build shadow proposal only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python tests/test-issue311-r09-private-chain.py
+          python scripts/issue311-r09-private-chain.py --source "$RUNNER_TEMP/r09-r08-signed-original-deny.json" --output "$RUNNER_TEMP/r09-private-catalog-cli-website.json"
+          echo 'R09=NONPUBLISHING_SHADOW_ONLY; no Catalog PR/merge, no public feed, no Release/tag, no CLI/Website public update. Protected actual source GET and EN/JA contracts checked.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep immutable read-only R09 evidence without changing Catalog or Website
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: issue311-r09-private-catalog-cli-website-nonpublishing
+          path: ${{ runner.temp }}/r09-private-catalog-cli-website.json
+          if-no-files-found: error
+          retention-days: 30
