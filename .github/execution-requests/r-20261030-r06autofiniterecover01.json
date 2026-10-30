@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-r06-failed-cas-recovery",
+  "requestId": "r-20261030-r06autofiniterecover01",
+  "mode": "AUDIT_ONLY",
+  "baseMainSha": "31c2eabdb86d43d5d2fb035c8d37c9c15c06a507",
+  "expiresAt": "2026-10-30T07:15:00Z",
+  "stateRequestId": "r-20261030-r06appauto41005515488",
+  "stateBlobSha": "42b10181f69058227fdb364db8f0d3344bf64461",
+  "sourceRunId": 41005515488,
+  "failedCasRunId": 41005723124,
+  "sourceHeadSha": "394fa3b83df8b2ad163faf08aa8db5dc5071e13d",
+  "sourceZipSha256": "c89c540b8db8cda09a2237c4ec4963e3dcbee766f121b8395840a0ff07b079ae",
+  "failedCasZipSha256": "3c48b13c91d93c7607e8eb9b19549a58319968c9b384e98c6e7286539b3ee8de",
+  "originalRequestSha256": "3a00769bcedcf54f5c5fc6b8f9f3978328693301cd7b7ef83e4a078f2f237e8a",
+  "runtimeEnabled": false,
+  "publicReleaseAuthorized": false
+}
