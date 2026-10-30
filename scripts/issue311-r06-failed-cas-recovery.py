@@ -71,7 +71,7 @@ def request():
             "original event mismatch")
     require(subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()==after
             and subprocess.check_output(["git","diff","--name-status",before,after],
-                                        text=True).splitlines()==["A\\t"+PATH],
+                                        text=True).splitlines()==["A\t"+PATH],
             "not one new protected recovery request")
     live=api("branches/main")
     require(live.get("protected") is True and live.get("commit",{}).get("sha")==after,
@@ -80,7 +80,7 @@ def request():
     ref=api("contents/"+PATH+"?ref="+after)
     import base64
     require(ref.get("encoding")=="base64"
-            and base64.b64decode(ref["content"].replace("\\n","").replace("\\r",""),validate=True)==raw
+            and base64.b64decode(ref["content"].replace("\n","").replace("\r",""),validate=True)==raw
             and store.blob_hash(raw)==ref["sha"],"request original bytes changed")
     r=strict(raw)
     require(type(r) is dict and set(r)=={
@@ -199,7 +199,7 @@ def persist():
             except Exception as exc:
                 report["revokeFailure"]=type(exc).__name__
                 report["result"]="QUARANTINED"
-        Path(PROOF).write_text(json.dumps(report,sort_keys=True,indent=2)+"\\n")
+        Path(PROOF).write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
     print("R06_FAILED_CAS_RECOVERY",json.dumps(report,sort_keys=True))
     return 0 if report["result"]=="QUARANTINED_DURABLE_READBACK_PENDING" and report.get("sameTokenRevoked401") is True else 1
 
@@ -239,7 +239,7 @@ def readback():
     summary={"schemaVersion":1,"requestId":OLD_STATE,"result":"ORIGINAL_FAILED_CAS_QUARANTINED_DURABLE",
              "revision":2,"gitBlobSha":blob,"sourceRunId":SOURCE,"failedCasRunId":FAILED,
              "appKeyAvailable":False,"publicationAuthorized":False,"replay":"DENY"}
-    Path(READBACK).write_text(json.dumps(summary,sort_keys=True,indent=2)+"\\n")
+    Path(READBACK).write_text(json.dumps(summary,sort_keys=True,indent=2)+"\n")
     print("R06_FAILED_CAS_INDEPENDENT_READBACK",json.dumps(summary,sort_keys=True))
     return 0
 
