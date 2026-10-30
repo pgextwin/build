@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-r06-isolated-parallel-state-cas-proof",
+  "requestId": "r-20261030-r06parallelcasproof12",
+  "mode": "AUDIT_ONLY",
+  "baseMainSha": "1ff3098290e97daec9c36b8559c598c71e4e3cef",
+  "expiresAt": "2026-10-30T11:17:09Z",
+  "maxWriters": 2,
+  "targetScope": [
+    "pgextwin/hypopg",
+    "pgextwin/orafce",
+    "pgextwin/pg_bigm",
+    "pgextwin/pg_cron",
+    "pgextwin/pg_hint_plan",
+    "pgextwin/pg_ivm",
+    "pgextwin/pg_partman",
+    "pgextwin/pg_qualstats",
+    "pgextwin/pg_repack",
+    "pgextwin/pg_stat_monitor",
+    "pgextwin/pg_store_plans",
+    "pgextwin/pg_variables",
+    "pgextwin/pgaudit",
+    "pgextwin/pgtap",
+    "pgextwin/plpgsql_check",
+    "pgextwin/set_user",
+    "pgextwin/wal2json"
+  ],
+  "publisherAuthorized": false,
+  "runtimeEnabled": false,
+  "publicReleaseAuthorized": false
+}
