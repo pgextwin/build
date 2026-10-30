@@ -68,7 +68,8 @@ def fake_child(item): return {
     "originalEvidenceVerified": True}
 with patch.object(m.r10, "readonly_case", side_effect=fake_readonly), \
      patch.object(m, "pinned", return_value=(origin, receipt)), \
-     patch.object(m, "verify_child", side_effect=fake_child):
+     patch.object(m, "verify_child", side_effect=fake_child), \
+     patch.object(m, "corroborate_orafce", return_value={"candidateRunId": 41014360341, "originalZipSha256": None}):
     result = m.fleet(m.SOURCE, "skip")
     assert result["stateTerminal"] == "QUARANTINED"
     assert result["joinedOriginalChildren"] == 16
