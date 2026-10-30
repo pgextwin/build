@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "APPROVED_MANUAL_BOOTSTRAP_DONE_PENDING_LIVE_IDENTITY_PROOF",
+  "status": "REAL_APP_IDENTITY_AND_REVOKE401_ORIGINAL_VERIFIED_RUNTIME_DISABLED",
   "runtimeEnabled": false,
   "role": "ISSUE311_NONPUBLISHING_LOCAL_PREPARE_DISPATCH",
   "requestedName": "pgextwin-issue311-prepare-coord",
@@ -8,7 +8,7 @@
   "visibility": "private",
   "appId": 5534389,
   "installationId": 176718417,
-  "botUserId": null,
+  "botUserId": 350058024,
   "repositorySelection": "selected",
   "repositories": [
     "pgextwin/hypopg",
@@ -94,7 +94,19 @@
     "secretPresent": true,
     "retainedKeyId": 5098216,
     "formerUnusedKeyDeleted": 5097717,
-    "keyUsabilityVerified": false
+    "keyUsabilityVerified": true
   },
-  "liveIdentityVerification": "PENDING_ONE_SHOT_PROTECTED_MAIN_PUSH"
+  "liveIdentityVerification": {
+    "status": "ORIGINAL_SUCCESS",
+    "runId": 40982434701,
+    "runAttempt": 1,
+    "originalHeadSha": "f9c4e16168ad6725f622a117e683116e7de56311",
+    "originalArtifactId": 12945252561,
+    "providerArtifactDigestSha256": "2a55f912b0d5b7236b4bd4e58c8753a9f9e63a544be6fd7fdc3ecf65fcb1c232",
+    "botLogin": "pgextwin-issue311-prepare-coord[bot]",
+    "botUserId": 350058024,
+    "oneRepoScopedToken": true,
+    "sameTokenRevoked401": true,
+    "workflowDispatches": 0
+  }
 }
