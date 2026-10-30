@@ -26,9 +26,9 @@ origin={"headSha":"a"*40,"requestId":"r-20261030-r06preparetestwatch01",
         "watchId":"r-20261030-r06watchaaaaaaaabbbbbbbb"}
 base=m.life.new(origin["watchId"],origin["requestSha256"],origin["headSha"],
                 origin["targets"],origin["deadlineAt"])
-assert m.pending_terminal(base,origin,41019000001,41019000002)["terminal"]=="QUARANTINED"
+assert m.pending_terminal(base,origin,origin['watchId'],41019000002)["terminal"]=="QUARANTINED"
 bound=m.life.bind_source(base,0,"source",run_id=41019000003,attempt=1,head_sha="a"*40)
-term=m.pending_terminal(bound,origin,41019000001,41019000002)
+term=m.pending_terminal(bound,origin,origin['watchId'],41019000002)
 assert term["revision"]==2 and term["eventTransport"]=="BOUNDED_WATCHDOG"
 assert len(term["targets"])==17 and set(term["targets"].values())=={"QUARANTINED"}
 assert term["publisherAuthorized"] is False and term["writeOutcomeUnknown"] is False
@@ -39,10 +39,10 @@ for bad in [
     {**bound,"writeOutcomeUnknown":True},
     {**bound,"targetScope":["pgextwin/orafce"]},
 ]:
-    try:m.pending_terminal(bad,origin,41019000001,41019000002)
+    try:m.pending_terminal(bad,origin,origin['watchId'],41019000002)
     except ValueError:pass
     else:raise AssertionError("invalid request/terminal accepted")
-try:m.pending_terminal(term,origin,41019000001,41019000002)
+try:m.pending_terminal(term,origin,origin['watchId'],41019000002)
 except ValueError:pass
 else:raise AssertionError("terminal replay accepted")
 with patch.dict(os.environ,{
