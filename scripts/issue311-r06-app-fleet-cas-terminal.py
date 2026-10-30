@@ -39,6 +39,7 @@ BOT = "pgextwin-issue311-prepare-coord[bot]"
 BOT_ID = 350058024
 CENTRAL_REQUEST = "r-20261030-r06preparecoordfleet03"
 ACK_LOSS_CANARY = "r-20261030-r06prepareappackloss10"
+CONFLICT_CANARY = "r-20261030-r06prepareappcasconflict11"
 PROOF_PATH = "issue311-r06-app-original-cas-proof.json"
 READBACK_PATH = "issue311-r06-app-original-cas-readback.json"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
@@ -458,6 +459,60 @@ def app_cas_api_with_one_shot_ack_loss(method, endpoint, body, token, central_re
             raise TimeoutError("controlled ACK loss AFTER actual nonpublishing App PUT")
     return response
 
+
+def controlled_competing_state_terminal(created, current, old_blob, intended,
+                                        metrics, source_run_id):
+    """Two genuinely submitted GitHub Contents PUTs against one original SHA.
+
+    The competing fail-closed revision2 is written to the *same isolated new
+    request* with the dedicated State App and original server-readback. Then
+    the original intended NO_UPDATE rev2 submits its single stale-sha PUT to
+    GitHub, expecting a real HTTP 409 or 422. CAS MUST read the competing
+    QUARANTINED bytes and fail closed, never retry or claim NO_UPDATE.
+    This is a controlled sequential stale-SHA collision, NOT independent
+    simultaneous writers or a spontaneous provider network incident.
+    """
+    need(current.get("revision") == 1 and current.get("terminal") is None
+         and intended.get("revision") == 2 and intended.get("terminal") == "NO_UPDATE"
+         and len(current.get("targets", {})) == 17
+         and len(intended.get("targets", {})) == 17
+         and current.get("publisherAuthorized") is False,
+         "one-shot live conflict original State shape invalid")
+    def quarantine(state):
+        state["targets"] = {name: "QUARANTINED" for name in state["targetScope"]}
+        state["terminal"] = "QUARANTINED"
+        state["completionRun"] = {"id": int(os.environ["GITHUB_RUN_ID"]), "attempt": 1}
+        state["eventTransport"] = "BOUNDED_WATCHDOG"
+    competitor = life._apply(current, 1, "r06-original-real-stale-cas-conflict",
+          {"originalSourceRunId":source_run_id, "source":"controlled_nonpublishing_real_put",
+           "concurrentWriterClaim":False}, quarantine)
+    saved = created.write(competitor, previous=current, expected_blob=old_blob)
+    need(saved in ("ORIGINAL_GET_VERIFIED","RECONCILED_BY_ORIGINAL_GET"),
+         "competing real State App PUT lacked exact original GET")
+    competitor_blob, live = created.read(REQ)
+    need(live == competitor and competitor_blob == store.blob_hash(store.canonical(competitor)),
+         "competing real State App server bytes do not match")
+    try:
+        created.write(intended, previous=current, expected_blob=old_blob)
+    except store.UnknownWrite:
+        # This exact HTTP error code is captured from the actual GitHub REST
+        # transport, not synthesized by the test or interpreted from a mock.
+        need(metrics.get("httpConflictCode") in (409, 422),
+             "no observed actual GitHub stale-SHA conflict response")
+        rechecked_blob, rechecked = created.read(REQ)
+        need(rechecked_blob == competitor_blob and rechecked == competitor
+             and rechecked["revision"] == 2 and rechecked["terminal"] == "QUARANTINED"
+             and set(rechecked["targets"].values()) == {"QUARANTINED"}
+             and rechecked["publisherAuthorized"] is False
+             and rechecked["writeOutcomeUnknown"] is False,
+             "stale competing State App PUT did not fail closed immutably")
+        return {"result":"QUARANTINED_VERIFIED_STALE_SHA_CONFLICT",
+                "actualGitHubHttpConflictCode":metrics["httpConflictCode"],
+                "competingPutReadback":saved, "stateBlobSha":rechecked_blob,
+                "stateRevision":2, "targetCount":17,
+                "actualStalePutNotRetried":True}
+    raise ValueError("R06_APP_CAS_UNSAFE stale SHA unexpectedly overwrote terminal")
+
 def persist():
     result = {"schemaVersion": 1, "requestId": REQ, "result": "QUARANTINED",
               "publicationAuthorized": False, "publisherAuthorized": False,
@@ -475,9 +530,15 @@ def persist():
                            r["expiresAt"], max_events=100)
         token = writer.mint_token(os.environ.get("STATE_WRITER_PRIVATE_KEY", ""))
         put_metrics = {"putCalls": 0, "lostAcks": 0}
-        created = store.CAS(lambda method,endpoint,body:
-                            app_cas_api_with_one_shot_ack_loss(
-                                method,endpoint,body,token,r["centralRequestId"],put_metrics))
+        def canary_transport(method, endpoint, body):
+            try:
+                return app_cas_api_with_one_shot_ack_loss(
+                    method,endpoint,body,token,r["centralRequestId"],put_metrics)
+            except writer.HTTPStatus as ex:
+                if r["centralRequestId"] == CONFLICT_CANARY and method == "PUT":
+                    put_metrics["httpConflictCode"] = ex.code
+                raise
+        created = store.CAS(canary_transport)
         finite_original_veto(r)
         save0 = created.write(initial)
         blob, current = created.read(REQ)
@@ -501,6 +562,19 @@ def persist():
             state["eventTransport"] = ("workflow_run.completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
         term = life._apply(current, current["revision"], "r06-real-app-17-terminal", payload, finish)
         finite_original_veto(r)
+        if r["centralRequestId"] == CONFLICT_CANARY:
+            fail_closed = controlled_competing_state_terminal(
+                created,current,blob,term,put_metrics,r["sourceRunId"])
+            result.update(fail_closed)
+            result["centralRunId"] = r["centralRunId"]
+            result["originalSourceRunId"] = r["sourceRunId"]
+            result["sourceHeadSha"] = r["sourceHeadSha"]
+            result["appPutMetrics"] = put_metrics
+            result["durableCasVerified"] = True
+            # Fail this original CAS workflow deliberately; the separate,
+            # already-running original-push watchdog independently checks
+            # the durable QUARANTINED17 and no-key replay denial.
+            raise ValueError("R06_REAL_GITHUB_CONFLICT_EXPECTED quarantine; never accept NO_UPDATE")
         save2 = created.write(term, previous=current, expected_blob=blob)
         if r["centralRequestId"] == ACK_LOSS_CANARY:
             need(save2 == "RECONCILED_BY_ORIGINAL_GET"
