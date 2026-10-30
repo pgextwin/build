@@ -69,7 +69,7 @@ def authenticated_request():
         ["git", "diff", "--name-only", ev["before"], head], text=True).splitlines()
     require(len(changed) == 1, "more than one changed file in PREPARE request")
     hit = re.fullmatch(
-        r"\.github/execution-requests/(r-20261029-r06prepare[a-z0-9-]{4,40})\.json",
+        r"\.github/execution-requests/(r-202610(?:29|30)-r06prepare[a-z0-9-]{4,40})\.json",
         changed[0])
     require(hit is not None, "not a dedicated PREPARE request-only change")
     REQUEST = hit.group(1)
