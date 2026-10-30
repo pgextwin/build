@@ -1,0 +1,65 @@
+name: Issue 311 17 authentic App-bot local PREPARE originals (NO RELEASE)
+
+# Only a newly completed, independent protected-main original PREPARE source
+# can authorize the separately scoped App-bot child verification. Never publish.
+on:
+  workflow_run:
+    workflows:
+      - Issue 311 R06 PREPARE original fleet scan (NONPUBLISHING)
+    types: [completed]
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/issue311-coordinator-fleet-original.yml'
+      - 'scripts/issue311-coordinator-fleet-local-helper.py'
+      - 'scripts/issue311-coordinator-fleet-local-prepare.py'
+      - 'tests/test-issue311-coordinator-fleet-original.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue311-genuine-fleet-app-${{ github.event_name }}-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline_negative:
+    if: github.event_name == 'pull_request'
+    name: R06-06-03 strict fleet source-kind and App scoping negative tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python tests/test-issue311-coordinator-fleet-original.py
+
+  app_fleet:
+    if: github.repository == 'pgextwin/build' && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1
+    name: Verify source original bytes then scope and join 17 genuine App bot receipts
+    runs-on: ubuntu-latest
+    environment: issue311-prepare-coordinator
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Protected 17 source ZIP SHA256, 4-limited real App child runs and 17 ZIPs (NO WRITER)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY: ${{ secrets.ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY }}
+        run: python scripts/issue311-coordinator-fleet-local-prepare.py
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-app-fleet-original-terminal
+          path: issue311-r06-app-fleet-original-terminal.json
+          if-no-files-found: error
+          retention-days: 30
