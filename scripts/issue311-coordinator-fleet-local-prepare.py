@@ -122,7 +122,7 @@ def source_original():
          and changes[0].get("status") == "added",
          "not a one-file original source request")
     match = re.fullmatch(
-        r"\\.github/execution-requests/(r-20261030-r06prepare[a-z0-9-]{4,40})\\.json",
+        r"\.github/execution-requests/(r-20261030-r06prepare[a-z0-9-]{4,40})\.json",
         changes[0].get("filename", ""))
     need(match is not None, "unexpected central request namespace")
     REQUEST_ID = match.group(1)
