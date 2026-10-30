@@ -84,4 +84,23 @@ with TemporaryDirectory() as tmp:
             try:mod.request_proof()
             except ValueError:pass
             else:raise AssertionError("stale completion accepted")
+# Only the lifecycle library's exact transport enum may be persisted; the
+# earlier uppercase alias must fail before any State App CAS PUT.
+assert '"workflow_run.completed"' in (ROOT/"scripts/issue311-r06-app-fleet-cas-terminal.py").read_text()
+initial=mod.life.new("r-20261030-r06appauto41011122233","1"*64,original_head,
+                     ["pgextwin/orafce"],stamp(datetime.now(timezone.utc)+timedelta(hours=2)))
+bound=mod.life.bind_source(initial,0,"source-completed",run_id=source_id,attempt=1,head_sha=original_head)
+def complete(d):
+    d["targets"]={"pgextwin/orafce":"NO_UPDATE"}
+    d["terminal"]="NO_UPDATE"
+    d["completionRun"]={"id":41011122234,"attempt":1}
+    d["eventTransport"]="workflow_run.completed"
+done=mod.life._apply(bound,1,"auto-terminal",{"kind":"PREPARE"},complete)
+assert done["revision"]==2 and done["eventTransport"]=="workflow_run.completed"
+def malformed(d):
+    complete(d)
+    d["eventTransport"]="WORKFLOW_RUN_COMPLETED"
+try:mod.life._apply(bound,1,"old-invalid-alias",{"kind":"PREPARE"},malformed)
+except ValueError:pass
+else:raise AssertionError("unrecognized transport enum accepted")
 print("ISSUE311_R06_UNATTENDED_COMPLETED_EVENT_NEGATIVE_PASS_OFFLINE_ONLY")
