@@ -21,6 +21,14 @@ $ErrorActionPreference = "Stop"
 # in the actual Issue #311 fleet Windows jobs; it is NOT a package-version
 # acceptance and can only unlock independently fixed-size/SHA256 EDB bytes.
 # The final status and PostgreSQL server installation remain hard gates.
+# PowerShell 7.4+ can promote a nonzero native choco exit into a terminating
+# NativeCommandExitException when ErrorActionPreference=Stop, *before* we
+# inspect $LASTEXITCODE. That bypasses bounded retry and the existing
+# independently SHA256-verified EDB installer fallback for real HTTP 503.
+# Only suppress this automatic native-exit exception in this script scope.
+# Every nonzero exit remains explicitly checked and DENIED unless all three
+# attempts independently show the already-approved Chocolatey V2 outage.
+$PSNativeCommandUseErrorActionPreference = $false
 $successCodes = @(0, 1641, 3010)
 $maxAttempts = 3
 $code = -1
