@@ -6,12 +6,16 @@ on:
       - '.github/workflows/issue311-r08-publisher-deny-pilot.yml'
       - 'scripts/issue311-r08-publisher-deny.py'
       - 'tests/test-issue311-r08-publisher-deny.py'
+      - 'scripts/issue311-r08-publisher-credential-deny.py'
+      - 'tests/test-issue311-r08-publisher-credential-deny.py'
   push:
     branches: [main]
     paths:
       - '.github/workflows/issue311-r08-publisher-deny-pilot.yml'
       - 'scripts/issue311-r08-publisher-deny.py'
       - 'tests/test-issue311-r08-publisher-deny.py'
+      - 'scripts/issue311-r08-publisher-credential-deny.py'
+      - 'tests/test-issue311-r08-publisher-credential-deny.py'
 
 permissions:
   contents: read
@@ -34,7 +38,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Pure forged App/Publisher source and ambiguous-write denial
-        run: python tests/test-issue311-r08-publisher-deny.py
+        run: |
+          python tests/test-issue311-r08-publisher-deny.py
+          python tests/test-issue311-r08-publisher-credential-deny.py
 
   actual_denied_admission:
     if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
@@ -69,5 +75,46 @@ jobs:
         with:
           name: issue311-r08-publisher-app-denied-nonpublishing
           path: ${{ runner.temp }}/issue311-r08-publisher-app-denied.json
+          if-no-files-found: error
+          retention-days: 30
+
+  authenticated_publisher_app_denied:
+    needs: actual_denied_admission
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    name: Genuine isolated Publisher App JWT identity -> deny this PREPARE before token issuance
+    environment: publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: Repeat independent original source GET before opening Publisher key (NO WRITE)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/issue311-r08-publisher-deny.py --central-run 41073991273 --fleet-run 41074138918 --local-run 41074341848 --request-id r-20261030-r06preparer08appoidcretry02 --output "$RUNNER_TEMP/r08-publisher-original-deny.json"
+      - name: Independently JWT authenticate the REAL Publisher App and refuse credential issuance (NO RELEASE)
+        env:
+          PUBLISHER_APP_ID: ${{ vars.PGEXTWIN_PUBLISHER_APP_ID }}
+          PUBLISHER_INSTALLATION_ID: ${{ vars.PGEXTWIN_PUBLISHER_INSTALLATION_ID }}
+          PUBLISHER_PRIVATE_KEY: ${{ secrets.PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          python scripts/issue311-r08-publisher-credential-deny.py --source "$RUNNER_TEMP/r08-publisher-original-deny.json" --output "$RUNNER_TEMP/r08-publisher-real-app-jwt-denied.json"
+          echo 'Authenticated separate Publisher App JWT, verified exact signed App PREPARE source, PUBLISH_DENY before any installation token, tag, release or publishing POST.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve only non-secret Publisher JWT identity DENY original receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: issue311-r08-actual-publisher-jwt-deny-nonpublishing
+          path: ${{ runner.temp }}/r08-publisher-real-app-jwt-denied.json
           if-no-files-found: error
           retention-days: 30
