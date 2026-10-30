@@ -44,7 +44,7 @@ def unique(pairs):
 def parse(raw):
     return json.loads(raw,object_pairs_hook=unique)
 def gitblob(raw):
-    return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\0"+raw).hexdigest()
+    return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
 def safe_source(source):
     need(type(source) is dict and source.get("schemaVersion")==1
          and source.get("status")=="APP_R08_SIGNED_SOURCE_PUBLISH_DENY_ADMISSION_ONLY"
@@ -91,7 +91,7 @@ def assess(source, catalog_branch, website_branch, files, public_release):
          and record.get("name")=="orafce"
          and record.get("repository")=="pgextwin/orafce"
          and type(record.get("latest")) is dict
-         and re.fullmatch(r"v[A-Za-z0-9][A-Za-z0-9._-]+-windows\\.[1-9][0-9]*",
+         and re.fullmatch(r"v[A-Za-z0-9][A-Za-z0-9._-]+-windows\.[1-9][0-9]*",
                           str(record["latest"].get("releaseTag","")))
          and record["latest"].get("releaseTag")=="v4.16.13-windows.1"
          and record["latest"].get("publishedAt")=="2026-10-10T15:49:07Z",
@@ -175,7 +175,7 @@ def call(repo,route):
     full="repos/"+repo+"/"+route
     need(route=="branches/main"
          or repo=="pgextwin/orafce" and route=="releases/tags/v4.16.13-windows.1"
-         or re.fullmatch(r"contents/.+\\?ref=[a-f0-9]{40}",route),
+         or re.fullmatch(r"contents/.+\?ref=[a-f0-9]{40}",route),
          "unapproved read-only GET route")
     cp=subprocess.run(["gh","api","--method","GET",full],
                       capture_output=True,text=True,timeout=45,check=False)
