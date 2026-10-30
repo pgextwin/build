@@ -3,7 +3,7 @@
   "kind": "pgextwin-r06-failed-cas-recovery",
   "requestId": "r-20261030-r06autofiniterecover01",
   "mode": "AUDIT_ONLY",
-  "baseMainSha": "31c2eabdb86d43d5d2fb035c8d37c9c15c06a507",
+  "baseMainSha": "26930be67253316d0b0f5fe35e4c328d68264995",
   "expiresAt": "2026-10-30T07:15:00Z",
   "stateRequestId": "r-20261030-r06appauto41005515488",
   "stateBlobSha": "42b10181f69058227fdb364db8f0d3344bf64461",
