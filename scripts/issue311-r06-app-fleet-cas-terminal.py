@@ -38,6 +38,7 @@ LOCAL_SOURCE_KIND = "APP_BOT_AUTHENTICATED_ORIGINAL_PREPARE_LOCAL_READONLY_V1"
 BOT = "pgextwin-issue311-prepare-coord[bot]"
 BOT_ID = 350058024
 CENTRAL_REQUEST = "r-20261030-r06preparecoordfleet03"
+ACK_LOSS_CANARY = "r-20261030-r06prepareappackloss10"
 PROOF_PATH = "issue311-r06-app-original-cas-proof.json"
 READBACK_PATH = "issue311-r06-app-original-cas-readback.json"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
@@ -427,6 +428,36 @@ def finite_original_veto(r):
                          "never claim NO_UPDATE after quarantine")
 
 
+
+def app_cas_api_with_one_shot_ack_loss(method, endpoint, body, token, central_request_id, metrics):
+    """Exactly one real State App PUT, then controlled loss of only its ACK.
+
+    This is an injected transport-response loss AFTER the server HTTP call
+    returns; it is not evidence of a spontaneous GitHub network incident.
+    The existing store.CAS performs an authenticated original GET and never
+    retransmits the ambiguous PUT. The fixture is allowlisted to one new,
+    protected, immutable, nonpublishing central PREPARE request.
+    """
+    fault = False
+    if method == "PUT" and central_request_id == ACK_LOSS_CANARY:
+        need(type(body) is dict and type(body.get("content")) is str,
+             "one-shot live App PUT missing intended canonical payload")
+        proposed = strict(base64.b64decode(body["content"], validate=True))
+        fault = (proposed.get("revision") == 2
+                 and proposed.get("terminal") == "NO_UPDATE"
+                 and proposed.get("publisherAuthorized") is False
+                 and len(proposed.get("targets", {})) == 17
+                 and set(proposed["targets"].values()) == {"SUCCESS"})
+        if fault:
+            need(metrics["lostAcks"] == 0, "ambiguous live terminal PUT was retried")
+    response = writer.api(method, endpoint, token, body)
+    if method == "PUT":
+        metrics["putCalls"] += 1
+        if fault:
+            metrics["lostAcks"] += 1
+            raise TimeoutError("controlled ACK loss AFTER actual nonpublishing App PUT")
+    return response
+
 def persist():
     result = {"schemaVersion": 1, "requestId": REQ, "result": "QUARANTINED",
               "publicationAuthorized": False, "publisherAuthorized": False,
@@ -443,8 +474,10 @@ def persist():
         initial = life.new(REQ, rawsha, r["sourceHeadSha"], sorted(actual),
                            r["expiresAt"], max_events=100)
         token = writer.mint_token(os.environ.get("STATE_WRITER_PRIVATE_KEY", ""))
+        put_metrics = {"putCalls": 0, "lostAcks": 0}
         created = store.CAS(lambda method,endpoint,body:
-                            writer.api(method,endpoint,token,body))
+                            app_cas_api_with_one_shot_ack_loss(
+                                method,endpoint,body,token,r["centralRequestId"],put_metrics))
         finite_original_veto(r)
         save0 = created.write(initial)
         blob, current = created.read(REQ)
@@ -469,6 +502,10 @@ def persist():
         term = life._apply(current, current["revision"], "r06-real-app-17-terminal", payload, finish)
         finite_original_veto(r)
         save2 = created.write(term, previous=current, expected_blob=blob)
+        if r["centralRequestId"] == ACK_LOSS_CANARY:
+            need(save2 == "RECONCILED_BY_ORIGINAL_GET"
+                 and put_metrics == {"putCalls": 3, "lostAcks": 1},
+                 "live ACK-loss canary did not reconcile exactly one final PUT")
         blob, stored = created.read(REQ)
         need(stored == term and blob == store.blob_hash(store.canonical(term))
              and stored["revision"] == 2 and stored["terminal"] == "NO_UPDATE"
@@ -485,6 +522,8 @@ def persist():
                       requestSha256=rawsha, sourceHeadSha=r["sourceHeadSha"],
                       stateBlobSha=blob, stateRevision=2, targetCount=17,
                       childProofSha256=hashlib.sha256(writer.canonical(actual)).hexdigest(),
+                      controlledAfterActualPutAckLoss=(r["centralRequestId"] == ACK_LOSS_CANARY),
+                      appPutMetrics=put_metrics,
                       appPersistence=[save0,save1,save2], negatives=checks,
                       completionRunId=int(os.environ["GITHUB_RUN_ID"]))
     except Exception as exc:
@@ -522,6 +561,11 @@ def readback():
          and proof.get("targetCount") == 17
          and proof.get("durableCasVerified") is True,
          "original App writer proof mismatch")
+    if r["centralRequestId"] == ACK_LOSS_CANARY:
+        need(proof.get("controlledAfterActualPutAckLoss") is True
+             and proof.get("appPutMetrics") == {"putCalls": 3, "lostAcks": 1}
+             and proof.get("appPersistence", [None])[-1] == "RECONCILED_BY_ORIGINAL_GET",
+             "keyless reader rejects unverified real PUT ACK-loss reconcile")
     contents = bridge.get_json("repos/pgextwin/build/contents/"
         + store.PREFIX + REQ + ".json?ref=" + store.BRANCH)
     blob, state = store.unpack(contents, REQ)
