@@ -396,7 +396,7 @@ def finite_original_veto(r):
     remote = bridge.get_json("repos/pgextwin/build/contents/" + path
                              + "?ref=" + r["sourceHeadSha"])
     need(remote.get("encoding") == "base64", "original central request not Git Contents")
-    raw = base64.b64decode(remote["content"].replace("\\r", "").replace("\\n", ""),
+    raw = base64.b64decode(remote["content"].replace("\r", "").replace("\n", ""),
                            validate=True)
     need(store.blob_hash(raw) == remote.get("sha"), "central request Git blob differs")
     original = strict(raw)
