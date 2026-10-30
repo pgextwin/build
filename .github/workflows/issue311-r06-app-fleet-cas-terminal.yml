@@ -19,6 +19,7 @@ on:
       - 'tests/test-issue311-r06-app-fleet-cas-auto.py'
       - 'tests/test-issue311-r06-late-event-tombstone.py'
       - 'tests/test-issue311-r06-real-app-ack-loss.py'
+      - 'tests/test-issue311-r06-real-state-conflict.py'
 permissions:
   contents: read
   actions: read
@@ -42,6 +43,7 @@ jobs:
       - run: python tests/test-issue311-r06-app-fleet-cas-auto.py
       - run: python tests/test-issue311-r06-late-event-tombstone.py
       - run: python tests/test-issue311-r06-real-app-ack-loss.py
+      - run: python tests/test-issue311-r06-real-state-conflict.py
   persist:
     if: >-
       github.repository == 'pgextwin/build' && github.run_attempt == 1 &&
