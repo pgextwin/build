@@ -109,3 +109,40 @@ for field in r07_jobs:
     reject_jobs("pgextwin/orafce",bad)
 reject_jobs("pgextwin/orafce",{**r07_jobs,"Unverified Windows PG19":"success"})
 print("ISSUE311_R07_REAL_APP_CHILD_WINDOWS_STRICT_DENIAL_PASS")
+
+# Original App job now has 5 real Windows package artifacts in addition to
+# one receipt; reject extra/old/stale/foreign artifacts and mismatched digests.
+def original_art(name, ident, runid=123, digest="a"*64):
+    return {"name":name,"id":ident,"expired":False,
+            "workflow_run":{"id":runid},"digest":"sha256:"+digest}
+receipt=original_art(helper_mod.ARTIFACT,1)
+orafce_packages=[
+    original_art(f"orafce-pg{n}-windows-x64",n+10) for n in range(14,19)]
+def arlist(rows):
+    return {"total_count":len(rows),"artifacts":rows}
+got, extras=helper_mod.verify_original_child_artifacts(
+    "pgextwin/orafce",arlist([receipt,*orafce_packages]),123)
+assert got == receipt and len(extras)==5
+got,extras=helper_mod.verify_original_child_artifacts(
+    "pgextwin/pg_bigm",arlist([receipt]),123)
+assert got == receipt and extras=={}
+def reject_art(repo,rows):
+    try:
+        helper_mod.verify_original_child_artifacts(repo,arlist(rows),123)
+    except helper_mod.Denied:
+        return
+    raise AssertionError("untrusted R07 package artifact accepted")
+reject_art("pgextwin/orafce",[receipt])
+reject_art("pgextwin/pg_bigm",[receipt,*orafce_packages])
+for artifact in [receipt,*orafce_packages]:
+    reject_art("pgextwin/orafce",[a for a in [receipt,*orafce_packages] if a is not artifact])
+reject_art("pgextwin/orafce",[receipt,*orafce_packages,orafce_packages[-1]])
+reject_art("pgextwin/orafce",[receipt,*orafce_packages[:-1],original_art("orafce-pg19-windows-x64",19)])
+for field, bad in (
+    ("expired",True),("digest","sha256:"+"0"*63),
+    ("workflow_run",{"id":124}),("id",0)):
+    corrupt=dict(orafce_packages[0],**{field:bad})
+    reject_art("pgextwin/orafce",[receipt,corrupt,*orafce_packages[1:]])
+assert "SafeArchiveRedirect" in helper
+assert "ISSUE311_R07_ORIGINAL_WINDOWS_ZIP_ACTUAL_SHA256" in helper_path.read_text()
+print("ISSUE311_R07_REAL_WINDOWS_PACKAGE_ZIP_NEGATIVE_PASS")
