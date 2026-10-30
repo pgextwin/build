@@ -249,7 +249,14 @@ def worker(name, source, jwt):
         except (identity.HTTPFailure, Exception) as exc:
             result["dispatchErrorClass"] = type(exc).__name__
         child = None
-        for _ in range(70):
+        # R08 authentic OIDC Windows PG14–18 + first/second independent
+        # Sigstore jobs execute in ONE genuine original local Run. Their
+        # bounded Windows install/SBOM/signing/audit path can exceed the
+        # legacy 70*10s local-PREPARE-only watch. Keep a finite, strictly
+        # orafce-only 40-minute bound under the existing 75-minute coordinator
+        # job cap; other 16 target limits and no-retry POST remain unchanged.
+        original_child_max_polls = 240 if name == "orafce" else 70
+        for _ in range(original_child_max_polls):
             found = m.candidates(token, baseline, wf["id"], r["localMainSha"])
             need(len(found) <= 1, "ambiguous multiple App originals")
             if len(found) == 1 and found[0].get("status") == "completed":
