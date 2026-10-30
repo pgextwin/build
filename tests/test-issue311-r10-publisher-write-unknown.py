@@ -52,8 +52,8 @@ class FormalPublisherUnknownWrite(TestCase):
                                   "WRITE_OUTCOME_UNKNOWN_DRAFT_PUBLICATION")[fail_at - 1])
                 absent.assert_called_once()
                 if fail_at < 3:
-                    self.assertEqual(stage.call_count, 1 if fail_at == 2 else 0)
-                    self.assertEqual(verify.call_count, 1 if fail_at == 2 else 0)
+                    stage.assert_not_called()
+                    verify.assert_not_called()
                 else:
                     stage.assert_called_once()
                     verify.assert_called_once()
