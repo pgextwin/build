@@ -20,8 +20,10 @@ table = next(ast.literal_eval(x.value) for x in tree.body
 assert len(table) == len(set(table)) == len(set(table.values())) == 17
 assert "pg_store_plans" in table and "orafce" in table
 assert all(x.startswith("r-20261030-r06coordlocal") for x in table.values())
-assert "r-20261030-r06preparecoordfleet02" in main
+assert "r-20261030-r06preparecoordfleet03" in main
 assert "ThreadPoolExecutor(max_workers=4)" in main
+assert "compare/" not in main
+assert "commit.get(\"files\", [])" in main
 assert "source_digest" in main and '"sourceZipSha256": source_digest' in main
 assert "identity.revoke_401(token)" in main
 assert "need(len(found) <= 1" in main
