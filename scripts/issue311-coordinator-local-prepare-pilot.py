@@ -164,6 +164,85 @@ def candidates(token, seen, workflow_id, sha):
             and x.get("actor", {}).get("id") == BOT_ID
             and x.get("run_attempt") == 1]
 
+class SafeArchiveRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward installation credentials to GitHub's artifact storage CDN."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and not newurl.startswith("https://api.github.com/"):
+            redirected.remove_header("Authorization")
+        return redirected
+
+def verify_original_child_archive(token, child, source):
+    run_id = child["id"]
+    get = lambda path: get_app_json(token, path)
+    jobs = get("repos/pgextwin/orafce/actions/runs/" + str(run_id) +
+               "/jobs?per_page=100")
+    names = {row.get("name"): row.get("conclusion") for row in jobs.get("jobs", [])}
+    need(jobs.get("total_count") == len(jobs.get("jobs", [])) == 2
+         and names.get("Original protected PREPARE ZIP verification (NO RELEASE)") == "success"
+         and names.get("Strict App identity and PREPARE source-kind denial tests") == "skipped",
+         "unaccepted original child jobs")
+    listing = get("repos/pgextwin/orafce/actions/runs/" + str(run_id) +
+                  "/artifacts?per_page=100")
+    entries = listing.get("artifacts", [])
+    need(listing.get("total_count") == len(entries) == 1
+         and entries[0].get("name") == ARTIFACT
+         and entries[0].get("expired") is False
+         and entries[0].get("workflow_run", {}).get("id") == run_id,
+         "missing/extra child receipt artifacts")
+    artifact = entries[0]
+    endpoint = "https://api.github.com/repos/pgextwin/orafce/actions/artifacts/" + str(artifact["id"]) + "/zip"
+    headers = {"Authorization": "Bearer " + token,
+               "Accept": "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28"}
+    opener = urllib.request.build_opener(SafeArchiveRedirect)
+    with opener.open(urllib.request.Request(endpoint, headers=headers), timeout=45) as response:
+        raw_zip = response.read(10 * 1024 * 1024 + 1)
+    need(len(raw_zip) <= 10 * 1024 * 1024, "oversized local original ZIP")
+    digest = hashlib.sha256(raw_zip).hexdigest()
+    need(artifact.get("digest") == "sha256:" + digest,
+         "local original ZIP byte digest mismatch")
+    with zipfile.ZipFile(io.BytesIO(raw_zip)) as archive:
+        need(archive.namelist() == [RECEIPT_IN_ZIP], "wrong child ZIP members")
+        original = strict(archive.read(RECEIPT_IN_ZIP))
+    need(original.get("result") in ("NO_UPDATE", "UPDATE_PRESENT_NOT_AUTHORIZED")
+         and original.get("schemaVersion") == 1
+         and original.get("sourceKind") ==
+             "APP_BOT_AUTHENTICATED_ORIGINAL_PREPARE_LOCAL_READONLY_V1"
+         and original.get("requestId") == LOCAL_REQUEST_ID
+         and original.get("actualBotLogin") == BOT
+         and original.get("actualBotUserId") == BOT_ID
+         and original.get("localOriginalEvent") == "workflow_dispatch"
+         and original.get("localRunId") == run_id
+         and original.get("localRunAttempt") == 1
+         and original.get("localProtectedMainSha") == source["localMainSha"]
+         and original.get("centralSourceRunId") == source["sourceRunId"]
+         and original.get("centralSourceHeadSha") == source["sourceHeadSha"]
+         and original.get("centralSourceArtifactId") == source["sourceArtifactId"]
+         and original.get("centralSourceRequestId") == source["centralRequestId"]
+         and original.get("centralOriginalOuterZipSha256Verified") ==
+             source["sourceZipSha256"]
+         and original.get("publicationAuthorized") is False
+         and original.get("candidateAdmissionAuthorized") is False
+         and original.get("publisherSourceKindAuthorized") is False
+         and original.get("runtimeEnabled") is False
+         and original.get("publicReleaseAuthorized") is False,
+         "unaccepted real App local source-kind receipt")
+    return digest, original["result"], artifact["id"]
+
+def get_app_json(token, path):
+    need(path.startswith("repos/pgextwin/orafce/actions/runs/")
+         and (path.endswith("/jobs?per_page=100") or
+              path.endswith("/artifacts?per_page=100")),
+         "unapproved child GET")
+    request = urllib.request.Request(
+        "https://api.github.com/" + path,
+        headers={"Authorization": "Bearer " + token,
+                 "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28"})
+    with urllib.request.urlopen(request, timeout=25) as response:
+        return strict(response.read())
+
 def pilot():
     terminal = {"schemaVersion": 1, "requestId": REQUEST_ID,
                 "mode": "PREPARE", "runtimeEnabled": False,
@@ -237,9 +316,10 @@ def pilot():
                          "sourceArtifactId": r["sourceArtifactId"],
                          "sourceZipSha256": r["sourceZipSha256"],
                          "originalLocalMainSha": r["localMainSha"]})
-        # The child publishes its own PREPARE-only receipt. Its real ZIP is
-        # independently checked in the subsequent root acceptance step.
-        terminal["result"] = "LOCAL_RUN_SUCCESS_RECEIPT_PENDING_INDEPENDENT_ZIP"
+        digest, result, artifact_id = verify_original_child_archive(token, child, r)
+        terminal.update({"result": result, "localOriginalArtifactId": artifact_id,
+                         "localOriginalOuterZipSha256Verified": digest,
+                         "receiptIndependentlyVerified": True})
     except Exception as exc:
         terminal["reason"] = str(exc)[:400]
     finally:
@@ -253,7 +333,7 @@ def pilot():
         Path(RECEIPT).write_text(
             json.dumps(terminal, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         print("ISSUE311_COORD_APP_PREPARE_TERMINAL", json.dumps(terminal, sort_keys=True))
-    return 0 if terminal["result"] == "LOCAL_RUN_SUCCESS_RECEIPT_PENDING_INDEPENDENT_ZIP" else 1
+    return 0 if terminal["result"] in ("NO_UPDATE", "UPDATE_PRESENT_NOT_AUTHORIZED") and terminal.get("sameTokenRevoked401") is True else 1
 
 if __name__ == "__main__":
     import sys
