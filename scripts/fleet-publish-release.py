@@ -359,12 +359,23 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
         Path(recovery).write_text(json.dumps(
             {"schemaVersion":1,"state":stage,"tag":tag,"runId":publish_run_id,
              "commit":commit},indent=2)+"\n")
+    # Do not replay a mutation merely because its prior CLI acknowledgment is
+    # absent. This local receipt is deliberately conservative; a later runner
+    # MUST still reconcile the original GitHub ref/Release by authenticated GET.
+    def one_shot_write(boundary, *command):
+        state("WRITE_OUTCOME_UNKNOWN_" + boundary)  # persisted BEFORE the write
+        try:
+            return run(*command)
+        except (Denied, OSError, subprocess.SubprocessError, HTTPError) as exc:
+            raise Denied("write outcome UNKNOWN at " + boundary
+                         + "; no blind write retry; independently GET original") from exc
+
     state("PREFLIGHT_OK")
     # Exclusive tag reservation: a second concurrent writer cannot create the same tag.
-    run("gh","api","-X","POST","repos/"+REPO+"/git/refs",
+    one_shot_write("TAG_RESERVATION", "gh","api","-X","POST","repos/"+REPO+"/git/refs",
         "-f","ref=refs/tags/"+tag,"-f","sha="+commit)
     state("TAG_RESERVED")
-    run("gh","release","create",tag,
+    one_shot_write("DRAFT_CREATION", "gh","release","create",tag,
         *[str(folder/name) for name in sorted(expected)],
         "--repo",REPO,"--verify-tag","--draft","--target",commit,
         "--title",tag,"--notes-file",str(notes))
@@ -374,7 +385,7 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
     state("DRAFT_VERIFIED")
     # Publish exactly the release ID that this run created and verified.
     # Never resolve a draft by its tag or edit an unrelated Release.
-    run("gh","api","-X","PATCH",
+    one_shot_write("DRAFT_PUBLICATION", "gh","api","-X","PATCH",
         "repos/"+REPO+"/releases/"+str(release_id),
         "-F","draft=false")
     state("PUBLISHED_AUDIT_PENDING")
