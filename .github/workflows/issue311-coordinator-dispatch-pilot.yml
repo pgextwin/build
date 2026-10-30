@@ -1,0 +1,40 @@
+name: Issue 311 single App-bot actor event pilot (NO RELEASE)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261030-r06coordactorlaunch001.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue311-coordinator-actor-launch-one-shot
+  cancel-in-progress: false
+
+jobs:
+  app_event_pilot:
+    name: Exact protected human request -> one App-bot audit-only dispatch
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    environment: issue311-prepare-coordinator
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Strict one-shot request and actual bot identity policy
+        run: python scripts/issue311-coordinator-dispatch-pilot.py --check
+      - name: Single real nonpublishing App workflow_dispatch with same-token revoke401
+        env:
+          ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY: ${{ secrets.ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY }}
+        run: python scripts/issue311-coordinator-dispatch-pilot.py --pilot
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-coordinator-real-actor-launch-original
+          path: issue311-coordinator-actor-launch-original.json
+          if-no-files-found: warn
+          retention-days: 30
