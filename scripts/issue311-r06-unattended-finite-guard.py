@@ -278,6 +278,18 @@ def pending_terminal(state, origin, identifier, run_id):
                         "source":"independent_original_push_guard",
                         "status":"NO_SUCCESS_CLAIM"},close)
 
+def verify_existing_fail_closed(state, origin):
+    """Never accept a durable terminal belonging to another protected original."""
+    life.validate(state)
+    require(state["sourceHeadSha"]==origin["headSha"]
+            and state["targetScope"]==origin["targets"]
+            and set(state["targets"])==set(origin["targets"])
+            and state["terminal"] in ("FAILED","QUARANTINED")
+            and all(v in life.TERMINALS for v in state["targets"].values())
+            and state["publisherAuthorized"] is False
+            and state["writeOutcomeUnknown"] is False,
+            "cross-original or privileged existing terminal denied")
+
 def finalize():
     report={"result":"QUARANTINED","publisherAuthorized":False}
     token=None
@@ -324,11 +336,7 @@ def finalize():
             if old_state["terminal"] is not None:
                 # A NO_UPDATE terminal can only be accepted through the
                 # separate authenticated normal-success readback above.
-                require(old_state["terminal"] in ("FAILED","QUARANTINED")
-                        and old_state["publisherAuthorized"] is False
-                        and len(old_state["targets"])==17
-                        and all(x in life.TERMINALS for x in old_state["targets"].values()),
-                        "unverified competing successful terminal denied")
+                verify_existing_fail_closed(old_state,origin)
                 report={"result":"ALREADY_DURABLE_TERMINAL","stateId":identifier,
                         "stateBlobSha":old_blob,"revision":old_state["revision"],
                         "requestId":origin["requestId"],"publisherAuthorized":False}
@@ -375,6 +383,7 @@ def readback():
         require(proof.get("sameTokenRevoked401") is True,"App token not revoked")
         blob,state=store.unpack(api("contents/"+store.PREFIX+proof["stateId"]+".json?ref="+store.BRANCH),
                                 proof["stateId"])
+        verify_existing_fail_closed(state,origin)
         require(blob==proof["stateBlobSha"] and
                 state["revision"]==proof["revision"] and
                 state["terminal"]=="QUARANTINED"
@@ -397,12 +406,8 @@ def readback():
                     "unverified claimed original success")
         else:
             blob,state=store.unpack(api("contents/"+store.PREFIX+proof["stateId"]+".json?ref="+store.BRANCH),proof["stateId"])
-            require(blob==proof["stateBlobSha"] and state["revision"]==proof["revision"]
-                    and state["terminal"] in ("FAILED","QUARANTINED")
-                    and len(state["targets"])==17
-                    and all(v in life.TERMINALS for v in state["targets"].values())
-                    and state["sourceHeadSha"]==origin["headSha"]
-                    and state["publisherAuthorized"] is False,
+            verify_existing_fail_closed(state,origin)
+            require(blob==proof["stateBlobSha"] and state["revision"]==proof["revision"],
                     "unverified existing fail-closed terminal")
     out={"requestId":origin["requestId"],"result":proof["result"],
          "stateId":proof.get("stateId"),"appKeyAvailable":False,
