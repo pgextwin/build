@@ -2,6 +2,8 @@
 """Offline negative tests for the nonpublishing one-shot Coordinator identity proof."""
 import copy
 import importlib.util
+import os
+from unittest import mock
 from pathlib import Path
 
 file = Path("scripts/issue311-coordinator-identity.py")
@@ -20,7 +22,7 @@ def denied(call):
         return
     raise AssertionError("unsafe policy unexpectedly admitted")
 
-for key, value in (("runtimeEnabled", True), ("botUserId", 1),
+for key, value in (("runtimeEnabled", True), ("botUserId", None),
                    ("appId", 5517840), ("installationId", 176347451)):
     test = copy.deepcopy(policy)
     test[key] = value
@@ -35,5 +37,6 @@ denied(lambda: m.make_jwt("wrong"))
 denied(lambda: m.api("POST",
     "repos/pgextwin/orafce/actions/workflows/issue311-fleet-local-prepare.yml/dispatches",
     "not-a-token"))
-denied(lambda: m.event_gate())
+with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "attacker/not-build"}):
+    denied(lambda: m.event_gate())
 print("ISSUE311_COORDINATOR_IDENTITY_OFFLINE_DENIES_PASS")

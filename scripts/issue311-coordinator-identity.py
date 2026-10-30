@@ -63,8 +63,8 @@ def check_policy(policy, request):
             "coordinator runtime must remain disabled")
     require(policy["appId"] == APP_ID and policy["installationId"] == INSTALLATION_ID,
             "unapproved App or installation")
-    require(policy["botUserId"] is None and policy["botLogin"] == APP_SLUG + "[bot]",
-            "identity not yet authoritatively verified")
+    require(policy["botUserId"] == 350058024 and policy["botLogin"] == APP_SLUG + "[bot]",
+            "unverified or mismatched pinned real bot identity")
     require(set(policy["repositories"]) == EXPECTED_REPOS and
             len(policy["repositories"]) == 17, "selected17 mismatch")
     require(policy["requestedRepositoryPermissions"] == {"actions": "write", "metadata": "read"},
@@ -202,7 +202,7 @@ def probe():
         bot = api("GET", "users/" + APP_SLUG + "%5Bbot%5D", token)
         require(bot.get("login") == APP_SLUG + "[bot]" and
                 bot.get("type") == "Bot" and
-                type(bot.get("id")) is int and bot["id"] > 0,
+                bot.get("id") == 350058024,
                 "actual App bot identity mismatch")
         scope = response.get("permissions", {})
         require(scope.get("actions") == "write" and
