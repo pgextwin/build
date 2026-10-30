@@ -1,0 +1,79 @@
+name: Issue 311 R10 independent negative original ZIP join (NONPUBLISHING)
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue311-r10-negative-originals.py'
+      - 'tests/test-issue311-r10-negative-originals.py'
+      - '.github/workflows/issue311-r10-negative-originals.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue311-r10-negative-originals.py'
+      - 'tests/test-issue311-r10-negative-originals.py'
+      - '.github/workflows/issue311-r10-negative-originals.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r10-negative-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  offline_negative:
+    if: github.event_name == 'pull_request'
+    name: Fail-closed original-byte scope, missing receipt and nonpublishing guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - run: python tests/test-issue311-r10-negative-originals.py
+  source_originals:
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    name: Re-GET six immutable original ZIPs, rehash 32 real child ZIPs, no App key
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - run: python tests/test-issue311-r10-negative-originals.py
+      - name: Authenticate immutable Run/job/Artifact GET and actual ZIP bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r10-negative-originals.py --output issue311-r10-negative-originals.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r10-negative-originals
+          path: issue311-r10-negative-originals.json
+          if-no-files-found: error
+          retention-days: 30
+  independent_readback:
+    needs: source_originals
+    name: Separate no-App-key Runner independently rehash every original and compare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Get first Runner exact report bytes from the same original Run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name issue311-r10-negative-originals --dir .
+      - name: Re-GET real six source ZIPs and 32 child ZIPs independently
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r10-negative-originals.py --verify --output issue311-r10-negative-originals.json
