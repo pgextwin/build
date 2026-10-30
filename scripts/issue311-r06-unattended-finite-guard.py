@@ -45,7 +45,8 @@ def stamp(dt):
 def current():
     return datetime.now(timezone.utc)
 
-def original():
+def original(*, stage="observe"):
+    require(stage in ("observe","finalize","readback"),"invalid recovery stage")
     require(os.environ.get("GITHUB_REPOSITORY")=="pgextwin/build"
         and os.environ.get("GITHUB_WORKFLOW")==NAME
         and os.environ.get("GITHUB_EVENT_NAME")=="push"
@@ -70,8 +71,28 @@ def original():
     match=re.fullmatch(r"\.github/execution-requests/(r-20[0-9]{6}-r06prepare[a-z0-9-]{4,40})\.json",path)
     require(match is not None,"non-PREPARE source or forged path")
     raw=subprocess.check_output(["git","show","HEAD:"+path])
-    declaration=contract.validate_declaration(raw,path)
+    # Revalidation after the deadline must not retroactively invalidate the
+    # original, authenticated push. Bind the declaration to the actual first-
+    # attempt GitHub Actions Run created_at, never a request-supplied clock.
+    run_id=os.environ.get("GITHUB_RUN_ID","")
+    require(re.fullmatch(r"[1-9][0-9]{4,}",run_id or ""),"invalid original guard Run")
+    original_run=api("actions/runs/"+run_id)
+    require(original_run.get("id")==int(run_id)
+            and original_run.get("head_sha")==head
+            and original_run.get("name")==NAME
+            and original_run.get("path")==".github/workflows/issue311-r06-unattended-finite-guard.yml"
+            and original_run.get("event")=="push"
+            and original_run.get("head_branch")=="main"
+            and original_run.get("run_attempt")==1
+            and original_run.get("actor",{}).get("login")=="ShutenOishi",
+            "original guard Run provenance mismatch")
+    started=contract._timestamp(original_run["created_at"])
+    require(started<=current()+timedelta(minutes=5),"future original guard created_at")
+    declaration=contract.validate_declaration(raw,path,now=started)
     req=strict(raw)
+    expiry=life.parse_utc(req["expiresAt"])
+    if stage=="observe":
+        require(current()<expiry,"expired original cannot start observing")
     require(req.get("requestId")==match.group(1)
             and declaration["mode"]=="PREPARE"
             and req.get("source",{}).get("centralMainSha")==before
@@ -108,6 +129,11 @@ def original():
     cutoff=min(life.parse_utc(req["expiresAt"]),
                contract._timestamp(req["createdAt"])+timedelta(minutes=req["limits"]["maxWallClockMinutes"]))
     require(cutoff>contract._timestamp(req["createdAt"]),"invalid finite deadline")
+    if stage!="observe":
+        # Keep the finite recovery path open for the separate no-key readback
+        # but never allow unbounded historical re-entry on an old original.
+        require(current()<=cutoff+timedelta(minutes=20),
+                "finite recovery/readback grace exceeded")
     # Checkpoint identity MUST bind original request bytes and original protected HEAD.
     return {"headSha":head,"requestId":req["requestId"],"requestSha256":hashlib.sha256(raw).hexdigest(),
             "targets":sorted(x["repo"] for x in req["targets"]),
@@ -241,7 +267,7 @@ def finalize():
     token=None
     try:
         recorded=strict(Path(OUT).read_bytes())
-        origin=original()
+        origin=original(stage="finalize")
         require(recorded["requestId"]==origin["requestId"]
                 and recorded["sourceHeadSha"]==origin["headSha"]
                 and recorded["publisherAuthorized"] is False,
@@ -321,7 +347,7 @@ def finalize():
 
 def readback():
     require(not os.environ.get("STATE_WRITER_PRIVATE_KEY"),"reader has App key")
-    origin=original()
+    origin=original(stage="readback")
     listing=api("actions/runs/"+os.environ["GITHUB_RUN_ID"]+"/artifacts?per_page=100")
     choices=[x for x in listing.get("artifacts",[]) if x.get("name")=="issue311-r06-unattended-finite-terminal"]
     require(len(choices)==1 and choices[0].get("expired") is False,"original proof ZIP absent")
