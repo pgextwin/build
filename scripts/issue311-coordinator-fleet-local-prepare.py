@@ -198,7 +198,7 @@ def worker(name, source, jwt):
         r["localMainSha"] = source["targets"][repo]
         m.check_source(r)
         minted = identity.api("POST", "app/installations/176718417/access_tokens",
-                              jwt, {"repositories": [name],
+                              identity.make_jwt(os.environ.get("ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY", "")), {"repositories": [name],
                                     "permissions": {"actions": "write"}})
         token = minted.get("token")
         need(type(token) is str and len(token) > 30, "missing one-repo App token")
