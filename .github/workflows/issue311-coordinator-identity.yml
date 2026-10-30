@@ -1,0 +1,40 @@
+name: Issue 311 dedicated coordinator App identity (one-shot, NO DISPATCH)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-20261030-r06coordinatoridentity001.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue311-coordinator-identity-one-shot
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    name: Real App, installation, bot, scoped token, revoke401 (NO DISPATCH)
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    environment: issue311-prepare-coordinator
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate one-shot immutable nonpublishing policy
+        run: python scripts/issue311-coordinator-identity.py --check-policy
+      - name: Authenticate dedicated App, read real identities, revoke same token
+        env:
+          ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY: ${{ secrets.ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY }}
+        run: python scripts/issue311-coordinator-identity.py --probe
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-coordinator-identity-original
+          path: issue311-coordinator-identity-original.json
+          if-no-files-found: warn
+          retention-days: 30
