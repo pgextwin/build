@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "status": "PROPOSAL_REQUIRES_EXPLICIT_APPROVAL",
+  "status": "APPROVED_MANUAL_BOOTSTRAP_DONE_PENDING_LIVE_IDENTITY_PROOF",
   "runtimeEnabled": false,
   "role": "ISSUE311_NONPUBLISHING_LOCAL_PREPARE_DISPATCH",
-  "requestedName": "pgextwin-issue311-prepare-coordinator",
+  "requestedName": "pgextwin-issue311-prepare-coord",
   "owner": "pgextwin",
   "visibility": "private",
-  "appId": null,
-  "installationId": null,
+  "appId": 5534389,
+  "installationId": 176718417,
   "botUserId": null,
   "repositorySelection": "selected",
   "repositories": [
@@ -82,5 +82,19 @@
     "sign_or_publish_release",
     "catalog_or_website_write",
     "cron_or_external_scheduler"
-  ]
+  ],
+  "botLogin": "pgextwin-issue311-prepare-coord[bot]",
+  "approvalRecordedIn": "pgextwin/build#311 (2026-10-30)",
+  "manualSetup": {
+    "appPrivate": true,
+    "installedSelected17": true,
+    "mainRestrictedEnvironment": "issue311-prepare-coordinator",
+    "environmentId": 25744043853,
+    "secretName": "ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY",
+    "secretPresent": true,
+    "retainedKeyId": 5098216,
+    "formerUnusedKeyDeleted": 5097717,
+    "keyUsabilityVerified": false
+  },
+  "liveIdentityVerification": "PENDING_ONE_SHOT_PROTECTED_MAIN_PUSH"
 }
