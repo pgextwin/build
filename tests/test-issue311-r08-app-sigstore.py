@@ -51,6 +51,11 @@ def check(a,b,m,lc):
     return join.verify(a,b,m,lc,repository=REPO,sha=SHA,run_id=RUN)
 
 class R08AppSigned(unittest.TestCase):
+    def test_protected_r08_signer_pin_is_not_legacy_schedule(self):
+        self.assertEqual(audit.R08_SIGNER_SHA, "dc863f4047ee2bab8806a48f4b203fdee6b012ba")
+        self.assertNotEqual(audit.R08_SIGNER_SHA, audit.pin.SIGNER_SHA)
+        self.assertIn("R08_SIGNER_SHA", Path("scripts/issue311-r08-audit-app-signed-candidate.py").read_text())
+
     def test_exact_original_app_workflow_only(self):
         run={"repository":{"full_name":REPO},"id":RUN,"run_attempt":1,
              "head_sha":SHA,"head_branch":"main","event":"workflow_dispatch",
