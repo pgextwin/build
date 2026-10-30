@@ -76,7 +76,8 @@ def proof_statement(entry, kind, *, repo, sha, signer_sha, run_id, attempt,
     uri = f"https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}"
     signer_uri = ("https://github.com/pgextwin/build/"
                   + offline.SIGNER_PATH + "@" + signer_sha)
-    require(config_path in {offline.PROMOTE_PATH, ".github/workflows/update-watch.yml"},
+    require(config_path in {offline.PROMOTE_PATH, ".github/workflows/update-watch.yml",
+                            ".github/workflows/issue311-request-local-prepare.yml"},
             "unrecognized trusted caller workflow")
     config_uri = f"https://github.com/{repo}/{config_path}@refs/heads/main"
     require("runnerInvocationURI" not in cert
