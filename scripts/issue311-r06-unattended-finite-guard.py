@@ -148,6 +148,10 @@ def snapshot(origin):
     cas=candidates(CAS,CAS_NAME,"workflow_run",sha)
     source_state_id=("r-"+origin["requestId"][2:10]+"-r06appauto"+str(fleet["id"])) if fleet else None
     checkpoint=contents_state(source_state_id) if source_state_id else None
+    # An earlier independent finite quarantine is an immutable veto even if a
+    # delayed event later creates a separate coordinator/CAS success report.
+    watchdog=contents_state(origin["watchId"])
+    watch_quarantined=bool(watchdog and watchdog[1]["terminal"] in ("FAILED","QUARANTINED"))
     # Success is only observed when the *separate* genuine keyless readback
     # succeeded and its actual immutable state is completed, not from event flags.
     good=False
@@ -165,12 +169,15 @@ def snapshot(origin):
               and set(state["targets"].values())=={"SUCCESS"}
               and state.get("publisherAuthorized") is False
               and state.get("writeOutcomeUnknown") is False)
+    if good and watch_quarantined:
+        require(False,"conflicting durable watchdog quarantine vs late CAS success")
     failed=any(x and x.get("status")=="completed"
                and x.get("conclusion") not in ("success",)
                for x in (central,fleet,cas))
     return {"central":central,"fleet":fleet,"cas":cas,
             "stateId":source_state_id,"checkpoint":checkpoint,
-            "healthy":good,"authoritativeFailure":failed}
+            "healthy":good,"authoritativeFailure":failed,
+            "watchdog":watchdog}
 
 def observation(origin, snap, result):
     return {"schemaVersion":1,"requestId":origin["requestId"],
@@ -248,7 +255,9 @@ def finalize():
                     "not failed/expired; cannot terminalize a running source")
             # A coordinator source checkpoint can already exist at rev0/1.
             # Quarantine it rather than creating an unrelated success record.
-            identifier=snap["stateId"] if snap["checkpoint"] else origin["watchId"]
+            # Prefer the coordinator checkpoint identity even when absent: a
+            # late workflow_run then cannot create a second success checkpoint.
+            identifier=snap["stateId"] or origin["watchId"]
             existing=snap["checkpoint"] if snap["checkpoint"] else contents_state(identifier)
             token=writer.mint_token(os.environ.get("STATE_WRITER_PRIVATE_KEY",""))
             cas=store.CAS(lambda method,endpoint,body:writer.api(method,endpoint,token,body))
@@ -256,8 +265,9 @@ def finalize():
                 fresh=life.new(identifier,origin["requestSha256"],origin["headSha"],
                                origin["targets"],origin["deadlineAt"],max_events=100)
                 bound=(life.bind_source(fresh,0,"r06_watch_original_source",
-                        run_id=snap["central"]["id"],attempt=1,head_sha=origin["headSha"])
-                        if snap["central"] else fresh)
+                        run_id=(snap["fleet"]["id"] if snap["stateId"] else snap["central"]["id"]),
+                        attempt=1,head_sha=origin["headSha"])
+                        if (snap["fleet"] if snap["stateId"] else snap["central"]) else fresh)
                 # No fake source or event: record a separately identified finite
                 # observer checkpoint when no authenticated App source exists.
                 saved=cas.write(fresh)
@@ -268,8 +278,15 @@ def finalize():
                 existing=cas.read(identifier)
             old_blob,old_state=existing
             if old_state["terminal"] is not None:
-                require(old_state["publisherAuthorized"] is False,"privileged terminal")
+                # A NO_UPDATE terminal can only be accepted through the
+                # separate authenticated normal-success readback above.
+                require(old_state["terminal"] in ("FAILED","QUARANTINED")
+                        and old_state["publisherAuthorized"] is False
+                        and len(old_state["targets"])==17
+                        and all(x in life.TERMINALS for x in old_state["targets"].values()),
+                        "unverified competing successful terminal denied")
                 report={"result":"ALREADY_DURABLE_TERMINAL","stateId":identifier,
+                        "stateBlobSha":old_blob,"revision":old_state["revision"],
                         "requestId":origin["requestId"],"publisherAuthorized":False}
             else:
                 term=pending_terminal(old_state,origin,identifier,int(os.environ["GITHUB_RUN_ID"]))
@@ -329,6 +346,20 @@ def readback():
     else:
         require(proof["result"] in ("ORIGINAL_ALREADY_DURABLE_SUCCESS","ALREADY_DURABLE_TERMINAL"),
                 "not an authenticated no-write result")
+        # Keyless proof is required even for an idempotent no-write result.
+        snap=snapshot(origin)
+        if proof["result"]=="ORIGINAL_ALREADY_DURABLE_SUCCESS":
+            require(snap["healthy"] is True and snap["stateId"]==proof["stateId"],
+                    "unverified claimed original success")
+        else:
+            blob,state=store.unpack(api("contents/"+store.PREFIX+proof["stateId"]+".json?ref="+store.BRANCH),proof["stateId"])
+            require(blob==proof["stateBlobSha"] and state["revision"]==proof["revision"]
+                    and state["terminal"] in ("FAILED","QUARANTINED")
+                    and len(state["targets"])==17
+                    and all(v in life.TERMINALS for v in state["targets"].values())
+                    and state["sourceHeadSha"]==origin["headSha"]
+                    and state["publisherAuthorized"] is False,
+                    "unverified existing fail-closed terminal")
     out={"requestId":origin["requestId"],"result":proof["result"],
          "stateId":proof.get("stateId"),"appKeyAvailable":False,
          "publicationAuthorized":False,"independentReadback":True}
