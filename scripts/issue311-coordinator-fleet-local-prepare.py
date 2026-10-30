@@ -148,8 +148,8 @@ def source_original():
          and items[0].get("expired") is False
          and items[0].get("name") == prepare.ARTIFACT,
          "ambiguous source archive")
-    report, sha = bridge.original_zip(items[0], prepare.RECEIPT)
-    need(items[0].get("digest") == "sha256:" + sha
+    report, source_digest = bridge.original_zip(items[0], prepare.RECEIPT)
+    need(items[0].get("digest") == "sha256:" + source_digest
          and report.get("requestId") == REQUEST_ID
          and report.get("requestSha256") == declaration["rawSha256"]
          and report.get("sourceRunId") == rid
@@ -173,7 +173,7 @@ def source_original():
              and live.get("commit", {}).get("sha") == sha,
              "local main not exact/protected: " + repo)
     return {"sourceRunId": rid, "sourceHeadSha": run["head_sha"],
-            "sourceArtifactId": items[0]["id"], "sourceZipSha256": sha,
+            "sourceArtifactId": items[0]["id"], "sourceZipSha256": source_digest,
             "centralRequestId": REQUEST_ID, "targets": targets,
             "perTargetStatus": report["perTargetStatus"],
             "requestRawSha256": declaration["rawSha256"]}
