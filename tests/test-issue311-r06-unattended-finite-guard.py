@@ -53,6 +53,22 @@ with patch.dict(os.environ,{
     try:m.original()
     except ValueError:pass
     else:raise AssertionError("untrusted original event accepted")
+# Cross-original or privileged already-durable states must not bypass the
+# independent fail-closed readback merely because their terminal is QUARANTINED.
+m.verify_existing_fail_closed(term,origin)
+for bad in [
+    {**term,"sourceHeadSha":"c"*40},
+    {**term,"targetScope":targets[:1]},
+    {**term,"targets":{**term["targets"],"pgextwin/not-approved":"QUARANTINED"}},
+    {**term,"writeOutcomeUnknown":True},
+    {**term,"publisherAuthorized":True},
+    {**term,"terminal":"NO_UPDATE"},
+]:
+    try:m.verify_existing_fail_closed(bad,origin)
+    except ValueError:pass
+    else:raise AssertionError("cross-original or privileged durable terminal accepted")
+print("ISSUE311_R06_EXISTING_TERMINAL_ORIGINAL_IDENTITY_NEGATIVE_PASS_OFFLINE_ONLY")
+
 print("ISSUE311_R06_INDEPENDENT_FINITE_WATCHDOG_NEGATIVE_PASS_OFFLINE_ONLY")
 
 # Transient READ-only GitHub GET recovery; must never expand into App write retries.
