@@ -12,6 +12,7 @@ on:
       - '.github/workflows/issue311-r06-unattended-finite-guard.yml'
       - 'scripts/issue311-r06-unattended-finite-guard.py'
       - 'tests/test-issue311-r06-unattended-finite-guard.py'
+      - 'tests/test-issue311-r06-late-event-tombstone.py'
 permissions:
   contents: read
   actions: read
@@ -33,6 +34,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
       - run: python tests/test-issue311-r06-unattended-finite-guard.py
+      - run: python tests/test-issue311-r06-late-event-tombstone.py
   bounded_watch:
     if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
     name: Independent original guarded 17-App event polling and finite quarantine
