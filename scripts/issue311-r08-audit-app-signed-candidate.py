@@ -32,6 +32,9 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 CALLER = ".github/workflows/issue311-request-local-prepare.yml"
 SIGNED = "VERIFIED_APP_PREPARE_OIDC_NONPUBLISHING"
+# R08 signer is a separate protected full-SHA pin. Never accept legacy schedule
+# signature identity as proof for the new authenticated App request.
+R08_SIGNER_SHA = "dc863f4047ee2bab8806a48f4b203fdee6b012ba"
 
 class Denied(ValueError):
     pass
@@ -156,7 +159,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
                 and origin.get("packagingCommit") == sha
                 and build.get("repository") == "pgextwin/build"
                 and build.get("workflow") == pin.offline.SIGNER_PATH
-                and build.get("commit") == pin.SIGNER_SHA
+                and build.get("commit") == R08_SIGNER_SHA
                 and type(wf.get("id")) is int and wf["id"] == run_id
                 and type(wf.get("attempt")) is int and wf["attempt"] == attempt
                 and wf.get("url") == f"https://github.com/{repo}/actions/runs/{run_id}"
@@ -185,7 +188,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
             try:
                 pin.proof_statement(
                     {"verificationResult": item["verificationResult"]},
-                    kind, repo=repo, sha=sha, signer_sha=pin.SIGNER_SHA,
+                    kind, repo=repo, sha=sha, signer_sha=R08_SIGNER_SHA,
                     run_id=run_id, attempt=attempt, event="workflow_dispatch",
                     config_path=CALLER, zip_name=z.name,
                     zip_digest=hashes[z.name], sbom=sbom)
@@ -247,7 +250,7 @@ def main():
             return run_readonly("gh", "attestation", "verify", str(z),
                                 "--repo", trusted_repo,
                                 "--signer-workflow", "pgextwin/build/" + pin.offline.SIGNER_PATH,
-                                "--signer-digest", pin.SIGNER_SHA,
+                                "--signer-digest", R08_SIGNER_SHA,
                                 "--source-digest", trusted_sha,
                                 "--source-ref", "refs/heads/main",
                                 "--predicate-type", kind, "--format", "json")
