@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261030-r06preparecoord001",
+  "mode": "PREPARE",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-10-30T01:35:02.840Z",
+  "expiresAt": "2026-10-30T05:35:02.840Z",
+  "purpose": "R06-06-03 new protected 17-main central PREPARE original source for real pinned App-bot orafce nonpublishing local PREPARE; no old Run rerun, no candidate or Release.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "1358fbb1e263adcb6d050093edffbbef9517b8a8",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 4,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 100,
+    "maxWallClockMinutes": 45
+  },
+  "approval": {
+    "scopeText": "One protected nonpublishing 17-repository PREPARE original source for distinct App actor local read-only PREPARE proof. No candidate, signing, Publisher, Catalog, tag, Release or privileged writer. PUBLISH_DENY remains.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/pg_bigm",
+      "mainSha": "5b2422f6c0566b413e79b92c46f0411af1900ea0"
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "mainSha": "8ecafb6c2defb2d2d235d13475b73cf26f5ab5a8"
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "mainSha": "c2d765050346f7f9798eae9bafdd0fd067acb12f"
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "mainSha": "aace9064e7c80bfad8842f9a000697713d6db581"
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "mainSha": "c9dc4bd67ff925eba7a45c33afdb52f8ef3f4a94"
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "mainSha": "d20ad2e0dbce141c5761e07fca4da09b20e28b47"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "62b7fd675550e7bcad25b11b54e3d089a0224c35"
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "mainSha": "1bee8c610822ec1681fcf8baaa1eae2d9a30aaf9"
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "mainSha": "26665f08eba43e99abf47e0fbab3e634a5e8ed4a"
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "9df4ed7cde72f103d4e412cfaa7304e7a8db8af2"
+    },
+    {
+      "repo": "pgextwin/hypopg",
+      "mainSha": "1ef47052a852a568c91110a5f719e0ae23af1b40"
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "mainSha": "b70027b8c2ace10b1c76a885aee3e38492670fa7"
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "mainSha": "9bae4fd8226859c5090512e1942a1c646f06bed3"
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "mainSha": "b07795fdc8075ef9ab58d8804f65a0f955a4e7a0"
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "mainSha": "3481fb5ca2aedcfbbf997c095782f07bbda31b17"
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "mainSha": "f390671d044d8232de16613a6d75d7bc483d1f09"
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "mainSha": "ab0ebad0b53b604b29d750798ad035c67e00ccaa"
+    }
+  ],
+  "resumeFrom": null
+}
