@@ -9,6 +9,8 @@ dedicated state App token is minted. No retries of ambiguous App PUTs.
 from __future__ import annotations
 
 import copy
+import base64
+import urllib.error
 from datetime import datetime, timezone, timedelta
 import hashlib
 import importlib.util
@@ -380,6 +382,51 @@ def terminal_replay_denials(state, central, children):
         {"encoding": "base64", "sha":"0"*40, "content": ""}, "r-20261030-otherrequest0001"))
     return checks
 
+def finite_original_veto(r):
+    """An original protected PREPARE deadline and State watchdog veto are mandatory.
+
+    Called immediately before each App CAS write, not from independent reader.
+    A late delivered workflow_run cannot turn a bounded QUARANTINED original into
+    another request's NO_UPDATE. Original Git Contents bytes are independently
+    authenticated, never trusted from workflow event claims.
+    """
+    if os.environ.get("GITHUB_EVENT_NAME") != "workflow_run":
+        return
+    path = ".github/execution-requests/" + r["centralRequestId"] + ".json"
+    remote = bridge.get_json("repos/pgextwin/build/contents/" + path
+                             + "?ref=" + r["sourceHeadSha"])
+    need(remote.get("encoding") == "base64", "original central request not Git Contents")
+    raw = base64.b64decode(remote["content"].replace("\\r", "").replace("\\n", ""),
+                           validate=True)
+    need(store.blob_hash(raw) == remote.get("sha"), "central request Git blob differs")
+    original = strict(raw)
+    need(original.get("requestId") == r["centralRequestId"]
+         and original.get("mode") == "PREPARE"
+         and original.get("allowFutureUpdates") is False
+         and original.get("approval", {}).get("publicReleaseAuthorized") is False
+         and original.get("approval", {}).get("publicationGrants") == []
+         and len(original.get("targets", [])) == 17
+         and original.get("limits", {}).get("maxAttemptsPerStage") == 1,
+         "nonpublishing bounded central declaration mismatch")
+    created = life.parse_utc(original["createdAt"])
+    deadline = min(life.parse_utc(original["expiresAt"]),
+                   created + timedelta(minutes=original["limits"]["maxWallClockMinutes"]))
+    need(now() < deadline, "original finite deadline expired; deny late completion")
+    watch_id = ("r-" + r["centralRequestId"][2:10]
+                + "-r06watch" + r["sourceHeadSha"][:16])
+    try:
+        receipt = bridge.get_json("repos/pgextwin/build/contents/"
+                 + store.PREFIX + watch_id + ".json?ref=" + store.BRANCH)
+    except urllib.error.HTTPError as error:
+        need(error.code == 404, "unknown original watchdog GET outcome")
+    else:
+        blob, state = store.unpack(receipt, watch_id)
+        need(state["sourceHeadSha"] == r["sourceHeadSha"]
+             and state["publisherAuthorized"] is False, "cross-source finite veto")
+        raise ValueError("R06_APP_CAS_DENY durable finite watchdog already exists; "
+                         "never claim NO_UPDATE after quarantine")
+
+
 def persist():
     result = {"schemaVersion": 1, "requestId": REQ, "result": "QUARANTINED",
               "publicationAuthorized": False, "publisherAuthorized": False,
@@ -392,17 +439,20 @@ def persist():
             **orig["central"], "targetMainSha": central["targetMainSha"]})
         need(len(actual) == 17 and all(x["result"] == "NO_UPDATE" for x in actual.values()),
              "no full original 17 NO_UPDATE acceptance")
+        finite_original_veto(r)
         initial = life.new(REQ, rawsha, r["sourceHeadSha"], sorted(actual),
                            r["expiresAt"], max_events=100)
         token = writer.mint_token(os.environ.get("STATE_WRITER_PRIVATE_KEY", ""))
         created = store.CAS(lambda method,endpoint,body:
                             writer.api(method,endpoint,token,body))
+        finite_original_veto(r)
         save0 = created.write(initial)
         blob, current = created.read(REQ)
         need(current == initial, "revision0 GET mismatch")
         bound = life.bind_source(current, current["revision"], "r06-app-17-original",
                                  run_id=r["sourceRunId"], attempt=1,
                                  head_sha=r["sourceHeadSha"])
+        finite_original_veto(r)
         save1 = created.write(bound, previous=current, expected_blob=blob)
         blob, current = created.read(REQ)
         need(current == bound, "revision1 GET mismatch")
@@ -417,6 +467,7 @@ def persist():
             state["completionRun"] = {"id":int(os.environ["GITHUB_RUN_ID"]), "attempt":1}
             state["eventTransport"] = ("workflow_run.completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
         term = life._apply(current, current["revision"], "r06-real-app-17-terminal", payload, finish)
+        finite_original_veto(r)
         save2 = created.write(term, previous=current, expected_blob=blob)
         blob, stored = created.read(REQ)
         need(stored == term and blob == store.blob_hash(store.canonical(term))
