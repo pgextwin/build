@@ -67,3 +67,45 @@ with patch.dict(os.environ, {
     else:
         raise AssertionError("untrusted PR accepted as real central source")
 print("ISSUE311_APP_17_FLEET_NEGATIVE_POLICY_PASS")
+
+# R07-01 admitted child must be the actual original App workflow's five
+# successful PG14–18 reusable Windows jobs and required summary (not a
+# separate successful PR/main push). Old 16 App-only originals stay strict.
+helper_spec = importlib.util.spec_from_file_location("r07_helper",helper_path)
+helper_mod = importlib.util.module_from_spec(helper_spec)
+helper_spec.loader.exec_module(helper_mod)
+def record(mapping):
+    return {"total_count":len(mapping),
+            "jobs":[{"name":n,"status":"completed","conclusion":c}
+                    for n,c in mapping.items()]}
+base_jobs={
+    "Original protected PREPARE ZIP verification (NO RELEASE)":"success",
+    "Strict App identity and PREPARE source-kind denial tests":"skipped",
+}
+prefix="R07-01 authenticated App original Windows PG14-18 / "
+r07_jobs={
+    **base_jobs,
+    prefix+"Resolve extension and PostgreSQL matrix":"success",
+    **{prefix+f"PostgreSQL {n} / Windows x64":"success"
+       for n in range(14,19)},
+    "R07-01 Windows required summary":"success",
+}
+assert helper_mod.verify_original_child_jobs("pgextwin/orafce",record(r07_jobs)) is None
+assert helper_mod.verify_original_child_jobs("pgextwin/pg_bigm",record(base_jobs)) is None
+def reject_jobs(repo,mapping):
+    try:
+        helper_mod.verify_original_child_jobs(repo,record(mapping))
+    except helper_mod.Denied:
+        return
+    raise AssertionError("R07 unverified Windows or old App child accepted")
+reject_jobs("pgextwin/orafce",base_jobs)
+reject_jobs("pgextwin/pg_bigm",r07_jobs)
+for field in r07_jobs:
+    bad=dict(r07_jobs)
+    bad[field]="skipped" if field != "Strict App identity and PREPARE source-kind denial tests" else "success"
+    reject_jobs("pgextwin/orafce",bad)
+    bad=dict(r07_jobs)
+    del bad[field]
+    reject_jobs("pgextwin/orafce",bad)
+reject_jobs("pgextwin/orafce",{**r07_jobs,"Unverified Windows PG19":"success"})
+print("ISSUE311_R07_REAL_APP_CHILD_WINDOWS_STRICT_DENIAL_PASS")
