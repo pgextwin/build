@@ -415,7 +415,7 @@ def persist():
             state["targets"] = {repo:"SUCCESS" for repo in sorted(actual)}
             state["terminal"] = "NO_UPDATE"
             state["completionRun"] = {"id":int(os.environ["GITHUB_RUN_ID"]), "attempt":1}
-            state["eventTransport"] = ("WORKFLOW_RUN_COMPLETED" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
+            state["eventTransport"] = ("workflow_run.completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
         term = life._apply(current, current["revision"], "r06-real-app-17-terminal", payload, finish)
         save2 = created.write(term, previous=current, expected_blob=blob)
         blob, stored = created.read(REQ)
@@ -477,7 +477,7 @@ def readback():
     need(blob == proof["stateBlobSha"]
          and state["revision"] == proof["stateRevision"] == 2
          and state["terminal"] == "NO_UPDATE"
-         and state["eventTransport"] == ("WORKFLOW_RUN_COMPLETED" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
+         and state["eventTransport"] == ("workflow_run.completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
          and state["sourceRun"] == {"id":r["sourceRunId"],"attempt":1}
          and state["completionRun"] == {"id":int(os.environ["GITHUB_RUN_ID"]),"attempt":1}
          and state["requestSha256"] == rawsha
