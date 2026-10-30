@@ -21,7 +21,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-REQUEST_ID = "r-20261030-r06preparecoordfleet02"
+REQUEST_ID = "r-20261030-r06preparecoordfleet03"
 REQUEST_PATH = ".github/execution-requests/" + REQUEST_ID + ".json"
 SOURCE_NAME = "Issue 311 R06 PREPARE original fleet scan (NONPUBLISHING)"
 SOURCE_PATH = ".github/workflows/issue311-r06-prepare-scan.yml"
@@ -132,9 +132,13 @@ def source_original():
          and request["limits"]["maxParallel"] <= 4
          and request["limits"]["maxAttemptsPerStage"] == 1,
          "not exact 17 source or published source-kind")
-    changes = bridge.get_json("repos/pgextwin/build/compare/" + before + "..." + run["head_sha"])
-    need([x.get("filename") for x in changes.get("files", [])] == [REQUEST_PATH]
-         and changes["files"][0].get("status") == "added",
+    # The approved REST bridge intentionally DENIES '..' in endpoints.
+    # An authenticated original commit's own changed-file list gives the
+    # strict one-added-request check without opening a compare URL.
+    changes = commit.get("files", [])
+    need(type(changes) is list and len(changes) == 1
+         and changes[0].get("filename") == REQUEST_PATH
+         and changes[0].get("status") == "added",
          "central request is not the only added file")
     jobs = bridge.get_json("repos/pgextwin/build/actions/runs/" + str(rid)
                            + "/jobs?per_page=100")
