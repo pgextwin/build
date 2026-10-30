@@ -200,6 +200,28 @@ def verify_original_child_jobs(repo, listing):
          and all(x.get("status") == "completed" for x in items),
          "original child mandatory App and Windows jobs do not match")
 
+
+def verify_original_child_artifacts(repo, listing, run_id):
+    """One authentic receipt, plus only orafce's 5 mandatory R07 packages."""
+    entries = listing.get("artifacts", [])
+    need(type(entries) is list and listing.get("total_count") == len(entries),
+         "missing/paginated original child artifacts")
+    expected = {ARTIFACT}
+    if repo == "pgextwin/orafce":
+        expected.update(f"orafce-pg{m}-windows-x64" for m in range(14, 19))
+    actual = {a.get("name"): a for a in entries}
+    need(len(entries) == len(actual) == len(expected) and set(actual) == expected,
+         "missing/extra original R07 Windows package ZIP")
+    for item in entries:
+        need(type(item.get("id")) is int and item["id"] > 0
+             and item.get("expired") is False
+             and item.get("workflow_run", {}).get("id") == run_id
+             and type(item.get("digest")) is str
+             and re.fullmatch(r"sha256:[0-9a-f]{64}", item["digest"]),
+             "untrusted child package ZIP metadata")
+    return actual[ARTIFACT], {name:item for name,item in actual.items()
+                              if name != ARTIFACT}
+
 def verify_original_child_archive(token, child, source):
     run_id = child["id"]
     get = lambda path: get_app_json(token, path)
@@ -209,13 +231,32 @@ def verify_original_child_archive(token, child, source):
     verify_original_child_jobs(REPO, jobs)
     listing = get("repos/" + REPO + "/actions/runs/" + str(run_id) +
                   "/artifacts?per_page=100")
-    entries = listing.get("artifacts", [])
-    need(listing.get("total_count") == len(entries) == 1
-         and entries[0].get("name") == ARTIFACT
-         and entries[0].get("expired") is False
-         and entries[0].get("workflow_run", {}).get("id") == run_id,
-         "missing/extra child receipt artifacts")
-    artifact = entries[0]
+    artifact, packages = verify_original_child_artifacts(REPO, listing, run_id)
+    if packages:
+        # Actual separate original Windows artifact ZIP bytes, not just REST digest.
+        windows_hashes = {}
+        for artifact_name, package in sorted(packages.items()):
+            url = ("https://api.github.com/repos/" + REPO
+                   + "/actions/artifacts/" + str(package["id"]) + "/zip")
+            headers = {"Authorization": "Bearer " + token,
+                       "Accept": "application/vnd.github+json",
+                       "X-GitHub-Api-Version": "2022-11-28"}
+            opener = urllib.request.build_opener(SafeArchiveRedirect)
+            with opener.open(urllib.request.Request(url, headers=headers),
+                             timeout=45) as response:
+                raw = response.read(20 * 1024 * 1024 + 1)
+            need(len(raw) <= 20 * 1024 * 1024
+                 and raw[:2] == b"PK"
+                 and hashlib.sha256(raw).hexdigest() ==
+                     package["digest"].removeprefix("sha256:"),
+                 "R07 original Windows artifact ZIP actual bytes failed SHA256")
+            with zipfile.ZipFile(io.BytesIO(raw)) as checked_zip:
+                need(bool(checked_zip.namelist()) and checked_zip.testzip() is None,
+                     "R07 original Windows ZIP is invalid")
+            windows_hashes[artifact_name] = hashlib.sha256(raw).hexdigest()
+        print("ISSUE311_R07_ORIGINAL_WINDOWS_ZIP_ACTUAL_SHA256 "
+              + json.dumps(windows_hashes, sort_keys=True), flush=True)
+
     endpoint = "https://api.github.com/repos/" + REPO + "/actions/artifacts/" + str(artifact["id"]) + "/zip"
     headers = {"Authorization": "Bearer " + token,
                "Accept": "application/vnd.github+json",
