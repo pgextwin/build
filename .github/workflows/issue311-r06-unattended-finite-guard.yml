@@ -1,0 +1,95 @@
+name: Issue 311 R06 independent finite original App event watchdog (NONPUBLISHING)
+# Independent from workflow_run.completion: an original protected PREPARE push
+# starts both the primary pipeline and this finite fail-closed sidecar.
+# Never schedule/dispatch/publish or mint the App token while observing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/execution-requests/r-*-r06prepare*.json'
+  pull_request:
+    paths:
+      - '.github/workflows/issue311-r06-unattended-finite-guard.yml'
+      - 'scripts/issue311-r06-unattended-finite-guard.py'
+      - 'tests/test-issue311-r06-unattended-finite-guard.py'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue311-r06-finite-watch-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  offline_negative:
+    if: github.event_name == 'pull_request'
+    name: R06 finite missing/skip/timeout/ambiguous State CAS guard negative contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - run: python tests/test-issue311-r06-unattended-finite-guard.py
+  bounded_watch:
+    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    name: Independent original guarded 17-App event polling and finite quarantine
+    runs-on: ubuntu-latest
+    environment: issue311-state-writer
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Original protected PREPARE/17-App/CAS GET-only bounded observation (NO APP KEY)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r06-unattended-finite-guard.py observe
+      - name: Confirm original REST and quarantine if terminal unavailable (NO RELEASE)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_WRITER_PRIVATE_KEY: ${{ secrets.STATE_WRITER_PRIVATE_KEY }}
+        run: python scripts/issue311-r06-unattended-finite-guard.py finalize
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-unattended-finite-terminal
+          path: issue311-r06-unattended-finite-terminal.json
+          if-no-files-found: warn
+          retention-days: 30
+  independent_readback:
+    if: needs.bounded_watch.result == 'success'
+    needs: bounded_watch
+    name: R06 independent no-key original finite terminal readback and replay DENY
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
+      - name: Key-free original watchdog ZIP, Git blob and replay denial
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r06-unattended-finite-guard.py readback
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r06-unattended-finite-independent-readback
+          path: issue311-r06-unattended-finite-readback.json
+          if-no-files-found: warn
+          retention-days: 30
