@@ -203,7 +203,10 @@ def strict_child_receipt(receipt, item, central, target_sha):
          and receipt.get("centralSourceRequestId") == CENTRAL_REQUEST
          and receipt.get("centralOriginalOuterZipSha256Verified") == central["sourceZipSha256"]
          and receipt.get("publicationAuthorized") is False
-         and receipt.get("candidateAdmissionAuthorized") is False
+         and receipt.get("publicReleaseAuthorized") is False
+         and receipt.get("candidateCreated") is False
+         and receipt.get("genuineSchedule") is False
+         and receipt.get("originalScanReexecuted") is False
          and receipt.get("publisherSourceKindAuthorized") is False
          and receipt.get("runtimeEnabled") is False,
          "source-kind, run or release assertion rejected")
