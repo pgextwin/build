@@ -125,6 +125,8 @@ def fleet(case_id, key):
          and missing.get("sameTokenRevoked401") is True
          and isinstance(missing.get("reason"), str), "orafce missing original falsely filled")
     normals = [x for repo, x in sorted(items.items()) if repo != "pgextwin/orafce"]
+    need(len(normals) == 16 and all(x.get("result") == "NO_UPDATE" for x in normals),
+         "extra failed/missing child cannot be accepted")
     with ThreadPoolExecutor(max_workers=4) as pool:
         checked = dict(zip([x["repository"] for x in normals], pool.map(verify_child, normals)))
     rows = []
