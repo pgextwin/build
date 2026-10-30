@@ -16,9 +16,11 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
 REQUEST_ID = "r-20261030-r06preparecoordfleet02"
 REQUEST_PATH = ".github/execution-requests/" + REQUEST_ID + ".json"
 SOURCE_NAME = "Issue 311 R06 PREPARE original fleet scan (NONPUBLISHING)"
