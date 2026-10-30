@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261030-r06coordlocalpilotlaunch001",
+  "localRequestId": "r-20261030-r06coordlocalpilot01",
+  "mode": "PREPARE",
+  "sourceRunId": 40987331973,
+  "sourceHeadSha": "3ae9393e1be090dec7638a3ea5c12a1018a7a902",
+  "sourceArtifactId": 12947233917,
+  "sourceZipSha256": "f00968a300975fb7acbe1484bc2454162af4fa993b01f60aad2ee789c2951c1b",
+  "centralRequestId": "r-20261030-r06preparecoord001",
+  "localMainSha": "9df4ed7cde72f103d4e412cfaa7304e7a8db8af2",
+  "target": "pgextwin/orafce",
+  "workflow": "issue311-request-local-prepare.yml",
+  "appId": 5534389,
+  "installationId": 176718417,
+  "botUserId": 350058024,
+  "runtimeEnabled": false,
+  "publicReleaseAuthorized": false,
+  "expiresAt": "2026-10-30T03:43:03.807Z",
+  "baseMainSha": "3ae9393e1be090dec7638a3ea5c12a1018a7a902"
+}
