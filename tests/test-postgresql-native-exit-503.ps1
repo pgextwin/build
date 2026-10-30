@@ -29,3 +29,7 @@ try {
   $PSNativeCommandUseErrorActionPreference = $nativePref
 }
 Write-Host 'R08_NATIVE_503_EXIT_CAPTURE_AND_STRICT_3_ATTEMPT_EDB_SHA256_GUARDS_PASS'
+
+# The intentional child native exit=1 was positively asserted above.
+# CI must report the regression test's own success, not inherit that exit.
+exit 0
