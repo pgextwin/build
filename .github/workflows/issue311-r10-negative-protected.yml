@@ -1,0 +1,48 @@
+name: Issue 311 lossless negative original SHA archive (NONPUBLISHING)
+on:
+  pull_request:
+    paths:
+      - 'docs/audit/issue311-r10-negative-originals-20261031.json.gz.b64'
+      - 'docs/audit/issue311-r10-negative-originals-20261031.md'
+      - 'scripts/issue311-r10-negative-protected.py'
+      - 'tests/test-issue311-r10-negative-protected.py'
+      - '.github/workflows/issue311-r10-negative-protected.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/audit/issue311-r10-negative-originals-20261031.json.gz.b64'
+      - 'docs/audit/issue311-r10-negative-originals-20261031.md'
+      - 'scripts/issue311-r10-negative-protected.py'
+      - 'tests/test-issue311-r10-negative-protected.py'
+      - '.github/workflows/issue311-r10-negative-protected.yml'
+permissions:
+  contents: read
+jobs:
+  protected_archive:
+    name: Offline digest-fixed negative original archive and tamper DENY
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python tests/test-issue311-r10-negative-protected.py
+      - run: python scripts/issue311-r10-negative-protected.py
+  independent_archive_readback:
+    needs: protected_archive
+    if: github.event_name == 'push'
+    name: Second runner rehash archived original Git bytes without network or App key
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python tests/test-issue311-r10-negative-protected.py
+      - run: python scripts/issue311-r10-negative-protected.py
