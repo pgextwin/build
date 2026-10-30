@@ -172,16 +172,41 @@ class SafeArchiveRedirect(urllib.request.HTTPRedirectHandler):
             redirected.remove_header("Authorization")
         return redirected
 
+
+def verify_original_child_jobs(repo, listing):
+    """Fail closed: R07 orafce must pass actual same-run PG14–18 + summary.
+
+    Original 16 unaffected App PREPARE paths must retain their exact two-job
+    signature. The new R07 pilot is never admitted from an old two-job run,
+    a skipped matrix, a PR, or an unrelated Windows push workflow.
+    """
+    items = listing.get("jobs", [])
+    need(type(items) is list and listing.get("total_count") == len(items),
+         "original child job list missing or paginated")
+    expected = {
+        "Original protected PREPARE ZIP verification (NO RELEASE)": "success",
+        "Strict App identity and PREPARE source-kind denial tests": "skipped",
+    }
+    if repo == "pgextwin/orafce":
+        prefix = "R07-01 authenticated App original Windows PG14-18 / "
+        expected.update({
+            prefix + "Resolve extension and PostgreSQL matrix": "success",
+            **{prefix + f"PostgreSQL {major} / Windows x64": "success"
+               for major in range(14, 19)},
+            "R07-01 Windows required summary": "success",
+        })
+    actual = {x.get("name"): x.get("conclusion") for x in items}
+    need(len(items) == len(actual) == len(expected) and actual == expected
+         and all(x.get("status") == "completed" for x in items),
+         "original child mandatory App and Windows jobs do not match")
+
 def verify_original_child_archive(token, child, source):
     run_id = child["id"]
     get = lambda path: get_app_json(token, path)
     jobs = get("repos/" + REPO + "/actions/runs/" + str(run_id) +
                "/jobs?per_page=100")
     names = {row.get("name"): row.get("conclusion") for row in jobs.get("jobs", [])}
-    need(jobs.get("total_count") == len(jobs.get("jobs", [])) == 2
-         and names.get("Original protected PREPARE ZIP verification (NO RELEASE)") == "success"
-         and names.get("Strict App identity and PREPARE source-kind denial tests") == "skipped",
-         "unaccepted original child jobs")
+    verify_original_child_jobs(REPO, jobs)
     listing = get("repos/" + REPO + "/actions/runs/" + str(run_id) +
                   "/artifacts?per_page=100")
     entries = listing.get("artifacts", [])
