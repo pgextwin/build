@@ -57,31 +57,26 @@ print("ISSUE311_R06_INDEPENDENT_FINITE_WATCHDOG_NEGATIVE_PASS_OFFLINE_ONLY")
 
 # Transient READ-only GitHub GET recovery; must never expand into App write retries.
 from urllib.error import HTTPError, URLError
-from unittest.mock import Mock
 assert m.GET_MAX_ATTEMPTS == 3
 assert m.TRANSIENT_READ_HTTP == frozenset((429, 502, 503, 504))
 def http_error(code):
     return HTTPError("https://api.github.com/repos/pgextwin/build/branches/main",
                      code, "test", {}, None)
 for code in (429, 502, 503, 504):
-    with patch.object(m.bridge, "get_json", side_effect=[http_error(code), {"protected": True}]) as get, \\
-         patch.object(m.time, "sleep") as sleep:
+    with patch.object(m.bridge, "get_json", side_effect=[http_error(code), {"protected": True}]) as get, patch.object(m.time, "sleep") as sleep:
         assert m.api("branches/main") == {"protected": True}
         assert get.call_count == 2 and sleep.call_args_list == [((1,), {})]
 for transient in (URLError("transport"), TimeoutError("read timed out"), ConnectionError("connection reset")):
-    with patch.object(m.bridge, "get_json", side_effect=[transient, transient, {"ok": True}]) as get, \\
-         patch.object(m.time, "sleep") as sleep:
+    with patch.object(m.bridge, "get_json", side_effect=[transient, transient, {"ok": True}]) as get, patch.object(m.time, "sleep") as sleep:
         assert m.api("branches/main") == {"ok": True}
         assert get.call_count == 3 and sleep.call_count == 2
 for code in (401, 403, 404, 409, 422):
-    with patch.object(m.bridge, "get_json", side_effect=http_error(code)) as get, \\
-         patch.object(m.time, "sleep") as sleep:
+    with patch.object(m.bridge, "get_json", side_effect=http_error(code)) as get, patch.object(m.time, "sleep") as sleep:
         try: m.api("branches/main")
         except HTTPError as exc: assert exc.code == code
         else: raise AssertionError("security/non-transient response was retried or accepted")
         assert get.call_count == 1 and sleep.call_count == 0
-with patch.object(m.bridge, "get_json", side_effect=http_error(503)) as get, \\
-     patch.object(m.time, "sleep") as sleep:
+with patch.object(m.bridge, "get_json", side_effect=http_error(503)) as get, patch.object(m.time, "sleep") as sleep:
     try: m.api("branches/main")
     except HTTPError as exc: assert exc.code == 503
     else: raise AssertionError("repeated provider failure was treated as success")
