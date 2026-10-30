@@ -38,8 +38,24 @@ def require(v,reason):
     if not v:raise ValueError("R06_UNATTENDED_GUARD_DENY "+reason)
 def strict(raw):
     return json.loads(raw,object_pairs_hook=store.unique_pairs)
+# GET-only, bounded transient read recovery. No App token, no state PUT retry.
+# A prolonged provider outage still fails closed and never becomes acceptance.
+TRANSIENT_READ_HTTP = frozenset((429, 502, 503, 504))
+GET_MAX_ATTEMPTS = 3
+
 def api(endpoint):
-    return bridge.get_json("repos/pgextwin/build/"+endpoint)
+    path = "repos/pgextwin/build/" + endpoint
+    for attempt in range(GET_MAX_ATTEMPTS):
+        try:
+            return bridge.get_json(path)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in TRANSIENT_READ_HTTP or attempt + 1 == GET_MAX_ATTEMPTS:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt + 1 == GET_MAX_ATTEMPTS:
+                raise
+        time.sleep(min(2**attempt, 2))
+    raise AssertionError("bounded GET exhausted")
 def stamp(dt):
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 def current():
