@@ -143,6 +143,55 @@ for field, bad in (
     ("workflow_run",{"id":124}),("id",0)):
     corrupt=dict(orafce_packages[0],**{field:bad})
     reject_art("pgextwin/orafce",[receipt,corrupt,*orafce_packages[1:]])
+
+# R08 App-OIDC pilot extends (never replaces) the exact 9-job R07 original.
+# A partial or forged signer/auditor may not be treated as successful 17-fleet.
+r08_jobs={
+    **r07_jobs,
+    "R08 authenticated original App OIDC signing intent (NO PUBLISH)":"success",
+    "R08 first independently verified real App OIDC Sigstore bytes (NO PUBLISH)":"success",
+    "R08 SECOND independent original-byte OIDC Sigstore verification (NO PUBLISH)":"success",
+    "R08 strict independent 2 Sigstore original-byte source agreement (PUBLISH_DENY)":"success",
+}
+assert helper_mod.verify_original_child_jobs("pgextwin/orafce", record(r08_jobs)) is None
+reject_jobs("pgextwin/pg_bigm",r08_jobs)
+for job in r08_jobs:
+    if job not in r07_jobs:
+        forged=dict(r08_jobs)
+        forged.pop(job)
+        reject_jobs("pgextwin/orafce",forged)
+        forged=dict(r08_jobs)
+        forged[job]="failure"
+        reject_jobs("pgextwin/orafce",forged)
+reject_jobs("pgextwin/orafce",{**r08_jobs,"forged extra auditor":"success"})
+r08_artifacts=[
+    original_art("issue311-r08-app-oidc-intent-nonpublishing",90),
+    original_art("issue311-r08-signed-first-nonpublishing",91),
+    original_art("issue311-r08-signed-second-nonpublishing",92),
+    original_art("issue311-r08-app-oidc-dual-audit-nonpublishing",93),
+]
+r08_all=[receipt,*orafce_packages,*r08_artifacts]
+got,extras=helper_mod.verify_original_child_artifacts(
+    "pgextwin/orafce",arlist(r08_all),123,expected_r08=True)
+assert got == receipt and len(extras) == 9
+for artifact in r08_all:
+    try:
+        helper_mod.verify_original_child_artifacts(
+            "pgextwin/orafce",arlist([r for r in r08_all if r is not artifact]),
+            123,expected_r08=True)
+    except helper_mod.Denied:
+        pass
+    else:
+        raise AssertionError("R08 original audit artifact missing but accepted")
+for repo, expected in (("pgextwin/orafce",False),("pgextwin/pg_bigm",True)):
+    try:
+        helper_mod.verify_original_child_artifacts(
+            repo,arlist(r08_all),123,expected_r08=expected)
+    except helper_mod.Denied:
+        pass
+    else:
+        raise AssertionError("R08 signed artifacts laundered to wrong source-kind")
+print("ISSUE311_R08_REAL_APP_OIDC_JOB_AND_FOUR_ARTIFACT_ADMISSION_NEGATIVE_PASS")
 assert "SafeArchiveRedirect" in helper
 assert "ISSUE311_R07_ORIGINAL_WINDOWS_ZIP_ACTUAL_SHA256" in helper_path.read_text()
 print("ISSUE311_R07_REAL_WINDOWS_PACKAGE_ZIP_NEGATIVE_PASS")

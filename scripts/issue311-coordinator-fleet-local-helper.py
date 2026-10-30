@@ -196,12 +196,23 @@ def verify_original_child_jobs(repo, listing):
             "R07-01 Windows required summary": "success",
         })
     actual = {x.get("name"): x.get("conclusion") for x in items}
+    # A new App OIDC lane is admitted ONLY as a complete exact original
+    # extension of the protected R07 jobs, never a partially green job list.
+    # Legacy R07 originals remain valid evidence; they do not gain R08 credit.
+    if repo == "pgextwin/orafce" and (
+            "R08 authenticated original App OIDC signing intent (NO PUBLISH)" in actual):
+        expected.update({
+            "R08 authenticated original App OIDC signing intent (NO PUBLISH)": "success",
+            "R08 first independently verified real App OIDC Sigstore bytes (NO PUBLISH)": "success",
+            "R08 SECOND independent original-byte OIDC Sigstore verification (NO PUBLISH)": "success",
+            "R08 strict independent 2 Sigstore original-byte source agreement (PUBLISH_DENY)": "success",
+        })
     need(len(items) == len(actual) == len(expected) and actual == expected
          and all(x.get("status") == "completed" for x in items),
          "original child mandatory App and Windows jobs do not match")
 
 
-def verify_original_child_artifacts(repo, listing, run_id):
+def verify_original_child_artifacts(repo, listing, run_id, *, expected_r08=False):
     """One authentic receipt, plus only orafce's 5 mandatory R07 packages."""
     entries = listing.get("artifacts", [])
     need(type(entries) is list and listing.get("total_count") == len(entries),
@@ -209,6 +220,14 @@ def verify_original_child_artifacts(repo, listing, run_id):
     expected = {ARTIFACT}
     if repo == "pgextwin/orafce":
         expected.update(f"orafce-pg{m}-windows-x64" for m in range(14, 19))
+    if expected_r08:
+        need(repo == "pgextwin/orafce", "R08 signed source cannot be assigned to a different repo")
+        expected.update({
+            "issue311-r08-app-oidc-intent-nonpublishing",
+            "issue311-r08-signed-first-nonpublishing",
+            "issue311-r08-signed-second-nonpublishing",
+            "issue311-r08-app-oidc-dual-audit-nonpublishing",
+        })
     actual = {a.get("name"): a for a in entries}
     need(len(entries) == len(actual) == len(expected) and set(actual) == expected,
          "missing/extra original R07 Windows package ZIP")
@@ -231,7 +250,10 @@ def verify_original_child_archive(token, child, source):
     verify_original_child_jobs(REPO, jobs)
     listing = get("repos/" + REPO + "/actions/runs/" + str(run_id) +
                   "/artifacts?per_page=100")
-    artifact, packages = verify_original_child_artifacts(REPO, listing, run_id)
+    r08_signed_run = (
+        "R08 authenticated original App OIDC signing intent (NO PUBLISH)" in names)
+    artifact, packages = verify_original_child_artifacts(
+        REPO, listing, run_id, expected_r08=r08_signed_run)
     if packages:
         # Actual separate original Windows artifact ZIP bytes, not just REST digest.
         windows_hashes = {}
