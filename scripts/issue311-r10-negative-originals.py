@@ -31,6 +31,48 @@ PROOFS = {
  "race_readback": (41032550321, 123986204379, 12966393631, "issue311-r06-parallel-keyless-readback", "issue311-r06-parallel-keyless-readback.json", "374721c538e498d287f8bc1621a4b69faef3aebccb6e9b70cd21fa47d7e3c0ce"),
  "event_source": (40864238327, 123414820570, 12893455362, "issue311-r04r05-original-source", "issue311-r04r05-original.json", "f2dbaafd1803a4536e134d99e60d9fd79d83daeb581997d2e53eed3b87a62d3b"),
 }
+
+# Negative bot originals are corroborating real Runs. Their dispatch inputs are
+# not exposed by the Actions Run GET, so they cannot replace a missing receipt.
+MISSING_ORAFCE = {
+    "skip": (41014360341, 123927212548, "skipped"),
+    "timeout": (41015468625, 123930702453, "failure"),
+}
+
+def corroborate_orafce(key, source):
+    run_id, job_id, conclusion = MISSING_ORAFCE[key]
+    repo = "pgextwin/orafce"
+    run = client.get(repo, "actions/runs/" + str(run_id))
+    need(run.get("id") == run_id and run.get("run_attempt") == 1
+         and run.get("event") == "workflow_dispatch"
+         and run.get("path") == ".github/workflows/issue311-request-local-prepare.yml"
+         and run.get("status") == "completed"
+         and run.get("conclusion") == conclusion
+         and run.get("actor", {}).get("login") == BOT
+         and run.get("head_sha") == "aec40f168020a821c059fad3ac08e87524c14d7b"
+         and source["createdAt"] <= run["created_at"] <= source["updatedAt"],
+         "unrelated orafce negative original Run")
+    listing = client.get(repo, "actions/runs/" + str(run_id) + "/artifacts?per_page=100")
+    need(listing.get("total_count") == 0 and listing.get("artifacts") == [],
+         "orafce negative unexpectedly had original ZIP")
+    jobs = client.get(repo, "actions/runs/" + str(run_id) + "/attempts/1/jobs?per_page=100")
+    need(jobs.get("total_count") == len(jobs.get("jobs", [])) <= 100,
+         "incomplete original orafce job metadata")
+    matches = [j for j in jobs["jobs"] if j.get("id") == job_id
+               and j.get("name") == "Original protected PREPARE ZIP verification (NO RELEASE)"
+               and j.get("status") == "completed" and j.get("conclusion") == conclusion]
+    need(len(matches) == 1, "original orafce skipped/failed job not proved")
+    if key == "timeout":
+        steps = matches[0].get("steps", [])
+        need(len([s for s in steps if s.get("name") ==
+                  "Isolated bounded genuine local timeout (NONPUBLISHING)"
+                  and s.get("conclusion") == "failure"]) == 1,
+             "actual original timeout step not failed")
+    return {"candidateRunId": run_id, "attempt": 1, "headSha": run["head_sha"],
+            "jobId": job_id, "runConclusion": conclusion,
+            "artifactCount": 0, "originalZipSha256": None,
+            "bindingLimit": "TIME_WINDOW_ACTOR_JOB_ONLY_NO_DISPATCH_INPUT_OR_RECEIPT"}
+
 SOURCE = "r-20261030-r06appauto41014241399"
 TIMEOUT = "r-20261030-r06appauto41015355922"
 RACE = "r-20261030-r06parallelcasproof12"
@@ -71,7 +113,8 @@ def pinned(key):
     return {"runId": run_id, "attempt": 1, "headSha": run["head_sha"],
             "runEvent": run["event"], "runConclusion": run["conclusion"],
             "jobId": job_id, "artifactId": artifact_id, "zipSha256": actual,
-            "originalEntry": filename}, receipt
+            "originalEntry": filename, "createdAt": run["created_at"],
+            "updatedAt": run["updated_at"]}, receipt
 
 def verify_child(item):
     repo = item["repository"]
@@ -124,6 +167,7 @@ def fleet(case_id, key):
          and "originalReceiptZipSha256Verified" not in missing
          and missing.get("sameTokenRevoked401") is True
          and isinstance(missing.get("reason"), str), "orafce missing original falsely filled")
+    corroborating_run = corroborate_orafce(key, origin)
     normals = [x for repo, x in sorted(items.items()) if repo != "pgextwin/orafce"]
     need(len(normals) == 16 and all(x.get("result") == "NO_UPDATE" for x in normals),
          "extra failed/missing child cannot be accepted")
@@ -144,7 +188,8 @@ def fleet(case_id, key):
                        originalArtifactId=None, originalZipSha256=None,
                        originalEvidenceVerified=False,
                        failureReasonOriginal=missing["reason"],
-                       missingEvidenceReason="ORAFCE_CHILD_ORIGINAL_RUN_AND_ZIP_ABSENT",
+                       corroboratedOriginalRun=corroborating_run,
+                       missingEvidenceReason="NO_DISPATCH_INPUT_BINDING_OR_ORIGINAL_CHILD_ZIP",
                        lastSucceededStage="APP_FLEET_SOURCE_FAILED_TERMINAL_ZIP_VERIFIED")
         rows.append(row)
     need(len(checked) == 16 and len(rows) == 17, "16+1 original count mismatch")
