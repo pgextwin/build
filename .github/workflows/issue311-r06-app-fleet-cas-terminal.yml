@@ -1,5 +1,12 @@
 name: Issue 311 R06 real 17-App original durable CAS terminal (NONPUBLISHING)
+# Separate from the source App identity; only GitHub's authentic completion event
+# may start this App CAS workflow. No Chat-created terminal request required.
 on:
+  workflow_run:
+    workflows:
+      - Issue 311 17 authentic App-bot local PREPARE originals (NO RELEASE)
+    types: [completed]
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -9,6 +16,7 @@ on:
       - '.github/workflows/issue311-r06-app-fleet-cas-terminal.yml'
       - 'scripts/issue311-r06-app-fleet-cas-terminal.py'
       - 'tests/test-issue311-r06-app-fleet-cas-terminal.py'
+      - 'tests/test-issue311-r06-app-fleet-cas-auto.py'
 permissions:
   contents: read
   actions: read
@@ -29,8 +37,16 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
       - run: python tests/test-issue311-r06-app-fleet-cas-terminal.py
+      - run: python tests/test-issue311-r06-app-fleet-cas-auto.py
   persist:
-    if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi' && github.run_attempt == 1
+    if: >-
+      github.repository == 'pgextwin/build' && github.run_attempt == 1 &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'ShutenOishi') ||
+       (github.event_name == 'workflow_run' && github.event.action == 'completed' &&
+        github.event.workflow_run.event == 'workflow_run' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.run_attempt == 1))
     name: Verify 17 genuine original child ZIPs then finite build-only App CAS
     runs-on: ubuntu-latest
     environment: issue311-state-writer
@@ -57,7 +73,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
   independent_readback:
-    if: github.event_name == 'push'
+    if: needs.persist.result == 'success'
     needs: persist
     name: Separate read-only Git original CAS state, source-kind and replay DENY
     runs-on: ubuntu-latest

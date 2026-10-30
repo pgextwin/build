@@ -66,7 +66,114 @@ def now():
 def stamp(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+def automatic_request_proof():
+    """Bind the new state request to a genuine completed upstream workflow_run.
+
+    No request-file PR, dispatch, stale replay or privileged event payload is
+    trusted. Every binding is reconstructed through authenticated REST/ZIP GET.
+    """
+    global REQ, CENTRAL_REQUEST
+    need(os.environ.get("GITHUB_REPOSITORY") == "pgextwin/build"
+         and os.environ.get("GITHUB_EVENT_NAME") == "workflow_run"
+         and os.environ.get("GITHUB_REF") == "refs/heads/main"
+         and os.environ.get("GITHUB_WORKFLOW") == WORKFLOW
+         and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
+         "untrusted automatic CAS event")
+    ev = strict(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes())
+    trigger = ev.get("workflow_run", {})
+    need(ev.get("action") == "completed"
+         and ev.get("repository", {}).get("full_name") == "pgextwin/build"
+         and trigger.get("name") == SOURCE_NAME
+         and trigger.get("path") == SOURCE_PATH
+         and trigger.get("event") == "workflow_run"
+         and trigger.get("head_branch") == "main"
+         and trigger.get("run_attempt") == 1
+         and trigger.get("status") == "completed"
+         and trigger.get("conclusion") == "success"
+         and trigger.get("actor", {}).get("login") == "ShutenOishi"
+         and type(trigger.get("id")) is int and trigger["id"] > 0
+         and SHA40.fullmatch(trigger.get("head_sha", "")),
+         "no original completed successful App fleet")
+    source = bridge.get_json("repos/pgextwin/build/actions/runs/" + str(trigger["id"]))
+    need(source.get("id") == trigger["id"] and source.get("name") == SOURCE_NAME
+         and source.get("path") == SOURCE_PATH
+         and source.get("event") == "workflow_run"
+         and source.get("head_branch") == "main"
+         and source.get("head_sha") == trigger["head_sha"]
+         and source.get("status") == "completed"
+         and source.get("conclusion") == "success"
+         and source.get("run_attempt") == 1
+         and source.get("actor", {}).get("login") == "ShutenOishi",
+         "workflow_run event does not match independent REST")
+    completed = life.parse_utc(source["updated_at"].replace("+00:00", "Z")
+                               .split(".")[0] + "Z" if not source["updated_at"].endswith("Z")
+                               else source["updated_at"])
+    need(completed <= now() + timedelta(minutes=5)
+         and now() <= completed + timedelta(minutes=45),
+         "stale or future completed App source")
+    main = os.environ["GITHUB_SHA"]
+    need(SHA40.fullmatch(main)
+         and subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == main
+         and subprocess.run(["git", "merge-base", "--is-ancestor",
+                             source["head_sha"], main], check=False).returncode == 0,
+         "listener checkout must descend from authentic original source")
+    branch = bridge.get_json("repos/pgextwin/build/branches/main")
+    need(branch.get("protected") is True and branch.get("commit", {}).get("sha") == main,
+         "listener no longer at protected main")
+    listing = bridge.get_json("repos/pgextwin/build/actions/runs/"
+                              + str(source["id"]) + "/artifacts?per_page=100")
+    arr = listing.get("artifacts", [])
+    need(listing.get("total_count") == len(arr) == 1
+         and arr[0].get("name") == SOURCE_ARTIFACT
+         and arr[0].get("expired") is False
+         and arr[0].get("workflow_run", {}).get("id") == source["id"]
+         and arr[0].get("digest", "").startswith("sha256:"),
+         "upstream original archive not unique")
+    original, digest = bridge.original_zip(arr[0], SOURCE_ENTRY)
+    need(digest == arr[0]["digest"].removeprefix("sha256:")
+         and original.get("schemaVersion") == 1
+         and original.get("sourceKind") == "AUTHENTIC_APP_BOT_17_LOCAL_ORIGINAL_NONPUBLISHING"
+         and original.get("result") == "CHILDREN_17_ORIGINAL_ZIP_VERIFIED_CAS_PENDING"
+         and original.get("durableCasVerified") is False
+         and original.get("runtimeEnabled") is False
+         and original.get("publicReleaseAuthorized") is False
+         and original.get("publicationAuthorized") is False
+         and original.get("publisherSourceKindAuthorized") is False
+         and original.get("candidateAdmissionAuthorized") is False
+         and len(original.get("children", [])) == 17,
+         "automatic source contract forbids publication or incomplete fleet")
+    central = original.get("central", {})
+    CENTRAL_REQUEST = original.get("requestId")
+    need(type(CENTRAL_REQUEST) is str
+         and re.fullmatch(r"r-20[0-9]{6}-r06prepare[a-z0-9-]{4,40}", CENTRAL_REQUEST)
+         and type(central.get("sourceRunId")) is int and central["sourceRunId"] > 0
+         and central.get("sourceHeadSha") == source["head_sha"]
+         and SHA64.fullmatch(central.get("sourceZipSha256", "")),
+         "unbounded or mismatched central original source")
+    date = source["run_started_at"][:10].replace("-", "")
+    need(re.fullmatch(r"20[0-9]{6}", date), "invalid original source run date")
+    REQ = "r-" + date + "-r06appauto" + str(source["id"])
+    expires = stamp(now() + timedelta(hours=2))
+    r = {"schemaVersion":1,"requestId":REQ,"mode":"PREPARE",
+         "centralRequestId":CENTRAL_REQUEST,
+         "centralRunId":central["sourceRunId"],
+         "centralZipSha256":central["sourceZipSha256"],
+         "sourceRunId":source["id"],"sourceHeadSha":source["head_sha"],
+         "sourceArtifactId":arr[0]["id"],
+         "sourceZipSha256":digest,
+         "expiresAt":expires,"runtimeEnabled":False,
+         "publicReleaseAuthorized":False}
+    # Bind immutable identity; two calls in the same Actions Run must agree.
+    # The expiry must be deterministic across the writer and independent reader.
+    r["expiresAt"] = stamp(completed + timedelta(hours=2))
+    need(now() < life.parse_utc(r["expiresAt"]), "automatic deadline already expired")
+    request_sha = hashlib.sha256(writer.canonical(r)).hexdigest()
+    return r, request_sha, main
+
+
 def request_proof():
+    if os.environ.get('GITHUB_EVENT_NAME') == 'workflow_run':
+        return automatic_request_proof()
     need(os.environ.get("GITHUB_REPOSITORY") == "pgextwin/build"
          and os.environ.get("GITHUB_EVENT_NAME") == "push"
          and os.environ.get("GITHUB_REF") == "refs/heads/main"
@@ -303,12 +410,12 @@ def persist():
                    "sourceZipSha256":r["sourceZipSha256"],
                    "centralZipSha256":r["centralZipSha256"],
                    "children":actual, "completionRunId":int(os.environ["GITHUB_RUN_ID"]),
-                   "trigger":"original_protected_main_push_not_schedule"}
+                   "trigger":("genuine_workflow_run_completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "original_protected_main_push_not_schedule")}
         def finish(state):
             state["targets"] = {repo:"SUCCESS" for repo in sorted(actual)}
             state["terminal"] = "NO_UPDATE"
             state["completionRun"] = {"id":int(os.environ["GITHUB_RUN_ID"]), "attempt":1}
-            state["eventTransport"] = "BOUNDED_WATCHDOG"
+            state["eventTransport"] = ("WORKFLOW_RUN_COMPLETED" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
         term = life._apply(current, current["revision"], "r06-real-app-17-terminal", payload, finish)
         save2 = created.write(term, previous=current, expected_blob=blob)
         blob, stored = created.read(REQ)
@@ -370,7 +477,7 @@ def readback():
     need(blob == proof["stateBlobSha"]
          and state["revision"] == proof["stateRevision"] == 2
          and state["terminal"] == "NO_UPDATE"
-         and state["eventTransport"] == "BOUNDED_WATCHDOG"
+         and state["eventTransport"] == ("WORKFLOW_RUN_COMPLETED" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
          and state["sourceRun"] == {"id":r["sourceRunId"],"attempt":1}
          and state["completionRun"] == {"id":int(os.environ["GITHUB_RUN_ID"]),"attempt":1}
          and state["requestSha256"] == rawsha
