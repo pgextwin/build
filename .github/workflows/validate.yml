@@ -244,6 +244,8 @@ jobs:
         run: python tests/test-issue311-r08-app-oidc-intent.py
       - name: Deny R08 App-OIDC and independent Sigstore forged source and bytes (OFFLINE ONLY)
         run: python tests/test-issue311-r08-app-sigstore.py
+      - name: Reject R08 new App-source Publisher actor/PG/SBOM/Grype/replay/ambiguous write (NO CREDENTIALS)
+        run: python tests/test-issue311-r08-publisher-deny.py
       - name: Reject fake local schedule and unsigned merged-bot signing shortcuts (NO RELEASE)
         run: python tests/test-merged-schedule-signing-intent.py
       - name: Reject forged scheduled OIDC/Sigstore ZIP, event and signing source (NO RELEASE)
