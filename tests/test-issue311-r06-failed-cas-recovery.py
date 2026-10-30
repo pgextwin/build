@@ -8,6 +8,11 @@ root=Path(__file__).resolve().parents[1]
 p=root/"scripts/issue311-r06-failed-cas-recovery.py"
 s=p.read_text()
 compile(s,str(p),"exec")
+# The protected one-file diff must compare a real tab, and Contents must
+# remove actual GitHub base64 line wraps, not literal backslash characters.
+for suffix in ("t","n","r"):
+    assert chr(92)*2+suffix not in s,"double-escaped original event/ZIP byte parser"
+assert '["A'+chr(92)+'t"+PATH]' in s
 assert "writer.mint_token" in s and "writer.revoke_and_prove_401" in s
 assert "bridge.original_zip" in s
 assert "QUARANTINED" in s and "BOUNDED_WATCHDOG" in s
