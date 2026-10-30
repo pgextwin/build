@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261030-r06appcas17terminal001",
+  "mode": "PREPARE",
+  "centralRequestId": "r-20261030-r06preparecoordfleet03",
+  "centralRunId": 41000527397,
+  "centralZipSha256": "05aaabfb7be2ec7ea1d38819ce73a71ca0678504ec4e21f6f8eca4c402fc26ab",
+  "sourceRunId": 41000595525,
+  "sourceHeadSha": "380e3054e2ccd8568e124339963e2b0082d60841",
+  "sourceArtifactId": 12953810357,
+  "sourceZipSha256": "06d134dbd3a715a411398f0a084c88dc25439cce7e80593db9050564d8b007aa",
+  "baseMainSha": "760e86e67f16523b1314d4c6263e9347b49f5cf5",
+  "expiresAt": "2026-10-30T10:11:42Z",
+  "runtimeEnabled": false,
+  "publicReleaseAuthorized": false
+}
