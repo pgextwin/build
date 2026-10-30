@@ -119,6 +119,9 @@ jobs:
       - name: Validate PG14-18 minimal EDB install arguments and fail-closed retry
         run: python tests/test-postgresql-minimal-install.py
 
+      - name: Verify R08 real HTTP503 native exit reaches strict three-try fixed-byte fallback (NO INSTALL)
+        shell: pwsh
+        run: ./tests/test-postgresql-native-exit-503.ps1
       - name: Validate five-major Chocolatey selected-components real-test-only path
         run: python tests/test-postgresql-component-only.py
 
