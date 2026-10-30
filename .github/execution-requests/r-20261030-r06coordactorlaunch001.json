@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "requestId": "r-20261030-r06coordactorlaunch001",
+  "mode": "AUDIT_ONLY",
+  "appId": 5534389,
+  "installationId": 176718417,
+  "botUserId": 350058024,
+  "target": "pgextwin/orafce",
+  "workflow": "issue311-coordinator-actor-pilot.yml",
+  "workflowRef": "main",
+  "localMainSha": "b2c57bf4a8842c1225a7794213904b363de99a23",
+  "actorRequestId": "r-20261030-r06coordactorpilot01",
+  "publicReleaseAuthorized": false,
+  "runtimeEnabled": false,
+  "allowSinglePilotDispatch": true,
+  "baseMainSha": "4c702df72ca5b9bd7df5411aa9260920518b62f1"
+}
