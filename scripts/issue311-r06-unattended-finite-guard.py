@@ -288,7 +288,7 @@ def verify_existing_fail_closed(state, origin):
             and all(v in life.TERMINALS for v in state["targets"].values())
             and state["publisherAuthorized"] is False
             and state["writeOutcomeUnknown"] is False,
-            "unverified competing successful terminal denied: cross-original or privileged state")
+            "unverified competing successful terminal denied")
 
 def finalize():
     report={"result":"QUARANTINED","publisherAuthorized":False}
