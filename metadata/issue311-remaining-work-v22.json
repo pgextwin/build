@@ -43,8 +43,8 @@
       "branch": "R10-02",
       "classification": "IMPLEMENT",
       "inputs": [
-        "Bound attempt1 State",
-        "Authenticated missing-human-PREPARE observation and exact policy Git blob"
+        "Bound attempt1 State and exact effective existing PREPARE approval policy",
+        "Authenticated actual missing-approval observation only if that policy requires approval; else independently authenticated NOT_REQUIRED evidence"
       ],
       "procedure": [
         "Run python tests/test-issue311-approval-block.py",
@@ -53,9 +53,9 @@
         "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
       ],
       "passWhen": [
-        "17 terminal statuses/reason/resume evidence committed",
-        "Existing production CAS adapter refuses stale writer and uses GET after missing ACK",
-        "All hostile tests pass on PR HEAD and original postmerge"
+        "Pure BLOCKED_APPROVAL transition and hostile tests remain reproducible for the genuinely missing-approval branch; this is conditional and is not a requirement to fabricate live shortage",
+        "If real effective policy requires no PREPARE human approval, original policy Git blob/Environment evidence records NOT_REQUIRED with no BLOCKED_APPROVAL transition",
+        "Existing State CAS adapter continues to refuse stale writes and use bounded GET-only after missing ACK; offline fixtures never imply live App acceptance"
       ],
       "failWhen": [
         "PUBLISH_DENY substituted for PREPARE approval shortage",
@@ -105,22 +105,24 @@
         "W10-A"
       ],
       "procedure": [
-        "Implement an authenticated adapter for the existing actual approval lookup, with bounded GET-only retry",
-        "Authenticate policy/request/source and missing approval before invoking transition",
-        "Dedicated existing State App performs one terminal CAS, revoke401; separate keyless Runner reads Git blob and exact evidence receipt",
-        "No gate execution without an eligible real request; do not manufacture shortage",
-        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
+        "Independently authenticate the actual effective approval policy, source original attempt1, bounded request and matching approval observations; use no second human intent",
+        "Branch REQUIRED_AND_MISSING: only when authenticated policy requires PREPARE approval and the actual approval is missing, apply bounded BLOCKED_APPROVAL with full reason/last stage/resume and event hash",
+        "Branch NOT_REQUIRED: when authenticated effective policy proves no human approval is required, retain original NOT_REQUIRED evidence; do not invoke record_approval_block, invent human shortage or block normal progress",
+        "For both applicable branches, preserve the true 17-target terminal result using the dedicated State App one-shot CAS, revoke401 and separate keyless Git blob/readback with original receipt ZIP actual SHA256",
+        "No gate execution without an eligible real source/request; unrecoverable source or ambiguous write remains PENDING/QUARANTINED, not accepted"
       ],
       "passWhen": [
-        "Real per-target BLOCKED_APPROVAL reason/last stage/resume is durable",
-        "Original receipt ZIP actual SHA, State blob/revision, PUT count, revoke401, independent readback all match",
-        "W10-B and W10-A live/required components complete"
+        "Branch correctness is independently proven for the same original policy/request/source: authentic REQUIRED_AND_MISSING with durable 17-target BLOCKED_APPROVAL only when genuinely required, OR authentic NOT_REQUIRED with no fabricated BLOCKED_APPROVAL and normal safe outcome",
+        "Actual original receipt ZIP SHA256, 17-target terminal reason/lastSuccessfulStage/resume, durable App State blob/revision, one-shot PUT/GET-only recovery, revoke401, independent keyless readback all match the applicable branch",
+        "W10-B original dispatch/input binding and W10-A source/policy transition-hostile checks complete; isolated fixtures are not live proof"
       ],
       "failWhen": [
-        "A caller-provided boolean presented as authenticated approval",
-        "PUBLISH_DENY/AUDIT_ONLY/QUARANTINED relabeled BLOCKED_APPROVAL"
+        "Caller-provided approval boolean or simulated absence passed off as authenticated policy/state",
+        "NOT_REQUIRED policy misrepresented as HUMAN_PREPARE_APPROVAL_MISSING or forced BLOCKED_APPROVAL",
+        "PUBLISH_DENY/AUDIT_ONLY/QUARANTINED relabeled BLOCKED_APPROVAL",
+        "Mock State or source substituted for original App CAS, original ZIP, revoke401 or independent readback"
       ],
-      "nextAction": "Authenticate real policy. If approval not required, record NOT_REQUIRED with original policy proof and proceed; never manufacture BLOCKED_APPROVAL. Implement caller and real State CAS/readback.",
+      "nextAction": "Find and authenticate current effective PREPARE approval policy. Use conditional REQUIRED_AND_MISSING or NOT_REQUIRED branch and complete the real original App CAS/readback path, without inventing a human gate.",
       "accepted": false
     },
     {
