@@ -1,0 +1,96 @@
+name: Issue 311 reproducible approval transition (OFFLINE NONPUBLISHING)
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue311-request-lifecycle.py'
+      - 'scripts/issue311-lifecycle-store.py'
+      - 'tests/test-issue311-approval-block.py'
+      - 'tests/test-issue311-lifecycle-store.py'
+      - 'metadata/issue311-remaining-work-v22.json'
+      - 'docs/issue311-remaining-work-v22.md'
+      - '.github/workflows/issue311-approval-boundary.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue311-request-lifecycle.py'
+      - 'scripts/issue311-lifecycle-store.py'
+      - 'tests/test-issue311-approval-block.py'
+      - 'tests/test-issue311-lifecycle-store.py'
+      - 'metadata/issue311-remaining-work-v22.json'
+      - 'docs/issue311-remaining-work-v22.md'
+      - '.github/workflows/issue311-approval-boundary.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  hostile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python tests/test-issue311-request-lifecycle.py
+      - run: python tests/test-issue311-lifecycle-store.py
+      - run: python tests/test-issue311-approval-block.py
+  source:
+    if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Deterministic OFFLINE proof; no actual approval lookup or State App
+        run: python tests/test-issue311-approval-block.py --receipt issue311-r10-reproducible-boundary.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r10-reproducible-boundary
+          path: issue311-r10-reproducible-boundary.json
+          retention-days: 30
+          if-no-files-found: error
+  independent_readback:
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Get and hash real provider ZIP; authenticate same Run and exact receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import hashlib,io,json,os,pathlib,subprocess,urllib.parse,urllib.request,zipfile
+          repo=os.environ['GITHUB_REPOSITORY']; run=int(os.environ['GITHUB_RUN_ID'])
+          data=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run}/artifacts?per_page=100']))
+          assert data['total_count']==len(data['artifacts'])==1
+          art=data['artifacts'][0]
+          assert art['name']=='issue311-r10-reproducible-boundary' and art['expired'] is False
+          assert art['workflow_run']['id']==run and art['workflow_run']['head_sha']==os.environ['GITHUB_SHA']
+          request=urllib.request.Request(f'https://api.github.com/repos/{repo}/actions/artifacts/{art["id"]}/zip',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          class SecureRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,request,fp,code,msg,headers,newurl):
+                  src=urllib.parse.urlparse(request.full_url); dst=urllib.parse.urlparse(newurl)
+                  assert dst.scheme=='https'
+                  if src.hostname!=dst.hostname:
+                      return urllib.request.Request(newurl,headers={'User-Agent':'pgextwin-issue311-readonly'})
+                  return super().redirect_request(request,fp,code,msg,headers,newurl)
+          with urllib.request.build_opener(SecureRedirect()).open(request,timeout=60) as response: raw=response.read()
+          sha=hashlib.sha256(raw).hexdigest()
+          assert art['digest']=='sha256:'+sha
+          name='issue311-r10-reproducible-boundary.json'
+          with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+              assert archive.testzip() is None and archive.namelist()==[name]
+              inner=archive.read(name)
+          receipt=json.loads(inner)
+          assert receipt['scope']=='OFFLINE_CONTROLLED_APPROVAL_TRANSITION_AND_CAS'
+          assert receipt['r10_02Accepted'] is False and receipt['publicationAuthorized'] is False
+          assert receipt['realHumanApprovalObserved'] is False and receipt['realAppCasPerformed'] is False
+          assert receipt['runId']==str(run) and receipt['headSha']==os.environ['GITHUB_SHA']
+          pathlib.Path(name).write_bytes(inner)
+          print('OFFLINE_BOUNDARY_ORIGINAL_ZIP',art['id'],len(raw),sha,'INNER',hashlib.sha256(inner).hexdigest())
+          PY
+      - name: Independently rerun OFFLINE tests and compare exact receipt bytes (no old Actions Run rerun)
+        run: python tests/test-issue311-approval-block.py --receipt issue311-r10-reproducible-boundary.json
