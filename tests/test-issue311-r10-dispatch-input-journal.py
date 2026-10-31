@@ -27,7 +27,7 @@ with TemporaryDirectory() as d:
     root=Path(d)
     receipt=m.journal_dispatch(name,payload,r,root)
     original=(root/"orafce.json").read_bytes()
-    assert original.endswith(b"\\n")
+    assert original.endswith(b"\n")
     stored=json.loads(original)
     wire=base64.b64decode(stored["requestBodyBase64"],validate=True)
     assert wire==json.dumps(payload,separators=(",",":")).encode()
