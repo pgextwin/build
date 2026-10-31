@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contract": "v2.2-execution-clarification",
+  "contract": "v2.3-single-user-execution",
   "baseAcceptanceContract": "Issue311-v2.1",
   "baselineMain": "f4f1c4160fbf37fb6dbc1b1e0d8bae09a912d527",
   "acceptedCount": 85,
@@ -49,7 +49,8 @@
       "procedure": [
         "Run python tests/test-issue311-approval-block.py",
         "Use record_approval_block only after a trusted caller authenticates all observation fields",
-        "Retain exact observation JSON in original receipt; State event commits its canonical hash"
+        "Retain exact observation JSON in original receipt; State event commits its canonical hash",
+        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
       ],
       "passWhen": [
         "17 terminal statuses/reason/resume evidence committed",
@@ -77,7 +78,8 @@
         "Restore both immutable reports with existing scripts",
         "Locate original dispatch request/input bytes in authenticated parent receipt or retained job logs",
         "Join request/cycle/target/head/attempt and independently GET State",
-        "If bytes do not exist, report UNRECOVERABLE_INPUT_BINDING; design a new bounded nonpublishing negative request without rerunning old successes"
+        "If bytes do not exist, report UNRECOVERABLE_INPUT_BINDING; design a new bounded nonpublishing negative request without rerunning old successes",
+        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
       ],
       "passWhen": [
         "Both normal 17-target chains retain original ZIP SHA",
@@ -98,7 +100,7 @@
       "branch": "R10-02",
       "classification": "IMPLEMENT",
       "inputs": [
-        "Existing actual human approval policy at a fixed Git blob",
+        "Actual effective approval policy and authenticated current approval state, including not-required",
         "Real eligible request and original attempt1 source",
         "W10-A"
       ],
@@ -106,7 +108,8 @@
         "Implement an authenticated adapter for the existing actual approval lookup, with bounded GET-only retry",
         "Authenticate policy/request/source and missing approval before invoking transition",
         "Dedicated existing State App performs one terminal CAS, revoke401; separate keyless Runner reads Git blob and exact evidence receipt",
-        "No gate execution without an eligible real request; do not manufacture shortage"
+        "No gate execution without an eligible real request; do not manufacture shortage",
+        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
       ],
       "passWhen": [
         "Real per-target BLOCKED_APPROVAL reason/last stage/resume is durable",
@@ -114,11 +117,10 @@
         "W10-B and W10-A live/required components complete"
       ],
       "failWhen": [
-        "No actual policy or eligible request",
         "A caller-provided boolean presented as authenticated approval",
         "PUBLISH_DENY/AUDIT_ONLY/QUARANTINED relabeled BLOCKED_APPROVAL"
       ],
-      "nextAction": "Find the concrete existing policy and implement its caller. If policy/request absent, record EXTERNAL_GATE once with exact resume condition; continue W11-A.",
+      "nextAction": "Authenticate real policy. If approval not required, record NOT_REQUIRED with original policy proof and proceed; never manufacture BLOCKED_APPROVAL. Implement caller and real State CAS/readback.",
       "accepted": false
     },
     {
@@ -136,7 +138,9 @@
         "For each function specify replacement request/event input and exact outputs, not merely a replacement trigger",
         "Implement one target pilot preserving source-kind/actor checks and all PR/push CI",
         "Verify original nonpublishing normal and negative runs plus State/readback before removing that target schedule",
-        "Roll out only accepted targets, then independently inventory all 20 repos"
+        "Roll out only accepted targets, then independently inventory all 20 repos",
+        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent.",
+        "Use real immutable existing upstream in isolated CONTROLLED_INTEGRATION resources; future stable is required only for PUBLIC_E2E, not implementation."
       ],
       "passWhen": [
         "Every in-scope function has accepted substitute normal and negative original evidence",
@@ -165,7 +169,8 @@
         "For shared writers implement source-revision fence before migration and record bounded queued/in-progress inventory",
         "Verify a controlled isolated real CAS race invoking actual legacy and new writer admission code under genuine events, never forged schedule",
         "If no shared resource exists, prove disjoint authenticated namespaces and write allowlists instead; document N/A conflict scope",
-        "Verify expiry/revoke401/GET-after-ACK-loss/finite restart, then retain operator recovery instructions"
+        "Verify expiry/revoke401/GET-after-ACK-loss/finite restart, then retain operator recovery instructions",
+        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
       ],
       "passWhen": [
         "Shared legacy/new writer pair rejection proved with original identities, actual conflict and one PUT each",
@@ -192,7 +197,8 @@
       "procedure": [
         "Register one genuine request via protected PR",
         "Required CI -> expected-head protected merge -> original central/17 child -> finite terminal CAS -> independent keyless readback",
-        "Retain operator input, scope, target statuses/reasons, last successful stage, safe restart and all original bytes"
+        "Retain operator input, scope, target statuses/reasons, last successful stage, safe restart and all original bytes",
+        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
       ],
       "passWhen": [
         "One request/cycle binds 17 unique original children and genuine terminals without additional Chat/dispatch/cron",
@@ -219,7 +225,8 @@
       "procedure": [
         "Check only after candidate/authorization evidence changes",
         "Run real authorized Release -> public bytes -> Catalog -> CLI/feed -> EN/JA",
-        "Keep Website Draft45 unmerged until its own requirements hold"
+        "Keep Website Draft45 unmerged until its own requirements hold",
+        "Apply docs/issue311-single-user-v23.md: same authenticated request covers all permitted stages; no second human or new per-stage intent."
       ],
       "passWhen": [
         "All original public bytes/hash/signature/attestation/downstream evidence independently match"
@@ -232,5 +239,17 @@
       "nextAction": "Wait for a specific eligible stable and PUBLISH instruction. No synthetic release or repeated absence-only audit.",
       "accepted": false
     }
-  ]
+  ],
+  "singleUserPolicy": {
+    "operator": "ShutenOishi",
+    "additionalHumanIntentRequired": false,
+    "independentHumanReviewerAdded": false,
+    "manualWorkRequired": false,
+    "publicationAuthorized": false,
+    "controlledIntegrationUsesRealUpstream": true,
+    "publicE2ESeparate": true,
+    "githubProtectionUnchanged": true,
+    "finiteTimeoutRetryRequired": true,
+    "contractDocument": "docs/issue311-single-user-v23.md"
+  }
 }

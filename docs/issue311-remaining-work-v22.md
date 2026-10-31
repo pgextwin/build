@@ -50,3 +50,8 @@ BLOCKED_APPROVALを自動的にSUCCESSへ書き戻す機能は追加しない。
 未変更の原本を再取得するだけのPRを作らない。次の条件が成立するときだけ再確認する：policy/要求/原本の変更、実装修正、既存証拠の有効期限切れ、受入に必要な新証拠の発生。外部待機は再開条件を1回記録し、独立したIMPLEMENT作業へ進む。保護PR・required CI・postmerge・実バイト照合なしで受入件数を増やさない。
 
 不変条件：runtimeEnabled=false / PUBLISH_DENY / 全保護・必須CI / 原本保全 / 成功Run rerun禁止 / 新cron・Chat定期タスク・外部worker禁止 / 偽actor・source-kind・schedule禁止 / Secret転用・権限緩和・未認可公開禁止。Website Draft #45は未マージ。
+
+
+## v2.3 単一ユーザー移行
+
+[単一ユーザー実行契約](issue311-single-user-v23.md) を将来判定に適用する。追加human intentを必要とせず、実在policyの承認不要を承認不足と偽らない。隔離された実GitHub統合試験と正式公開E2Eを分離する。85/94は不変。
