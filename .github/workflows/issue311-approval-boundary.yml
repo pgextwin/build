@@ -5,6 +5,7 @@ on:
       - 'scripts/issue311-request-lifecycle.py'
       - 'scripts/issue311-lifecycle-store.py'
       - 'tests/test-issue311-approval-block.py'
+      - 'tests/test-issue311-v23-effective-approval.py'
       - 'tests/test-issue311-lifecycle-store.py'
       - 'metadata/issue311-remaining-work-v22.json'
       - 'docs/issue311-remaining-work-v22.md'
@@ -15,6 +16,7 @@ on:
       - 'scripts/issue311-request-lifecycle.py'
       - 'scripts/issue311-lifecycle-store.py'
       - 'tests/test-issue311-approval-block.py'
+      - 'tests/test-issue311-v23-effective-approval.py'
       - 'tests/test-issue311-lifecycle-store.py'
       - 'metadata/issue311-remaining-work-v22.json'
       - 'docs/issue311-remaining-work-v22.md'
@@ -33,6 +35,7 @@ jobs:
       - run: python tests/test-issue311-request-lifecycle.py
       - run: python tests/test-issue311-lifecycle-store.py
       - run: python tests/test-issue311-approval-block.py
+      - run: python tests/test-issue311-v23-effective-approval.py
   source:
     if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
     runs-on: ubuntu-latest
@@ -41,6 +44,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Verify effective PREPARE policy conditional acceptance contract
+        run: python tests/test-issue311-v23-effective-approval.py
       - name: Deterministic OFFLINE proof; no actual approval lookup or State App
         run: python tests/test-issue311-approval-block.py --receipt issue311-r10-reproducible-boundary.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
