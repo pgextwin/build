@@ -17,7 +17,7 @@
 |---|---|---|
 | W10-A 共通承認停止 | bound original State + 固定policy + 認証済み承認不足の観測。専用遷移と既存CAS adapterの制御試験 | 17対象BLOCKED_APPROVAL、理由/再開点のevent hash結合、成功不変、stale/ACK喪失拒否。**コード/制御試験限定**。live合格はW10-C |
 | W10-B 異常原本の結合 | 既存2正常×17、4異常×17、32子ZIPとorafce skip/timeout | 原本入力→子Run/attempt/head→存在するZIPまたは真の不在→State→理由/再開点を結合。orafce POST入力が回収不能ならUNRECOVERABLE_INPUT_BINDINGと記録し、次の限定負例に先立ち入力receipt保存を実装 |
-| W10-C 実承認gate adapter | 実在する既存policy・適格要求・真正source | policy/request/source/承認GETの一致→実State App単発CAS→revoke401→別Runner鍵なしGET→実ZIP SHA。policy/要求がなければEXTERNAL_GATEとして1回記録しW11-Aへ。人工の承認不足は禁止 |
+| W10-C 実承認gate adapter | 実在する**有効な**PREPARE policy・適格要求・真正source | 条件分岐：承認が実際に必須かつ不足→`BLOCKED_APPROVAL`原本、承認不要→`NOT_REQUIRED`原本＋正常な安全終端。いずれも実State App CAS→revoke401→別Runner鍵なしGET→元ZIP実SHAと17対象の理由/復旧点を照合。承認不足の捏造禁止 |
 | W11-A schedule機能の代替 | 17拡張、build6/catalog4/website1、hypopg追加回復を別区分 | 各機能の非公開正常/異常original受入→その対象だけ保護PR撤去→postmerge→20repo再監査。先にorafce pilot。棚卸しだけのPRを反復しない |
 | W11-B 旧/新書込の排他 | 実コードSHAと書込namespaceの対応表 | 共有Writerは実旧/新コード・真正event・隔離資源で実409/PUT1回ずつ/失効/有限再開を証明。共有しない組合せはnamespaceと書込allowlistの非交差を証明しN/Aを明示。これは実409の代替証拠ではない。旧Run不在の観測だけでは不可 |
 | W12-A 非公開最終要求 | R10/R11前提成立、固定17対象の1要求 | 保護PR→CI→期待HEAD merge→真正中央/17子→有限終端CAS→独立読取。理由/最終成功/安全再開/Run/ZIP実SHA/Stateを報告。親依存は別途すべて照合 |
@@ -51,6 +51,16 @@ BLOCKED_APPROVALを自動的にSUCCESSへ書き戻す機能は追加しない。
 
 不変条件：runtimeEnabled=false / PUBLISH_DENY / 全保護・必須CI / 原本保全 / 成功Run rerun禁止 / 新cron・Chat定期タスク・外部worker禁止 / 偽actor・source-kind・schedule禁止 / Secret転用・権限緩和・未認可公開禁止。Website Draft #45は未マージ。
 
+
+## v2.3 R10 有効承認policyの条件分岐（旧v2.2表現を補正）
+
+**単一ユーザー運用で人間の承認不足を人工的に作ることは受入条件ではない。** まず実際のpolicy Git blob/Environment設定・request/source attempt1を認証済みの原本で固定し、以下の**排他的な実際の分岐**に従う。マシン可読正本は `metadata/issue311-remaining-work-v22.json` の W10-A/W10-C `passWhen` とする。
+
+- **REQUIRED_AND_MISSING:** 実際にPREPARE承認が必要で、かつ現に不足している時だけ `record_approval_block` を呼ぶ。17対象 `BLOCKED_APPROVAL`、reason/lastSuccess/resume、original observation hash、App CASと独立鍵なしreadbackを要求する。
+- **NOT_REQUIRED:** 認証済み実policyで承認不要の場合、`NOT_REQUIRED` の原本を保持する。`record_approval_block` を**呼ばず**、17対象の実際の正常/異常terminalと有限State CAS・revoke401・元ZIP実SHA・別Runner鍵なしreadbackを検証する。
+- policyが不明・不一致・期限切れ・実source不在・State書込ACK不明の場合はPENDING/QUARANTINEDとし、どちらにも偽分類しない。形式的第二human承認や追加intentを要求しない。
+
+共通の W10-B 元dispatch入力/ZIP有無の結合、W10-A controlled hostile、真正AppのPUT回数・原本Run/attempt1・17対象レポート・安全な再開条件は、どちらの分岐でも別途必要。**この契約補正は実原本の受入そのものではなく、85/94の正式チェックを変更しない。**
 
 ## v2.3 単一ユーザー移行
 
