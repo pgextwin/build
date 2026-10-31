@@ -198,6 +198,48 @@ def source_original():
             "perTargetStatus": report["perTargetStatus"],
             "requestRawSha256": declaration["rawSha256"]}
 
+def journal_dispatch(name, payload, r, root=Path("r10-original-dispatch-input")):
+    """Persist exact nonsecret POST JSON bytes before a single live dispatch.
+
+    A journal is NOT an ACK, a Run receipt, or evidence that the POST happened.
+    Its SHA256 binds the same JSON serializer used by the existing App helper.
+    """
+    need(name in LOCAL_IDS and type(payload) is dict
+         and set(payload) == {"ref", "inputs"}
+         and payload["ref"] == "main"
+         and type(payload["inputs"]) is dict
+         and set(payload["inputs"]) == {"request_id","source_run_id",
+             "source_head_sha","source_artifact_id","source_zip_sha256",
+             "central_request_id","local_main_sha"}
+         and all(type(x) is str for x in payload["inputs"].values())
+         and payload["inputs"]["request_id"] == LOCAL_IDS[name]
+         and payload["inputs"]["source_run_id"] == str(r["sourceRunId"])
+         and payload["inputs"]["source_head_sha"] == r["sourceHeadSha"]
+         and payload["inputs"]["source_artifact_id"] == str(r["sourceArtifactId"])
+         and payload["inputs"]["source_zip_sha256"] == r["sourceZipSha256"]
+         and payload["inputs"]["central_request_id"] == REQUEST_ID
+         and payload["inputs"]["local_main_sha"] == r["localMainSha"],
+         "dispatch journal source/payload mismatch")
+    wire = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    doc = {"schemaVersion":1, "classification":"ORIGINAL_DISPATCH_PREWRITE_INPUT_ONLY",
+           "repository":"pgextwin/"+name,"workflow":WORKFLOW,
+           "sourceRunId":r["sourceRunId"], "sourceHeadSha":r["sourceHeadSha"],
+           "sourceArtifactId":r["sourceArtifactId"],
+           "sourceZipSha256":r["sourceZipSha256"],
+           "centralRequestId":REQUEST_ID,
+           "requestBodyBase64":base64.b64encode(wire).decode("ascii"),
+           "requestBodySha256":hashlib.sha256(wire).hexdigest(),
+           "writeAckEstablished":False,"originalChildEstablished":False,
+           "runtimeEnabled":False,"publicationAuthorized":False}
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    filename=root/(name+".json")
+    need(not filename.exists(), "duplicate/replay journal path")
+    with filename.open("x",encoding="utf-8") as out:
+        out.write(json.dumps(doc,sort_keys=True,separators=(",",":"))+"\n")
+        out.flush()
+        os.fsync(out.fileno())
+    return doc
+
 def worker(name, source, jwt):
     repo = "pgextwin/" + name
     result = {"repository": repo, "result": "QUARANTINED",
@@ -240,10 +282,14 @@ def worker(name, source, jwt):
             "source_artifact_id": str(r["sourceArtifactId"]),
             "source_zip_sha256": r["sourceZipSha256"],
             "central_request_id": REQUEST_ID, "local_main_sha": r["localMainSha"]}
-        # One POST maximum. Timeout/ambiguous HTTP must not trigger another POST.
+        # Journal the exact nonsecret wire request BEFORE attempting the irreversible POST.
+        # A prepared journal is never mistaken for a successful dispatch or ACK.
+        dispatch_payload = {"ref": "main", "inputs": inputs}
+        evidence = journal_dispatch(name, dispatch_payload, r)
+        result["originalDispatchInputSha256"] = evidence["requestBodySha256"]
         result["dispatchCount"] = 1
         try:
-            status, _ = m.api("POST", m.POST, token, {"ref": "main", "inputs": inputs})
+            status, _ = m.api("POST", m.POST, token, dispatch_payload)
             result["dispatchHttpStatus"] = status
             need(status in (200, 201, 204), "failed App dispatch")
         except (identity.HTTPFailure, Exception) as exc:
