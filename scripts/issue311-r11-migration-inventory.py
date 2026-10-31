@@ -14,7 +14,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import yaml
 
 EXTENSIONS = (
     'pg_bigm','pg_cron','pg_hint_plan','pgaudit','set_user','pg_repack',
@@ -72,18 +71,63 @@ def file_get(repo,path,commit):
     return raw,result['sha']
 
 def workflow(raw):
-    need(type(raw) is bytes and len(raw)<300_000,'invalid workflow source')
-    data=yaml.load(raw.decode('utf-8'),Loader=yaml.BaseLoader)
-    need(type(data) is dict and type(data.get('jobs')) is dict,
-         'invalid workflow syntax')
-    triggers=data.get('on')
-    if type(triggers) is str: triggers={triggers:None}
-    elif type(triggers) is list:
-        need(all(type(x) is str for x in triggers),'invalid workflow event list')
-        triggers={x:None for x in triggers}
-    need(type(triggers) is dict,'invalid workflow trigger')
-    data['on']=triggers
-    return data
+    # Strict narrow stdlib reader for Actions top-level on/jobs, not arbitrary YAML.
+    need(type(raw) is bytes and 0 < len(raw) < 300_000,
+         'invalid workflow source')
+    try: lines=raw.decode('utf-8').splitlines()
+    except UnicodeDecodeError as exc: raise Denied('invalid UTF-8 workflow') from exc
+    keys={}
+    for i,line in enumerate(lines):
+        if not line or line.lstrip().startswith('#') or line[0].isspace():continue
+        match=re.match(r'^(on|jobs):(?:\s*(.*))?$',line)
+        if match:
+            need(match[1] not in keys,'duplicate top-level workflow key')
+            keys[match[1]]=(i,match[2] or '')
+    need(set(keys)=={'on','jobs'},'missing top-level workflow trigger/jobs')
+    def section(name):
+        pos,inline=keys[name]
+        end=len(lines)
+        for j in range(pos+1,len(lines)):
+            line=lines[j]
+            if line and not line[0].isspace() and not line.lstrip().startswith('#'):
+                end=j;break
+        return inline,lines[pos+1:end]
+    inline,raw_on=section('on')
+    on={}
+    if inline:
+        if re.fullmatch(r'\[[a-z_ ,]+\]',inline):
+            on={v.strip():None for v in inline.strip('[]').split(',')}
+        elif re.fullmatch(r'[a-z_]+',inline): on={inline:None}
+        else:raise Denied('unsupported inline workflow events')
+    else:
+        event=None
+        for line in raw_on:
+            if not line.strip() or line.lstrip().startswith('#'):continue
+            match=re.match(r'^  ([a-z_]+):(?:\s*.*)?$',line)
+            if match:
+                event=match[1]
+                need(event not in on,'duplicate workflow event')
+                on[event]=None if event!='schedule' else []
+            elif event=='schedule':
+                cron=re.match(r'''^    - cron:\s*['"]?([^'"#]+?)['"]?\s*(?:#.*)?$''',line)
+                if cron:on[event].append({'cron':cron[1].strip()})
+    _,raw_jobs=section('jobs')
+    jobs={};job=None;current=None
+    for line in raw_jobs:
+        if not line.strip() or line.lstrip().startswith('#'):continue
+        match=re.match(r'^  ([a-zA-Z0-9_-]+):\s*$',line)
+        if match:
+            job=match[1];need(job not in jobs,'duplicate workflow job')
+            jobs[job]={};current=None
+        elif job:
+            key=re.match(r'^    (if|uses):\s*(.*)$',line)
+            if key:
+                current=key[1];jobs[job][current]=key[2].strip().strip('\"')
+            elif current and line.startswith('      '):
+                jobs[job][current]+=' '+line.strip()
+            else:current=None
+    need(on and jobs,'no workflow events/jobs')
+    return {'on':on,'jobs':jobs}
 
 def events(data):
     return data['on']
