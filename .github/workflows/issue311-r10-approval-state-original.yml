@@ -1,0 +1,89 @@
+name: Issue 311 R10 original approval State gap (GET ONLY)
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue311-r10-approval-state-original.py'
+      - 'tests/test-issue311-r10-approval-state-original.py'
+      - '.github/workflows/issue311-r10-approval-state-original.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue311-r10-approval-state-original.py'
+      - 'tests/test-issue311-r10-approval-state-original.py'
+      - '.github/workflows/issue311-r10-approval-state-original.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  hostile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python tests/test-issue311-r10-approval-state-original.py
+  source:
+    if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Original authenticated State GET with no App key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r10-approval-state-original.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r10-approval-original-state
+          path: issue311-r10-approval-original-state.json
+          retention-days: 30
+          if-no-files-found: error
+  readback:
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download original JSON from same Run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name issue311-r10-approval-original-state --dir .
+      - name: Rehash original outer ZIP bytes and verify exact inner JSON
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import hashlib,io,json,os,pathlib,subprocess,urllib.parse,urllib.request,zipfile
+          repo=os.environ['GITHUB_REPOSITORY']; run=os.environ['GITHUB_RUN_ID']
+          a=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run}/artifacts?per_page=100']))
+          hits=[v for v in a['artifacts'] if v.get('name')=='issue311-r10-approval-original-state']
+          assert len(hits)==1 and a['total_count']<=100
+          art=hits[0]
+          assert art['expired'] is False
+          request=urllib.request.Request(f'https://api.github.com/repos/{repo}/actions/artifacts/{art["id"]}/zip',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          class SecureRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,request,fp,code,msg,headers,newurl):
+                  src=urllib.parse.urlparse(request.full_url); dst=urllib.parse.urlparse(newurl)
+                  assert dst.scheme=='https'
+                  if src.hostname!=dst.hostname:
+                      return urllib.request.Request(newurl,headers={'User-Agent':'pgextwin-issue311-readonly'})
+                  return super().redirect_request(request,fp,code,msg,headers,newurl)
+          with urllib.request.build_opener(SecureRedirect()).open(request,timeout=60) as r: raw=r.read()
+          sha=hashlib.sha256(raw).hexdigest()
+          assert art['digest']=='sha256:'+sha
+          with zipfile.ZipFile(io.BytesIO(raw)) as z:
+              assert z.testzip() is None
+              assert z.namelist()==['issue311-r10-approval-original-state.json']
+              inner=z.read(z.namelist()[0])
+          assert inner==pathlib.Path('issue311-r10-approval-original-state.json').read_bytes()
+          print('R10_APPROVAL_ORIGINAL_ZIP_SHA256',art['id'],len(raw),sha,'INNER',hashlib.sha256(inner).hexdigest())
+          PY
+      - name: Independently re-GET State (no App key)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r10-approval-state-original.py --verify
