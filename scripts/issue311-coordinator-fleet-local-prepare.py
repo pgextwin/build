@@ -235,7 +235,7 @@ def journal_dispatch(name, payload, r, root=Path("r10-original-dispatch-input"))
     filename=root/(name+".json")
     need(not filename.exists(), "duplicate/replay journal path")
     with filename.open("x",encoding="utf-8") as out:
-        out.write(json.dumps(doc,sort_keys=True,separators=(",",":"))+"\\n")
+        out.write(json.dumps(doc,sort_keys=True,separators=(",",":"))+"\n")
         out.flush()
         os.fsync(out.fileno())
     return doc
