@@ -14,6 +14,7 @@ on:
       - 'scripts/issue311-coordinator-fleet-local-helper.py'
       - 'scripts/issue311-coordinator-fleet-local-prepare.py'
       - 'tests/test-issue311-coordinator-fleet-original.py'
+      - 'tests/test-issue311-r10-dispatch-input-journal.py'
 
 permissions:
   contents: read
@@ -36,7 +37,9 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install --disable-pip-version-check 'jsonschema>=4,<5'
-      - run: python tests/test-issue311-coordinator-fleet-original.py
+      - run: |
+          python tests/test-issue311-coordinator-fleet-original.py
+          python tests/test-issue311-r10-dispatch-input-journal.py
 
   app_fleet:
     if: github.repository == 'pgextwin/build' && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1
@@ -63,4 +66,11 @@ jobs:
           name: issue311-r06-app-fleet-original-terminal
           path: issue311-r06-app-fleet-original-terminal.json
           if-no-files-found: error
+          retention-days: 30
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r10-original-dispatch-prewrite-inputs
+          path: r10-original-dispatch-input/*.json
+          if-no-files-found: warn
           retention-days: 30
