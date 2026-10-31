@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "contract": "v2.2-execution-clarification",
+  "baseAcceptanceContract": "Issue311-v2.1",
+  "baselineMain": "f4f1c4160fbf37fb6dbc1b1e0d8bae09a912d527",
+  "acceptedCount": 85,
+  "totalCount": 94,
+  "pendingCheckboxes": [
+    "R09-02",
+    "R09",
+    "R10-02",
+    "R10",
+    "R11-01",
+    "R11-02",
+    "R11",
+    "R12-02",
+    "R12"
+  ],
+  "targetScope": [
+    "pgextwin/hypopg",
+    "pgextwin/orafce",
+    "pgextwin/pg_bigm",
+    "pgextwin/pg_cron",
+    "pgextwin/pg_hint_plan",
+    "pgextwin/pg_ivm",
+    "pgextwin/pg_partman",
+    "pgextwin/pg_qualstats",
+    "pgextwin/pg_repack",
+    "pgextwin/pg_stat_monitor",
+    "pgextwin/pg_store_plans",
+    "pgextwin/pg_variables",
+    "pgextwin/pgaudit",
+    "pgextwin/pgtap",
+    "pgextwin/plpgsql_check",
+    "pgextwin/set_user",
+    "pgextwin/wal2json"
+  ],
+  "publicationAuthorized": false,
+  "runtimeEnabled": false,
+  "workPackages": [
+    {
+      "id": "W10-A",
+      "branch": "R10-02",
+      "classification": "IMPLEMENT",
+      "inputs": [
+        "Bound attempt1 State",
+        "Authenticated missing-human-PREPARE observation and exact policy Git blob"
+      ],
+      "procedure": [
+        "Run python tests/test-issue311-approval-block.py",
+        "Use record_approval_block only after a trusted caller authenticates all observation fields",
+        "Retain exact observation JSON in original receipt; State event commits its canonical hash"
+      ],
+      "passWhen": [
+        "17 terminal statuses/reason/resume evidence committed",
+        "Existing production CAS adapter refuses stale writer and uses GET after missing ACK",
+        "All hostile tests pass on PR HEAD and original postmerge"
+      ],
+      "failWhen": [
+        "PUBLISH_DENY substituted for PREPARE approval shortage",
+        "Mock result presented as real human approval or real App CAS"
+      ],
+      "nextAction": "Protected PR for transition and contract. Then implement W10-C caller; do not repeat absence-only inventories.",
+      "accepted": false
+    },
+    {
+      "id": "W10-B",
+      "branch": "R10-02",
+      "classification": "VERIFY_EXISTING",
+      "inputs": [
+        "Retained R10 normal report SHA256 615d32b8493ee292daea971d456d08fc74ff9b309690762ff05cd9c97f089688",
+        "Retained negative report SHA256 fa1464b9e4fb9234f66a279e6e6360f610b5a933e37483c1a3b70c9f14c10910",
+        "orafce skip 41014360341 and timeout 41015468625",
+        "Dispatch parent 41014241399 and 41015355922"
+      ],
+      "procedure": [
+        "Restore both immutable reports with existing scripts",
+        "Locate original dispatch request/input bytes in authenticated parent receipt or retained job logs",
+        "Join request/cycle/target/head/attempt and independently GET State",
+        "If bytes do not exist, report UNRECOVERABLE_INPUT_BINDING; design a new bounded nonpublishing negative request without rerunning old successes"
+      ],
+      "passWhen": [
+        "Both normal 17-target chains retain original ZIP SHA",
+        "Every negative target has exact source identity, status, reason, last stage and resume point",
+        "Skipped/no-artifact execution records authenticated artifact absence instead of an invented ZIP",
+        "Independent reader checks enriched report and State"
+      ],
+      "failWhen": [
+        "Time adjacency used as dispatch binding",
+        "Absent child artifact treated as successful receipt",
+        "Unrecoverable original silently filled with a guessed SHA"
+      ],
+      "nextAction": "Recover the two exact dispatch payload bindings; if unavailable, implement receipt retention before any new scoped negative run.",
+      "accepted": false
+    },
+    {
+      "id": "W10-C",
+      "branch": "R10-02",
+      "classification": "IMPLEMENT",
+      "inputs": [
+        "Existing actual human approval policy at a fixed Git blob",
+        "Real eligible request and original attempt1 source",
+        "W10-A"
+      ],
+      "procedure": [
+        "Implement an authenticated adapter for the existing actual approval lookup, with bounded GET-only retry",
+        "Authenticate policy/request/source and missing approval before invoking transition",
+        "Dedicated existing State App performs one terminal CAS, revoke401; separate keyless Runner reads Git blob and exact evidence receipt",
+        "No gate execution without an eligible real request; do not manufacture shortage"
+      ],
+      "passWhen": [
+        "Real per-target BLOCKED_APPROVAL reason/last stage/resume is durable",
+        "Original receipt ZIP actual SHA, State blob/revision, PUT count, revoke401, independent readback all match",
+        "W10-B and W10-A live/required components complete"
+      ],
+      "failWhen": [
+        "No actual policy or eligible request",
+        "A caller-provided boolean presented as authenticated approval",
+        "PUBLISH_DENY/AUDIT_ONLY/QUARANTINED relabeled BLOCKED_APPROVAL"
+      ],
+      "nextAction": "Find the concrete existing policy and implement its caller. If policy/request absent, record EXTERNAL_GATE once with exact resume condition; continue W11-A.",
+      "accepted": false
+    },
+    {
+      "id": "W11-A",
+      "branch": "R11-01",
+      "classification": "IMPLEMENT",
+      "inputs": [
+        "PR474 inventory",
+        "17 hourly update-watch workflows, hypopg extra 41-minute recovery separately",
+        "build 6, catalog 4, website 1 schedule workflows",
+        "Existing accepted PREPARE/Sigstore/Publisher-deny evidence"
+      ],
+      "procedure": [
+        "Produce per-workflow function map: detection, candidate authorization, signed requalification, reconciliation, recovery",
+        "For each function specify replacement request/event input and exact outputs, not merely a replacement trigger",
+        "Implement one target pilot preserving source-kind/actor checks and all PR/push CI",
+        "Verify original nonpublishing normal and negative runs plus State/readback before removing that target schedule",
+        "Roll out only accepted targets, then independently inventory all 20 repos"
+      ],
+      "passWhen": [
+        "Every in-scope function has accepted substitute normal and negative original evidence",
+        "Per-target protected merge and original postmerge pass",
+        "Targeted schedule/dependent authorization/metadata/docs zero, push/PR/workflow_run preserved"
+      ],
+      "failWhen": [
+        "PREPARE NO_UPDATE used to prove candidate creation or reconciliation",
+        "Schedule removed before substitute accepted",
+        "New cron/task/worker added"
+      ],
+      "nextAction": "Implement orafce pilot for each still schedule-only function; do not add another unchanged inventory-only PR.",
+      "accepted": false
+    },
+    {
+      "id": "W11-B",
+      "branch": "R11-02",
+      "classification": "IMPLEMENT",
+      "inputs": [
+        "W11-A pilot",
+        "Historical and current exact legacy/new writer code and state namespaces",
+        "Original 41032550321 CAS evidence reusable only for its actual scope"
+      ],
+      "procedure": [
+        "Map whether each legacy/new path actually shares a writable resource",
+        "For shared writers implement source-revision fence before migration and record bounded queued/in-progress inventory",
+        "Verify a controlled isolated real CAS race invoking actual legacy and new writer admission code under genuine events, never forged schedule",
+        "If no shared resource exists, prove disjoint authenticated namespaces and write allowlists instead; document N/A conflict scope",
+        "Verify expiry/revoke401/GET-after-ACK-loss/finite restart, then retain operator recovery instructions"
+      ],
+      "passWhen": [
+        "Shared legacy/new writer pair rejection proved with original identities, actual conflict and one PUT each",
+        "Or exact disjointness is proved for a pair without shared write authority; never call this HTTP409 proof",
+        "No late legacy writer can overwrite accepted new terminal"
+      ],
+      "failWhen": [
+        "Generic CAS proof relabeled legacy/new competition",
+        "No active Run observation used as proof against future late writes",
+        "Missing writer mapping or missing fence"
+      ],
+      "nextAction": "Map actual write resources first and implement the pilot fence; do not wait for a coincidental legacy/new collision.",
+      "accepted": false
+    },
+    {
+      "id": "W12-A",
+      "branch": "R12-02",
+      "classification": "IMPLEMENT",
+      "inputs": [
+        "R12-01 accepted crosswalk",
+        "R10-02 and R11-01/02 prerequisites",
+        "Pinned 17-target single bounded nonpublishing request"
+      ],
+      "procedure": [
+        "Register one genuine request via protected PR",
+        "Required CI -> expected-head protected merge -> original central/17 child -> finite terminal CAS -> independent keyless readback",
+        "Retain operator input, scope, target statuses/reasons, last successful stage, safe restart and all original bytes"
+      ],
+      "passWhen": [
+        "One request/cycle binds 17 unique original children and genuine terminals without additional Chat/dispatch/cron",
+        "All applicable PR/CI/artifact/hash/CAS/revoke/readback evidence recorded",
+        "Parent gates individually rechecked; R09 public gate remains separate and #75 OPEN"
+      ],
+      "failWhen": [
+        "Old unrelated successful runs spliced into one new E2E",
+        "Prerequisites skipped",
+        "Final success asserted from PR creation or workflow status alone"
+      ],
+      "nextAction": "After W10/W11 prerequisites, issue one new bounded PREPARE request; preserve existing successful originals.",
+      "accepted": false
+    },
+    {
+      "id": "W09-A",
+      "branch": "R09-02",
+      "classification": "EXTERNAL_GATE",
+      "inputs": [
+        "Future eligible new stable",
+        "Specific real human PUBLISH authorization",
+        "All Publisher/signature/attestation/publication gates"
+      ],
+      "procedure": [
+        "Check only after candidate/authorization evidence changes",
+        "Run real authorized Release -> public bytes -> Catalog -> CLI/feed -> EN/JA",
+        "Keep Website Draft45 unmerged until its own requirements hold"
+      ],
+      "passWhen": [
+        "All original public bytes/hash/signature/attestation/downstream evidence independently match"
+      ],
+      "failWhen": [
+        "Test Release/tag created",
+        "Unapproved public mutation",
+        "PUBLISH inferred from this implementation request"
+      ],
+      "nextAction": "Wait for a specific eligible stable and PUBLISH instruction. No synthetic release or repeated absence-only audit.",
+      "accepted": false
+    }
+  ]
+}

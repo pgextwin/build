@@ -52,6 +52,9 @@ jobs:
       - name: Reject R04/R05 generic lifecycle replay, missing event, expiry and privilege (NO WRITER)
         run: python tests/test-issue311-request-lifecycle.py
 
+      - name: Verify explicit approval-stop transition and reproducible remaining-work contract (OFFLINE NO WRITER)
+        run: python tests/test-issue311-approval-block.py
+
       - name: Reject expired 17-target recovery forgeries and preserve failed original state (NO CREDENTIALS)
         run: python tests/test-issue311-r04r05-terminal-recovery.py
 
@@ -385,3 +388,4 @@ jobs:
       - name: Test matrix resolver
         shell: pwsh
         run: ./tests/test-resolve-matrix.ps1
+

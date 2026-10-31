@@ -91,7 +91,8 @@ def validate(state):
                 and type(value["id"]) is int and value["id"] > 0
                 and type(value["attempt"]) is int and 1 <= value["attempt"] <= 3),
                 "malformed source/completion run")
-    require(state["eventTransport"] in (None, "workflow_run.completed", "BOUNDED_WATCHDOG"),
+    require(state["eventTransport"] in (None, "workflow_run.completed", "BOUNDED_WATCHDOG",
+                                        "AUTHENTICATED_APPROVAL_GATE"),
             "invalid event transport")
     if state["terminal"] is not None:
         require(state["terminal"] in TERMINALS
@@ -128,6 +129,53 @@ def bind_source(state, revision, key, *, run_id, attempt, head_sha):
                 and head_sha == s["sourceHeadSha"] and s["sourceRun"] is None,
                 "source run changed or invalid")
         s["sourceRun"] = {"id": run_id, "attempt": attempt}
+    return _apply(state, revision, key, payload, action)
+
+
+def record_approval_block(state, revision, key, *, evidence):
+    """Persist a missing HUMAN PREPARE approval observation, never a publish denial.
+
+    Pure transition only: the trusted caller MUST authenticate the request,
+    source Run, exact policy Git bytes, and approval lookup via separate GETs.
+    This function cannot authenticate supplied facts or create that adapter.
+    Retain the exact evidence JSON in the original receipt: its canonical SHA256
+    is committed to the immutable State event. No child ZIP is invented when
+    the gate stopped execution before children existed.
+    """
+    require(type(evidence) is dict and set(evidence) == {
+        "requestId", "requestSha256", "sourceHeadSha", "sourceRun", "targetScope",
+        "policyPath", "policyBlobSha", "policyMode", "requiredApprovals",
+        "observedApprovals", "observedAt", "lookup", "lookupReceiptSha256",
+        "reasonCode", "lastSuccessfulStage", "resumeAt"}, "invalid approval evidence fields")
+    payload = dict(op="approval_block", evidence=copy.deepcopy(evidence))
+    def action(s):
+        require(s["sourceRun"] is not None and s["sourceRun"]["attempt"] == 1,
+                "approval gate requires bound original attempt1 source")
+        for field in ("requestId", "requestSha256", "sourceHeadSha", "sourceRun", "targetScope"):
+            require(evidence[field] == s[field], "approval evidence identity changed " + field)
+        require(type(evidence["policyPath"]) is str
+                and re.fullmatch(r"(?:metadata|config)/[a-z0-9_-]+(?:/[a-z0-9_-]+)*\.json",
+                                 evidence["policyPath"])
+                and type(evidence["policyBlobSha"]) is str
+                and SHA1.fullmatch(evidence["policyBlobSha"]), "invalid original approval policy")
+        require(evidence["policyMode"] == "PREPARE"
+                and type(evidence["requiredApprovals"]) is int and evidence["requiredApprovals"] > 0
+                and type(evidence["observedApprovals"]) is int
+                and 0 <= evidence["observedApprovals"] < evidence["requiredApprovals"]
+                and evidence["lookup"] == "AUTHENTICATED_HUMAN_APPROVAL_MISSING"
+                and type(evidence["lookupReceiptSha256"]) is str
+                and SHA256.fullmatch(evidence["lookupReceiptSha256"]),
+                "not an authenticated missing human PREPARE approval")
+        require(parse_utc(evidence["observedAt"]) < parse_utc(s["expiresAt"]),
+                "expired request is not an approval wait")
+        require(evidence["reasonCode"] == "HUMAN_PREPARE_APPROVAL_MISSING"
+                and evidence["lastSuccessfulStage"] == "SOURCE_BOUND"
+                and evidence["resumeAt"] == "RECHECK_ORIGINAL_APPROVAL_WITH_NEW_AUTHORIZATION"
+                and all(v == "PENDING" for v in s["targets"].values()),
+                "gate cannot overwrite completed work or claim later success")
+        s["targets"] = {t: "BLOCKED_APPROVAL" for t in s["targetScope"]}
+        s["terminal"] = "BLOCKED_APPROVAL"
+        s["eventTransport"] = "AUTHENTICATED_APPROVAL_GATE"
     return _apply(state, revision, key, payload, action)
 
 
@@ -180,3 +228,4 @@ def event_deadline(state, revision, key, *, now, source_completed,
         s["terminal"] = result
         s["eventTransport"] = "BOUNDED_WATCHDOG"
     return _apply(state, revision, key, payload, action)
+
