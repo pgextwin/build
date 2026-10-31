@@ -56,6 +56,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name issue311-r11-overlap-original-snapshot --dir .
+      - name: Download and SHA256-verify actual original Artifact ZIP bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, os, pathlib, subprocess, urllib.request, zipfile
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_id = os.environ["GITHUB_RUN_ID"]
+          data = json.loads(subprocess.check_output([
+              "gh", "api", f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"]))
+          matches = [x for x in data["artifacts"]
+                     if x.get("name") == "issue311-r11-overlap-original-snapshot"]
+          assert len(matches) == 1 and data["total_count"] <= 100
+          artifact = matches[0]
+          assert artifact.get("expired") is False
+          expected = artifact["digest"]
+          assert expected.startswith("sha256:") and len(expected) == 71
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact['id']}/zip",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
+                       "Accept":"application/vnd.github+json"})
+          with urllib.request.urlopen(req, timeout=60) as response:
+              raw = response.read()
+          actual = hashlib.sha256(raw).hexdigest()
+          assert expected == "sha256:" + actual, "original ZIP bytes differ from digest"
+          with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+              assert archive.testzip() is None, "bad ZIP CRC"
+              names = archive.namelist()
+              assert names == ["issue311-r11-overlap-snapshot.json"], names
+              assert archive.read(names[0]) == pathlib.Path(names[0]).read_bytes()
+          print("R11_ORIGINAL_OUTER_ZIP_BYTES_SHA256", artifact["id"], len(raw), actual)
+          print("R11_ORIGINAL_INNER_JSON_BYTES_SHA256",
+                hashlib.sha256(pathlib.Path(names[0]).read_bytes()).hexdigest())
+          PY
       - name: Independently GET each captured original Run identity without App key
         env:
           GH_TOKEN: ${{ github.token }}
