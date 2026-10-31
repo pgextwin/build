@@ -1,0 +1,96 @@
+name: Issue 311 R11 original legacy writer overlap GET (NONPUBLISHING)
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue311-r11-overlap-preflight.py'
+      - 'tests/test-issue311-r11-overlap-preflight.py'
+      - '.github/workflows/issue311-r11-overlap-preflight.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue311-r11-overlap-preflight.py'
+      - 'tests/test-issue311-r11-overlap-preflight.py'
+      - '.github/workflows/issue311-r11-overlap-preflight.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  hostile_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - run: python tests/test-issue311-r11-overlap-preflight.py
+  original_snapshot:
+    if: github.event_name == 'push' && github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Authenticated active old/new Run audit at 20 repositories
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r11-overlap-preflight.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue311-r11-overlap-original-snapshot
+          path: issue311-r11-overlap-snapshot.json
+          retention-days: 30
+          if-no-files-found: error
+  independent_readback:
+    needs: original_snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: GET first Runner's original artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name issue311-r11-overlap-original-snapshot --dir .
+      - name: Download and SHA256-verify actual original Artifact ZIP bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, os, pathlib, subprocess, urllib.request, zipfile
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_id = os.environ["GITHUB_RUN_ID"]
+          data = json.loads(subprocess.check_output([
+              "gh", "api", f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"]))
+          matches = [x for x in data["artifacts"]
+                     if x.get("name") == "issue311-r11-overlap-original-snapshot"]
+          assert len(matches) == 1 and data["total_count"] <= 100
+          artifact = matches[0]
+          assert artifact.get("expired") is False
+          expected = artifact["digest"]
+          assert expected.startswith("sha256:") and len(expected) == 71
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact['id']}/zip",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
+                       "Accept":"application/vnd.github+json"})
+          with urllib.request.urlopen(req, timeout=60) as response:
+              raw = response.read()
+          actual = hashlib.sha256(raw).hexdigest()
+          assert expected == "sha256:" + actual, "original ZIP bytes differ from digest"
+          with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+              assert archive.testzip() is None, "bad ZIP CRC"
+              names = archive.namelist()
+              assert names == ["issue311-r11-overlap-snapshot.json"], names
+              assert archive.read(names[0]) == pathlib.Path(names[0]).read_bytes()
+          print("R11_ORIGINAL_OUTER_ZIP_BYTES_SHA256", artifact["id"], len(raw), actual)
+          print("R11_ORIGINAL_INNER_JSON_BYTES_SHA256",
+                hashlib.sha256(pathlib.Path(names[0]).read_bytes()).hexdigest())
+          PY
+      - name: Independently GET each captured original Run identity without App key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/issue311-r11-overlap-preflight.py --verify
