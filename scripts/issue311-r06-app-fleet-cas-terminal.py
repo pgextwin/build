@@ -54,6 +54,7 @@ store = load("r06_app_cas_store", "scripts/issue311-lifecycle-store.py")
 writer = load("r06_app_cas_writer", "scripts/issue311-writer-runtime.py")
 childlib = load("r06_app_cas_childlib", "scripts/issue311-r06-child-join-live.py")
 life = store.lifecycle
+replay_id = load("r10_app_terminal_source_bound_id", "scripts/issue311-r10-replay-safe-id.py")
 
 def need(x, reason):
     if not x:
@@ -300,7 +301,12 @@ def strict_child_receipt(receipt, item, central, target_sha):
     need(receipt.get("schemaVersion") == 1
          and receipt.get("sourceKind") == LOCAL_SOURCE_KIND
          and receipt.get("result") == "NO_UPDATE"
-         and receipt.get("requestId", "").startswith("r-20261030-r06coordlocal")
+         and item.get("repository") in central["targetMainSha"]
+         and receipt.get("requestId") == item.get("localRequestId")
+         and item.get("localRequestId") == replay_id.derive(
+             central["centralRequestId"],central["sourceRunId"],
+             central["sourceHeadSha"],central["sourceZipSha256"],
+             item["repository"],target_sha)
          and receipt.get("actualBotLogin") == BOT
          and receipt.get("actualBotUserId") == BOT_ID
          and receipt.get("localOriginalEvent") == "workflow_dispatch"
@@ -333,6 +339,10 @@ def child_originals(terminal, central):
              and item.get("appBotUserId") == BOT_ID
              and item.get("sameTokenRevoked401") is True
              and item.get("dispatchCount") == 1
+             and item.get("localRequestId") == replay_id.derive(
+                 central["centralRequestId"], central["sourceRunId"],
+                 central["sourceHeadSha"], central["sourceZipSha256"],
+                 repo, central["targetMainSha"][repo])
              and item.get("originalReceiptIndependentlyVerified") is True
              and item.get("publicationAuthorized") is False
              and SHA64.fullmatch(item.get("originalReceiptZipSha256Verified", "")),
@@ -355,7 +365,8 @@ def child_originals(terminal, central):
         strict_child_receipt(receipt, item, central, central["targetMainSha"][repo])
         need(receipt["requestId"] not in local_ids, "local request replay")
         local_ids.add(receipt["requestId"])
-        results[repo] = {"runId": rid, "zipSha256": artifact["zipSha256"],
+        results[repo] = {"runId": rid, "localRequestId":item["localRequestId"],
+                         "zipSha256": artifact["zipSha256"],
                          "sourceKind": LOCAL_SOURCE_KIND, "result": "NO_UPDATE"}
     need(len(results) == 17, "incomplete independent 17 child original ZIPs")
     return results
