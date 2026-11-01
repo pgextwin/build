@@ -88,6 +88,50 @@ class ApprovalTests(unittest.TestCase):
             with self.subTest(missing=key), self.assertRaises(life.Denied):
                 life.record_approval_block(s, 1, "approval", evidence=bad)
 
+
+    def test_authenticated_no_approval_policy_is_nonblocking(self):
+        s = bound()
+        e = dict(evidence(s), requiredApprovals=0, observedApprovals=0,
+                 lookup="AUTHENTICATED_PREPARE_APPROVAL_NOT_REQUIRED",
+                 reasonCode="NOT_REQUIRED", resumeAt="CONTINUE_ORIGINAL_PREPARE")
+        out = life.record_approval_not_required(s, 1, "policy-not-required", evidence=e)
+        self.assertEqual(out["revision"], 2)
+        self.assertEqual(out["terminal"], None)
+        self.assertEqual(set(out["targets"].values()), {"PENDING"})
+        self.assertFalse(out["publisherAuthorized"])
+        self.assertIsNone(out["completionRun"])
+        self.assertEqual(out["sourceRun"], s["sourceRun"])
+        self.assertEqual(life.record_approval_not_required(out, 1, "policy-not-required", evidence=e), out)
+        self.assertEqual(out["events"]["policy-not-required"],
+            hashlib.sha256(json.dumps(dict(op="approval_not_required",evidence=e),
+                sort_keys=True,separators=(",",":")).encode()).hexdigest())
+        for patch in (
+            {"requiredApprovals": 1},
+            {"requiredApprovals": False},
+            {"observedApprovals": 1},
+            {"lookup": "AUTHENTICATED_HUMAN_APPROVAL_MISSING"},
+            {"lookup": "PUBLISH_DENY"},
+            {"policyMode": "PUBLISH"},
+            {"policyPath": "../../forged.json"},
+            {"requestSha256": "f" * 64},
+            {"sourceRun": {"id": 43, "attempt": 1}},
+            {"targetScope": TARGETS[:-1]},
+            {"observedAt": s["expiresAt"]},
+            {"reasonCode": "BLOCKED_APPROVAL"},
+            {"resumeAt": "RETRY_PUBLISH"},
+            {"publicationAuthorized": True},
+        ):
+            with self.subTest(patch=patch), self.assertRaises(life.Denied):
+                life.record_approval_not_required(s, 1, "no-approval", evidence={**e,**patch})
+        with self.assertRaises(life.Denied):
+            life.record_approval_not_required(s, 0, "no-approval", evidence=e)
+        terminal = life.record_completion(s, 1, "closed", run_id=99, attempt=1,
+                source_id=42, outcome="NO_UPDATE",
+                target_outcomes={t: "SUCCESS" for t in TARGETS},
+                original_zip_sha="a" * 64)
+        with self.assertRaises(life.Denied):
+            life.record_approval_not_required(terminal, 2, "not-required", evidence=e)
+
     def test_never_reopen_success_failure_or_approval_terminal(self):
         s = bound(); e = evidence(s)
         for terminal in ("NO_UPDATE", "FAILED", "QUARANTINED"):
