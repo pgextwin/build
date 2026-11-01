@@ -1,0 +1,23 @@
+name: R10 replay-safe 17-target local ID hostile (NONPUBLISHING)
+on:
+  pull_request:
+    paths:
+      - "scripts/issue311-r10-replay-safe-id.py"
+      - "tests/test-issue311-r10-replay-safe-id.py"
+      - ".github/workflows/issue311-r10-replay-safe-id.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/issue311-r10-replay-safe-id.py"
+      - "tests/test-issue311-r10-replay-safe-id.py"
+      - ".github/workflows/issue311-r10-replay-safe-id.yml"
+permissions:
+  contents: read
+jobs:
+  hostile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python tests/test-issue311-r10-replay-safe-id.py
