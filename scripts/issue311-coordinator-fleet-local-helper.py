@@ -176,7 +176,7 @@ class SafeArchiveRedirect(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
-def verify_original_child_jobs(repo, listing, *, expect_observation=False):
+def verify_original_child_jobs(repo, listing, *, expect_observation=False, no_update_route=False):
     """Fail closed: R07 orafce must pass actual same-run PG14–18 + summary.
 
     Original 16 unaffected App PREPARE paths must retain their exact two-job
@@ -190,7 +190,20 @@ def verify_original_child_jobs(repo, listing, *, expect_observation=False):
         "Original protected PREPARE ZIP verification (NO RELEASE)": "success",
         "Strict App identity and PREPARE source-kind denial tests": "skipped",
     }
-    if repo == "pgextwin/orafce":
+    if no_update_route:
+        need(repo == "pgextwin/orafce",
+             "NO_UPDATE candidate bypass is not transferable to other repositories")
+        # Only the already-authenticated App local original can skip candidate
+        # Windows/signatures. A same-run receipt is rehashed and must say NO_UPDATE.
+        expected.update({
+            "R07-01 authenticated App original Windows PG14-18": "skipped",
+            "R07-01 Windows required summary": "success",
+            "R08 authenticated original App OIDC signing intent (NO PUBLISH)": "skipped",
+            "R08 first independently verified real App OIDC Sigstore bytes (NO PUBLISH)": "skipped",
+            "R08 SECOND independent original-byte OIDC Sigstore verification (NO PUBLISH)": "skipped",
+            "R08 strict independent 2 Sigstore original-byte source agreement (PUBLISH_DENY)": "skipped",
+        })
+    elif repo == "pgextwin/orafce":
         prefix = "R07-01 authenticated App original Windows PG14-18 / "
         expected.update({
             prefix + "Resolve extension and PostgreSQL matrix": "success",
@@ -205,7 +218,7 @@ def verify_original_child_jobs(repo, listing, *, expect_observation=False):
     # A new App OIDC lane is admitted ONLY as a complete exact original
     # extension of the protected R07 jobs, never a partially green job list.
     # Legacy R07 originals remain valid evidence; they do not gain R08 credit.
-    if repo == "pgextwin/orafce" and (
+    if repo == "pgextwin/orafce" and not no_update_route and (
             "R08 authenticated original App OIDC signing intent (NO PUBLISH)" in actual):
         expected.update({
             "R08 authenticated original App OIDC signing intent (NO PUBLISH)": "success",
@@ -219,13 +232,16 @@ def verify_original_child_jobs(repo, listing, *, expect_observation=False):
 
 
 def verify_original_child_artifacts(repo, listing, run_id, *, expected_r08=False,
-                                    expect_observation=False):
+                                    expect_observation=False, no_update_route=False):
     """One authentic receipt, plus only orafce's 5 mandatory R07 packages."""
     entries = listing.get("artifacts", [])
     need(type(entries) is list and listing.get("total_count") == len(entries),
          "missing/paginated original child artifacts")
     expected = {ARTIFACT}
-    if repo == "pgextwin/orafce":
+    if no_update_route:
+        need(repo == "pgextwin/orafce" and not expected_r08,
+             "NO_UPDATE route must not import candidate/signing artifacts")
+    elif repo == "pgextwin/orafce":
         expected.update(f"orafce-pg{m}-windows-x64" for m in range(14, 19))
     if expected_r08:
         need(repo == "pgextwin/orafce", "R08 signed source cannot be assigned to a different repo")
@@ -259,14 +275,18 @@ def verify_original_child_archive(token, child, source):
     names = {row.get("name"): row.get("conclusion") for row in jobs.get("jobs", [])}
     expect_observation = (REPO == "pgextwin/orafce"
                           and LOCAL_REQUEST_ID != "r-20261030-r06coordlocalpilot01")
-    verify_original_child_jobs(REPO, jobs, expect_observation=expect_observation)
+    no_update_route = (REPO == "pgextwin/orafce" and
+                       names.get("R07-01 authenticated App original Windows PG14-18")
+                       == "skipped")
+    verify_original_child_jobs(REPO, jobs, expect_observation=expect_observation,
+                               no_update_route=no_update_route)
     listing = get("repos/" + REPO + "/actions/runs/" + str(run_id) +
                   "/artifacts?per_page=100")
-    r08_signed_run = (
+    r08_signed_run = (not no_update_route and
         "R08 authenticated original App OIDC signing intent (NO PUBLISH)" in names)
     artifact, packages = verify_original_child_artifacts(
         REPO, listing, run_id, expected_r08=r08_signed_run,
-        expect_observation=expect_observation)
+        expect_observation=expect_observation, no_update_route=no_update_route)
     if packages:
         # Actual separate original Windows artifact ZIP bytes, not just REST digest.
         windows_hashes = {}
@@ -346,6 +366,7 @@ def verify_original_child_archive(token, child, source):
         need(archive.namelist() == [RECEIPT_IN_ZIP], "wrong child ZIP members")
         original = strict(archive.read(RECEIPT_IN_ZIP))
     need(original.get("result") in ("NO_UPDATE", "UPDATE_PRESENT_NOT_AUTHORIZED")
+         and (not no_update_route or original.get("result") == "NO_UPDATE")
          and original.get("schemaVersion") == 1
          and original.get("sourceKind") ==
              "APP_BOT_AUTHENTICATED_ORIGINAL_PREPARE_LOCAL_READONLY_V1"

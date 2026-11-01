@@ -231,3 +231,43 @@ print("ISSUE311_R08_REAL_APP_OIDC_JOB_AND_FOUR_ARTIFACT_ADMISSION_NEGATIVE_PASS"
 assert "SafeArchiveRedirect" in helper
 assert "ISSUE311_R07_ORIGINAL_WINDOWS_ZIP_ACTUAL_SHA256" in helper_path.read_text()
 print("ISSUE311_R07_REAL_WINDOWS_PACKAGE_ZIP_NEGATIVE_PASS")
+
+# NO_UPDATE may bypass expensive Rekor only after a truly verified read-only
+# App original. Never accept skipped candidate jobs with an update receipt.
+no_update_jobs={
+    **base_jobs,
+    "R07-01 authenticated App original Windows PG14-18":"skipped",
+    "R07-01 Windows required summary":"success",
+    "R08 authenticated original App OIDC signing intent (NO PUBLISH)":"skipped",
+    "R08 first independently verified real App OIDC Sigstore bytes (NO PUBLISH)":"skipped",
+    "R08 SECOND independent original-byte OIDC Sigstore verification (NO PUBLISH)":"skipped",
+    "R08 strict independent 2 Sigstore original-byte source agreement (PUBLISH_DENY)":"skipped",
+    helper_mod.OBS_JOB:"success",
+}
+assert helper_mod.verify_original_child_jobs("pgextwin/orafce",
+    record(no_update_jobs),expect_observation=True,no_update_route=True) is None
+for repo in ("pgextwin/pg_bigm","pgextwin/orafce"):
+    try: helper_mod.verify_original_child_jobs(repo,record(no_update_jobs),
+        expect_observation=True,no_update_route=(repo != "pgextwin/orafce"))
+    except helper_mod.Denied: pass
+    else: raise AssertionError("foreign or unmarked bypass admitted")
+for key in no_update_jobs:
+    forged=dict(no_update_jobs)
+    forged[key]="success" if no_update_jobs[key]=="skipped" else "skipped"
+    try: helper_mod.verify_original_child_jobs("pgextwin/orafce",record(forged),
+        expect_observation=True,no_update_route=True)
+    except helper_mod.Denied: pass
+    else: raise AssertionError("forged original no-update route accepted")
+no_update_artifacts=[receipt,original_art(helper_mod.OBS_ARTIFACT,94)]
+got, extras=helper_mod.verify_original_child_artifacts(
+    "pgextwin/orafce",arlist(no_update_artifacts),123,
+    expect_observation=True,no_update_route=True)
+assert got == receipt and set(extras)=={helper_mod.OBS_ARTIFACT}
+for bad in ([receipt],[receipt,*orafce_packages],[receipt,*r08_artifacts]):
+    try: helper_mod.verify_original_child_artifacts(
+        "pgextwin/orafce",arlist(bad),123,
+        expect_observation=True,no_update_route=True)
+    except helper_mod.Denied: pass
+    else: raise AssertionError("missing observation or signed artifact bypass")
+assert 'not no_update_route or original.get("result") == "NO_UPDATE"' in helper
+print("ISSUE311_CENTRAL_VERIFIED_NO_UPDATE_NO_REKOR_ROUTE_PASS")
