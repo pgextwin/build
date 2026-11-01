@@ -48,6 +48,16 @@ class PrepareContractTests(TestCase):
         self.assertNotIn("candidate-update.py", code)
         self.assertNotIn("create_pull_request", code)
 
+
+    def test_future_one_shot_source_path_and_nonpublishing_scope(self):
+        import re
+        source = (ROOT / "scripts/issue311-r06-prepare-scan.py").read_text(encoding="utf-8")
+        pattern = r"\.github/execution-requests/(r-20[0-9]{6}-r06prepare[a-z0-9-]{4,40})\.json"
+        self.assertIn(pattern, source)
+        self.assertIsNotNone(re.fullmatch(pattern, ".github/execution-requests/r-20261101-r06preparebound17original01.json"))
+        self.assertIsNone(re.fullmatch(pattern, ".github/execution-requests/r-20261101-r06appcasfake01.json"))
+        self.assertIsNone(re.fullmatch(pattern, ".github/execution-requests/../r-20261101-r06preparebound17original01.json"))
+
     def test_complete_original_zip_source_is_readonly_even_with_update(self):
         data = self.report()
         self.assertEqual(len(prepare.inspect_report(data, prepare.win.TARGETS)), 17)
