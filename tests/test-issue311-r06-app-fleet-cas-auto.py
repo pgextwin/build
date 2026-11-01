@@ -104,3 +104,43 @@ try:mod.life._apply(bound,1,"old-invalid-alias",{"kind":"PREPARE"},malformed)
 except ValueError:pass
 else:raise AssertionError("unrecognized transport enum accepted")
 print("ISSUE311_R06_UNATTENDED_COMPLETED_EVENT_NEGATIVE_PASS_OFFLINE_ONLY")
+
+# A successful R10 source run now emits a second, independent input journal.
+# The canonical R06 original must remain unique with an exact hash, while
+# an unknown third archive, duplicate primary, cross-run, expiry or replacement
+# journal can never satisfy the source identity.
+primary=art["artifacts"][0]
+journal={"id":12953810358,"name":mod.R10_JOURNAL_ARTIFACT,"expired":False,
+         "workflow_run":{"id":source_id},"digest":"sha256:"+"e"*64}
+pair={"total_count":2,"artifacts":[primary,journal]}
+assert mod.exact_source_artifact(pair,source_id) == primary
+assert mod.exact_source_artifact(pair,source_id,
+    expected_id=primary["id"],expected_digest="d"*64) == primary
+with TemporaryDirectory() as tmp:
+    file=Path(tmp)/"event.json";file.write_text(json.dumps(event))
+    env["GITHUB_EVENT_PATH"]=str(file)
+    def two_get(url):
+        if url.endswith("/"+str(source_id)+"/artifacts?per_page=100"):return pair
+        return fake_get(url)
+    with patch.dict(os.environ,env,clear=True),patch.object(mod.bridge,"get_json",side_effect=two_get),patch.object(mod.bridge,"original_zip",return_value=(original,"d"*64)),patch.object(mod.subprocess,"check_output",return_value=main+"\n"),patch.object(mod.subprocess,"run",return_value=SimpleNamespace(returncode=0)):
+        proof, _, _=mod.request_proof()
+        assert proof["sourceArtifactId"]==primary["id"]
+for bad in (
+    {"total_count":3,"artifacts":[primary,journal,{**journal,"id":99,"name":"foreign-extra"}]},
+    {"total_count":2,"artifacts":[primary,{**primary,"id":99}]},
+    {"total_count":2,"artifacts":[journal,{**journal,"id":99}]},
+    {"total_count":2,"artifacts":[primary,{**journal,"workflow_run":{"id":1}}]},
+    {"total_count":2,"artifacts":[primary,{**journal,"expired":True}]},
+    {"total_count":2,"artifacts":[primary,{**journal,"digest":"sha256:"+"f"*63}]},
+    {"total_count":1,"artifacts":[journal]},
+    {"total_count":3,"artifacts":[primary,journal]},
+):
+    try:mod.exact_source_artifact(bad,source_id)
+    except ValueError:pass
+    else:raise AssertionError("ambiguous original source artifact accepted: "+str(bad))
+for bad_id,bad_sha in ((1,None),(None,"e"*64)):
+    try:mod.exact_source_artifact(pair,source_id,
+        expected_id=bad_id,expected_digest=bad_sha)
+    except ValueError:pass
+    else:raise AssertionError("mismatched original source identity accepted")
+print("ISSUE311_R10_JOURNAL_PLUS_R06_ORIGINAL_EXACT_SOURCE_NEGATIVE_PASS")
