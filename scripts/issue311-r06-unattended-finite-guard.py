@@ -142,9 +142,12 @@ def original(*, stage="observe"):
             and x.get("base",{}).get("ref")=="main"]
     require(len(chosen)==1 and chosen[0].get("user",{}).get("login")=="ShutenOishi",
             "protected PR origin missing")
+    # The finite execution budget begins with the authenticated protected-main
+    # push original Run, not request authoring before review and required CI.
+    # An independent absolute expiresAt remains binding and cannot be extended.
     cutoff=min(life.parse_utc(req["expiresAt"]),
-               contract._timestamp(req["createdAt"])+timedelta(minutes=req["limits"]["maxWallClockMinutes"]))
-    require(cutoff>contract._timestamp(req["createdAt"]),"invalid finite deadline")
+               started+timedelta(minutes=req["limits"]["maxWallClockMinutes"]))
+    require(cutoff>started,"original expired before protected-main execution")
     if stage!="observe":
         # Keep the finite recovery path open for the separate no-key readback
         # but never allow unbounded historical re-entry on an old original.

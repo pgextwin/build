@@ -419,9 +419,24 @@ def finite_original_veto(r):
          and len(original.get("targets", [])) == 17
          and original.get("limits", {}).get("maxAttemptsPerStage") == 1,
          "nonpublishing bounded central declaration mismatch")
-    created = life.parse_utc(original["createdAt"])
+    # The finite execution clock starts at GitHub's original protected
+    # central push Run, not the earlier pre-CI request authoring timestamp.
+    # The declared absolute expiresAt and independent watchdog veto still win.
+    run = bridge.get_json("repos/pgextwin/build/actions/runs/" + str(r["centralRunId"]))
+    need(run.get("id") == r["centralRunId"]
+         and run.get("head_sha") == r["sourceHeadSha"]
+         and run.get("name") == "Issue 311 R06 PREPARE original fleet scan (NONPUBLISHING)"
+         and run.get("path") == ".github/workflows/issue311-r06-prepare-scan.yml"
+         and run.get("event") == "push"
+         and run.get("run_attempt") == 1
+         and run.get("status") == "completed"
+         and run.get("conclusion") == "success",
+         "central source run changed before finite App CAS")
+    started = life.parse_utc(run["created_at"])
+    need(life.parse_utc(original["createdAt"]) <= started + timedelta(minutes=5),
+         "untrusted future-dated original PREPARE source")
     deadline = min(life.parse_utc(original["expiresAt"]),
-                   created + timedelta(minutes=original["limits"]["maxWallClockMinutes"]))
+                   started + timedelta(minutes=original["limits"]["maxWallClockMinutes"]))
     need(now() < deadline, "original finite deadline expired; deny late completion")
     watch_id = ("r-" + r["centralRequestId"][2:10]
                 + "-r06watch" + r["sourceHeadSha"][:16])

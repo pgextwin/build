@@ -25,7 +25,7 @@ targets=["pgextwin/"+x for x in ("pg_bigm","pg_cron","pg_hint_plan","pgaudit","s
 head="a"*40
 central_id="r-20261030-r06preparecanarylate01"
 watch_id="r-20261030-r06watch"+head[:16]
-source={"centralRequestId":central_id,"sourceHeadSha":head}
+source={"centralRequestId":central_id,"sourceHeadSha":head,"centralRunId":41009052889}
 clock=datetime.now(timezone.utc).replace(microsecond=0)
 stamp=lambda t:t.strftime("%Y-%m-%dT%H:%M:%SZ")
 request={"requestId":central_id,"mode":"PREPARE","createdAt":stamp(clock-timedelta(minutes=2)),
@@ -39,10 +39,17 @@ def git_contents(value):
     return {"sha":store.blob_hash(raw),"encoding":"base64",
             "content":encoded[:70]+"\n"+encoded[70:]}
 source_payload=git_contents(request)
+def central_run(start):
+    return {"id":source["centralRunId"],"head_sha":head,
+            "name":"Issue 311 R06 PREPARE original fleet scan (NONPUBLISHING)",
+            "path":".github/workflows/issue311-r06-prepare-scan.yml",
+            "event":"push","run_attempt":1,"status":"completed","conclusion":"success",
+            "created_at":stamp(start)}
 def not_found():
     raise urllib.error.HTTPError("https://api.github.com",404,"not found",None,None)
 def absent_get(endpoint):
     if "/execution-requests/" in endpoint:return source_payload
+    if "/actions/runs/" in endpoint:return central_run(clock)
     if "request-lifecycle" in endpoint:return not_found()
     raise AssertionError("unexpected original URL "+endpoint)
 with patch.dict(os.environ,{"GITHUB_EVENT_NAME":"workflow_run"}),patch.object(cas.bridge,"get_json",side_effect=absent_get):
@@ -61,6 +68,7 @@ watch_payload={"encoding":"base64","sha":store.blob_hash(bytes_state),
                "content":base64.b64encode(bytes_state).decode("ascii")}
 def guarded_get(endpoint):
     if "/execution-requests/" in endpoint:return source_payload
+    if "/actions/runs/" in endpoint:return central_run(clock)
     if "request-lifecycle" in endpoint:return watch_payload
     raise AssertionError("unexpected original URL "+endpoint)
 with patch.dict(os.environ,{"GITHUB_EVENT_NAME":"workflow_run"}),patch.object(cas.bridge,"get_json",side_effect=guarded_get):
@@ -69,7 +77,11 @@ with patch.dict(os.environ,{"GITHUB_EVENT_NAME":"workflow_run"}),patch.object(ca
     else:raise AssertionError("late completion accepted over durable QUARANTINED")
 old=dict(request,createdAt=stamp(clock-timedelta(hours=3)),
          expiresAt=stamp(clock+timedelta(minutes=5)))
-with patch.dict(os.environ,{"GITHUB_EVENT_NAME":"workflow_run"}),patch.object(cas.bridge,"get_json",side_effect=lambda endpoint:git_contents(old)):
+def old_get(endpoint):
+    if "/execution-requests/" in endpoint:return git_contents(old)
+    if "/actions/runs/" in endpoint:return central_run(clock-timedelta(hours=1))
+    raise AssertionError(endpoint)
+with patch.dict(os.environ,{"GITHUB_EVENT_NAME":"workflow_run"}),patch.object(cas.bridge,"get_json",side_effect=old_get):
     try:cas.finite_original_veto(source)
     except ValueError as e:assert "deadline expired" in str(e)
     else:raise AssertionError("expired original accepted")

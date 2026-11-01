@@ -11,6 +11,10 @@ compile(s,str(p),"exec")
 assert "writer.mint_token" in s and "writer.revoke_and_prove_401" in s
 assert "life.new" in s and "store.CAS" in s and "BOUNDED_WATCHDOG" in s
 assert "MAX_POLL=400" in s and "POLL_SECONDS=8" in s
+# CI/review duration must not consume the finite runtime after true protected push.
+assert 'started+timedelta(minutes=req["limits"]["maxWallClockMinutes"])' in s
+assert 'contract._timestamp(req["createdAt"])+timedelta' not in s
+assert 'cutoff=min(life.parse_utc(req["expiresAt"])' in s
 assert '"PUBLISH_ELIGIBLE"' not in s and "workflow_dispatch" not in s and "/releases" not in s
 assert "publisherAuthorized" in s and "writeOutcomeUnknown" in s
 spec=importlib.util.spec_from_file_location("r06guard",p)

@@ -15,6 +15,10 @@ assert "issue311-state" not in source  # only approved CAS adapter owns state pa
 assert "writer.mint_token" in source and "writer.revoke_and_prove_401" in source
 assert "childlib.artifact(" in source and "bridge.original_zip(" in source
 assert "max_events=100" in source and "BOUNDED_WATCHDOG" in source
+# The App writer independently verifies the exact original central Run clock.
+assert 'run.get("id") == r["centralRunId"]' in source
+assert 'started + timedelta(minutes=original["limits"]["maxWallClockMinutes"])' in source
+assert 'life.parse_utc(original["createdAt"]) <= started + timedelta(minutes=5)' in source
 assert "fakeSourceKind" in source and "afterTerminalReplay" in source
 assert 'state["publisherAuthorized"] is False' in source
 for forbidden in ("PUBLISH_ELIGIBLE","actions/workflows/issue311-fleet-local-prepare.yml/dispatches","/releases"):
