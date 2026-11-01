@@ -164,7 +164,7 @@ def crosswalk(original):
     return {"schemaVersion":1,"scope":"R11_484_485_486_487_NONPUBLISHING",
             "authenticatedOriginalInventoryRequired":True,
             "originalEvidenceKind":original["kind"],
-            "originalSha256":hashlib.sha256(
+            "canonicalParsedInventorySha256":hashlib.sha256(
                 (json.dumps(original,sort_keys=True,separators=(",",":"),
                             ensure_ascii=True)+"\n").encode()).hexdigest(),
             "repositoryCount":20,"scheduleCount":len(rows),
