@@ -16,12 +16,14 @@ spec.loader.exec_module(m)
 name="orafce"
 r={"sourceRunId":41000000001,"sourceHeadSha":"a"*40,
    "sourceArtifactId":123456789,"sourceZipSha256":"b"*64,
-   "localMainSha":"c"*40}
-inputs={"request_id":m.LOCAL_IDS[name],"source_run_id":str(r["sourceRunId"]),
+   "localMainSha":"c"*40,"centralRequestId":m.REQUEST_ID}
+local_id=m.replay_id.derive(m.REQUEST_ID,r["sourceRunId"],r["sourceHeadSha"],
+    r["sourceZipSha256"],"pgextwin/"+name,r["localMainSha"])
+inputs={"request_id":local_id,"source_run_id":str(r["sourceRunId"]),
         "source_head_sha":r["sourceHeadSha"],
         "source_artifact_id":str(r["sourceArtifactId"]),
         "source_zip_sha256":r["sourceZipSha256"],
-        "central_request_id":m.REQUEST_ID,"local_main_sha":r["localMainSha"]}
+        "central_request_id":r["centralRequestId"],"local_main_sha":r["localMainSha"]}
 payload={"ref":"main","inputs":inputs}
 with TemporaryDirectory() as d:
     root=Path(d)
@@ -37,6 +39,8 @@ with TemporaryDirectory() as d:
     assert stored["publicationAuthorized"] is False
     assert "PRIVATE_KEY" not in original.decode()
     assert receipt==stored
+    assert local_id.startswith("r-20")
+    assert stored["centralRequestId"]==m.REQUEST_ID
     try: m.journal_dispatch(name,payload,r,root)
     except (ValueError,OSError): pass
     else: raise AssertionError("replay journal overwritten")

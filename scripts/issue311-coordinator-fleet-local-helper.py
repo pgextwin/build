@@ -32,6 +32,9 @@ SOURCE_WORKFLOW = "Issue 311 R06 PREPARE original fleet scan (NONPUBLISHING)"
 SOURCE_PATH = ".github/workflows/issue311-r06-prepare-scan.yml"
 ARTIFACT = "issue311-app-local-prepare-original-receipt"
 RECEIPT_IN_ZIP = "issue311-app-local-prepare-receipt.json"
+OBS_ARTIFACT = "issue311-dispatch-input-observation"
+OBS_ENTRY = "issue311-dispatch-input-observation.json"
+OBS_JOB = "Retain exact authenticated dispatch inputs before any PREPARE stop (OBSERVATION ONLY)"
 BOT = "pgextwin-issue311-prepare-coord[bot]"
 BOT_ID = 350058024
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
@@ -173,7 +176,7 @@ class SafeArchiveRedirect(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
-def verify_original_child_jobs(repo, listing):
+def verify_original_child_jobs(repo, listing, *, expect_observation=False):
     """Fail closed: R07 orafce must pass actual same-run PG14–18 + summary.
 
     Original 16 unaffected App PREPARE paths must retain their exact two-job
@@ -195,6 +198,9 @@ def verify_original_child_jobs(repo, listing):
                for major in range(14, 19)},
             "R07-01 Windows required summary": "success",
         })
+    if expect_observation:
+        need(repo == "pgextwin/orafce", "foreign dispatch observation not allowed")
+        expected[OBS_JOB] = "success"
     actual = {x.get("name"): x.get("conclusion") for x in items}
     # A new App OIDC lane is admitted ONLY as a complete exact original
     # extension of the protected R07 jobs, never a partially green job list.
@@ -212,7 +218,8 @@ def verify_original_child_jobs(repo, listing):
          "original child mandatory App and Windows jobs do not match")
 
 
-def verify_original_child_artifacts(repo, listing, run_id, *, expected_r08=False):
+def verify_original_child_artifacts(repo, listing, run_id, *, expected_r08=False,
+                                    expect_observation=False):
     """One authentic receipt, plus only orafce's 5 mandatory R07 packages."""
     entries = listing.get("artifacts", [])
     need(type(entries) is list and listing.get("total_count") == len(entries),
@@ -228,6 +235,9 @@ def verify_original_child_artifacts(repo, listing, run_id, *, expected_r08=False
             "issue311-r08-signed-second-nonpublishing",
             "issue311-r08-app-oidc-dual-audit-nonpublishing",
         })
+    if expect_observation:
+        need(repo == "pgextwin/orafce", "foreign dispatch observation artifact")
+        expected.add(OBS_ARTIFACT)
     actual = {a.get("name"): a for a in entries}
     need(len(entries) == len(actual) == len(expected) and set(actual) == expected,
          "missing/extra original R07 Windows package ZIP")
@@ -247,16 +257,20 @@ def verify_original_child_archive(token, child, source):
     jobs = get("repos/" + REPO + "/actions/runs/" + str(run_id) +
                "/jobs?per_page=100")
     names = {row.get("name"): row.get("conclusion") for row in jobs.get("jobs", [])}
-    verify_original_child_jobs(REPO, jobs)
+    expect_observation = (REPO == "pgextwin/orafce"
+                          and LOCAL_REQUEST_ID != "r-20261030-r06coordlocalpilot01")
+    verify_original_child_jobs(REPO, jobs, expect_observation=expect_observation)
     listing = get("repos/" + REPO + "/actions/runs/" + str(run_id) +
                   "/artifacts?per_page=100")
     r08_signed_run = (
         "R08 authenticated original App OIDC signing intent (NO PUBLISH)" in names)
     artifact, packages = verify_original_child_artifacts(
-        REPO, listing, run_id, expected_r08=r08_signed_run)
+        REPO, listing, run_id, expected_r08=r08_signed_run,
+        expect_observation=expect_observation)
     if packages:
         # Actual separate original Windows artifact ZIP bytes, not just REST digest.
         windows_hashes = {}
+        observed_input = False
         for artifact_name, package in sorted(packages.items()):
             url = ("https://api.github.com/repos/" + REPO
                    + "/actions/artifacts/" + str(package["id"]) + "/zip")
@@ -274,8 +288,46 @@ def verify_original_child_archive(token, child, source):
                  "R07 original Windows artifact ZIP actual bytes failed SHA256")
             with zipfile.ZipFile(io.BytesIO(raw)) as checked_zip:
                 need(bool(checked_zip.namelist()) and checked_zip.testzip() is None,
-                     "R07 original Windows ZIP is invalid")
+                     "original package/observation ZIP invalid")
+                if artifact_name == OBS_ARTIFACT:
+                    need(expect_observation and checked_zip.namelist() == [OBS_ENTRY],
+                         "unexpected original dispatch observation members")
+                    observed = strict(checked_zip.read(OBS_ENTRY))
+                    expected_inputs = {
+                        "request_id": LOCAL_REQUEST_ID,
+                        "source_run_id": str(source["sourceRunId"]),
+                        "source_head_sha": source["sourceHeadSha"],
+                        "source_artifact_id": str(source["sourceArtifactId"]),
+                        "source_zip_sha256": source["sourceZipSha256"],
+                        "central_request_id": source["centralRequestId"],
+                        "local_main_sha": source["localMainSha"]}
+                    inp = (json.dumps(expected_inputs, sort_keys=True,
+                                      separators=(",", ":"), ensure_ascii=True) + "\n").encode("ascii")
+                    need(type(observed) is dict
+                         and set(observed) == {"schemaVersion","scope","repository",
+                             "workflow","runId","attempt","headSha","event","sender",
+                             "inputs","inputsSha256","centralSourceAdmissionVerified",
+                             "childPrepareCompleted","candidateAdmissionAuthorized",
+                             "publicationAuthorized","runtimeEnabled"}
+                         and observed["schemaVersion"] == 1
+                         and observed["scope"] == "AUTHENTICATED_DISPATCH_INPUT_OBSERVATION_ONLY"
+                         and observed["repository"] == REPO
+                         and observed["workflow"] ==
+                           "Issue 311 App-bot original local PREPARE (NO RELEASE)"
+                         and observed["runId"] == run_id and observed["attempt"] == 1
+                         and observed["headSha"] == source["localMainSha"]
+                         and observed["event"] == "workflow_dispatch"
+                         and observed["sender"] == {"login": BOT, "id": BOT_ID, "type": "Bot"}
+                         and observed["inputs"] == expected_inputs
+                         and observed["inputsSha256"] == hashlib.sha256(inp).hexdigest()
+                         and all(observed[key] is False for key in
+                             ("centralSourceAdmissionVerified","childPrepareCompleted",
+                              "candidateAdmissionAuthorized","publicationAuthorized",
+                              "runtimeEnabled")), "dispatch input observation/source mismatch")
+                    observed_input = True
             windows_hashes[artifact_name] = hashlib.sha256(raw).hexdigest()
+        need(observed_input == expect_observation,
+             "missing original source-bound dispatch observation")
         print("ISSUE311_R07_ORIGINAL_WINDOWS_ZIP_ACTUAL_SHA256 "
               + json.dumps(windows_hashes, sort_keys=True), flush=True)
 

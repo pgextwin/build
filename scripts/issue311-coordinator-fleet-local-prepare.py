@@ -31,25 +31,7 @@ WORKFLOW = "issue311-request-local-prepare.yml"
 BOT = "pgextwin-issue311-prepare-coord[bot]"
 BOT_ID = 350058024
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
-LOCAL_IDS = {
-    "pg_bigm": "r-20261030-r06coordlocalpgbigm01",
-    "pg_cron": "r-20261030-r06coordlocalpgcron01",
-    "pg_hint_plan": "r-20261030-r06coordlocalpghintplan01",
-    "pgaudit": "r-20261030-r06coordlocalpgaudit01",
-    "set_user": "r-20261030-r06coordlocalsetuser01",
-    "pg_repack": "r-20261030-r06coordlocalpgrepack01",
-    "pg_ivm": "r-20261030-r06coordlocalpgivm01",
-    "pg_qualstats": "r-20261030-r06coordlocalpgqualstats01",
-    "plpgsql_check": "r-20261030-r06coordlocalplpgsqlcheck01",
-    "orafce": "r-20261030-r06coordlocalpilot01",
-    "hypopg": "r-20261030-r06coordlocalhypopg01",
-    "wal2json": "r-20261030-r06coordlocalwal2json01",
-    "pg_partman": "r-20261030-r06coordlocalpgpartman01",
-    "pg_stat_monitor": "r-20261030-r06coordlocalpgstatmonitor01",
-    "pgtap": "r-20261030-r06coordlocalpgtap01",
-    "pg_variables": "r-20261030-r06coordlocalpgvariables01",
-    "pg_store_plans": "r-20261030-r06coordlocalpgstoreplans01",
-}
+TARGET_NAMES = frozenset({"pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user", "pg_repack", "pg_ivm", "pg_qualstats", "plpgsql_check", "orafce", "hypopg", "wal2json", "pg_partman", "pg_stat_monitor", "pgtap", "pg_variables", "pg_store_plans"})
 
 def load(key, path):
     spec = importlib.util.spec_from_file_location(key, ROOT / path)
@@ -62,6 +44,7 @@ prepare = load("r06_coord_fleet_prepare", "scripts/issue311-r06-prepare-scan.py"
 bridge = prepare.bridge
 store = prepare.store
 contract = prepare.contract
+replay_id = load("r10_original_source_bound_id", "scripts/issue311-r10-replay-safe-id.py")
 
 def need(condition, why):
     if not condition:
@@ -122,7 +105,7 @@ def source_original():
          and changes[0].get("status") == "added",
          "not a one-file original source request")
     match = re.fullmatch(
-        r"\.github/execution-requests/(r-20261030-r06prepare[a-z0-9-]{4,40})\.json",
+        r"\.github/execution-requests/(r-20[0-9]{6}-r06prepare[a-z0-9-]{4,40})\.json",
         changes[0].get("filename", ""))
     need(match is not None, "unexpected central request namespace")
     REQUEST_ID = match.group(1)
@@ -139,7 +122,7 @@ def source_original():
          and request["source"]["centralMainSha"] == before
          and request["source"]["fleetRegistryBlobSha"] == prepare.FLEET_BLOB
          and set(targets) == set(prepare.win.TARGETS)
-         and len(targets) == len(request["targets"]) == len(LOCAL_IDS) == 17
+         and len(targets) == len(request["targets"]) == len(TARGET_NAMES) == 17
          and request["allowFutureUpdates"] is False
          and request["approval"]["publicReleaseAuthorized"] is False
          and request["approval"]["publicationGrants"] == []
@@ -204,7 +187,7 @@ def journal_dispatch(name, payload, r, root=Path("r10-original-dispatch-input"))
     A journal is NOT an ACK, a Run receipt, or evidence that the POST happened.
     Its SHA256 binds the same JSON serializer used by the existing App helper.
     """
-    need(name in LOCAL_IDS and type(payload) is dict
+    need(name in TARGET_NAMES and type(payload) is dict
          and set(payload) == {"ref", "inputs"}
          and payload["ref"] == "main"
          and type(payload["inputs"]) is dict
@@ -212,7 +195,9 @@ def journal_dispatch(name, payload, r, root=Path("r10-original-dispatch-input"))
              "source_head_sha","source_artifact_id","source_zip_sha256",
              "central_request_id","local_main_sha"}
          and all(type(x) is str for x in payload["inputs"].values())
-         and payload["inputs"]["request_id"] == LOCAL_IDS[name]
+         and payload["inputs"]["request_id"] == replay_id.derive(
+              r["centralRequestId"],r["sourceRunId"],r["sourceHeadSha"],
+              r["sourceZipSha256"],"pgextwin/"+name,r["localMainSha"])
          and payload["inputs"]["source_run_id"] == str(r["sourceRunId"])
          and payload["inputs"]["source_head_sha"] == r["sourceHeadSha"]
          and payload["inputs"]["source_artifact_id"] == str(r["sourceArtifactId"])
@@ -247,7 +232,6 @@ def worker(name, source, jwt):
     # Distinct module globals prevent cross-target mutation under four workers.
     m = load("r06_fleet_helper_" + name, "scripts/issue311-coordinator-fleet-local-helper.py")
     m.REPO = repo
-    m.LOCAL_REQUEST_ID = LOCAL_IDS[name]
     m.TARGET_WORK = "repos/" + repo + "/actions/workflows/" + WORKFLOW
     m.RUNS = m.TARGET_WORK + "/runs?event=workflow_dispatch&per_page=50"
     m.POST = m.TARGET_WORK + "/dispatches"
@@ -256,6 +240,11 @@ def worker(name, source, jwt):
         r = {k: source[k] for k in ("sourceRunId", "sourceHeadSha",
              "sourceArtifactId", "sourceZipSha256", "centralRequestId")}
         r["localMainSha"] = source["targets"][repo]
+        local_id = replay_id.derive(r["centralRequestId"], r["sourceRunId"],
+                                    r["sourceHeadSha"], r["sourceZipSha256"],
+                                    repo, r["localMainSha"])
+        m.LOCAL_REQUEST_ID = local_id
+        result["localRequestId"] = local_id
         m.check_source(r)
         minted = identity.api("POST", "app/installations/176718417/access_tokens",
                               identity.make_jwt(os.environ.get("ISSUE311_PREPARE_COORDINATOR_PRIVATE_KEY", "")), {"repositories": [name],
@@ -277,7 +266,7 @@ def worker(name, source, jwt):
         _, prior = m.api("GET", m.RUNS, token)
         baseline = {x.get("id") for x in prior.get("workflow_runs", [])}
         inputs = {
-            "request_id": LOCAL_IDS[name], "source_run_id": str(r["sourceRunId"]),
+            "request_id": local_id, "source_run_id": str(r["sourceRunId"]),
             "source_head_sha": r["sourceHeadSha"],
             "source_artifact_id": str(r["sourceArtifactId"]),
             "source_zip_sha256": r["sourceZipSha256"],
@@ -347,7 +336,7 @@ def run():
              and set(identity.EXPECTED_REPOS) == set(source["targets"]),
              "wrong actual App identity or target fleet")
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {pool.submit(worker, n, source, jwt): n for n in LOCAL_IDS}
+            futures = {pool.submit(worker, n, source, jwt): n for n in TARGET_NAMES}
             for f in as_completed(futures):
                 terminal["children"].append(f.result())
         terminal["children"].sort(key=lambda x: x["repository"])

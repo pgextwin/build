@@ -15,19 +15,16 @@ helper = helper_path.read_text(encoding="utf-8")
 compile(main, str(main_path), "exec")
 compile(helper, str(helper_path), "exec")
 tree = ast.parse(main)
-table = next(ast.literal_eval(x.value) for x in tree.body
-             if isinstance(x, ast.Assign)
-             and any(isinstance(t, ast.Name) and t.id == "LOCAL_IDS" for t in x.targets))
-assert len(table) == len(set(table)) == len(set(table.values())) == 17
-assert "pg_store_plans" in table and "orafce" in table
-assert all(x.startswith("r-20261030-r06coordlocal") for x in table.values())
+assert "TARGET_NAMES" in main and "LOCAL_IDS" not in main
+assert "replay_id.derive(" in main
+assert 'result["localRequestId"] = local_id' in main
 assert "r-20261030-r06preparecoordfleet03" in main
 assert "global REQUEST_ID, REQUEST_PATH" in main
 assert 'terminal["requestId"] = REQUEST_ID' in main
-pattern=r"\.github/execution-requests/(r-20261030-r06prepare[a-z0-9-]{4,40})\.json"
+pattern=r"\.github/execution-requests/(r-20[0-9]{6}-r06prepare[a-z0-9-]{4,40})\.json"
 assert re.fullmatch(pattern,".github/execution-requests/r-20261030-r06prepareautochain04.json")
 for unsafe in [
- ".github/execution-requests/r-20261029-r06prepareold01.json",
+ ".github/execution-requests/r-20261029-r06appcasold01.json",
  ".github/execution-requests/r-20261030-r06appcas17terminal001.json",
  ".github/execution-requests/../r-20261030-r06prepareother04.json",
  ".github/execution-requests/r-20261030-r06prepareautochain04.yml",
@@ -53,7 +50,9 @@ for disallowed in ("release create", "git push", "PUBLISH_ELIGIBLE", "repos/pgex
 spec = importlib.util.spec_from_file_location("r06fleet", main_path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-assert {"pgextwin/" + n for n in module.LOCAL_IDS} == module.identity.EXPECTED_REPOS
+assert len(module.TARGET_NAMES) == 17
+assert {"pgextwin/" + n for n in module.TARGET_NAMES} == module.identity.EXPECTED_REPOS
+assert module.TARGET_NAMES == module.replay_id.TARGETS
 with patch.dict(os.environ, {
     "GITHUB_REPOSITORY": "pgextwin/build",
     "GITHUB_EVENT_NAME": "pull_request",
@@ -191,6 +190,43 @@ for repo, expected in (("pgextwin/orafce",False),("pgextwin/pg_bigm",True)):
         pass
     else:
         raise AssertionError("R08 signed artifacts laundered to wrong source-kind")
+
+# New orafce source-bound original additionally produces a real authenticated
+# dispatch-input observation. Old pilot evidence cannot pass this extra gate.
+new_jobs={**r08_jobs,helper_mod.OBS_JOB:"success"}
+assert helper_mod.verify_original_child_jobs(
+    "pgextwin/orafce",record(new_jobs),expect_observation=True) is None
+try:
+    helper_mod.verify_original_child_jobs(
+        "pgextwin/orafce",record(r08_jobs),expect_observation=True)
+except helper_mod.Denied: pass
+else: raise AssertionError("missing new observation job accepted")
+try:
+    helper_mod.verify_original_child_jobs("pgextwin/orafce",record(new_jobs))
+except helper_mod.Denied: pass
+else: raise AssertionError("new observation disguised as legacy original")
+new_artifacts=[*r08_all,original_art(helper_mod.OBS_ARTIFACT,94)]
+got,extras=helper_mod.verify_original_child_artifacts(
+    "pgextwin/orafce",arlist(new_artifacts),123,
+    expected_r08=True,expect_observation=True)
+assert got==receipt and len(extras)==10 and helper_mod.OBS_ARTIFACT in extras
+for missing in (r08_all,new_artifacts[:-1]):
+    try:
+        helper_mod.verify_original_child_artifacts(
+            "pgextwin/orafce",arlist(missing),123,
+            expected_r08=True,expect_observation=True)
+    except helper_mod.Denied: pass
+    else: raise AssertionError("incomplete exact observation ZIP admitted")
+try:
+    helper_mod.verify_original_child_artifacts(
+        "pgextwin/pg_bigm",arlist(new_artifacts),123,
+        expected_r08=True,expect_observation=True)
+except helper_mod.Denied: pass
+else: raise AssertionError("orafce observation transferred to wrong repo")
+assert 'observed["inputs"] == expected_inputs' in helper
+assert 'observed["inputsSha256"] == hashlib.sha256(inp).hexdigest()' in helper
+print("ISSUE311_R10_SOURCE_BOUND_ORAFCE_REAL_OBSERVATION_ZIP_GATES_PASS")
+
 print("ISSUE311_R08_REAL_APP_OIDC_JOB_AND_FOUR_ARTIFACT_ADMISSION_NEGATIVE_PASS")
 assert "SafeArchiveRedirect" in helper
 assert "ISSUE311_R07_ORIGINAL_WINDOWS_ZIP_ACTUAL_SHA256" in helper_path.read_text()
