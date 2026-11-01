@@ -13,8 +13,11 @@ on:
       - '.github/workflows/issue311-coordinator-fleet-original.yml'
       - 'scripts/issue311-coordinator-fleet-local-helper.py'
       - 'scripts/issue311-coordinator-fleet-local-prepare.py'
+      - 'scripts/issue311-r10-replay-safe-id.py'
+      - 'scripts/issue311-r06-app-fleet-cas-terminal.py'
       - 'tests/test-issue311-coordinator-fleet-original.py'
       - 'tests/test-issue311-r10-dispatch-input-journal.py'
+      - 'tests/test-issue311-r06-app-fleet-cas-terminal.py'
 
 permissions:
   contents: read
@@ -40,6 +43,8 @@ jobs:
       - run: |
           python tests/test-issue311-coordinator-fleet-original.py
           python tests/test-issue311-r10-dispatch-input-journal.py
+          python tests/test-issue311-r10-replay-safe-id.py
+          python tests/test-issue311-r06-app-fleet-cas-terminal.py
 
   app_fleet:
     if: github.repository == 'pgextwin/build' && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1
