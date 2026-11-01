@@ -8,6 +8,8 @@ on:
       - 'docs/audit/issue311-r11-migration-preflight.md'
       - 'scripts/issue311-r11-transition-controls.py'
       - 'tests/test-issue311-r11-transition-controls.py'
+      - 'scripts/issue311-r11-functional-boundaries.py'
+      - 'tests/test-issue311-r11-functional-boundaries.py'
   push:
     branches: [main]
     paths:
@@ -17,6 +19,8 @@ on:
       - 'docs/audit/issue311-r11-migration-preflight.md'
       - 'scripts/issue311-r11-transition-controls.py'
       - 'tests/test-issue311-r11-transition-controls.py'
+      - 'scripts/issue311-r11-functional-boundaries.py'
+      - 'tests/test-issue311-r11-functional-boundaries.py'
 permissions:
   contents: read
   actions: read
@@ -34,6 +38,8 @@ jobs:
           python-version: '3.13'
       - run: python tests/test-issue311-r11-migration-inventory.py
       - run: python tests/test-issue311-r11-transition-controls.py
+      - run: python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - run: python tests/test-issue311-r11-functional-boundaries.py
   original_readonly:
     if: github.repository == 'pgextwin/build' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1
     runs-on: ubuntu-latest
@@ -47,18 +53,29 @@ jobs:
           python-version: '3.13'
       - run: python tests/test-issue311-r11-migration-inventory.py
       - run: python tests/test-issue311-r11-transition-controls.py
+      - run: python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - run: python tests/test-issue311-r11-functional-boundaries.py
       - name: Authenticated protected GitHub GET 17 extension plus build catalog website, no writer
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/issue311-r11-migration-inventory.py --output issue311-r11-original-inventory.json
       - name: Derive function-level 20-repo crosswalk, shared Writer boundary and no-retirement status
         run: python scripts/issue311-r11-transition-controls.py --inventory issue311-r11-original-inventory.json --output issue311-r11-crosswalk.json
+      - name: GET original 28 workflow bytes and record exact scheduled job boundaries (NO ACCEPTANCE)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/issue311-r11-functional-boundaries.py
+          --original issue311-r11-original-inventory.json
+          --crosswalk issue311-r11-crosswalk.json
+          --output issue311-r11-functional-boundaries.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: issue311-r11-authentic-schedule-inventory
           path: |
             issue311-r11-original-inventory.json
             issue311-r11-crosswalk.json
+            issue311-r11-functional-boundaries.json
           if-no-files-found: error
           retention-days: 30
   independent_readback:
@@ -82,3 +99,13 @@ jobs:
         run: python scripts/issue311-r11-migration-inventory.py --verify --output issue311-r11-original-inventory.json
       - name: Read-only independent crosswalk recomputation and exact bytes
         run: python scripts/issue311-r11-transition-controls.py --inventory issue311-r11-original-inventory.json --output issue311-r11-crosswalk.json --verify
+      - name: Independently GET the pinned original YAML and verify exact job-graph evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
+          python tests/test-issue311-r11-functional-boundaries.py
+          python scripts/issue311-r11-functional-boundaries.py \
+            --original issue311-r11-original-inventory.json \
+            --crosswalk issue311-r11-crosswalk.json \
+            --output issue311-r11-functional-boundaries.json --verify

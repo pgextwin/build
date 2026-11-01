@@ -22,6 +22,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install exact dependency for source-pinned R11 workflow YAML parser
+        run: python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
+
       - name: Reject unsigned, skipped and stale remote candidate Runs (NO RELEASE)
         run: python tests/test-publisher-candidate-intake.py
 
