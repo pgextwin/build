@@ -179,6 +179,49 @@ def record_approval_block(state, revision, key, *, evidence):
     return _apply(state, revision, key, payload, action)
 
 
+
+def record_approval_not_required(state, revision, key, *, evidence):
+    """Commit a source-bound zero-approval PREPARE decision without blocking targets.
+
+    Pure immutable evidence transition; the caller MUST authenticate actual
+    policy bytes and approval status by independent GitHub GET before calling.
+    This cannot grant a new authorization, execute a child, or persist App CAS.
+    """
+    require(type(evidence) is dict and set(evidence) == {
+        "requestId", "requestSha256", "sourceHeadSha", "sourceRun", "targetScope",
+        "policyPath", "policyBlobSha", "policyMode", "requiredApprovals",
+        "observedApprovals", "observedAt", "lookup", "lookupReceiptSha256",
+        "reasonCode", "lastSuccessfulStage", "resumeAt"}, "invalid not-required evidence fields")
+    payload = dict(op="approval_not_required", evidence=copy.deepcopy(evidence))
+    def action(s):
+        require(s["sourceRun"] is not None and s["sourceRun"]["attempt"] == 1,
+                "not-required gate requires original attempt1 source")
+        for field in ("requestId", "requestSha256", "sourceHeadSha", "sourceRun", "targetScope"):
+            require(evidence[field] == s[field], "not-required evidence identity mismatch: " + field)
+        require(type(evidence["policyPath"]) is str
+                and re.fullmatch(r"(?:metadata|config)/[a-z0-9_-]+(?:/[a-z0-9_-]+)*\.json",
+                                 evidence["policyPath"])
+                and type(evidence["policyBlobSha"]) is str
+                and SHA1.fullmatch(evidence["policyBlobSha"]), "invalid original no-approval policy")
+        require(evidence["policyMode"] == "PREPARE"
+                and type(evidence["requiredApprovals"]) is int
+                and evidence["requiredApprovals"] == 0
+                and type(evidence["observedApprovals"]) is int
+                and evidence["observedApprovals"] == 0
+                and evidence["lookup"] == "AUTHENTICATED_PREPARE_APPROVAL_NOT_REQUIRED"
+                and type(evidence["lookupReceiptSha256"]) is str
+                and SHA256.fullmatch(evidence["lookupReceiptSha256"]),
+                "cannot fabricate no-approval decision")
+        require(parse_utc(evidence["observedAt"]) < parse_utc(s["expiresAt"]),
+                "expired request cannot record no-approval")
+        require(evidence["reasonCode"] == "NOT_REQUIRED"
+                and evidence["lastSuccessfulStage"] == "SOURCE_BOUND"
+                and evidence["resumeAt"] == "CONTINUE_ORIGINAL_PREPARE"
+                and all(v == "PENDING" for v in s["targets"].values()),
+                "not-required evidence cannot change completed targets")
+    return _apply(state, revision, key, payload, action)
+
+
 def record_completion(state, revision, key, *, run_id, attempt, source_id,
                       outcome, target_outcomes, original_zip_sha):
     """The caller MUST verify original 17 ZIPs + completed-event source independently."""
