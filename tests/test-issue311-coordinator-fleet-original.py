@@ -15,19 +15,15 @@ helper = helper_path.read_text(encoding="utf-8")
 compile(main, str(main_path), "exec")
 compile(helper, str(helper_path), "exec")
 tree = ast.parse(main)
-table = next(ast.literal_eval(x.value) for x in tree.body
-             if isinstance(x, ast.Assign)
-             and any(isinstance(t, ast.Name) and t.id == "LOCAL_IDS" for t in x.targets))
-assert len(table) == len(set(table)) == len(set(table.values())) == 17
-assert "pg_store_plans" in table and "orafce" in table
-assert all(x.startswith("r-20261030-r06coordlocal") for x in table.values())
+assert "LOCAL_IDS" not in main
+assert 'r10.derive(' in main
 assert "r-20261030-r06preparecoordfleet03" in main
 assert "global REQUEST_ID, REQUEST_PATH" in main
 assert 'terminal["requestId"] = REQUEST_ID' in main
-pattern=r"\.github/execution-requests/(r-20261030-r06prepare[a-z0-9-]{4,40})\.json"
+pattern=r"\.github/execution-requests/(r-20[0-9]{6}-r06prepare[a-z0-9-]{4,40})\.json"
 assert re.fullmatch(pattern,".github/execution-requests/r-20261030-r06prepareautochain04.json")
 for unsafe in [
- ".github/execution-requests/r-20261029-r06prepareold01.json",
+ ".github/execution-requests/r-20261029-r06old01.json",
  ".github/execution-requests/r-20261030-r06appcas17terminal001.json",
  ".github/execution-requests/../r-20261030-r06prepareother04.json",
  ".github/execution-requests/r-20261030-r06prepareautochain04.yml",
@@ -53,7 +49,7 @@ for disallowed in ("release create", "git push", "PUBLISH_ELIGIBLE", "repos/pgex
 spec = importlib.util.spec_from_file_location("r06fleet", main_path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-assert {"pgextwin/" + n for n in module.LOCAL_IDS} == module.identity.EXPECTED_REPOS
+assert {"pgextwin/" + n for n in module.LOCAL_TARGETS} == module.identity.EXPECTED_REPOS
 with patch.dict(os.environ, {
     "GITHUB_REPOSITORY": "pgextwin/build",
     "GITHUB_EVENT_NAME": "pull_request",
