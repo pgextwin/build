@@ -23,21 +23,27 @@ spec=importlib.util.spec_from_file_location("r06app17cas",p)
 mod=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 central={"sourceRunId":41000527397,"sourceHeadSha":"380e3054e2ccd8568e124339963e2b0082d60841",
- "sourceZipSha256":"05aaabfb7be2ec7ea1d38819ce73a71ca0678504ec4e21f6f8eca4c402fc26ab"}
+ "sourceZipSha256":"05aaabfb7be2ec7ea1d38819ce73a71ca0678504ec4e21f6f8eca4c402fc26ab",
+         "centralRequestId":"r-20261101-r06prepareoriginal01"}
 r={
  "schemaVersion":1,"sourceKind":mod.LOCAL_SOURCE_KIND,"result":"NO_UPDATE",
- "requestId":"r-20261030-r06coordlocalpilot01","actualBotLogin":mod.BOT,
+ "requestId":mod.replay_id.derive(central["centralRequestId"],
+             central["sourceRunId"], central["sourceHeadSha"],
+             central["sourceZipSha256"], "pgextwin/orafce",
+             "9df4ed7cde72f103d4e412cfaa7304e7a8db8af2"),"actualBotLogin":mod.BOT,
  "actualBotUserId":mod.BOT_ID,"localOriginalEvent":"workflow_dispatch",
  "localRunId":41000702019,"localRunAttempt":1,
  "localProtectedMainSha":"9df4ed7cde72f103d4e412cfaa7304e7a8db8af2",
  "centralSourceRunId":41000527397,"centralSourceHeadSha":central["sourceHeadSha"],
- "centralSourceRequestId":mod.CENTRAL_REQUEST,
+ "centralSourceRequestId":central["centralRequestId"],
  "centralOriginalOuterZipSha256Verified":central["sourceZipSha256"],
  "publicationAuthorized":False,"publicReleaseAuthorized":False,"candidateCreated":False,
  "genuineSchedule":False,"originalScanReexecuted":False,
  "publisherSourceKindAuthorized":False,"runtimeEnabled":False
 }
-item={"localRunId":41000702019}
+mod.CENTRAL_REQUEST = central["centralRequestId"]
+item={"localRunId":41000702019, "repository":"pgextwin/orafce",
+      "localRequestId":r["requestId"]}
 assert mod.strict_child_receipt(r,item,central,r["localProtectedMainSha"]) is True
 for change in [
  {"sourceKind":"FAKE_SCHEDULE"},
