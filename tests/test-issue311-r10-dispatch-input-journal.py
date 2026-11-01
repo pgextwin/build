@@ -17,7 +17,9 @@ name="orafce"
 r={"sourceRunId":41000000001,"sourceHeadSha":"a"*40,
    "sourceArtifactId":123456789,"sourceZipSha256":"b"*64,
    "localMainSha":"c"*40}
-inputs={"request_id":m.LOCAL_IDS[name],"source_run_id":str(r["sourceRunId"]),
+local_id=m.r10.derive(m.REQUEST_ID,r["sourceRunId"],r["sourceHeadSha"],
+                      r["sourceZipSha256"],"pgextwin/"+name,r["localMainSha"])
+inputs={"request_id":local_id,"source_run_id":str(r["sourceRunId"]),
         "source_head_sha":r["sourceHeadSha"],
         "source_artifact_id":str(r["sourceArtifactId"]),
         "source_zip_sha256":r["sourceZipSha256"],
@@ -42,7 +44,9 @@ with TemporaryDirectory() as d:
     else: raise AssertionError("replay journal overwritten")
     for bad in ({"ref":"release","inputs":inputs},
                 {"ref":"main","inputs":dict(inputs,local_main_sha="d"*40)},
-                {"ref":"main","inputs":dict(inputs,token="secret")}):
+                {"ref":"main","inputs":dict(inputs,token="secret")},
+                {"ref":"main","inputs":dict(inputs,request_id="r-20261030-r06coordlocalstale01")},
+                {"ref":"main","inputs":dict(inputs,source_run_id="41000000002")}):
         try: m.journal_dispatch(name,bad,r,root/("bad"+str(len(list(root.iterdir())))))
         except (ValueError,OSError): pass
         else: raise AssertionError("untrusted dispatch input admitted")
