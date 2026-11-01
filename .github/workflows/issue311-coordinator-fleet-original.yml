@@ -47,7 +47,7 @@ jobs:
           python tests/test-issue311-r10-dispatch-input-journal.py
           python tests/test-issue311-r10-replay-safe-id.py
           python tests/test-issue311-r06-app-fleet-cas-terminal.py
-          python -m unittest tests/test-issue311-r06-prepare-scan.py
+          python tests/test-issue311-r06-prepare-scan.py
 
   app_fleet:
     if: github.repository == 'pgextwin/build' && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1
