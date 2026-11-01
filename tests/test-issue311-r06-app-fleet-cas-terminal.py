@@ -24,7 +24,8 @@ mod=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 central={"sourceRunId":41000527397,"sourceHeadSha":"380e3054e2ccd8568e124339963e2b0082d60841",
  "sourceZipSha256":"05aaabfb7be2ec7ea1d38819ce73a71ca0678504ec4e21f6f8eca4c402fc26ab",
-         "centralRequestId":"r-20261101-r06prepareoriginal01"}
+         "centralRequestId":"r-20261101-r06prepareoriginal01",
+         "targetMainSha":{"pgextwin/orafce":"9df4ed7cde72f103d4e412cfaa7304e7a8db8af2"}}
 r={
  "schemaVersion":1,"sourceKind":mod.LOCAL_SOURCE_KIND,"result":"NO_UPDATE",
  "requestId":mod.replay_id.derive(central["centralRequestId"],
@@ -45,6 +46,11 @@ mod.CENTRAL_REQUEST = central["centralRequestId"]
 item={"localRunId":41000702019, "repository":"pgextwin/orafce",
       "localRequestId":r["requestId"]}
 assert mod.strict_child_receipt(r,item,central,r["localProtectedMainSha"]) is True
+for mutated in ({"localRequestId":"r-20261030-r06coordlocalpilot01"},
+                {"repository":"pgextwin/pg_bigm"}):
+    try: mod.strict_child_receipt(r,{**item,**mutated},central,r["localProtectedMainSha"])
+    except ValueError: pass
+    else: raise AssertionError("cross-repo or static local ID wrongly accepted")
 for change in [
  {"sourceKind":"FAKE_SCHEDULE"},
  {"localRunAttempt":2},
