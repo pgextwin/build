@@ -77,6 +77,84 @@ def classify_writer_pair(legacy, new):
     b = (new["repository"], new["kind"], new["namespace"])
     return "SHARED_FENCE_REQUIRED" if a == b else "DISJOINT_EXACT_RESOURCE"
 
+def fenced_writer_preflight(legacy, successor, persisted, attempt, now):
+    """Pure shared-resource fence check before ANY GitHub API write.
+
+    Caller must independently authenticate the persisted state, its Git blob
+    identity, the actual Writer, and the expected HEAD. Passing this check
+    never authorizes PUT, attests a live HTTP 409, or replaces GitHub CAS.
+    Legacy writers must also invoke the same fence; merely having this function
+    in the successor cannot stop an unfenced legacy credential.
+    """
+    from datetime import datetime, timezone
+
+    need(classify_writer_pair(legacy, successor) == "SHARED_FENCE_REQUIRED",
+         "fence only applies to an exact shared resource")
+    need(type(persisted) is dict and set(persisted) == {
+         "schemaVersion", "repository", "kind", "namespace", "requestId",
+         "sourceSha", "revision", "generation", "leaseOwner", "expiresAt",
+         "gitBlobSha", "consumedAttemptKeys", "terminal", "writeOutcomeUnknown",
+         "publisherAuthorized", "runtimeEnabled"}, "untrusted fence schema")
+    need(persisted["schemaVersion"] == 1 and
+         (persisted["repository"], persisted["kind"], persisted["namespace"]) ==
+         (successor["repository"], successor["kind"], successor["namespace"]),
+         "fence resource mismatch")
+    need(type(persisted["requestId"]) is str and
+         re.fullmatch(r"r-[0-9]{8}-[a-z0-9-]{8,56}", persisted["requestId"]),
+         "unbound request")
+    need(type(persisted["sourceSha"]) is str and
+         SHA40.fullmatch(persisted["sourceSha"]) and
+         type(persisted["gitBlobSha"]) is str and
+         SHA40.fullmatch(persisted["gitBlobSha"]), "invalid source/CAS blob")
+    need(type(persisted["revision"]) is int and persisted["revision"] >= 0 and
+         type(persisted["generation"]) is int and persisted["generation"] >= 1,
+         "invalid durable revision/generation")
+    need(type(persisted["leaseOwner"]) is str and
+         re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", persisted["leaseOwner"]),
+         "invalid persisted owner")
+    need(persisted["terminal"] is False and
+         persisted["writeOutcomeUnknown"] is False and
+         persisted["publisherAuthorized"] is False and
+         persisted["runtimeEnabled"] is False, "terminal/unknown/publication denied")
+    keys = persisted["consumedAttemptKeys"]
+    need(type(keys) is list and len(keys) <= 200 and
+         all(type(k) is str and re.fullmatch(r"[a-zA-Z0-9._:-]{1,100}", k) for k in keys)
+         and len(set(keys)) == len(keys), "invalid replay index")
+    need(type(attempt) is dict and set(attempt) == {
+         "requestId", "sourceSha", "owner", "generation", "expectedRevision",
+         "expectedBlobSha", "attemptKey"}, "unbound attempt")
+    need(type(attempt["attemptKey"]) is str and
+         re.fullmatch(r"[a-zA-Z0-9._:-]{1,100}", attempt["attemptKey"]) and
+         attempt["attemptKey"] not in keys, "replayed or invalid attempt")
+    need(attempt["requestId"] == persisted["requestId"] and
+         attempt["sourceSha"] == persisted["sourceSha"] and
+         attempt["sourceSha"] == successor["codeSha"],
+         "request/source/head changed")
+    need(attempt["owner"] == persisted["leaseOwner"] and
+         type(attempt["generation"]) is int and
+         attempt["generation"] == persisted["generation"],
+         "late or displaced writer")
+    need(type(attempt["expectedRevision"]) is int and
+         attempt["expectedRevision"] == persisted["revision"] and
+         type(attempt["expectedBlobSha"]) is str and
+         attempt["expectedBlobSha"] == persisted["gitBlobSha"],
+         "stale durable CAS expectation")
+    need(type(now) is datetime and now.tzinfo is not None and
+         now.utcoffset() == timezone.utc.utcoffset(now), "trusted UTC required")
+    try:
+        expiry = datetime.fromisoformat(persisted["expiresAt"].replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError("R11_TRANSITION_DENY malformed persisted expiry") from exc
+    need(expiry.tzinfo is not None and expiry.utcoffset() ==
+         timezone.utc.utcoffset(expiry) and now < expiry, "expired writer lease")
+    return {"result": "ELIGIBLE_PREFLIGHT_ONLY", "writeAuthorized": False,
+            "liveRaceProven": False, "githubCASStillRequired": True,
+            "expectedRevision": persisted["revision"],
+            "expectedBlobSha": persisted["gitBlobSha"],
+            "generation": persisted["generation"],
+            "attemptKey": attempt["attemptKey"]}
+
+
 def bounded_unknown_ack_get(observations, expected_blob_sha):
     """No PUT/POST capability. At most three GET observations after one write.
 

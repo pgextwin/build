@@ -59,4 +59,49 @@ for modify in (
 ):
     x=copy.deepcopy(original);modify(x)
     denied(lambda x=x:m.crosswalk(x))
+# #484: both original writers sharing a mutable resource must obey the same
+# durable generation, expected Contents blob and request-bound lease.
+from datetime import datetime, timezone, timedelta
+now=datetime(2026,11,1,14,0,tzinfo=timezone.utc)
+state={"schemaVersion":1,"repository":"pgextwin/orafce",
+       "kind":"issues","namespace":"upstream-watch",
+       "requestId":"r-20261101-fence-live-safe","sourceSha":b,
+       "revision":4,"generation":2,"leaseOwner":"run-new.1",
+       "expiresAt":"2026-11-01T14:05:00+00:00",
+       "gitBlobSha":a,"consumedAttemptKeys":["previous.1"],
+       "terminal":False,"writeOutcomeUnknown":False,
+       "publisherAuthorized":False,"runtimeEnabled":False}
+attempt={"requestId":state["requestId"],"sourceSha":b,
+         "owner":"run-new.1","generation":2,"expectedRevision":4,
+         "expectedBlobSha":a,"attemptKey":"new.1"}
+pre=m.fenced_writer_preflight(l,n,state,attempt,now)
+assert pre["result"]=="ELIGIBLE_PREFLIGHT_ONLY"
+assert pre["writeAuthorized"] is False
+assert pre["liveRaceProven"] is False
+assert pre["githubCASStillRequired"] is True
+# Even with unchanged source the former owner cannot update a later generation.
+for field,value in (("owner","run-old.1"),("generation",1),
+                    ("expectedRevision",3),("expectedBlobSha",b),
+                    ("attemptKey","previous.1"),("requestId","r-20261101-other-live"),
+                    ("sourceSha",a)):
+    probe=copy.deepcopy(attempt);probe[field]=value
+    denied(lambda probe=probe:m.fenced_writer_preflight(l,n,state,probe,now))
+for field,value in (("terminal",True),("writeOutcomeUnknown",True),
+                    ("publisherAuthorized",True),("runtimeEnabled",True),
+                    ("generation",0),("revision",-1),
+                    ("expiresAt","2026-11-01T13:59:59Z"),
+                    ("gitBlobSha","wrong"),("consumedAttemptKeys",["previous.1","previous.1"]),
+                    ("namespace","unrelated"),("sourceSha",a)):
+    saved=copy.deepcopy(state);saved[field]=value
+    denied(lambda saved=saved:m.fenced_writer_preflight(l,n,saved,attempt,now))
+denied(lambda:m.fenced_writer_preflight(
+    l,m.writer_resource("pgextwin/build","contents","issue311-state/checkpoints",b),
+    state,attempt,now))
+denied(lambda:m.fenced_writer_preflight(
+    l,n,state,attempt,datetime(2026,11,1,14,0)))
+denied(lambda:m.fenced_writer_preflight(
+    l,n,state,attempt,now+timedelta(minutes=6)))
+# No false claim that a pure preflight constitutes actual GitHub 409 or CAS.
+assert all(pre[k] is False for k in ("writeAuthorized","liveRaceProven"))
+
 print("R11_TRANSITION_SCOPE_ACK_SCHEDULE_HOSTILE_PASS")
