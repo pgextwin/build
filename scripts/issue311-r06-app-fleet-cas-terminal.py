@@ -29,6 +29,7 @@ WORKFLOW = "Issue 311 R06 real 17-App original durable CAS terminal (NONPUBLISHI
 SOURCE_NAME = "Issue 311 17 authentic App-bot local PREPARE originals (NO RELEASE)"
 SOURCE_PATH = ".github/workflows/issue311-coordinator-fleet-original.yml"
 SOURCE_ARTIFACT = "issue311-r06-app-fleet-original-terminal"
+R10_JOURNAL_ARTIFACT = "issue311-r10-original-dispatch-prewrite-inputs"
 SOURCE_ENTRY = SOURCE_ARTIFACT + ".json"
 CENTRAL_ARTIFACT = "issue311-r06-prepare-original-scan"
 CENTRAL_ENTRY = CENTRAL_ARTIFACT + ".json"
@@ -59,6 +60,41 @@ replay_id = load("r10_app_terminal_source_bound_id", "scripts/issue311-r10-repla
 def need(x, reason):
     if not x:
         raise ValueError("R06_APP_CAS_DENY " + reason)
+
+def exact_source_artifact(listing, run_id, *, expected_id=None, expected_digest=None):
+    """Accept exactly one verified source ZIP; journal is distinct and non-admitting.
+
+    Current protected R10 source emits its separately scoped prewrite-input
+    observation ZIP in the SAME original Run. That artifact can never replace
+    the sole R06 source terminal, and arbitrary extra/duplicate artifacts fail.
+    """
+    rows = listing.get("artifacts", [])
+    need(type(rows) is list
+         and type(listing.get("total_count")) is int
+         and listing["total_count"] == len(rows)
+         and len(rows) in (1, 2), "source original artifact count not exact")
+    by_name = {}
+    for artifact in rows:
+        name = artifact.get("name")
+        need(name in (SOURCE_ARTIFACT, R10_JOURNAL_ARTIFACT)
+             and name not in by_name
+             and type(artifact.get("id")) is int and artifact["id"] > 0
+             and artifact.get("expired") is False
+             and artifact.get("workflow_run", {}).get("id") == run_id
+             and type(artifact.get("digest")) is str
+             and artifact["digest"].startswith("sha256:")
+             and SHA64.fullmatch(artifact["digest"][7:]) is not None,
+             "untrusted original artifact or journal")
+        by_name[name] = artifact
+    need(SOURCE_ARTIFACT in by_name
+         and (len(by_name) == 1 or R10_JOURNAL_ARTIFACT in by_name),
+         "R06 original source ZIP absent or ambiguous")
+    source = by_name[SOURCE_ARTIFACT]
+    need((expected_id is None or source["id"] == expected_id)
+         and (expected_digest is None or source["digest"] == "sha256:" + expected_digest),
+         "not exact original source ZIP identity")
+    return source
+
 
 def strict(raw):
     return json.loads(raw, object_pairs_hook=store.unique_pairs)
@@ -125,15 +161,9 @@ def automatic_request_proof():
          "listener no longer at protected main")
     listing = bridge.get_json("repos/pgextwin/build/actions/runs/"
                               + str(source["id"]) + "/artifacts?per_page=100")
-    arr = listing.get("artifacts", [])
-    need(listing.get("total_count") == len(arr) == 1
-         and arr[0].get("name") == SOURCE_ARTIFACT
-         and arr[0].get("expired") is False
-         and arr[0].get("workflow_run", {}).get("id") == source["id"]
-         and arr[0].get("digest", "").startswith("sha256:"),
-         "upstream original archive not unique")
-    original, digest = bridge.original_zip(arr[0], SOURCE_ENTRY)
-    need(digest == arr[0]["digest"].removeprefix("sha256:")
+    source_zip = exact_source_artifact(listing, source["id"])
+    original, digest = bridge.original_zip(source_zip, SOURCE_ENTRY)
+    need(digest == source_zip["digest"].removeprefix("sha256:")
          and original.get("schemaVersion") == 1
          and original.get("sourceKind") == "AUTHENTIC_APP_BOT_17_LOCAL_ORIGINAL_NONPUBLISHING"
          and original.get("result") == "CHILDREN_17_ORIGINAL_ZIP_VERIFIED_CAS_PENDING"
@@ -162,7 +192,7 @@ def automatic_request_proof():
          "centralRunId":central["sourceRunId"],
          "centralZipSha256":central["sourceZipSha256"],
          "sourceRunId":source["id"],"sourceHeadSha":source["head_sha"],
-         "sourceArtifactId":arr[0]["id"],
+         "sourceArtifactId":source_zip["id"],
          "sourceZipSha256":digest,
          "expiresAt":expires,"runtimeEnabled":False,
          "publicReleaseAuthorized":False}
@@ -247,14 +277,10 @@ def original_source(r):
          "source exact original verification job missing")
     artifacts = bridge.get_json("repos/pgextwin/build/actions/runs/" + str(sid)
                                 + "/artifacts?per_page=100")
-    arr = artifacts.get("artifacts", [])
-    need(artifacts.get("total_count") == len(arr) == 1
-         and arr[0].get("id") == r["sourceArtifactId"]
-         and arr[0].get("name") == SOURCE_ARTIFACT
-         and arr[0].get("expired") is False
-         and arr[0].get("digest") == "sha256:" + r["sourceZipSha256"],
-         "not unique immutable original App source archive")
-    original, outer = bridge.original_zip(arr[0], SOURCE_ENTRY)
+    source_zip = exact_source_artifact(
+        artifacts, sid, expected_id=r["sourceArtifactId"],
+        expected_digest=r["sourceZipSha256"])
+    original, outer = bridge.original_zip(source_zip, SOURCE_ENTRY)
     need(outer == r["sourceZipSha256"] and original.get("schemaVersion") == 1
          and original.get("requestId") == CENTRAL_REQUEST
          and original.get("sourceKind") == "AUTHENTIC_APP_BOT_17_LOCAL_ORIGINAL_NONPUBLISHING"
