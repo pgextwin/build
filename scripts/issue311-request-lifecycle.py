@@ -199,7 +199,7 @@ def record_approval_not_required(state, revision, key, *, evidence):
         for field in ("requestId", "requestSha256", "sourceHeadSha", "sourceRun", "targetScope"):
             require(evidence[field] == s[field], "not-required evidence identity mismatch: " + field)
         require(type(evidence["policyPath"]) is str
-                and re.fullmatch(r"(?:metadata|config)/[a-z0-9_-]+(?:/[a-z0-9_-]+)*\\.json",
+                and re.fullmatch(r"(?:metadata|config)/[a-z0-9_-]+(?:/[a-z0-9_-]+)*\.json",
                                  evidence["policyPath"])
                 and type(evidence["policyBlobSha"]) is str
                 and SHA1.fullmatch(evidence["policyBlobSha"]), "invalid original no-approval policy")
