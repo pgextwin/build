@@ -69,6 +69,22 @@ class CommentPublisher(TestCase):
             bad=deepcopy(obj);bad["issue"]["number"]=75
             path.write_text(json.dumps(bad))
             with self.assertRaises(trigger.Denied):trigger.issue_request(env)
+    def test_owner_comment_get_is_exact_read_only_gh_api_route(self):
+        from unittest.mock import patch
+        source=load("owner_comment_signed_get","scripts/verify-completed-signed-source.py")
+        with patch.object(source,"command",return_value=json.dumps({"id":CID})) as gh:
+            result=source.github("pgextwin/build",f"issues/comments/{CID}")
+            self.assertEqual(result["id"],CID)
+            gh.assert_called_once_with("gh","api","--method","GET",
+                f"repos/pgextwin/build/issues/comments/{CID}")
+        for repo,route in (("pgextwin/hypopg",f"issues/comments/{CID}"),
+                           ("pgextwin/build","issues/comments/0"),
+                           ("pgextwin/build","issues/311/comments"),
+                           ("pgextwin/build",f"issues/comments/{CID}/reactions")):
+            with self.subTest(repo=repo,route=route),patch.object(source,"command") as gh:
+                with self.assertRaises(source.Denied):source.github(repo,route)
+                gh.assert_not_called()
+
     def test_typed_live_issuer_and_replay_negative(self):
         item=fixture.owner_dispatch()
         item.update(event="issue_comment",request_comment_id=CID)
