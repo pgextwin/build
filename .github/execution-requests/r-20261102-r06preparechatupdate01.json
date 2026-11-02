@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261102-r06preparechatupdate01",
+  "mode": "PREPARE",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-11-02T01:01:47.000Z",
+  "expiresAt": "2026-11-02T09:01:47.000Z",
+  "purpose": "2026-11-02 operator Chat update: fresh protected one-shot 17 stable upstream scan, local original PREPARE and guarded CAS/readback. Genuine hypopg 1.4.5 and existing plpgsql_check 2.10.16 candidate to be assessed only through established safe separate gates. No publication grant.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "66981174bcc2d2c144911102dc1b2b2fc5123368",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 4,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 100,
+    "maxWallClockMinutes": 45
+  },
+  "approval": {
+    "scopeText": "Single explicit Chat operator PREPARE for 17 exact protected main SHAs. Immutable genuine upstream scan and 17 App local original receipts, source-bound ZIP SHA256/CRC and State CAS/keyless readback if existing policy permits. Do not merge candidate PRs, approve action_required, publish Releases, mutate Catalog/Website, disable safety gates, or remove old schedules. PUBLISH_DENY/runtimeEnabled=false.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/pg_bigm",
+      "mainSha": "718552f233371b2c0b56119df8a8d61f6a16593e"
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "mainSha": "d32b8c039bf71a01bd33397707bc124f740b4a1d"
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "mainSha": "92558681eb039c9b4de7f51db3fec19d04a92ff8"
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "mainSha": "2c7139f6219f94167974488c27f564b3be492a55"
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "mainSha": "9080564bfb957a1fb6ecb10a234d6310d532d2aa"
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "mainSha": "2433b66a2c8babe4f8470257f45ba2fbcee2ac42"
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "7d40508ed61bee0f019354fe8f64b6ee3a5fb675"
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "mainSha": "b14505bfe8e6828a3a62a202a86314228d561d10"
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "mainSha": "101db197a835c4045279f9997770f9bb6c9eaa99"
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e85a1b78d329eabb0f5bd348061a63d862c4be13"
+    },
+    {
+      "repo": "pgextwin/hypopg",
+      "mainSha": "e00dd23e415b4fc1b8d419f5bb48f9f7d845c28e"
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "mainSha": "a57f8b423a451c4b12e024cb3dae80fc36a9fa51"
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "mainSha": "97f56ac243d9d00b2be30e7afaf5c7569ea4235f"
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "mainSha": "75e3cc96c871565da1db58559027bd50ab65775e"
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "mainSha": "6efe3d5f2d18a4d823ad1590658b08ac4b845858"
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "mainSha": "a7a1807495fdbe417e1e467b3f857ff5f261e40b"
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "mainSha": "c119a5abd187d5dcab5ad97b980164a5841a0ec3"
+    }
+  ],
+  "resumeFrom": null
+}
