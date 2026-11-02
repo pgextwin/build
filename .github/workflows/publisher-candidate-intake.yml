@@ -2,7 +2,9 @@ name: Hourly independent Publisher candidate intake (default DENY)
 on:
   schedule:
     # Offset from central :00 scanner and local :30 candidate workflows.
-    - cron: '15 * * * *'
+    # Genuine schedules only: extra catch-up windows for completed signed sources.
+    # Keep independent verification, Publisher App, and create-only gates unchanged.
+    - cron: '15,30,45 * * * *'
   push:
     branches: [main]
     paths:
