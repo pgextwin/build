@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "kind": "pgextwin-execution-request",
+  "requestId": "r-20261102-r06preparechatupdate02",
+  "mode": "PREPARE",
+  "requestedBy": "ShutenOishi",
+  "createdAt": "2026-11-02T01:14:32.000Z",
+  "expiresAt": "2026-11-02T09:14:32.000Z",
+  "purpose": "Fresh source-bound 17-local App PREPARE following protected fix PR512: verified real upstream UPDATE_PRESENT_NOT_AUTHORIZED is a valid nonpublishing CAS terminal; old PR511 Run remains quarantined. No actual publisher grant.",
+  "allowFutureUpdates": false,
+  "source": {
+    "centralMainSha": "b8463adc1e623ab852d0816ae489adfd69ed5ae1",
+    "fleetRegistryBlobSha": "69918265dabb86b11a9406533cbe0ce495137b94"
+  },
+  "limits": {
+    "maxParallel": 4,
+    "maxAttemptsPerStage": 1,
+    "maxOperations": 100,
+    "maxWallClockMinutes": 45
+  },
+  "approval": {
+    "scopeText": "One fresh genuine protected 17 local App PREPARE scan, original ZIP SHA256/CRC, nonpublishing State CAS and key-free independent readback. Status update-present is never NO_UPDATE or Release. Prior failed CAS attempt remains quarantined. No candidate merge, PUBLISH, Catalog/Website write, workflow/schedule removal, bypass of protected CI or signed publication gate.",
+    "publicReleaseAuthorized": false,
+    "publicationGrants": []
+  },
+  "targets": [
+    {
+      "repo": "pgextwin/pg_bigm",
+      "mainSha": "718552f233371b2c0b56119df8a8d61f6a16593e",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_cron",
+      "mainSha": "d32b8c039bf71a01bd33397707bc124f740b4a1d",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_hint_plan",
+      "mainSha": "92558681eb039c9b4de7f51db3fec19d04a92ff8",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pgaudit",
+      "mainSha": "2c7139f6219f94167974488c27f564b3be492a55",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/set_user",
+      "mainSha": "9080564bfb957a1fb6ecb10a234d6310d532d2aa",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_repack",
+      "mainSha": "2433b66a2c8babe4f8470257f45ba2fbcee2ac42",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_ivm",
+      "mainSha": "7d40508ed61bee0f019354fe8f64b6ee3a5fb675",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_qualstats",
+      "mainSha": "b14505bfe8e6828a3a62a202a86314228d561d10",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/plpgsql_check",
+      "mainSha": "101db197a835c4045279f9997770f9bb6c9eaa99",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/orafce",
+      "mainSha": "e85a1b78d329eabb0f5bd348061a63d862c4be13",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/hypopg",
+      "mainSha": "e00dd23e415b4fc1b8d419f5bb48f9f7d845c28e",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/wal2json",
+      "mainSha": "a57f8b423a451c4b12e024cb3dae80fc36a9fa51",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_partman",
+      "mainSha": "97f56ac243d9d00b2be30e7afaf5c7569ea4235f",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_stat_monitor",
+      "mainSha": "75e3cc96c871565da1db58559027bd50ab65775e",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pgtap",
+      "mainSha": "6efe3d5f2d18a4d823ad1590658b08ac4b845858",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_variables",
+      "mainSha": "a7a1807495fdbe417e1e467b3f857ff5f261e40b",
+      "protected": true
+    },
+    {
+      "repo": "pgextwin/pg_store_plans",
+      "mainSha": "c119a5abd187d5dcab5ad97b980164a5841a0ec3",
+      "protected": true
+    }
+  ],
+  "resumeFrom": null
+}
