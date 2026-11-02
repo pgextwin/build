@@ -11,6 +11,14 @@
 
 **更新なし**は `NO_UPDATE` で正常終了する。複数拡張のうち更新可能なものは独立して完了し、別の拡張の不成立を理由に一括停止しない。既存Releaseのタグ・資産は上書きしない。
 
+## 17拡張のChat時点一括スキャン（Issue #510 共通化）
+
+通常Chatは、一回の「pgextwinを更新して」要求の冒頭で保護Fleetの登録全対象を照合する。中央 read-only 入口として、GitHub接続から [build Issue #311](https://github.com/pgextwin/build/issues/311) へ本人の正規コメント `/pgextwin scan` を1件登録できる。これは `chat-fleet-scan.yml` の genuine `issue_comment.created` を発生させ、実GitHub actor/ID、first attempt、元コメント・live GET一致を確認し、既存の `fleet-upstream-watch.py` による登録済み全拡張の protected main/上流stable照合を実施する。結果は非公開権限のない監査Artifactへ記録する。Chatは結果を確認し、対象ごとの既存候補・PR・CI・署名・Publisher・Catalogへ継続する。
+
+**重要:** このスキャンは `GET_ONLY`、`PUBLISH=DENY`、候補PR作成なし。既存の `schedule` イベントと異なり、旧 `verify-scheduled-fleet-candidate.py` の真正schedule受入原本として使用できない。更新候補生成に署名済みsourceがまだない場合は正規の独立経路で取得するか、当該拡張のみ `CANDIDATE_ONLY/BLOCKED` として扱う。本人コメントをscheduleやpublisher認可に偽装しない。1回のChat指示からスキャンとその後の処理を自律継続するのであって、GitHubが自動で全工程を一つのジョブに束ねるという意味ではない。既存の旧scheduleは機能別代替成立まで残す。
+
+この入口は登録済み全拡張を既存 `metadata/automation-fleet.json` と各repoの `config/extension.json` / `config/update-watch.json` から走査する。新しい一覧・個別secret・17個の複製ワークフローは追加しない。
+
 ## Chat主体で一貫して実行する標準手順
 
 1. **現状の認証済みGET**: Fleet登録/中央・各repo保護main、公開Release/Catalog、重複候補PR、先行成功Run、上流stableと固定SHAを照合。成功済みのCI・署名Runを再実行しない。
