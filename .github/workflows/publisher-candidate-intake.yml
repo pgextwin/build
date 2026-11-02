@@ -121,6 +121,54 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  independent_owner_source_admission:
+    # Distinct on-demand source type. Never enters the Publisher Environment.
+    # Not part of select_verified_sources / isolated_formal_publisher needs.
+    name: Publisher independently reverify genuine owner signed source (DENY)
+    if: >-
+      ${{ github.repository == 'pgextwin/build' &&
+          github.event_name == 'issue_comment' &&
+          github.ref == 'refs/heads/main' &&
+          github.event.action == 'created' &&
+          github.event.issue.number == 311 &&
+          !github.event.issue.pull_request &&
+          github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' &&
+          github.run_attempt == 1 &&
+          startsWith(github.event.comment.body, '/pgextwin admit-owner-source ') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      issues: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Independent original Run/owner/ZIP/SPDX/Grype/Sigstore re-verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/publisher-owner-source-admission.py \
+            --fleet metadata/automation-fleet.json \
+            --lifecycle metadata/postgresql.json \
+            --output "$RUNNER_TEMP/owner-source-publisher-admission.json"
+          echo "Independent distinct owner signed source admitted as NONPUBLISHING only. PUBLISH_DENY." >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve no-authority Publisher-side read-only proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owner-signed-source-publisher-admission-nonpublishing
+          path: ${{ runner.temp }}/owner-source-publisher-admission.json
+          if-no-files-found: warn
+          retention-days: 30
+
   independent_real_signed_source:
     name: Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original (${{ matrix.name }})
     needs: nonpublishing_intake
