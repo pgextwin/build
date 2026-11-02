@@ -2,7 +2,7 @@
 """Immutable identity marker for independently authenticated automatic Releases.
 
 A marker in Release notes is an untrusted *locator* for Catalog's independent
-GitHub GET of BOTH source main/push and central scheduled Publisher Runs. Never
+GitHub GET of BOTH source main/push and the actual central Publisher Run. Never
 interpret the marker alone as proof, signature, App consent or Release authority.
 """
 from __future__ import annotations
@@ -23,20 +23,24 @@ FIELDS={
 }
 class Denied(ValueError): pass
 
+ORIGINS={
+    "automatic-schedule": ("VERIFIED_AUTOMATIC_SCHEDULE", "INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE"),
+    "owner-dispatch": ("VERIFIED_OWNER_DISPATCH", "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
+}
+
 def require(ok,reason):
     if not ok: raise Denied(reason)
 
 def claim(receipt):
     """Return only public locators, never a token, approver or authorization."""
-    require(type(receipt) is dict
-            and receipt.get("authorizationMode")=="automatic-schedule"
-            and receipt.get("status")=="VERIFIED_AUTOMATIC_SCHEDULE"
-            and receipt.get("approvalProvenance")==
-                "INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE",
+    mode=receipt.get("authorizationMode") if type(receipt) is dict else None
+    require(type(mode) is str and mode in ORIGINS
+            and receipt.get("status")==ORIGINS[mode][0]
+            and receipt.get("approvalProvenance")==ORIGINS[mode][1],
             "no independently typed automatic Publisher receipt")
     result={
         "schemaVersion":1,
-        "authorizationMode":"automatic-schedule",
+        "authorizationMode":mode,
         "repository":receipt.get("repository"),
         "releaseTag":receipt.get("releaseTag"),
         "packagingCommit":receipt.get("trustedCommit"),
@@ -58,7 +62,8 @@ def validate(value):
     require(type(value) is dict and set(value)==FIELDS
             and type(value.get("schemaVersion")) is int
             and value["schemaVersion"]==1
-            and value.get("authorizationMode")=="automatic-schedule"
+            and type(value.get("authorizationMode")) is str
+            and value["authorizationMode"] in ORIGINS
             and type(value.get("repository")) is str and REPO.fullmatch(value["repository"])
             and type(value.get("releaseTag")) is str and TAG.fullmatch(value["releaseTag"])
             and type(value.get("packagingCommit")) is str and HEX40.fullmatch(value["packagingCommit"])
@@ -72,7 +77,7 @@ def validate(value):
             and type(value.get("publisherMainSha")) is str and HEX40.fullmatch(value["publisherMainSha"])
             and value.get("publisherWorkflow")==".github/workflows/publisher-candidate-intake.yml"
             and type(value.get("publisherAppId")) is int and value["publisherAppId"]==5451798
-            and value.get("approvalProvenance")=="INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE",
+            and value.get("approvalProvenance")==ORIGINS[value["authorizationMode"]][1],
             "invalid automatic signed Publisher public Run locator")
     return value
 
