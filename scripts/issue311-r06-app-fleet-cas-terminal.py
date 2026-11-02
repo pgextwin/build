@@ -326,7 +326,8 @@ def original_source(r):
 def strict_child_receipt(receipt, item, central, target_sha):
     need(receipt.get("schemaVersion") == 1
          and receipt.get("sourceKind") == LOCAL_SOURCE_KIND
-         and receipt.get("result") == "NO_UPDATE"
+         and receipt.get("result") in ("NO_UPDATE", "UPDATE_PRESENT_NOT_AUTHORIZED")
+         and receipt.get("result") == item.get("result")
          and item.get("repository") in central["targetMainSha"]
          and receipt.get("requestId") == item.get("localRequestId")
          and item.get("localRequestId") == replay_id.derive(
@@ -360,7 +361,7 @@ def child_originals(terminal, central):
         repo = item["repository"]
         rid = item.get("localRunId")
         need(type(rid) is int and rid > 0
-             and item.get("result") == "NO_UPDATE"
+             and item.get("result") in ("NO_UPDATE", "UPDATE_PRESENT_NOT_AUTHORIZED")
              and item.get("appBotLogin") == BOT
              and item.get("appBotUserId") == BOT_ID
              and item.get("sameTokenRevoked401") is True
@@ -393,7 +394,7 @@ def child_originals(terminal, central):
         local_ids.add(receipt["requestId"])
         results[repo] = {"runId": rid, "localRequestId":item["localRequestId"],
                          "zipSha256": artifact["zipSha256"],
-                         "sourceKind": LOCAL_SOURCE_KIND, "result": "NO_UPDATE"}
+                         "sourceKind": LOCAL_SOURCE_KIND, "result": receipt["result"]}
     need(len(results) == 17, "incomplete independent 17 child original ZIPs")
     return results
 
@@ -490,8 +491,14 @@ def persist():
         orig, central = original_source(r)
         actual = child_originals(orig, {
             **orig["central"], "targetMainSha": central["targetMainSha"]})
-        need(len(actual) == 17 and all(x["result"] == "NO_UPDATE" for x in actual.values()),
-             "no full original 17 NO_UPDATE acceptance")
+        need(len(actual) == 17 and all(x["result"] in ("NO_UPDATE", "UPDATE_PRESENT_NOT_AUTHORIZED")
+                                       for x in actual.values()),
+             "not a complete authenticated nonpublishing 17-child fleet")
+        detected = sorted(repo for repo, x in actual.items()
+                          if x["result"] == "UPDATE_PRESENT_NOT_AUTHORIZED")
+        terminal_status = "SUCCESS" if detected else "NO_UPDATE"
+        proof_status = ("UPDATE_PRESENT_17_APP_CAS_DURABLE_READBACK_PENDING" if detected
+                        else "NO_UPDATE_17_APP_CAS_DURABLE_READBACK_PENDING")
         finite_original_veto(r)
         initial = life.new(REQ, rawsha, r["sourceHeadSha"], sorted(actual),
                            r["expiresAt"], max_events=100)
@@ -516,7 +523,7 @@ def persist():
                    "trigger":("genuine_workflow_run_completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "original_protected_main_push_not_schedule")}
         def finish(state):
             state["targets"] = {repo:"SUCCESS" for repo in sorted(actual)}
-            state["terminal"] = "NO_UPDATE"
+            state["terminal"] = terminal_status
             state["completionRun"] = {"id":int(os.environ["GITHUB_RUN_ID"]), "attempt":1}
             state["eventTransport"] = ("workflow_run.completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
         term = life._apply(current, current["revision"], "r06-real-app-17-terminal", payload, finish)
@@ -524,14 +531,14 @@ def persist():
         save2 = created.write(term, previous=current, expected_blob=blob)
         blob, stored = created.read(REQ)
         need(stored == term and blob == store.blob_hash(store.canonical(term))
-             and stored["revision"] == 2 and stored["terminal"] == "NO_UPDATE"
+             and stored["revision"] == 2 and stored["terminal"] == terminal_status
              and all(x == "SUCCESS" for x in stored["targets"].values())
              and stored["publisherAuthorized"] is False, "durable original GET differs")
         checks = terminal_replay_denials(stored, {
             **orig["central"], "targetMainSha":central["targetMainSha"]}, actual)
         blobagain, again = created.read(REQ)
         need(blobagain == blob and again == stored, "replay changed CAS original")
-        result.update(result="NO_UPDATE_17_APP_CAS_DURABLE_READBACK_PENDING",
+        result.update(result=proof_status, detectedUpdateTargets=detected,
                       durableCasVerified=True, originalSourceRunId=r["sourceRunId"],
                       originalSourceZipSha256=r["sourceZipSha256"],
                       centralRunId=r["centralRunId"], centralZipSha256=r["centralZipSha256"],
@@ -555,7 +562,8 @@ def persist():
             "result":result["result"], "targetCount":result.get("targetCount",0),
             "publisherAuthorized": False, "reason":result.get("reason", "")},
             sort_keys=True))
-    return 0 if result["result"] == "NO_UPDATE_17_APP_CAS_DURABLE_READBACK_PENDING" and result.get("sameStateTokenRevoked401") is True else 1
+    return 0 if result["result"] in ("NO_UPDATE_17_APP_CAS_DURABLE_READBACK_PENDING",
+                                     "UPDATE_PRESENT_17_APP_CAS_DURABLE_READBACK_PENDING") and result.get("sameStateTokenRevoked401") is True else 1
 
 def readback():
     need(not os.environ.get("STATE_WRITER_PRIVATE_KEY"),
@@ -565,7 +573,13 @@ def readback():
     proof, art = childlib.artifact(
         "pgextwin/build", int(os.environ["GITHUB_RUN_ID"]),
         "issue311-r06-app-original-cas-proof", PROOF_PATH)
-    need(proof.get("result") == "NO_UPDATE_17_APP_CAS_DURABLE_READBACK_PENDING"
+    detected = sorted(x["repository"] for x in original["children"]
+                      if x.get("result") == "UPDATE_PRESENT_NOT_AUTHORIZED")
+    expected_terminal = "SUCCESS" if detected else "NO_UPDATE"
+    expected_proof = ("UPDATE_PRESENT_17_APP_CAS_DURABLE_READBACK_PENDING" if detected
+                      else "NO_UPDATE_17_APP_CAS_DURABLE_READBACK_PENDING")
+    need(proof.get("result") == expected_proof
+         and proof.get("detectedUpdateTargets") == detected
          and proof.get("sameStateTokenRevoked401") is True
          and proof.get("originalSourceRunId") == r["sourceRunId"]
          and proof.get("originalSourceZipSha256") == r["sourceZipSha256"]
@@ -580,7 +594,7 @@ def readback():
     blob, state = store.unpack(contents, REQ)
     need(blob == proof["stateBlobSha"]
          and state["revision"] == proof["stateRevision"] == 2
-         and state["terminal"] == "NO_UPDATE"
+         and state["terminal"] == expected_terminal
          and state["eventTransport"] == ("workflow_run.completed" if os.environ["GITHUB_EVENT_NAME"] == "workflow_run" else "BOUNDED_WATCHDOG")
          and state["sourceRun"] == {"id":r["sourceRunId"],"attempt":1}
          and state["completionRun"] == {"id":int(os.environ["GITHUB_RUN_ID"]),"attempt":1}
