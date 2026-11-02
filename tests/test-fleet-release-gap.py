@@ -2,9 +2,11 @@
 """Offline deterministic release-gap observations; never Release authorization."""
 import importlib.util
 from pathlib import Path
+import sys
 from unittest import TestCase, main
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location(
     "fleet_release_gap", ROOT / "scripts/fleet-release-gap.py"
 )
