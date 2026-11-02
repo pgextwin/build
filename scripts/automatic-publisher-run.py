@@ -37,17 +37,18 @@ def main():
     parser=argparse.ArgumentParser()
     for name in ("repository","sha","source-run","dist","manifest","lifecycle",
                  "original","second","proposal","fleet","central-policy",
-                 "local-policy","unattended","publisher-boundary","recovery","output"):
+                 "local-policy","owner-policy","unattended","publisher-boundary","recovery","output"):
         parser.add_argument("--"+name,required=True)
     a=parser.parse_args()
     try:
-        require(os.environ.get("GITHUB_REPOSITORY")=="pgextwin/build"
-                and os.environ.get("GITHUB_EVENT_NAME")=="schedule"
-                and os.environ.get("GITHUB_REF")=="refs/heads/main"
-                and os.environ.get("GITHUB_RUN_ATTEMPT")=="1"
+        event=issuer.trigger.context(os.environ)
+        if event=="workflow_dispatch":
+            _,dry=issuer.trigger.dispatch_request(os.environ,repository=a.repository)
+            require(not dry,"dry-run request cannot enter Publisher")
+        require((event!="workflow_dispatch" or os.environ.get("PUBLISHER_DRY_RUN")=="false")
                 and type(os.environ.get("GH_TOKEN")) is str
                 and len(os.environ["GH_TOKEN"])>10,
-                "not an original protected central schedule with read credentials")
+                "dry-run request or read credentials unavailable")
         require(os.environ.get("PUBLISHER_APP_ID")==str(issuer.APP)
                 and os.environ.get("PUBLISHER_INSTALLATION_ID")==str(issuer.INSTALLATION),
                 "dedicated independent Publisher App variables missing")
@@ -61,12 +62,15 @@ def main():
         local=source.read(a.local_policy)
         unattended=source.read(a.unattended)
         boundary=source.read(a.publisher_boundary)
+        owner_policy=source.read(a.owner_policy)
         manifest=source.read(a.manifest)
         lifecycle=source.read(a.lifecycle)
         proposal=source.read(a.proposal)
         # First *unprivileged* gate; do not even access the private key until
         # all explicit protected policies are already switched by approved PR.
         issuer.policy_gate(fleet,central,local,unattended,boundary,repository)
+        if event=="workflow_dispatch":
+            issuer.owner_policy_gate(owner_policy)
         require(type(proposal.get("runId")) is int
                 and proposal["runId"]==original_id
                 and proposal.get("runAttempt")==1
@@ -91,6 +95,8 @@ def main():
         central_branch=source.github("pgextwin/build","branches/main")
         signed_branch=source.github(repository,"branches/main")
         schedule_run=source.github("pgextwin/build",f"actions/runs/{publisher_id}")
+        issuer.trigger.run(schedule_run,run_id=publisher_id,sha=central_sha,
+                           event=event,actor=os.environ.get("GITHUB_ACTOR",""))
         require(central_branch.get("commit",{}).get("sha")==central_sha,
                 "current central protected main changed")
         formal.REPO=repository
@@ -127,13 +133,13 @@ def main():
                 ref=os.environ["GITHUB_REF"],
                 attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]),
                 tag=tag,tag_absent=True,release_absent=True,
-                actor=os.environ.get("GITHUB_ACTOR",""))
+                actor=os.environ.get("GITHUB_ACTOR",""),owner_policy=owner_policy)
             # Keep the central GET/attestation READ identity until all full
             # original source metadata and real signatures have been checked
             # AGAIN by the deployed formal Publisher preflight.
             expected=formal.check_assets(
                 Path(a.dist),manifest,receipt,sha,original_id,lifecycle,
-                verify_signatures=True,workflow_event="schedule")
+                verify_signatures=True,workflow_event=event)
             require(proof["zipSha256ByMajor"]=={
                 str(m):expected[formal.ident.asset_stem(manifest,m)+".zip"]
                 for m in proof["maintainedMajors"]},
@@ -145,6 +151,8 @@ def main():
                         and obj.get("commit",{}).get("sha")==expected_sha,
                         "protected source/central main changed before Release")
             current=source.github("pgextwin/build",f"actions/runs/{publisher_id}")
+            issuer.trigger.run(current,run_id=publisher_id,sha=central_sha,
+                               event=event,actor=os.environ.get("GITHUB_ACTOR",""))
             require(type(current) is dict
                     and all(current.get(k)==schedule_run.get(k) for k in
                             ("id","run_attempt","event","path","head_sha",
