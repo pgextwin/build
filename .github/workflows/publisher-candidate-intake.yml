@@ -52,7 +52,8 @@ jobs:
       ${{ github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' &&
           (github.event_name != 'issue_comment' ||
            (github.event.issue.number == 311 && github.actor == 'ShutenOishi' &&
-            github.triggering_actor == 'ShutenOishi')) }}
+            github.triggering_actor == 'ShutenOishi' &&
+            startsWith(github.event.comment.body, '/pgextwin publish '))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
