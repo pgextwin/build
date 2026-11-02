@@ -1,0 +1,81 @@
+name: Chat on-demand shared 17-extension upstream scan (READ ONLY)
+run-name: Fleet-scan-owner-comment-${{ github.event.comment.id || 0 }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: chat-on-demand-fleet-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    # Issue comments are untrusted until original event and live GET are verified.
+    # No schedule spoof, candidate PR, write token, signing or Release here.
+    if: >-
+      ${{ github.repository == 'pgextwin/build' &&
+          github.ref == 'refs/heads/main' &&
+          github.event.issue.number == 311 &&
+          !github.event.issue.pull_request &&
+          github.event.comment.body == '/pgextwin scan' &&
+          github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out protected central scanner without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Verify exact owner comment event and immutable first attempt
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="$(python scripts/chat-fleet-scan-auth.py --event "$GITHUB_EVENT_PATH")"
+          echo "comment_id=$id" >> "$GITHUB_OUTPUT"
+      - name: Live authenticated GET of unedited owner request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ steps.identity.outputs.comment_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET "repos/pgextwin/build/issues/comments/$COMMENT_ID" > "$RUNNER_TEMP/chat-fleet-scan-comment.json"
+          python scripts/chat-fleet-scan-auth.py --event "$GITHUB_EVENT_PATH" --live "$RUNNER_TEMP/chat-fleet-scan-comment.json"
+      - name: Check every registered protected main and true stable upstream (GET ONLY)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/fleet-upstream-watch.py
+          --policy metadata/automation-fleet.json
+          --output "$RUNNER_TEMP/chat-fleet-scan.json"
+          --summary "$RUNNER_TEMP/chat-fleet-scan.md"
+      - name: Show full 17-target observation without granting any publication authority
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/chat-fleet-scan.md" ]; then
+            cat "$RUNNER_TEMP/chat-fleet-scan.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "INDETERMINATE: owner validation or scan failed; no update or publication claim." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain read-only auditable detection snapshot
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chat-fleet-upstream-scan-nonpublishing
+          path: |
+            ${{ runner.temp }}/chat-fleet-scan.json
+            ${{ runner.temp }}/chat-fleet-scan.md
+          if-no-files-found: warn
+          retention-days: 30
