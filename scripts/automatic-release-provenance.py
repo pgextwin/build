@@ -26,6 +26,7 @@ class Denied(ValueError): pass
 ORIGINS={
     "automatic-schedule": ("VERIFIED_AUTOMATIC_SCHEDULE", "INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE"),
     "owner-dispatch": ("VERIFIED_OWNER_DISPATCH", "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
+    "owner-issue-comment": ("VERIFIED_OWNER_ISSUE_COMMENT", "INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE"),
 }
 
 def require(ok,reason):
@@ -55,11 +56,14 @@ def claim(receipt):
         "publisherAppId":5451798,
         "approvalProvenance":receipt.get("approvalProvenance"),
     }
+    if mode=="owner-issue-comment":
+        result["requestCommentId"]=receipt.get("requestCommentId")
     validate(result)
     return result
 
 def validate(value):
-    require(type(value) is dict and set(value)==FIELDS
+    require(type(value) is dict and set(value)==
+            (FIELDS|{"requestCommentId"} if value.get("authorizationMode")=="owner-issue-comment" else FIELDS)
             and type(value.get("schemaVersion")) is int
             and value["schemaVersion"]==1
             and type(value.get("authorizationMode")) is str
@@ -79,6 +83,9 @@ def validate(value):
             and type(value.get("publisherAppId")) is int and value["publisherAppId"]==5451798
             and value.get("approvalProvenance")==ORIGINS[value["authorizationMode"]][1],
             "invalid automatic signed Publisher public Run locator")
+    if value["authorizationMode"]=="owner-issue-comment":
+        require(type(value.get("requestCommentId")) is int and value["requestCommentId"]>0,
+                "invalid owner comment ID")
     return value
 
 def encode(receipt):

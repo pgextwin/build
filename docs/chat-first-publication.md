@@ -7,7 +7,7 @@
 
 所有者が通常Chatで **「pgextwinを更新して」** と依頼した場合、その依頼に含まれる登録済み拡張の真正な安定版更新について、**更新検出・実装・検証・保護マージから、条件を満たした正式Release、Catalog、Website公開まで行うことを明示的に承認したもの**と扱う。途中で「公開して」「継続して」と改めて確認しない。特定拡張の指定があればその範囲に限定し、無指定なら保護Fleetの登録済み全拡張を対象とする。
 
-この**自然言語での所有者意思表示は、GitHub内の検証済みPUBLISH receipt・署名・App token・正規eventを代替しない**。共通Publisherのcronは撤去し、既存の保護された署名付き公開policyを満たす対象について、所有者本人による正規の `workflow_dispatch` を用いる。手動Runには別途、保護された中央の `metadata/owner-dispatch-publication.json` による許可も必要で、GitHubが返すactorとtriggering_actorのログイン・IDを照合し、scheduleになりすまさない。上流検出を含めた全工程のcron撤去は別途必要である。
+この**自然言語での所有者意思表示は、GitHub内の検証済みPUBLISH receipt・署名・App token・正規eventを代替しない**。共通Publisherのcronは撤去し、既存の保護された署名付き公開policyを満たす対象について、所有者本人による正規の `workflow_dispatch` または build Issue #311 への本人認証済み `/pgextwin publish pgextwin/<extension>` コメントの真正 `issue_comment.created` を用いる。手動Runには別途、保護された中央の `metadata/owner-dispatch-publication.json` による許可も必要で、GitHubが返すactorとtriggering_actorのログイン・IDを照合し、scheduleになりすまさない。上流検出を含めた全工程のcron撤去は別途必要である。
 
 **更新なし**は `NO_UPDATE` で正常終了する。複数拡張のうち更新可能なものは独立して完了し、別の拡張の不成立を理由に一括停止しない。既存Releaseのタグ・資産は上書きしない。
 
@@ -32,6 +32,16 @@
 | `RELEASE_PUBLISHED` | 実公開ReleaseのSHA256・署名・Attestationの検証成功、Catalog/Websiteは別管理 |
 | `PUBLIC_COMPLETE` | Release + Catalog保護main + Website JA/EN + 公開DLの実検証すべて成功 |
 | `BLOCKED` | 実在する必要ゲート、権限、CI、安全上の不成立。偽承認・保護緩和は禁止 |
+
+
+## Workを使わない本人コメント起動
+
+1. ChatのGitHub接続から build Issue #311 に **対象1件だけ** `/pgextwin publish pgextwin/hypopg` のような形式でコメントを追加。通常の監査コメントは公開要求ではない。
+2. 本物の `issue_comment.created` Runのactor/triggering_actorのログイン・数値ID、GitHubイベントJSON、元Issue・編集されていないコメント・Run表示名に固定されたコメントIDを照合する。
+3. 署名付きsource main/push原本、別RunnerのZIP/SPDX/Grype/Sigstore、最新保護main、既存Publisher App/Environmentとcreate-only tagを再検証し、条件不成立は公開しない。
+4. CatalogもReleaseの出所を独立GETし、コメントID・対象・実Runを照合する。公開後はCatalog保護PR、必須CI、Website日英公開証跡まで更新する。
+
+元の `workflow_dispatch` と別の正規eventとして記録し、schedule偽装・成功Run再実行・コメント編集による権限変更を禁止する。
 
 ## Workでしかできない最小作業
 

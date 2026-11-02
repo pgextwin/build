@@ -98,7 +98,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                  workflow_event="workflow_dispatch"):
     # Do not trust the authorization receipt without independently matching all
     # immutable source identities, lifecycle, package metadata and zip digests.
-    automatic = receipt.get("authorizationMode") in ("automatic-schedule", "owner-dispatch")
+    automatic = receipt.get("authorizationMode") in ("automatic-schedule", "owner-dispatch", "owner-issue-comment")
     try:
         auth.validate_receipt(receipt, repository=REPO, commit=commit,
                               actor=(os.environ.get("GITHUB_ACTOR", "")
@@ -117,6 +117,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
         # This is a verification-only path until the independent privileged
         # Publisher issuer is implemented and policies genuinely authorize.
         expected_event=("schedule" if receipt.get("authorizationMode")=="automatic-schedule"
+                        else "issue_comment" if receipt.get("authorizationMode")=="owner-issue-comment"
                         else "workflow_dispatch")
         try:
             actual_event=trigger_auth.context(os.environ)
@@ -358,7 +359,7 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
         +"All maintained requested PG majors were smoke-tested; SPDX 2.3 SBOM, report-only Grype, "
         +"signed provenance, signed SBOM attestations and SHA256SUMS included.\n"
         +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n")
-    if receipt.get("authorizationMode") in ("automatic-schedule", "owner-dispatch"):
+    if receipt.get("authorizationMode") in ("automatic-schedule", "owner-dispatch", "owner-issue-comment"):
         # Only a PUBLIC locator for downstream independently authenticated
         # source Run and completed central schedule Run. This text is never
         # treated as a signed proof or as an admission grant by itself.

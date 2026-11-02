@@ -205,7 +205,7 @@ def main():
     try:
         require(os.getenv("GITHUB_REPOSITORY") == "pgextwin/build"
                 and os.getenv("GITHUB_REF") == "refs/heads/main"
-                and os.getenv("GITHUB_EVENT_NAME") in ("schedule", "push", "workflow_dispatch"),
+                and os.getenv("GITHUB_EVENT_NAME") in ("schedule", "push", "workflow_dispatch", "issue_comment"),
                 "not a protected central scheduling context")
         fleet = json.loads(Path(a.fleet).read_text("utf-8"),
                            object_pairs_hook=unique)

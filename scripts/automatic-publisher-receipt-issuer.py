@@ -117,7 +117,7 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           app_identity, installation_identity, minted, scoped,
           repository, sha, source_run, central_sha, publisher_run,
           event, ref, attempt, tag, tag_absent, release_absent, actor,
-          owner_policy=None):
+          owner_policy=None,request_comment_id=None):
     """In-process Release receipt: only after all genuinely independent gates.
 
     The caller must supply proof produced by real verify_completed_source()
@@ -125,7 +125,7 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
     Caller must also establish the live App issuer and token using JWT requests.
     """
     policy_gate(fleet,central,local,unattended,boundary,repository)
-    if event=="workflow_dispatch":
+    if event in ("workflow_dispatch","issue_comment"):
         owner_policy_gate(owner_policy)
     check(type(sha) is str and SHA.fullmatch(sha)
           and type(central_sha) is str and SHA.fullmatch(central_sha)
@@ -133,7 +133,7 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           and type(publisher_run) is int and publisher_run>0
           and source_run!=publisher_run
           and type(attempt) is int and attempt==1
-          and event in ("schedule", "workflow_dispatch") and ref=="refs/heads/main",
+          and event in ("schedule", "workflow_dispatch", "issue_comment") and ref=="refs/heads/main",
           "not original central event plus distinct signed main/push")
     for branch,expected in ((central_branch,central_sha),(signed_branch,sha)):
         check(type(branch) is dict and branch.get("name")=="main"
@@ -142,7 +142,7 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
               "current protected branch advanced/changed")
     try:
         trigger.run(schedule_run,run_id=publisher_run,sha=central_sha,
-                    event=event,actor=actor)
+                    event=event,actor=actor,comment_id=request_comment_id)
     except trigger.Denied as exc:
         raise Denied("central Publisher event not authenticated") from exc
     check(type(proof) is dict and proof.get("schemaVersion")==1
@@ -201,8 +201,11 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           "independent Publisher token scope unknown or expanded")
     receipt={
         "schemaVersion":1,"status":("VERIFIED_AUTOMATIC_SCHEDULE" if event=="schedule"
-                                     else "VERIFIED_OWNER_DISPATCH"),
-        "authorizationMode":("automatic-schedule" if event=="schedule" else "owner-dispatch"),
+                        else "VERIFIED_OWNER_ISSUE_COMMENT" if event=="issue_comment"
+                        else "VERIFIED_OWNER_DISPATCH"),
+        "authorizationMode":("automatic-schedule" if event=="schedule"
+                             else "owner-issue-comment" if event=="issue_comment"
+                             else "owner-dispatch"),
         "repository":repository,"trustedCommit":sha,
         "extension":manifest["name"],"releaseTag":tag,
         "majors":majors,"sources":[pins[m] for m in majors],
@@ -215,10 +218,13 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         "publicationAuthorized":True,"publishableReceipt":True,
         "publisherWriteAuthorized":True,"automaticReleaseEnabled":True,
         "approvalProvenance":("INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE" if event=="schedule"
-                              else "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
+                         else "INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE" if event=="issue_comment"
+                         else "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
     }
-    if event=="workflow_dispatch":
+    if event in ("workflow_dispatch","issue_comment"):
         receipt["operator"]=actor
+    if event=="issue_comment":
+        receipt["requestCommentId"]=request_comment_id
     typed.validate_receipt(receipt,repository=repository,commit=sha,
                            actor=actor,event=event)
     return receipt
