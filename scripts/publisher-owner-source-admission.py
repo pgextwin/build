@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -66,10 +67,10 @@ def get(repo, route):
     need(REPO.fullmatch(repo) is not None, "invalid repository")
     allowed = (route == "branches/main"
                or re.fullmatch(r"actions/runs/[1-9][0-9]*", route)
-               or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\\?per_page=100", route)
-               or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\\?per_page=100", route)
+               or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\?per_page=100", route)
+               or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", route)
                or re.fullmatch(r"issues/comments/[1-9][0-9]*", route)
-               or re.fullmatch(r"contents/config/extension\\.json\\?ref=[0-9a-f]{40}", route))
+               or re.fullmatch(r"contents/config/extension\.json\?ref=[0-9a-f]{40}", route))
     need(bool(allowed), "non-allowlisted source GET")
     raw = command(["gh", "api", "--method", "GET",
                    "repos/" + repo + "/" + route])
@@ -231,7 +232,7 @@ def admit(repo, run_id, *, scratch, fleet, lifecycle):
     need(contents.get("encoding") == "base64" and type(contents.get("content")) is str,
          "protected manifest unavailable")
     manifest = json.loads(base64.b64decode(
-        contents["content"].replace("\\n", ""), validate=True), object_pairs_hook=unique)
+        contents["content"].replace("\n", ""), validate=True), object_pairs_hook=unique)
     need(manifest.get("name") == repo.split("/")[1], "wrong source manifest")
     majors = ident.maintained_majors(manifest, lifecycle)
     run = get(repo, f"actions/runs/{run_id}")
@@ -249,6 +250,21 @@ def admit(repo, run_id, *, scratch, fleet, lifecycle):
     }
     for label, name in groups.items():
         fetch_artifact(repo, run_id, name, root / label, pattern=(label == "signed"))
+    # gh run download --pattern creates per-artifact subdirectories. Flatten
+    # only disjoint, regular, expected signed ZIP/SPDX/Grype names.
+    signed_folder = root / "signed"
+    source_files = [p for p in signed_folder.rglob("*") if p.is_file()]
+    need(bool(source_files) and len({p.name for p in source_files}) == len(source_files)
+         and all(p.name.startswith(repo.split("/")[1] + "-")
+                 and p.name.endswith((".zip", ".spdx.json", ".vulnerabilities.json"))
+                 and not p.is_symlink() for p in source_files),
+         "incomplete/duplicate/unexpected signed artifact bytes")
+    for file in source_files:
+        if file.parent != signed_folder:
+            shutil.copyfile(file, signed_folder / file.name)
+    for folder in list(signed_folder.iterdir()):
+        if folder.is_dir():
+            shutil.rmtree(folder)
     intent = read_file(root / "intent", "owner-main-intent.json")
     live = get(repo, f"issues/comments/{intent['commentId']}")
     source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, majors)
