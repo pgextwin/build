@@ -14,6 +14,7 @@ TYPES = {
     "automatic-schedule": ("VERIFIED_AUTOMATIC_SCHEDULE", "schedule"),
     "owner-dispatch": ("VERIFIED_OWNER_DISPATCH", "workflow_dispatch"),
     "owner-issue-comment": ("VERIFIED_OWNER_ISSUE_COMMENT", "issue_comment"),
+    "owner-signed-main-issue-comment": ("VERIFIED_OWNER_SIGNED_MAIN_ISSUE_COMMENT", "issue_comment"),
 }
 
 
@@ -52,14 +53,15 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
                 and not actor.lower().endswith("bot")
                 and receipt.get("operator") == actor,
                 "receipt human operator mismatch")
-        if mode in ("owner-dispatch","owner-issue-comment"):
+        if mode in ("owner-dispatch","owner-issue-comment","owner-signed-main-issue-comment"):
             require(actor == "ShutenOishi", "owner dispatch actor mismatch")
     require(isinstance(receipt.get("releaseTag"), str)
             and isinstance(receipt.get("majors"), list)
             and len(receipt["majors"]) > 0
             and isinstance(receipt.get("sources"), list),
             "incomplete signed Release authorization")
-    if mode in ("automatic-schedule", "owner-dispatch", "owner-issue-comment"):
+    if mode in ("automatic-schedule", "owner-dispatch", "owner-issue-comment",
+                "owner-signed-main-issue-comment"):
         # Strictly an envelope contract; these assertions do not
         # authenticate signature bytes, run metadata, policy, or App token.
         # Only an independent live Publisher may actually issue this mode.
@@ -73,7 +75,9 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
                 and isinstance(receipt.get("publisherMainSha"), str)
                 and SHA.fullmatch(receipt["publisherMainSha"])
                 and receipt.get("signedSourceWorkflow") ==
-                    ".github/workflows/update-watch.yml"
+                    (".github/workflows/chat-signed-main.yml"
+                     if mode == "owner-signed-main-issue-comment"
+                     else ".github/workflows/update-watch.yml")
                 and type(receipt.get("sourceRunId")) is int
                 and receipt["sourceRunId"] > 0
                 and receipt["sourceRunId"] != receipt["publisherRunId"]
@@ -87,8 +91,22 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
                     ("INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE"
                      if mode == "automatic-schedule" else
                      "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE" if mode=="owner-dispatch" else
+                     "INDEPENDENT_LIVE_OWNER_MAIN_SIGNING_AND_PUBLISH_REQUEST" if mode=="owner-signed-main-issue-comment" else
                      "INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE"),
                 "automatic receipt lacks independently verifiable identities")
+    if mode == "owner-signed-main-issue-comment":
+        # Only a typed receipt envelope. The Environment issuer must independently
+        # GET the immutable signing comment, source run/jobs/artifacts and verify
+        # original AND freshly downloaded ZIP/SPDX/Grype/Sigstore in this job.
+        require(receipt.get("sourceKind") == "OWNER_ISSUE_COMMENT_MAIN_SIGNING"
+                and receipt.get("sourceEvent") == "issue_comment"
+                and type(receipt.get("sourceSigningCommentId")) is int
+                and receipt["sourceSigningCommentId"] > 0
+                and type(receipt.get("requestCommentId")) is int
+                and receipt["requestCommentId"] > 0
+                and receipt["sourceSigningCommentId"] != receipt["requestCommentId"]
+                and receipt.get("originalAndFreshDualSigstoreAgree") is True,
+                "owner signed source kind, original signer or publisher request unbound")
     if mode=="owner-issue-comment":
         require(type(receipt.get("requestCommentId")) is int
                 and receipt["requestCommentId"]>0,
