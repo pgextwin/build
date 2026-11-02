@@ -1,0 +1,191 @@
+name: Shared genuine owner-comment protected-main signed source (NO PUBLISH)
+
+on:
+  workflow_call:
+    inputs:
+      request_issue:
+        description: Pre-existing issue number in the caller extension repository
+        required: true
+        type: number
+      extension_config_path:
+        required: true
+        type: string
+      test_contract_path:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  authenticate:
+    name: Original authenticated owner/main/comment source (DENY Publisher)
+    if: >-
+      ${{ github.event_name == 'issue_comment' &&
+          github.ref == 'refs/heads/main' &&
+          github.event.action == 'created' &&
+          github.event.issue.number == inputs.request_issue &&
+          !github.event.issue.pull_request &&
+          github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' &&
+          github.event.comment.body == '/pgextwin sign-main' &&
+          github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    outputs:
+      verified: ${{ steps.check.outputs.verified }}
+    steps:
+      - name: Checkout current caller main without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Checkout immutable shared source verifier (not target working tree)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Authenticate original comment, live GET, true Run, protected main and 17-fleet
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_ISSUE: ${{ inputs.request_issue }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET "repos/$GITHUB_REPOSITORY/issues/comments/${{ github.event.comment.id }}" > "$RUNNER_TEMP/owner-comment.json"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/branches/main" > "$RUNNER_TEMP/owner-main.json"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$RUNNER_TEMP/owner-run.json"
+          python .pgextwin-build/scripts/chat-signed-main-auth.py \
+            --event "$GITHUB_EVENT_PATH" --live "$RUNNER_TEMP/owner-comment.json" \
+            --branch "$RUNNER_TEMP/owner-main.json" --run "$RUNNER_TEMP/owner-run.json" \
+            --fleet .pgextwin-build/metadata/automation-fleet.json \
+            --issue "$EXPECTED_ISSUE" --output "$RUNNER_TEMP/owner-main-intent.json"
+          echo "verified=true" >> "$GITHUB_OUTPUT"
+          echo "Verified distinct original OWNER_ISSUE_COMMENT_MAIN_SIGNING source; PUBLISH_DENY." >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve original source identity without publication authority
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chat-main-source-intent-nonpublishing
+          path: ${{ runner.temp }}/owner-main-intent.json
+          if-no-files-found: error
+          retention-days: 30
+
+  signed_windows:
+    name: New actual protected-main OIDC signed Windows build (NO PUBLISH)
+    needs: authenticate
+    if: ${{ needs.authenticate.outputs.verified == 'true' }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d
+    with:
+      extension_config_path: ${{ inputs.extension_config_path }}
+      test_contract_path: ${{ inputs.test_contract_path }}
+
+  audit:
+    name: Independent original Sigstore/ZIP/SPDX/Grype audit (${{ matrix.auditor }})
+    needs: [authenticate, signed_windows]
+    if: ${{ needs.authenticate.outputs.verified == 'true' && needs.signed_windows.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        auditor: [first, second]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chat-main-source-intent-nonpublishing
+          path: ${{ runner.temp }}/owner-intent
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ github.event.repository.name }}-pg*-windows-x64
+          path: ${{ runner.temp }}/owner-signed-dist
+          merge-multiple: true
+      - name: Verify real original signed bytes, exact PKG metadata and two Sigstore predicates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDITOR: ${{ matrix.auditor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/chat-signed-main-audit.py audit \
+            --intent "$RUNNER_TEMP/owner-intent/owner-main-intent.json" \
+            --manifest "${{ inputs.extension_config_path }}" \
+            --lifecycle .pgextwin-build/metadata/postgresql.json \
+            --dist "$RUNNER_TEMP/owner-signed-dist" --auditor "$AUDITOR" \
+            --output "$RUNNER_TEMP/chat-owner-audit-$AUDITOR.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chat-owner-sigstore-${{ matrix.auditor }}-nonpublishing
+          path: ${{ runner.temp }}/chat-owner-audit-${{ matrix.auditor }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  dual_audit_join:
+    name: Require exact independent real-signature byte agreement (NO PUBLISH)
+    needs: [authenticate, signed_windows, audit]
+    if: ${{ needs.authenticate.outputs.verified == 'true' && needs.audit.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pgextwin-build
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chat-owner-sigstore-first-nonpublishing
+          path: ${{ runner.temp }}/first
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chat-owner-sigstore-second-nonpublishing
+          path: ${{ runner.temp }}/second
+      - name: Independently join sourceKind, main SHA, Run, PGs, real bytes and Sigstore (DENY)
+        run: |
+          set -euo pipefail
+          python .pgextwin-build/scripts/chat-signed-main-audit.py join \
+            --first "$RUNNER_TEMP/first/chat-owner-audit-first.json" \
+            --second "$RUNNER_TEMP/second/chat-owner-audit-second.json" \
+            --output "$RUNNER_TEMP/chat-owner-dual-sigstore.json"
+          echo "Original main OIDC/Sigstore verified by two jobs, distinct sourceKind; existing Publisher NOT admitted." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chat-owner-dual-sigstore-nonpublishing
+          path: ${{ runner.temp }}/chat-owner-dual-sigstore.json
+          if-no-files-found: error
+          retention-days: 30
