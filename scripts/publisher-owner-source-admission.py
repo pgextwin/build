@@ -168,7 +168,7 @@ def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, major
     need(type(jobs) is dict and type(jobs.get("jobs")) is list
          and type(jobs.get("total_count")) is int
          and jobs["total_count"] == len(jobs["jobs"])
-         and len(jobs["jobs"]) == len(majors) + 4,
+         and len(jobs["jobs"]) == len(majors) + 5,
          "incomplete/paginated or unexpected original signed jobs")
     names = [j.get("name") for j in jobs["jobs"]]
     need(len(set(names)) == len(names)
@@ -181,6 +181,7 @@ def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, major
                  for j in jobs["jobs"]),
          "failed/replayed/foreign original Windows/signing/audit jobs")
     for part in (["Original authenticated owner/main/comment source (DENY Publisher)",
+                  "Resolve extension and PostgreSQL matrix",
                   "Independent original Sigstore/ZIP/SPDX/Grype audit (first)",
                   "Independent original Sigstore/ZIP/SPDX/Grype audit (second)",
                   "Require exact independent real-signature byte agreement (NO PUBLISH)"]
