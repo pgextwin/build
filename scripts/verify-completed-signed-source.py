@@ -73,7 +73,9 @@ def github(repository, route):
             and (route=="branches/main"
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*",route)
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\?per_page=100",route)
-                 or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100",route)),
+                 or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100",route)
+                 or (repository=="pgextwin/build" and
+                     re.fullmatch(r"issues/comments/[1-9][0-9]*",route))),
             "untrusted GitHub resource")
     return json.loads(command("gh","api","--method","GET",
                               "repos/"+repository+"/"+route),
