@@ -47,9 +47,22 @@ r={
  "publisherSourceKindAuthorized":False,"runtimeEnabled":False
 }
 mod.CENTRAL_REQUEST = central["centralRequestId"]
-item={"localRunId":41000702019, "repository":"pgextwin/orafce",
+item={"localRunId":41000702019, "repository":"pgextwin/orafce", "result":"NO_UPDATE",
       "localRequestId":r["requestId"]}
 assert mod.strict_child_receipt(r,item,central,r["localProtectedMainSha"]) is True
+# A genuine upstream update is a safe nonpublishing PREPARE terminal, not NO_UPDATE.
+update_item={**item, "result":"UPDATE_PRESENT_NOT_AUTHORIZED"}
+update_receipt={**r, "result":"UPDATE_PRESENT_NOT_AUTHORIZED"}
+assert mod.strict_child_receipt(update_receipt,update_item,central,r["localProtectedMainSha"]) is True
+for bad_receipt, bad_item in ((update_receipt,item),(r,update_item),
+                              ({**r,"result":"PUBLISHED"},item),
+                              ({**r,"result":"UPDATE_PRESENT_NOT_AUTHORIZED",
+                                "candidateCreated":True},update_item)):
+ try:mod.strict_child_receipt(bad_receipt,bad_item,central,r["localProtectedMainSha"])
+ except ValueError:pass
+ else:raise AssertionError("cross-result or privileged update receipt accepted")
+assert 'terminal_status = "SUCCESS" if detected else "NO_UPDATE"' in source
+assert 'proof.get("detectedUpdateTargets") == detected' in source
 for mutated in ({"localRequestId":"r-20261030-r06coordlocalpilot01"},
                 {"repository":"pgextwin/pg_bigm"}):
     try: mod.strict_child_receipt(r,{**item,**mutated},central,r["localProtectedMainSha"])
