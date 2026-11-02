@@ -366,6 +366,9 @@ jobs:
       - name: Reject spoofed Chat owner fleet-scan requests (READ ONLY)
         run: python tests/test-chat-fleet-scan.py
 
+      - name: Detect public Release version gaps without publication authority
+        run: python tests/test-fleet-release-gap.py
+
       - name: Deny forged scheduled candidate snapshots and preserve manual PUBLISH
         run: python tests/test-scheduled-fleet-candidate.py
 
