@@ -1,56 +1,48 @@
-# Chat-first minimal Release operation (14 extensions)
+# Chat一指示 → 適格な正式公開（17拡張共通）
 
-> **2026-10-20 third-wave setup:** [read-only Chat PR / main-push admission](issue-75-chat-only-readonly-setup.md)
-> removes Dispatch from **nonpublishing validation** for pgtap / pg_variables /
-> pg_store_plans. It does not replace the historical manual Release route or
-> enable a push Publisher. GO B/G4/G5 remain NO-GO; **Chat-only formal Release
-> NOT_READY** until the real independent Writer, effective-rule, signed-Publisher
-> and per-Release human PUBLISH gates are independently accepted.
+> 現行の優先運用契約（2026-11-02）。正本: [build #311](https://github.com/pgextwin/build/issues/311)、公開経路: [#75](https://github.com/pgextwin/build/issues/75)。
+> この文書は2026-10の14拡張・手動PUBLISH前提の記述を上書きする。既存の独立した公開ゲートは変更しない。
 
-> Active product-scope decision, 2026-10-12. Detailed validation and recovery instructions remain in [step23-manual-queue.md](step23-manual-queue.md); acceptance evidence is tracked in [build issue #61](https://github.com/pgextwin/build/issues/61). This document narrows *routine operator work*; it does not relax security or declare unproven automations complete.
+## 一指示の意味と権限境界
 
-## 日本語: ふだんは「公開して」の一度の指示を目指す
+所有者が通常Chatで **「pgextwinを更新して」** と依頼した場合、その依頼に含まれる登録済み拡張の真正な安定版更新について、**更新検出・実装・検証・保護マージから、条件を満たした正式Release、Catalog、Website公開まで行うことを明示的に承認したもの**と扱う。途中で「公開して」「継続して」と改めて確認しない。特定拡張の指定があればその範囲に限定し、無指定なら保護Fleetの登録済み全拡張を対象とする。
 
-**目的:** 安定版の検出、固定SHAの候補作成、Windows x64のビルド・検証を自動で行い、**正式Releaseだけを利用者の明示的なChatGPT指示で確定**する。その後は署名済みReleaseの検証、Catalog反映、Website公開確認まで、既存のGitHub ActionsとChatGPTが分担する。独立した第三者レビュー・二重承認は求めない。
+この**自然言語での所有者意思表示は、GitHub内の検証済みPUBLISH receipt・署名・App token・正規eventを代替しない**。Release writerは、現行の `automatic-signed-schedule` または認可済みの既存正式公開方式による、実際の全ての技術・運用ゲートが成立したときだけ公開する。旧 `PUBLISH_DENY` の非公開ワークフローを有効化したり、正規の `schedule` を偽装しない。この文書はGitHub ActionsにChatの発話を認証済みイベントとして届ける機能ではない。
 
-| 段階 | 担当 | 現在の実装状態 |
-| --- | --- | --- |
-| 14拡張の安定版更新検出、固定SHA候補Draft PR、候補Windows CI | GitHub Actions | 実装済み。スケジュールは毎日00:00 UTC予定（開始時刻は保証されない） |
-| 候補監査、最新head CIと証跡照合、マージ | ChatGPT＋GitHub接続 | GitHub接続によるPR操作が可能。**候補自動マージは導入しない** |
-| 正式公開の意思決定 | 利用者 | **「検証済み候補を公開して」**という明示的な依頼を必須にする |
-| `main` の `promote.yml` 起動 | GitHub Actions UI / Work | 全14拡張の `workflow_dispatch` 実装済み。**通常ChatのGitHub接続には新規Dispatch起動機能がないため、現状はWork/ブラウザーへの操作引き継ぎが必要** |
-| 署名付き新規Release、ZIP・SBOM・Grype・Attestation検証 | GitHub Actions | 実装済み。正式公開は `confirm_release=PUBLISH`、正確な候補証跡と未使用タグが必須 |
-| 公開後のCatalog候補レコードを1件だけ提案 | Catalogの `sync-verified-release.yml` ＋専用App | 検証コード実装済み。App設定・有効化と新Release E2Eは未受入。**正式Release自体のブロッカーにはしない** |
-| Catalog PRの最新head CI確認・マージ | ChatGPT＋GitHub接続 | **自動マージAppの追加導入は当面不要**。既存のブランチ保護・必須CIは維持 |
-| Website反映・公開EN/JAとダウンロード検証 | 既存CI＋ChatGPT | Catalog main pushのWebsite公開監査Workflowは実装済み。次の実Releaseで一気通貫の受入が必要 |
+**更新なし**は `NO_UPDATE` で正常終了する。複数拡張のうち更新可能なものは独立して完了し、別の拡張の不成立を理由に一括停止しない。既存Releaseのタグ・資産は上書きしない。
 
-### 依頼文とChatGPTが実行すること
+## Chat主体で一貫して実行する標準手順
 
-> pgextwinで公開可能な、検証済みの新しい安定版候補を確認して。適格な候補を正式公開し、CatalogとWebsiteの反映まで進めて。CI・証跡が不一致なら公開しないで。
+1. **現状の認証済みGET**: Fleet登録/中央・各repo保護main、公開Release/Catalog、重複候補PR、先行成功Run、上流stableと固定SHAを照合。成功済みのCI・署名Runを再実行しない。
+2. **本物の変更がある拡張だけ**: 既存の自動候補・検証を再利用し、必要な最小実装と真正native Windows CI（PG対応メジャー、機能テスト）を進める。GitHubの `action_required` で正規の実行承認が必須な場合に限りWorkのGUIへ引き継ぎ、それ以外をChatで進める。成功/失敗/SKIPPEDと真正PR run/dispatch runを混同しない。
+3. **保護マージ**: 最新HEAD・必須CI・既存保護設定が成立した場合にのみマージ。独立第三者レビューを新要件として加えないが既存保護設定は維持。
+4. **署名済み原本**: マージ済み保護mainから生じた正規 `push`/OIDC署名Run、ZIP/SPDX/Grype、Build Provenance・SBOM Attestation、原本と別RunnerのSigstore実バイト独立照合を要求。コード成功と署名真正性を区別。
+5. **独立Publisher**: 現行の中央 `publisher-candidate-intake.yml` の**真正 `schedule`**、正確な原本Run/attempt、現在の保護main、中央・ローカル `automatic-signed-schedule`、専用Publisher App/Environment、Grypeブロック、live verify、未使用タグ、create-only/失効を再確認。単なるChat同意、`push`/手動Dispatch、静的policy、古い別Run成功は発行権限ではない。GitHubが正規scheduleをまだ実行していなければ未完了と記録し、偽イベントで補わない。
+6. **本当の公開物**: Releaseの公開タグ・PG別ZIP/SPDX/Grypeと `SHA256SUMS.txt`、公開バイトのSHA256、公開署名・Attestationを独立GETで検証。候補Artifactのハッシュを公開物のハッシュの代用にしない。
+7. **Catalog・Website**: 正式に公開されたReleaseに限定して専用Catalog検証でレコード単位PRを作る。必須CI→保護マージ後、Website日本語・英語、実ダウンロード、SHA256を確認。未公開候補でCatalogを先に進めない。
+8. **監査**: [#311](https://github.com/pgextwin/build/issues/311)に、完成したもの・未完了・阻害原因・必要なら最小のWork操作を簡潔に記録。公開済みと候補のみを明確に分け、歴史的85/94等の台帳を成功なしに加算しない。
 
-1. ChatGPTは14件の実候補を調べる。**更新なし**、監査未完了、失敗、SHA移動、タグ衝突、ライセンス・ABI懸念は公開せず理由を報告する。複数候補があっても、依頼から対象が明らかでなければ勝手に全件を公開しない。
-2. 適格な候補だけ、固定upstream full SHA、`candidate-decision`、候補PRの正確なhead、最新PG別CI・監査・署名証跡を検証し、保護されたPRをマージする。独立した人間レビューは不要。
-3. `candidate_pr`、`candidate_run_id`、`decision_run_id`、**新規未使用**の`release_tag`をChatGPTが確認する。利用者の明示的な公開指示を受けて、**人間の認証済みセッション**から対象拡張の`main`に`confirm_release=PUBLISH`を渡す。GitHub bot主体による起動や認証制限の回避はしない。
-4. 新しいPromotion runがSUCCESSとなり、本当に公開されたタグ、SHA256、ZIP/SBOM/Grype、Attestationと対象PGメジャーを確認する。失敗・部分Draftは停止して復旧証跡を報告し、既存タグ・Releaseを上書きしない。
-5. Catalog側では署名済みの公開成果物を独立に再取得・再ハッシュし、**その拡張のJSONレコード1件のみ**をPR提案する。専用App未設定の場合は「Release公開済み／Catalog保留」と区別して記録する。App・Workflowの実行権限はUI側で別途一度だけ設定する。
-6. Catalog PRの必須CI成功を最新headで確認してChatGPTがマージし、Websiteの公開日本語・英語、直DL、SHA256と証跡表示を検査する。実証されない部分をSUCCESS扱いしない。
+## 完成の判定（再確認を要求しない）
 
-### ここから先は実装しない（別途の新要望がある場合を除く）
+| 完了状態 | 意味 |
+| --- | --- |
+| `NO_UPDATE` | 上流差分なし、既存公開資産維持 |
+| `CANDIDATE_ONLY` | 更新実装・CI等は済んだが正式Releaseなし |
+| `SIGNED_NONPUBLISHING` | 署名候補と独立監査まで成立、Publisher認可/Release未成立 |
+| `RELEASE_PUBLISHED` | 実公開ReleaseのSHA256・署名・Attestationの検証成功、Catalog/Websiteは別管理 |
+| `PUBLIC_COMPLETE` | Release + Catalog保護main + Website JA/EN + 公開DLの実検証すべて成功 |
+| `BLOCKED` | 実在する必要ゲート、権限、CI、安全上の不成立。偽承認・保護緩和は禁止 |
 
-- 完全無人の正式Release、定期的な自動Release、`automaticFormalRelease` の有効化。
-- 候補PRの自動マージや追加の第三者承認フロー。
-- Catalog自動マージのための**別の**GitHub App、複数の権限・管理画面・独自の承認ダッシュボード。
-- ChatコマンドをGitHub Issueコメントから特権Workflowへ直接変換する新しい認証経路（セキュリティ範囲を広げるため）。
-- Releaseを伴わないCatalog変更への自動マージの横展開、検証実績のない全機能の一斉有効化。
+## Workでしかできない最小作業
 
-**引き続き必須:** main-only、認証済み非botの明示的PUBLISH、中央・ローカル許可、full SHA、最新headの全対象PG CI、ライセンス/ソース/ABI監査、成果物SHA256、SPDX SBOM、署名・Attestation、未使用タグ、冪等で安全な停止、PR保護。Grypeは**report-only**であり安全性の合格判定そのものではない。PostgreSQL EOL・上流未対応PGは除外する。
+通常ChatのGitHub接続で行える調査、コード変更、PR、CI確認、保護マージ、Issue記録はChat側で完結させる。Workは**GitHub公式画面だけが実行できる** `Approve and run`、必要なActions/Environment/App管理GUI等の具体的な障害時だけ使用する。Workに渡す場合は、対象URL・唯一必要な操作・期待HEAD/Run・検証条件・禁止事項を含む、短い実行プロンプトを用意する。
 
-### 残りの受入項目（最小限）
+公開の意思表示は**毎回の「pgextwinを更新して」で既に成立**しており、Workへ渡す作業を公開の再承認にしてはならない。GitHubの独立した権限・実行承認を必要とする場合は、それを正式な操作上の障害として扱う。
 
-1. **一度限りの管理UI作業:** Catalog専用の**PR提案Appだけ**をcatalogリポジトリに限定してインストールし、Actions variableと秘密鍵が適切に設定されたことを確かめる。漏洩・権限過大なら有効化しない。Catalog自動マージのAppは不要。
-2. **次の本物の安定版更新時:** 候補 → 人間の明示的PUBLISH → 成功した署名付きRelease → 独立検証 → Catalog PRの必須CI・ChatGPTマージ → Websiteの公開確認を1件実証する。**テストのためだけに新Releaseを捏造しない。**
-3. **現時点の操作上の隙間:** 通常ChatのGitHub接続単体では新しいWorkflow Dispatchを起動できない。WorkのGitHub Cloud Browserへの最小限の引き継ぎを当面使う。接続機能が増えたらこの隙間だけ置き換える。
+## 安全維持
+
+ブランチ保護、必須CI、固定上流SHA、ライセンス・PG対応、実Windows機能試験、GitHub original event/Run/attempt、Grypeブロック、SPDX、SHA256、署名、Attestation、独立Publisher Appの最小権限・token失効、tag create-only、有限回復・曖昧状態隔離、Catalog保護、Website公開実証を維持。旧成功Run再実行、偽の更新、未検証公開、手動のみ経路への無条件切替、追加Secret/権限拡大はしない。
 
 ## English summary
 
-Keep automatic stable upstream detection, immutable candidate PRs, Windows CI, mandatory provenance, SBOM, digest and attestation verification for all 14 extensions. Treat the user's **single explicit ChatGPT publication instruction** as the only routine release decision. ChatGPT may inspect and merge a fully verified candidate; the existing human-authorized, main-only `PUBLISH` workflow creates the signed Release. The current Chat GitHub connector cannot initiate a new Actions workflow dispatch; use a minimal authenticated Work/browser handoff rather than building a new privileged command endpoint. After success, use the already implemented independent Catalog verifier and opt-in, repository-scoped **proposal-only** GitHub App; have ChatGPT merge its one-record PR only after mandatory checks. Reuse Website CI. **Do not implement autonomous Releases, candidate auto-merging, or Catalog auto-merge infrastructure.** Keep issue #61 open until the first genuine signed new-Release-to-Website end-to-end acceptance.
+A single authenticated Chat request **“pgextwinを更新して”** is the owner's instruction to perform the registered fleet update through **eligible formal publication and public Catalog/Website verification**, without asking for a second publication consent. It does *not* replace any independently enforced GitHub Actions, signed-source, genuine schedule, scoped Publisher, release, Catalog or Website gates. Use connected Chat for all supported GitHub work; hand off only genuinely unavailable GUI approvals to Work. Record `NO_UPDATE`, partial, blocked and fully public outcomes distinctly.
