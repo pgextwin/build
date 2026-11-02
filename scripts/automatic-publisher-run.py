@@ -42,8 +42,9 @@ def main():
     a=parser.parse_args()
     try:
         event=issuer.trigger.context(os.environ)
-        if event=="workflow_dispatch":
-            _,dry=issuer.trigger.dispatch_request(os.environ,repository=a.repository)
+        comment_id=None
+        if event in ("workflow_dispatch","issue_comment"):
+            _,dry,comment_id=issuer.trigger.request(os.environ,repository=a.repository)
             require(not dry,"dry-run request cannot enter Publisher")
         require((event!="workflow_dispatch" or os.environ.get("PUBLISHER_DRY_RUN")=="false")
                 and type(os.environ.get("GH_TOKEN")) is str
@@ -69,8 +70,10 @@ def main():
         # First *unprivileged* gate; do not even access the private key until
         # all explicit protected policies are already switched by approved PR.
         issuer.policy_gate(fleet,central,local,unattended,boundary,repository)
-        if event=="workflow_dispatch":
+        if event in ("workflow_dispatch","issue_comment"):
             issuer.owner_policy_gate(owner_policy)
+        if event=="issue_comment":
+            issuer.trigger.live_comment(os.environ,source.github,repository=repository)
         require(type(proposal.get("runId")) is int
                 and proposal["runId"]==original_id
                 and proposal.get("runAttempt")==1
@@ -96,7 +99,7 @@ def main():
         signed_branch=source.github(repository,"branches/main")
         schedule_run=source.github("pgextwin/build",f"actions/runs/{publisher_id}")
         issuer.trigger.run(schedule_run,run_id=publisher_id,sha=central_sha,
-                           event=event,actor=os.environ.get("GITHUB_ACTOR",""))
+                           event=event,actor=os.environ.get("GITHUB_ACTOR",""),comment_id=comment_id)
         require(central_branch.get("commit",{}).get("sha")==central_sha,
                 "current central protected main changed")
         formal.REPO=repository
@@ -133,7 +136,8 @@ def main():
                 ref=os.environ["GITHUB_REF"],
                 attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]),
                 tag=tag,tag_absent=True,release_absent=True,
-                actor=os.environ.get("GITHUB_ACTOR",""),owner_policy=owner_policy)
+                actor=os.environ.get("GITHUB_ACTOR",""),owner_policy=owner_policy,
+                request_comment_id=comment_id)
             # Keep the central GET/attestation READ identity until all full
             # original source metadata and real signatures have been checked
             # AGAIN by the deployed formal Publisher preflight.
@@ -152,7 +156,7 @@ def main():
                         "protected source/central main changed before Release")
             current=source.github("pgextwin/build",f"actions/runs/{publisher_id}")
             issuer.trigger.run(current,run_id=publisher_id,sha=central_sha,
-                               event=event,actor=os.environ.get("GITHUB_ACTOR",""))
+                               event=event,actor=os.environ.get("GITHUB_ACTOR",""),comment_id=comment_id)
             require(type(current) is dict
                     and all(current.get(k)==schedule_run.get(k) for k in
                             ("id","run_attempt","event","path","head_sha",
@@ -162,6 +166,8 @@ def main():
                     and current.get("status")=="in_progress"
                     and current.get("conclusion") is None,
                     "live schedule Run identity changed before Release")
+            if event=="issue_comment":
+                issuer.trigger.live_comment(os.environ,source.github,repository=repository)
             formal.absent(tag)
             require(issuer.independent_source_job(
                 source.github("pgextwin/build",jobs_route),repository=repository,
