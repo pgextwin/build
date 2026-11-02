@@ -19,6 +19,8 @@
 
 この入口は登録済み全拡張を既存 `metadata/automation-fleet.json` と各repoの `config/extension.json` / `config/update-watch.json` から走査する。新しい一覧・個別secret・17個の複製ワークフローは追加しない。
 
+同じScan Runで `fleet-release-gap.py` が各repoの保護main SHAを独立再GETし、現在の固定バージョンに対応する正式Windows Releaseタグの有無を確認する。これにより、上流差分がゼロでも `CURRENT_VERSION_RELEASE_MISSING` を検出し、Chatが次の正式署名sourceとPublisherの工程を継続できる。`CURRENT_VERSION_TAG_PRESENT_UNVERIFIED` はタグ名を観測しただけであり、公開ZIP・署名・Attestation・Catalog/Websiteの完成判定ではない。Release一覧が不完全または保護mainが変更された場合は `INDETERMINATE` で拒否する。公開認可は従来どおり専用Publisherが独立判定する。
+
 ## Chat主体で一貫して実行する標準手順
 
 1. **現状の認証済みGET**: Fleet登録/中央・各repo保護main、公開Release/Catalog、重複候補PR、先行成功Run、上流stableと固定SHAを照合。成功済みのCI・署名Runを再実行しない。
