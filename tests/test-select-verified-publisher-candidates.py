@@ -2,7 +2,9 @@
 """Proof selection is read-only; failed peers never enter Publisher Environment."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -27,6 +29,32 @@ def inputs():
                 run=f["schedule_run"],branch=f["central_branch"],sha=SHA,run_id=RUN)
 
 class VerifiedSelector(unittest.TestCase):
+    def test_dispatch_rejects_any_unrequested_candidate_before_network(self):
+        args=inputs()
+        with TemporaryDirectory() as d:
+            event=Path(d)/"event.json"
+            event.write_text(json.dumps({"inputs":{"target_repository":R1,"dry_run":"true"}}))
+            env={"GITHUB_REPOSITORY":"pgextwin/build","GITHUB_EVENT_NAME":"workflow_dispatch",
+                 "GITHUB_REF":"refs/heads/main","GITHUB_RUN_ATTEMPT":"1",
+                 "GITHUB_ACTOR":"ShutenOishi","GITHUB_ACTOR_ID":"27071164",
+                 "GITHUB_TRIGGERING_ACTOR":"ShutenOishi","GITHUB_EVENT_PATH":str(event),
+                 "PUBLISHER_TARGET":R1,"PUBLISHER_DRY_RUN":"true","GH_TOKEN":"read"}
+            with self.assertRaises(m.Denied):
+                m.live(args["candidates"],args["fleet"],env=env,
+                       get=lambda *args:self.fail("network must not be used"))
+
+    def test_only_real_owner_dispatch_can_select_existing_signed_source(self):
+        args=inputs()
+        args["run"]=fixtures.owner_dispatch()["schedule_run"]
+        args.update(event="workflow_dispatch",actor="ShutenOishi")
+        self.assertEqual(m.select(**args),[args["candidates"][0]])
+        for change in (lambda a:a.update(actor="attacker"),
+                       lambda a:a["run"]["actor"].update(id=1),
+                       lambda a:a["run"].update(event="schedule"),
+                       lambda a:a["run"].update(run_attempt=2)):
+            bad=copy.deepcopy(args);change(bad)
+            with self.assertRaises(m.Denied):
+                m.select(**bad)
     def test_verified_peer_proceeds_after_other_repository_fails(self):
         args=inputs()
         self.assertEqual(m.select(**args),[args["candidates"][0]])
