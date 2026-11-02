@@ -85,8 +85,8 @@ def main():
         report=json.loads(Path(a.intake).read_text(),object_pairs_hook=unique)
         fleet=json.loads(Path(a.fleet).read_text(),object_pairs_hook=unique)
         rows=select(report,fleet)
-        if os.environ.get("GITHUB_EVENT_NAME")=="workflow_dispatch":
-            target,_=trigger.dispatch_request(os.environ)
+        if os.environ.get("GITHUB_EVENT_NAME") in ("workflow_dispatch","issue_comment"):
+            target,_,_=trigger.request(os.environ)
             require(target in {entry["repository"] for entry in fleet["entries"]},
                     "dispatch target is not a registered repository")
             rows=[row for row in rows if row["repository"]==target]

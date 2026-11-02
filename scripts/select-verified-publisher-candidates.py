@@ -27,7 +27,7 @@ class Denied(ValueError):pass
 def require(ok,why):
     if not ok:raise Denied(why)
 
-def select(candidates,fleet,jobs,run,branch,*,sha,run_id,event="schedule",actor=None):
+def select(candidates,fleet,jobs,run,branch,*,sha,run_id,event="schedule",actor=None,comment_id=None):
     """Return only proven rows, with no authority from matrix-wide success."""
     require(type(sha) is str and SHA.fullmatch(sha)
             and type(run_id) is int and run_id>0,
@@ -37,7 +37,7 @@ def select(candidates,fleet,jobs,run,branch,*,sha,run_id,event="schedule",actor=
             and (branch.get("commit") or {}).get("sha")==sha,
             "protected central main advanced or is unavailable")
     try:
-        issuer.trigger.run(run,run_id=run_id,sha=sha,event=event,actor=actor)
+        issuer.trigger.run(run,run_id=run_id,sha=sha,event=event,actor=actor,comment_id=comment_id)
     except issuer.trigger.Denied as exc:
         raise Denied("not this original live central Publisher event") from exc
     roster=issuer.fleet_policy.members(fleet)
@@ -78,8 +78,9 @@ def select(candidates,fleet,jobs,run,branch,*,sha,run_id,event="schedule",actor=
 def live(candidates,fleet,*,env=os.environ,get=source.github):
     try:
         event=issuer.trigger.context(env)
-        if event=="workflow_dispatch":
-            target,_=issuer.trigger.dispatch_request(env)
+        comment_id=None
+        if event in ("workflow_dispatch","issue_comment"):
+            target,_,comment_id=issuer.trigger.request(env)
             require(type(candidates) is list and len(candidates)<=1
                     and all(type(row) is dict and row.get("repository")==target
                             for row in candidates),
@@ -87,6 +88,9 @@ def live(candidates,fleet,*,env=os.environ,get=source.github):
     except issuer.trigger.Denied as exc:
         raise Denied("trusted read-only central Publisher event required") from exc
     require(bool(env.get("GH_TOKEN")),"read credentials unavailable")
+    if event=="issue_comment":
+        try:issuer.trigger.live_comment(env,get)
+        except issuer.trigger.Denied as exc:raise Denied("owner comment GET changed") from exc
     actor=env.get("GITHUB_ACTOR")
     sha=env.get("GITHUB_SHA");raw=env.get("GITHUB_RUN_ID","")
     require(type(raw) is str and re.fullmatch(r"[1-9][0-9]*",raw),
@@ -96,7 +100,7 @@ def live(candidates,fleet,*,env=os.environ,get=source.github):
     run=get("pgextwin/build",f"actions/runs/{run_id}")
     jobs=get("pgextwin/build",f"actions/runs/{run_id}/attempts/1/jobs?per_page=100")
     selected=select(candidates,fleet,jobs,run,branch,sha=sha,run_id=run_id,
-                    event=event,actor=actor)
+                    event=event,actor=actor,comment_id=comment_id)
     current=[]
     for row in selected:
         try:
@@ -131,7 +135,7 @@ def live(candidates,fleet,*,env=os.environ,get=source.github):
     require(select(candidates,fleet,jobs,
                 get("pgextwin/build",f"actions/runs/{run_id}"),
                 get("pgextwin/build","branches/main"),sha=sha,run_id=run_id,
-                event=event,actor=actor)
+                event=event,actor=actor,comment_id=comment_id)
             ==selected,"live central identity changed during proof selection")
     return current
 
