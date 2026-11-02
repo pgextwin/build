@@ -116,8 +116,10 @@ class FleetReleaseGapTests(TestCase):
         out = gap.report(registry(), observation, get)
         self.assertEqual(out["extensions"][1]["status"], "UPSTREAM_UPDATE_UNPREPARED")
         observation["extensions"][1]["status"] = "INDETERMINATE"
-        with self.assertRaises(gap.GapDenied):
-            gap.report(registry(), observation, get)
+        result = gap.report(registry(), observation, get)
+        self.assertEqual(result["indeterminate"], 1)
+        self.assertEqual(result["extensions"][1]["status"], "INDETERMINATE")
+        self.assertFalse(result["publicationAuthorized"])
 
 
 if __name__ == "__main__":
