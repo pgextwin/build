@@ -13,6 +13,7 @@ TYPES = {
     "chat-pr-authorization": ("VERIFIED_CHAT_PR_AUTHORIZATION", "push"),
     "automatic-schedule": ("VERIFIED_AUTOMATIC_SCHEDULE", "schedule"),
     "owner-dispatch": ("VERIFIED_OWNER_DISPATCH", "workflow_dispatch"),
+    "owner-issue-comment": ("VERIFIED_OWNER_ISSUE_COMMENT", "issue_comment"),
 }
 
 
@@ -51,14 +52,14 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
                 and not actor.lower().endswith("bot")
                 and receipt.get("operator") == actor,
                 "receipt human operator mismatch")
-        if mode == "owner-dispatch":
+        if mode in ("owner-dispatch","owner-issue-comment"):
             require(actor == "ShutenOishi", "owner dispatch actor mismatch")
     require(isinstance(receipt.get("releaseTag"), str)
             and isinstance(receipt.get("majors"), list)
             and len(receipt["majors"]) > 0
             and isinstance(receipt.get("sources"), list),
             "incomplete signed Release authorization")
-    if mode in ("automatic-schedule", "owner-dispatch"):
+    if mode in ("automatic-schedule", "owner-dispatch", "owner-issue-comment"):
         # Strictly an envelope contract; these assertions do not
         # authenticate signature bytes, run metadata, policy, or App token.
         # Only an independent live Publisher may actually issue this mode.
@@ -85,8 +86,13 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
                 and receipt.get("approvalProvenance") ==
                     ("INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE"
                      if mode == "automatic-schedule" else
-                     "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
+                     "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE" if mode=="owner-dispatch" else
+                     "INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE"),
                 "automatic receipt lacks independently verifiable identities")
+    if mode=="owner-issue-comment":
+        require(type(receipt.get("requestCommentId")) is int
+                and receipt["requestCommentId"]>0,
+                "owner comment identity missing")
     if mode == "chat-pr-authorization":
         # A green Windows run or a synthetic ID join does not prove signed
         # ZIP/SBOM/attestation bytes. A future trusted verifier MUST explicitly
