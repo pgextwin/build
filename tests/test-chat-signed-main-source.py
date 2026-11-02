@@ -137,5 +137,43 @@ class MainSigningSourceTests(TestCase):
             self.assertNotIn(forbidden, workflow)
 
 
+    def test_dual_audit_must_match_original_bytes_source_and_two_jobs(self):
+        import copy
+        a_spec = importlib.util.spec_from_file_location(
+            "chat_owner_audit", ROOT / "scripts/chat-signed-main-audit.py")
+        audit = importlib.util.module_from_spec(a_spec)
+        a_spec.loader.exec_module(audit)
+        first = {
+            "schemaVersion": 1,
+            "status": "VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING",
+            "sourceKind": audit.SOURCE_KIND,
+            "repository": REPO, "mainSha": SHA,
+            "runId": 8888, "runAttempt": 1, "commentId": 123456,
+            "auditor": "first", "majors": [14, 15, 16, 17, 18],
+            "SHA256": {"real-pg14.zip": "f" * 64},
+            "publisherEligible": False, "publicationAuthorized": False,
+            "PUBLISH": "DENY",
+        }
+        second = {**first, "auditor": "second"}
+        result = audit.join(first, second)
+        self.assertEqual(result["status"], "DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING")
+        for key, forged in (
+            ("mainSha", "b" * 40),
+            ("runId", 8889),
+            ("commentId", 123457),
+            ("SHA256", {"real-pg14.zip": "0" * 64}),
+            ("publisherEligible", True),
+            ("publicationAuthorized", True),
+            ("sourceKind", "PUSH"),
+        ):
+            with self.subTest(key=key):
+                bad = copy.deepcopy(second)
+                bad[key] = forged
+                with self.assertRaises(audit.Denied):
+                    audit.join(first, bad)
+        with self.assertRaises(audit.Denied):
+            audit.join(first, first)
+
+
 if __name__ == "__main__":
     main()
