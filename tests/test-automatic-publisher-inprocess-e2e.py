@@ -29,8 +29,8 @@ CENTRAL=fixture.CENTRAL_SHA
 ORIGINAL=fixture.SOURCE_RUN
 PUBLISHER=fixture.SCHEDULE_RUN
 
-def setup(root,ready):
-    item=fixture.switched() if ready else fixture.inputs()
+def setup(root,ready,owner=False):
+    item=fixture.owner_dispatch() if ready and owner else fixture.switched() if ready else fixture.inputs()
     paths={}
     mapping={
         "manifest":item["manifest"],
@@ -52,6 +52,7 @@ def setup(root,ready):
         "local-policy":item["local"],
         "unattended":item["unattended"],
         "publisher-boundary":item["boundary"],
+        "owner-policy":fixture.owner_dispatch()["owner_policy"],
     }
     for name,data in mapping.items():
         path=root/(name+".json")
@@ -78,6 +79,13 @@ def setup(root,ready):
         "PUBLISHER_INSTALLATION_ID":"174720074",
         "PUBLISHER_PRIVATE_KEY":"synthetic-key-never-used-for-genuine-JWT",
     }
+    if owner:
+        event=root/"event.json"
+        event.write_text(json.dumps({"inputs":{"target_repository":REPO,"dry_run":"false"}}))
+        env.update(GITHUB_EVENT_NAME="workflow_dispatch",GITHUB_ACTOR="ShutenOishi",
+                   GITHUB_ACTOR_ID="27071164",GITHUB_TRIGGERING_ACTOR="ShutenOishi",
+                   GITHUB_EVENT_PATH=str(event),PUBLISHER_TARGET=REPO,
+                   PUBLISHER_DRY_RUN="false")
     return item,argv,env,paths
 
 class TrustedRuntimeOffline(TestCase):
@@ -85,9 +93,13 @@ class TrustedRuntimeOffline(TestCase):
         self.check_runtime(False)
         self.check_runtime(True)
 
-    def check_runtime(self,change_job_on_recheck):
+    def test_owner_dispatch_uses_same_signed_source_and_scoped_writer(self):
+        self.check_runtime(False,owner=True)
+        self.check_runtime(True,owner=True)
+
+    def check_runtime(self,change_job_on_recheck,owner=False):
         with TemporaryDirectory() as d:
-            item,argv,env,paths=setup(Path(d),True)
+            item,argv,env,paths=setup(Path(d),True,owner=owner)
             token="synthetic-one-repository-token-not-a-secret"
             revoked=[]
             writes=[]
@@ -126,6 +138,8 @@ class TrustedRuntimeOffline(TestCase):
                 self.assertEqual(args[3],SHA)
                 self.assertEqual(kwargs["publish_run_id"],PUBLISHER)
                 self.assertEqual(args[2]["sourceRunId"],ORIGINAL)
+                self.assertEqual(args[2]["authorizationMode"],
+                                 "owner-dispatch" if owner else "automatic-schedule")
                 writes.append(True)
             expected={
                 runtime.formal.ident.asset_stem(item["manifest"],m)+".zip":"b"*64
@@ -158,6 +172,24 @@ class TrustedRuntimeOffline(TestCase):
                     output=json.loads(paths["output"].read_text())
                     self.assertEqual(output["status"],"PUBLISHED_VERIFIED")
                     self.assertTrue(output["publisherTokenRevoked"])
+
+    def test_dry_run_and_wrong_owner_never_access_key_or_publish(self):
+        for change in ({"PUBLISHER_DRY_RUN":"true"},
+                       {"PUBLISHER_TARGET":"pgextwin/hypopg"},
+                       {"GITHUB_ACTOR_ID":"1"},
+                       {"GITHUB_TRIGGERING_ACTOR":"someone-else"}):
+            with self.subTest(change=change),TemporaryDirectory() as d:
+                _,argv,env,paths=setup(Path(d),True,owner=True)
+                env.update(change)
+                with patch.dict(os.environ,env),patch.object(sys,"argv",argv), \
+                     patch.object(runtime.source,"verify_completed_source") as verifier, \
+                     patch.object(runtime.probe,"jwt") as jwt, \
+                     patch.object(runtime.formal,"publish_preverified") as publish:
+                    self.assertEqual(runtime.main(),2)
+                    verifier.assert_not_called()
+                    jwt.assert_not_called()
+                    publish.assert_not_called()
+                    self.assertFalse(paths["output"].exists())
 
     def test_current_real_policy_denies_before_secret_access_or_network(self):
         with TemporaryDirectory() as d:

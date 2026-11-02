@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -15,6 +16,8 @@ import sys
 ROOT=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location("selector_fleet_scope", ROOT/"publisher-scoped-token.py")
 scope=importlib.util.module_from_spec(spec);spec.loader.exec_module(scope)
+spec=importlib.util.spec_from_file_location("selector_trigger", ROOT/"publisher-trigger-auth.py")
+trigger=importlib.util.module_from_spec(spec);spec.loader.exec_module(trigger)
 SHA=re.compile(r"^[0-9a-f]{40}$")
 
 class Denied(ValueError): pass
@@ -82,12 +85,17 @@ def main():
         report=json.loads(Path(a.intake).read_text(),object_pairs_hook=unique)
         fleet=json.loads(Path(a.fleet).read_text(),object_pairs_hook=unique)
         rows=select(report,fleet)
+        if os.environ.get("GITHUB_EVENT_NAME")=="workflow_dispatch":
+            target,_=trigger.dispatch_request(os.environ)
+            require(target in {entry["repository"] for entry in fleet["entries"]},
+                    "dispatch target is not a registered repository")
+            rows=[row for row in rows if row["repository"]==target]
         with open(a.github_output,"a",encoding="utf-8") as file:
             file.write("candidate_matrix="+json.dumps(rows,separators=(",",":"))+"\n")
             file.write("has_candidates="+str(bool(rows)).lower()+"\n")
         print("READ_ONLY_ORIGINAL_SIGNED_SOURCE_RECHECK="+str(len(rows))+"; PUBLISH_DENY")
         return 0
-    except (Denied,scope.Denied,ValueError,KeyError,TypeError,OSError) as e:
+    except (Denied,scope.Denied,trigger.Denied,ValueError,KeyError,TypeError,OSError) as e:
         print("INDEPENDENT_RECHECK_SELECTION_DENY: "+str(e),file=sys.stderr)
         return 2
 

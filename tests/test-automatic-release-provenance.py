@@ -29,6 +29,19 @@ def receipt():
     return r
 
 class LocatorTests(TestCase):
+    def test_owner_dispatch_has_distinct_truthful_public_locator(self):
+        data=receipt()
+        data.update(authorizationMode="owner-dispatch",status="VERIFIED_OWNER_DISPATCH",
+                    operator="ShutenOishi",
+                    approvalProvenance="INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE")
+        marker=loc.encode(data)
+        value=loc.decode(marker)
+        self.assertEqual(value["authorizationMode"],"owner-dispatch")
+        self.assertNotIn("operator",value)
+        wrong=deepcopy(data)
+        wrong["approvalProvenance"]="INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE"
+        with self.assertRaises(loc.Denied):
+            loc.encode(wrong)
     def test_public_locator_is_not_an_authorization(self):
         text=loc.encode(receipt())
         self.assertTrue(text.startswith(loc.PREFIX))

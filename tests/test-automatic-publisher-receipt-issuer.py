@@ -4,6 +4,7 @@ import importlib.util
 import json
 from copy import deepcopy
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from publication_policy_fixtures import manual_policy
 ROOT=Path(__file__).resolve().parents[1]
@@ -85,7 +86,90 @@ def independent_jobs():
         {"id":112,"name":"Fresh independent ZIP/SPDX/Grype/Sigstore GET for signed original (other)",
          "status":"completed","conclusion":"failure"}]}
 
+def owner_dispatch():
+    item=switched()
+    identity={"login":"ShutenOishi","id":27071164,"type":"User"}
+    item.update(event="workflow_dispatch",actor="ShutenOishi")
+    item["owner_policy"]={"schemaVersion":1,"mode":"OWNER_REQUEST_ONLY",
+        "actor":{"login":"ShutenOishi","id":27071164},
+        "scope":"REGISTERED_SINGLE_REPOSITORY","defaultDryRun":True}
+    item["schedule_run"].update(event="workflow_dispatch",actor=dict(identity),
+                                triggering_actor=dict(identity))
+    return item
+
 class IssuerTests(unittest.TestCase):
+    def test_dispatch_inputs_bind_one_target_and_match_the_actual_event(self):
+        with TemporaryDirectory() as d:
+            event=Path(d)/"event.json"
+            event.write_text(json.dumps({"inputs":{"target_repository":REPO,"dry_run":"false"}}))
+            env={"GITHUB_REPOSITORY":"pgextwin/build","GITHUB_EVENT_NAME":"workflow_dispatch",
+                 "GITHUB_REF":"refs/heads/main","GITHUB_RUN_ATTEMPT":"1",
+                 "GITHUB_ACTOR":"ShutenOishi","GITHUB_ACTOR_ID":"27071164",
+                 "GITHUB_TRIGGERING_ACTOR":"ShutenOishi","GITHUB_EVENT_PATH":str(event),
+                 "PUBLISHER_TARGET":REPO,"PUBLISHER_DRY_RUN":"false"}
+            self.assertEqual(issuer.trigger.dispatch_request(env,repository=REPO),(REPO,False))
+            with self.assertRaises(issuer.trigger.Denied):
+                issuer.trigger.dispatch_request(env,repository="pgextwin/hypopg")
+            for key,value in (("PUBLISHER_TARGET","pgextwin/hypopg"),
+                              ("PUBLISHER_TARGET","pgextwin/*"),
+                              ("PUBLISHER_DRY_RUN","true"),
+                              ("GITHUB_EVENT_PATH",str(event)+".missing")):
+                bad=dict(env);bad[key]=value
+                with self.subTest(key=key,value=value),self.assertRaises(issuer.trigger.Denied):
+                    issuer.trigger.dispatch_request(bad)
+            event.write_text(json.dumps({"inputs":{"target_repository":REPO,"dry_run":True}}))
+            env["PUBLISHER_DRY_RUN"]="true"
+            self.assertEqual(issuer.trigger.dispatch_request(env),(REPO,True))
+
+    def test_owner_dispatch_environment_authenticates_all_context_fields(self):
+        env={"GITHUB_REPOSITORY":"pgextwin/build","GITHUB_EVENT_NAME":"workflow_dispatch",
+             "GITHUB_REF":"refs/heads/main","GITHUB_RUN_ATTEMPT":"1",
+             "GITHUB_ACTOR":"ShutenOishi","GITHUB_ACTOR_ID":"27071164",
+             "GITHUB_TRIGGERING_ACTOR":"ShutenOishi"}
+        self.assertEqual(issuer.trigger.context(env),"workflow_dispatch")
+        for key,value in (("GITHUB_EVENT_NAME","push"),("GITHUB_REPOSITORY","pgextwin/evil"),
+                          ("GITHUB_REF","refs/heads/other"),("GITHUB_RUN_ATTEMPT","2"),
+                          ("GITHUB_ACTOR","attacker"),("GITHUB_ACTOR_ID","1"),
+                          ("GITHUB_TRIGGERING_ACTOR","attacker")):
+            with self.subTest(key=key),self.assertRaises(issuer.trigger.Denied):
+                bad=dict(env);bad[key]=value;issuer.trigger.context(bad)
+
+    def test_real_owner_dispatch_is_typed_and_keeps_signed_source_binding(self):
+        result=issuer.issue(**owner_dispatch())
+        self.assertEqual(result["authorizationMode"],"owner-dispatch")
+        self.assertEqual(result["status"],"VERIFIED_OWNER_DISPATCH")
+        self.assertEqual(result["operator"],"ShutenOishi")
+        self.assertEqual(result["sourceRunId"],SOURCE_RUN)
+        self.assertEqual(result["approvalProvenance"],
+                         "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE")
+        forged=dict(result,operator="attacker")
+        with self.assertRaises(issuer.typed.Denied):
+            issuer.typed.validate_receipt(forged,repository=REPO,commit=SHA,
+                                          actor="attacker",event="workflow_dispatch")
+
+    def test_dispatch_denies_spoofed_actor_event_source_and_replay(self):
+        mutations=[
+            lambda x:x.update(actor="attacker"),
+            lambda x:x["schedule_run"].update(event="schedule"),
+            lambda x:x["schedule_run"]["actor"].update(id=1),
+            lambda x:x["schedule_run"]["actor"].update(login="attacker"),
+            lambda x:x["schedule_run"]["triggering_actor"].update(id=1),
+            lambda x:x["schedule_run"].pop("triggering_actor"),
+            lambda x:x["schedule_run"].update(run_attempt=2),
+            lambda x:x["proof"].update(realSigstoreRechecked=False),
+            lambda x:x["proof"].update(sourceRunAttempt=2),
+            lambda x:x["local"].update(enabled=False),
+            lambda x:x.update(owner_policy=None),
+            lambda x:x["owner_policy"].update(scope="ALL_REPOSITORIES"),
+            lambda x:x["owner_policy"]["actor"].update(id=1),
+            lambda x:x["owner_policy"].update(defaultDryRun=False),
+            lambda x:x["signed_branch"].update(protected=False),
+        ]
+        for index,mutate in enumerate(mutations):
+            with self.subTest(index=index),self.assertRaises(issuer.Denied):
+                item=owner_dispatch()
+                mutate(item)
+                issuer.issue(**item)
     def test_repository_proof_succeeds_despite_failed_peer(self):
         self.assertEqual(issuer.independent_source_job(independent_jobs(),
             repository=REPO,run_id=SCHEDULE_RUN,central_sha=CENTRAL_SHA),111)

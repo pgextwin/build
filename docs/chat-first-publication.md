@@ -7,7 +7,7 @@
 
 所有者が通常Chatで **「pgextwinを更新して」** と依頼した場合、その依頼に含まれる登録済み拡張の真正な安定版更新について、**更新検出・実装・検証・保護マージから、条件を満たした正式Release、Catalog、Website公開まで行うことを明示的に承認したもの**と扱う。途中で「公開して」「継続して」と改めて確認しない。特定拡張の指定があればその範囲に限定し、無指定なら保護Fleetの登録済み全拡張を対象とする。
 
-この**自然言語での所有者意思表示は、GitHub内の検証済みPUBLISH receipt・署名・App token・正規eventを代替しない**。Release writerは、現行の `automatic-signed-schedule` または認可済みの既存正式公開方式による、実際の全ての技術・運用ゲートが成立したときだけ公開する。旧 `PUBLISH_DENY` の非公開ワークフローを有効化したり、正規の `schedule` を偽装しない。この文書はGitHub ActionsにChatの発話を認証済みイベントとして届ける機能ではない。
+この**自然言語での所有者意思表示は、GitHub内の検証済みPUBLISH receipt・署名・App token・正規eventを代替しない**。共通Publisherのcronは撤去し、既存の保護された署名付き公開policyを満たす対象について、所有者本人による正規の `workflow_dispatch` を用いる。手動Runには別途、保護された中央の `metadata/owner-dispatch-publication.json` による許可も必要で、GitHubが返すactorとtriggering_actorのログイン・IDを照合し、scheduleになりすまさない。上流検出を含めた全工程のcron撤去は別途必要である。
 
 **更新なし**は `NO_UPDATE` で正常終了する。複数拡張のうち更新可能なものは独立して完了し、別の拡張の不成立を理由に一括停止しない。既存Releaseのタグ・資産は上書きしない。
 
@@ -17,7 +17,7 @@
 2. **本物の変更がある拡張だけ**: 既存の自動候補・検証を再利用し、必要な最小実装と真正native Windows CI（PG対応メジャー、機能テスト）を進める。GitHubの `action_required` で正規の実行承認が必須な場合に限りWorkのGUIへ引き継ぎ、それ以外をChatで進める。成功/失敗/SKIPPEDと真正PR run/dispatch runを混同しない。
 3. **保護マージ**: 最新HEAD・必須CI・既存保護設定が成立した場合にのみマージ。独立第三者レビューを新要件として加えないが既存保護設定は維持。
 4. **署名済み原本**: マージ済み保護mainから生じた正規 `push`/OIDC署名Run、ZIP/SPDX/Grype、Build Provenance・SBOM Attestation、原本と別RunnerのSigstore実バイト独立照合を要求。コード成功と署名真正性を区別。
-5. **独立Publisher**: 現行の中央 `publisher-candidate-intake.yml` の**真正 `schedule`**、正確な原本Run/attempt、現在の保護main、中央・ローカル `automatic-signed-schedule`、専用Publisher App/Environment、Grypeブロック、live verify、未使用タグ、create-only/失効を再確認。単なるChat同意、`push`/手動Dispatch、静的policy、古い別Run成功は発行権限ではない。GitHubが正規scheduleをまだ実行していなければ未完了と記録し、偽イベントで補わない。
+5. **独立Publisher**: 中央 `publisher-candidate-intake.yml` を所有者本人が起動した真正 `workflow_dispatch`、正確な原本Run/attempt、現在の保護main、中央・ローカルの署名付き公開policy、専用Publisher App/Environment、Grypeブロック、live verify、未使用タグ、create-only/失効を再確認。手動Runは所有者のログインと数値IDをRunのGitHub GETで照合し、対象は指定された登録済みリポジトリ1件に限定し、別種のreceiptとして記録する。dry-runが既定であり、公開には明示的に解除する。単なるChat同意、`push`、他人のDispatch、静的policy、古い別Run成功は発行権限ではない。
 6. **本当の公開物**: Releaseの公開タグ・PG別ZIP/SPDX/Grypeと `SHA256SUMS.txt`、公開バイトのSHA256、公開署名・Attestationを独立GETで検証。候補Artifactのハッシュを公開物のハッシュの代用にしない。
 7. **Catalog・Website**: 正式に公開されたReleaseに限定して専用Catalog検証でレコード単位PRを作る。必須CI→保護マージ後、Website日本語・英語、実ダウンロード、SHA256を確認。未公開候補でCatalogを先に進めない。
 8. **監査**: [#311](https://github.com/pgextwin/build/issues/311)に、完成したもの・未完了・阻害原因・必要なら最小のWork操作を簡潔に記録。公開済みと候補のみを明確に分け、歴史的85/94等の台帳を成功なしに加算しない。
@@ -45,4 +45,4 @@
 
 ## English summary
 
-A single authenticated Chat request **“pgextwinを更新して”** is the owner's instruction to perform the registered fleet update through **eligible formal publication and public Catalog/Website verification**, without asking for a second publication consent. It does *not* replace any independently enforced GitHub Actions, signed-source, genuine schedule, scoped Publisher, release, Catalog or Website gates. Use connected Chat for all supported GitHub work; hand off only genuinely unavailable GUI approvals to Work. Record `NO_UPDATE`, partial, blocked and fully public outcomes distinctly.
+A single authenticated Chat request **“pgextwinを更新して”** is the owner's instruction to perform the registered fleet update through **eligible formal publication and public Catalog/Website verification**, without asking for a second publication consent. It does *not* replace independently enforced GitHub Actions, signed-source, authentic event, scoped Publisher, release, Catalog or Website gates. Owner-triggered `workflow_dispatch` and `schedule` have distinct authenticated provenance. Use connected Chat for supported GitHub work and the official Actions UI when dispatch is unavailable. Record `NO_UPDATE`, partial, blocked and fully public outcomes distinctly.

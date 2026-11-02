@@ -44,6 +44,10 @@ _auto_notes_spec = importlib.util.spec_from_file_location(
     ROOT / "automatic-release-provenance.py")
 auto_provenance = importlib.util.module_from_spec(_auto_notes_spec)
 _auto_notes_spec.loader.exec_module(auto_provenance)
+_trigger_spec = importlib.util.spec_from_file_location(
+    "formal_publisher_trigger_auth", ROOT / "publisher-trigger-auth.py")
+trigger_auth = importlib.util.module_from_spec(_trigger_spec)
+_trigger_spec.loader.exec_module(trigger_auth)
 
 class Denied(ValueError): pass
 
@@ -94,7 +98,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                  workflow_event="workflow_dispatch"):
     # Do not trust the authorization receipt without independently matching all
     # immutable source identities, lifecycle, package metadata and zip digests.
-    automatic = receipt.get("authorizationMode") == "automatic-schedule"
+    automatic = receipt.get("authorizationMode") in ("automatic-schedule", "owner-dispatch")
     try:
         auth.validate_receipt(receipt, repository=REPO, commit=commit,
                               actor=(os.environ.get("GITHUB_ACTOR", "")
@@ -108,20 +112,27 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
         check(verify_signatures is True,
               "Chat PR publication requires independent ZIP/SPDX attestations")
     if automatic:
-        # A genuine central schedule is distinct from the completed signed
+        # A genuine central Publisher event is distinct from the completed signed
         # packaging main/push run; they must NEVER share a run identity.
         # This is a verification-only path until the independent privileged
         # Publisher issuer is implemented and policies genuinely authorize.
-        check(verify_signatures is True and workflow_event == "schedule"
+        expected_event=("schedule" if receipt.get("authorizationMode")=="automatic-schedule"
+                        else "workflow_dispatch")
+        try:
+            actual_event=trigger_auth.context(os.environ)
+        except trigger_auth.Denied as e:
+            raise Denied("central Publisher trigger identity denied") from e
+        check(verify_signatures is True and workflow_event == expected_event
+              and actual_event == expected_event
               and receipt.get("sourceRunId") == run_id
               and receipt.get("sourceRunAttempt") == 1
               and os.environ.get("GITHUB_REPOSITORY") == "pgextwin/build"
-              and os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+              and os.environ.get("GITHUB_EVENT_NAME") == expected_event
               and os.environ.get("GITHUB_REF") == "refs/heads/main"
               and os.environ.get("GITHUB_SHA") == receipt.get("publisherMainSha")
               and os.environ.get("GITHUB_RUN_ID") == str(receipt.get("publisherRunId"))
               and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
-              "automatic scheduled Publisher has no trusted live origin")
+              "central Publisher has no trusted live origin")
     check(receipt.get("schemaVersion") == 1
           and (automatic or
                (isinstance(receipt.get("operator"), str) and bool(receipt["operator"])))
@@ -347,7 +358,7 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
         +"All maintained requested PG majors were smoke-tested; SPDX 2.3 SBOM, report-only Grype, "
         +"signed provenance, signed SBOM attestations and SHA256SUMS included.\n"
         +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n")
-    if receipt.get("authorizationMode") == "automatic-schedule":
+    if receipt.get("authorizationMode") in ("automatic-schedule", "owner-dispatch"):
         # Only a PUBLIC locator for downstream independently authenticated
         # source Run and completed central schedule Run. This text is never
         # treated as a signed proof or as an admission grant by itself.

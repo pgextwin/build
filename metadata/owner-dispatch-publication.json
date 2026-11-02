@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "mode": "OWNER_REQUEST_ONLY",
+  "actor": {"login": "ShutenOishi", "id": 27071164},
+  "scope": "REGISTERED_SINGLE_REPOSITORY",
+  "defaultDryRun": true
+}

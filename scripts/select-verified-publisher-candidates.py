@@ -27,7 +27,7 @@ class Denied(ValueError):pass
 def require(ok,why):
     if not ok:raise Denied(why)
 
-def select(candidates,fleet,jobs,run,branch,*,sha,run_id):
+def select(candidates,fleet,jobs,run,branch,*,sha,run_id,event="schedule",actor=None):
     """Return only proven rows, with no authority from matrix-wide success."""
     require(type(sha) is str and SHA.fullmatch(sha)
             and type(run_id) is int and run_id>0,
@@ -36,14 +36,10 @@ def select(candidates,fleet,jobs,run,branch,*,sha,run_id):
             and branch.get("protected") is True
             and (branch.get("commit") or {}).get("sha")==sha,
             "protected central main advanced or is unavailable")
-    require(type(run) is dict and type(run.get("id")) is int
-            and run["id"]==run_id and type(run.get("run_attempt")) is int
-            and run["run_attempt"]==1 and run.get("event")=="schedule"
-            and run.get("path")==issuer.SCHEDULE
-            and run.get("head_sha")==sha and run.get("head_branch")=="main"
-            and (run.get("repository") or {}).get("full_name")=="pgextwin/build"
-            and run.get("status")=="in_progress" and run.get("conclusion") is None,
-            "not this original live central Publisher schedule")
+    try:
+        issuer.trigger.run(run,run_id=run_id,sha=sha,event=event,actor=actor)
+    except issuer.trigger.Denied as exc:
+        raise Denied("not this original live central Publisher event") from exc
     roster=issuer.fleet_policy.members(fleet)
     require(fleet.get("releasePolicy")==issuer.MODE,
             "automatic Publisher policy has not been protected-migrated")
@@ -80,12 +76,18 @@ def select(candidates,fleet,jobs,run,branch,*,sha,run_id):
     return eligible
 
 def live(candidates,fleet,*,env=os.environ,get=source.github):
-    require(env.get("GITHUB_REPOSITORY")=="pgextwin/build"
-            and env.get("GITHUB_EVENT_NAME")=="schedule"
-            and env.get("GITHUB_REF")=="refs/heads/main"
-            and env.get("GITHUB_RUN_ATTEMPT")=="1"
-            and bool(env.get("GH_TOKEN")),
-            "trusted read-only original central schedule required")
+    try:
+        event=issuer.trigger.context(env)
+        if event=="workflow_dispatch":
+            target,_=issuer.trigger.dispatch_request(env)
+            require(type(candidates) is list and len(candidates)<=1
+                    and all(type(row) is dict and row.get("repository")==target
+                            for row in candidates),
+                    "manual dispatch may select only its requested repository")
+    except issuer.trigger.Denied as exc:
+        raise Denied("trusted read-only central Publisher event required") from exc
+    require(bool(env.get("GH_TOKEN")),"read credentials unavailable")
+    actor=env.get("GITHUB_ACTOR")
     sha=env.get("GITHUB_SHA");raw=env.get("GITHUB_RUN_ID","")
     require(type(raw) is str and re.fullmatch(r"[1-9][0-9]*",raw),
             "invalid current Publisher Run ID")
@@ -93,7 +95,8 @@ def live(candidates,fleet,*,env=os.environ,get=source.github):
     branch=get("pgextwin/build","branches/main")
     run=get("pgextwin/build",f"actions/runs/{run_id}")
     jobs=get("pgextwin/build",f"actions/runs/{run_id}/attempts/1/jobs?per_page=100")
-    selected=select(candidates,fleet,jobs,run,branch,sha=sha,run_id=run_id)
+    selected=select(candidates,fleet,jobs,run,branch,sha=sha,run_id=run_id,
+                    event=event,actor=actor)
     current=[]
     for row in selected:
         try:
@@ -127,7 +130,8 @@ def live(candidates,fleet,*,env=os.environ,get=source.github):
     # as source identity or weakening any repository-specific proof.
     require(select(candidates,fleet,jobs,
                 get("pgextwin/build",f"actions/runs/{run_id}"),
-                get("pgextwin/build","branches/main"),sha=sha,run_id=run_id)
+                get("pgextwin/build","branches/main"),sha=sha,run_id=run_id,
+                event=event,actor=actor)
             ==selected,"live central identity changed during proof selection")
     return current
 
