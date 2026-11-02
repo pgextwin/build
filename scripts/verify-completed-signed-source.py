@@ -224,7 +224,7 @@ def main():
     try:
         require(os.environ.get("GITHUB_REPOSITORY")=="pgextwin/build"
                 and os.environ.get("GITHUB_REF")=="refs/heads/main"
-                and os.environ.get("GITHUB_EVENT_NAME") in ("schedule","push")
+                and os.environ.get("GITHUB_EVENT_NAME") in ("schedule","push","workflow_dispatch")
                 and os.environ.get("GH_TOKEN"),
                 "not trusted central read-only runtime")
         result=verify_completed_source(
