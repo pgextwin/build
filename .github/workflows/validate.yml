@@ -372,6 +372,9 @@ jobs:
       - name: Deny spoofed/replayed owner-comment signing source without Publisher admission
         run: python tests/test-chat-signed-main-source.py
 
+      - name: Reject unsafe independent owner-signed Publisher admission and Release escalation
+        run: python tests/test-publisher-owner-source-admission.py
+
       - name: Deny forged scheduled candidate snapshots and preserve manual PUBLISH
         run: python tests/test-scheduled-fleet-candidate.py
 
