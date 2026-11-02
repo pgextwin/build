@@ -59,6 +59,7 @@ def signed_run():
 
 def original_jobs():
     names = (["Original authenticated owner/main/comment source (DENY Publisher)",
+              "Resolve extension and PostgreSQL matrix",
               "Independent original Sigstore/ZIP/SPDX/Grype audit (first)",
               "Independent original Sigstore/ZIP/SPDX/Grype audit (second)",
               "Require exact independent real-signature byte agreement (NO PUBLISH)"]
