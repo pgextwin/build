@@ -192,6 +192,12 @@ class FleetPublisherTests(TestCase):
                                workflow_event="push")
 
     def test_scheduled_original_completed_source_is_distinct_from_publisher_run(self):
+        self.check_central_signed_source("schedule")
+
+    def test_owner_dispatch_verifies_the_same_original_signed_push(self):
+        self.check_central_signed_source("workflow_dispatch")
+
+    def check_central_signed_source(self,event):
         # Offline mocks exercise routing only: they are never signed bytes or
         # authority to publish, mint a token or create a Release.
         ext, lc, receipt = fixture()
@@ -217,6 +223,12 @@ class FleetPublisherTests(TestCase):
              "GITHUB_SHA":publisher_sha,
              "GITHUB_RUN_ID":str(publisher_run),
              "GITHUB_RUN_ATTEMPT":"1"}
+        if event=="workflow_dispatch":
+            receipt.update(status="VERIFIED_OWNER_DISPATCH",authorizationMode="owner-dispatch",
+                           operator="ShutenOishi",
+                           approvalProvenance="INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE")
+            env.update(GITHUB_EVENT_NAME=event,GITHUB_ACTOR="ShutenOishi",
+                       GITHUB_ACTOR_ID="27071164",GITHUB_TRIGGERING_ACTOR="ShutenOishi")
         with TemporaryDirectory() as tmp, patch.object(p,"REPO",REPO), \
              patch.dict(p.os.environ,env), \
              patch.object(p,"get",return_value={"mock":True}) as github, \
@@ -226,8 +238,13 @@ class FleetPublisherTests(TestCase):
              patch.object(p,"run",return_value='[]') as gh:
             folder=Path(tmp)
             make_assets(folder,ext,run=123,workflow_event="push")
+            if event=="workflow_dispatch":
+                with self.assertRaises(p.Denied):
+                    p.check_assets(folder,ext,receipt,COMMIT,123,lc,
+                                   verify_signatures=False,workflow_event=event)
+                github.assert_not_called()
             result=p.check_assets(folder,ext,receipt,COMMIT,123,lc,
-                                  verify_signatures=True,workflow_event="schedule")
+                                  verify_signatures=True,workflow_event=event)
             self.assertEqual(len(result),15)
             self.assertEqual(snapshots.call_count,2)
             self.assertEqual(signed.call_count,10)
