@@ -1,5 +1,12 @@
 # pgextwin 共通ビルド基盤
 
+## 2026-11-02 現行のChat一指示更新・正式公開運用
+
+**「pgextwinを更新して」は、登録済み17拡張の真正な更新候補について、保護PR・CIから適格な正式Release、Catalog、Websiteまでの実行承認を含みます。** 公開許可を改めて質問せず、Chatでできる工程を自律完了させ、WorkはGitHub公式画面の承認など真に必要な場合に限定します。独立署名・Publisher・必須CI・公開ゲートは省略しません。詳しくは[現行の一指示公開運用契約](docs/chat-first-publication.md)と[Issue #311](https://github.com/pgextwin/build/issues/311)を参照してください。
+
+以下の14拡張・手動Promotion・OBSERVEに関する2026-10以前の記述は履歴であり、現在の17拡張の `automatic-signed-schedule` 運用を上書きしません。
+
+
 [English](README.md) | **日本語**
 
 このリポジトリは **pgextwin** の共通CI/CD基盤です。pgextwinは、PostgreSQL拡張機能について、通常のWindows版PostgreSQLへ導入できる非公式Windows x64バイナリをビルド・検証・配布するコミュニティプロジェクトです。
