@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed typed scheduled Publisher receipt issuer (Issue #75).
+"""Fail-closed typed scheduled or owner-dispatch Publisher receipt issuer.
 
 Only call IN PROCESS in a protected Publisher Environment after authentic
 GitHub GET, real original ZIP/SPDX/Grype+Sigstore verification and a freshly
@@ -20,6 +20,7 @@ ident=load("scheduled_release_identity","fleet-release-identity.py")
 typed=load("scheduled_release_receipt","release-authorization.py")
 policy=load("scheduled_release_policy","unattended-policy.py")
 fleet_policy=load("scheduled_fleet_contract","fleet-policy.py")
+trigger=load("publisher_trigger_auth","publisher-trigger-auth.py")
 SHA=re.compile(r"^[0-9a-f]{40}$")
 HASH=re.compile(r"^[0-9a-f]{64}$")
 REPO=re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -99,11 +100,24 @@ def policy_gate(fleet,central,local,unattended,boundary,repository):
           and local=={"schemaVersion":1,"enabled":True,"releasePolicy":MODE},
           "local automatic release not explicitly approved")
 
+def owner_policy_gate(owner_policy):
+    """An owner dispatch requires the separate protected central opt-in."""
+    expected={"schemaVersion":1,"mode":"OWNER_REQUEST_ONLY",
+              "actor":{"login":trigger.OWNER,"id":trigger.OWNER_ID},
+              "scope":"REGISTERED_SINGLE_REPOSITORY","defaultDryRun":True}
+    check(type(owner_policy) is dict and owner_policy==expected
+          and type(owner_policy.get("schemaVersion")) is int
+          and type(owner_policy.get("actor")) is dict
+          and type(owner_policy["actor"].get("id")) is int
+          and type(owner_policy.get("defaultDryRun")) is bool,
+          "protected owner dispatch policy is absent or does not match")
+
 def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           boundary, schedule_run, central_branch, signed_branch,
           app_identity, installation_identity, minted, scoped,
           repository, sha, source_run, central_sha, publisher_run,
-          event, ref, attempt, tag, tag_absent, release_absent, actor):
+          event, ref, attempt, tag, tag_absent, release_absent, actor,
+          owner_policy=None):
     """In-process Release receipt: only after all genuinely independent gates.
 
     The caller must supply proof produced by real verify_completed_source()
@@ -111,32 +125,26 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
     Caller must also establish the live App issuer and token using JWT requests.
     """
     policy_gate(fleet,central,local,unattended,boundary,repository)
+    if event=="workflow_dispatch":
+        owner_policy_gate(owner_policy)
     check(type(sha) is str and SHA.fullmatch(sha)
           and type(central_sha) is str and SHA.fullmatch(central_sha)
           and type(source_run) is int and source_run>0
           and type(publisher_run) is int and publisher_run>0
           and source_run!=publisher_run
           and type(attempt) is int and attempt==1
-          and event=="schedule" and ref=="refs/heads/main",
-          "not original attempt1 central schedule plus distinct signed main/push")
+          and event in ("schedule", "workflow_dispatch") and ref=="refs/heads/main",
+          "not original central event plus distinct signed main/push")
     for branch,expected in ((central_branch,central_sha),(signed_branch,sha)):
         check(type(branch) is dict and branch.get("name")=="main"
               and branch.get("protected") is True
               and (branch.get("commit") or {}).get("sha")==expected,
               "current protected branch advanced/changed")
-    check(type(schedule_run) is dict
-          and type(schedule_run.get("id")) is int
-          and schedule_run["id"]==publisher_run
-          and type(schedule_run.get("run_attempt")) is int
-          and schedule_run["run_attempt"]==1
-          and (schedule_run.get("repository") or {}).get("full_name")=="pgextwin/build"
-          and schedule_run.get("event")=="schedule"
-          and schedule_run.get("path")==SCHEDULE
-          and schedule_run.get("head_sha")==central_sha
-          and schedule_run.get("head_branch")=="main"
-          and schedule_run.get("status")=="in_progress"
-          and schedule_run.get("conclusion") is None,
-          "central schedule not authenticated or is a replay")
+    try:
+        trigger.run(schedule_run,run_id=publisher_run,sha=central_sha,
+                    event=event,actor=actor)
+    except trigger.Denied as exc:
+        raise Denied("central Publisher event not authenticated") from exc
     check(type(proof) is dict and proof.get("schemaVersion")==1
           and proof.get("status")=="REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING"
           and proof.get("repository")==repository
@@ -192,8 +200,9 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           and scoped["repositories"][0].get("full_name")==repository,
           "independent Publisher token scope unknown or expanded")
     receipt={
-        "schemaVersion":1,"status":"VERIFIED_AUTOMATIC_SCHEDULE",
-        "authorizationMode":"automatic-schedule",
+        "schemaVersion":1,"status":("VERIFIED_AUTOMATIC_SCHEDULE" if event=="schedule"
+                                     else "VERIFIED_OWNER_DISPATCH"),
+        "authorizationMode":("automatic-schedule" if event=="schedule" else "owner-dispatch"),
         "repository":repository,"trustedCommit":sha,
         "extension":manifest["name"],"releaseTag":tag,
         "majors":majors,"sources":[pins[m] for m in majors],
@@ -205,8 +214,11 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         "sourceRunAttempt":1,"signedArtifactsVerified":True,
         "publicationAuthorized":True,"publishableReceipt":True,
         "publisherWriteAuthorized":True,"automaticReleaseEnabled":True,
-        "approvalProvenance":"INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE",
+        "approvalProvenance":("INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE" if event=="schedule"
+                              else "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
     }
+    if event=="workflow_dispatch":
+        receipt["operator"]=actor
     typed.validate_receipt(receipt,repository=repository,commit=sha,
-                           actor=actor,event="schedule")
+                           actor=actor,event=event)
     return receipt
