@@ -36,13 +36,9 @@ def selected_inputs():
     a=policies.synthetic()
     a["owner_central"]["allowedRepositories"]=[REPO]
     a["owner_local"]["sourceKind"]=selector.admission.SOURCE_KIND
-    # Historical shared fixtures contain pgaudit, not plpgsql_check; use
-    # registered pgaudit for synthetic policy only, but request target is
-    # plpgsql_check: replace matching member to model the real fleet safely.
-    a["owner_central"]["allowedRepositories"]=[REPO]
-    a["fleet"]["entries"][0]["repository"]=REPO
-    a["fleet"]["entries"]=[v for v in a["fleet"]["entries"] if v["repository"]==REPO]
-    a["central"]["allowedRepositories"]=[REPO]
+    # The registered 17-member synthetic fleet already includes plpgsql_check.
+    # Keep the complete roster intact: central policy cannot shrink to a pilot.
+    a["repository"]=REPO
     return a
 
 class RequestTests(TestCase):
