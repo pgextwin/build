@@ -29,6 +29,8 @@ APP=5451798
 INSTALLATION=174720074
 SCHEDULE=".github/workflows/publisher-candidate-intake.yml"
 SOURCE=".github/workflows/update-watch.yml"
+OWNER_SOURCE=".github/workflows/chat-signed-main.yml"
+OWNER_KIND="OWNER_ISSUE_COMMENT_MAIN_SIGNING"
 
 class Denied(ValueError): pass
 def check(value,why):
@@ -117,7 +119,9 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           app_identity, installation_identity, minted, scoped,
           repository, sha, source_run, central_sha, publisher_run,
           event, ref, attempt, tag, tag_absent, release_absent, actor,
-          owner_policy=None,request_comment_id=None):
+          owner_policy=None,request_comment_id=None,
+          source_kind=None,source_signing_comment_id=None,
+          owner_central=None,owner_local=None):
     """In-process Release receipt: only after all genuinely independent gates.
 
     The caller must supply proof produced by real verify_completed_source()
@@ -125,6 +129,29 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
     Caller must also establish the live App issuer and token using JWT requests.
     """
     policy_gate(fleet,central,local,unattended,boundary,repository)
+    owner_signed=source_kind==OWNER_KIND
+    check(source_kind is None or owner_signed,
+          "unsupported owner source-kind")
+    if owner_signed:
+        owner_gate=load("inprocess_owner_source_protected_policy",
+                        "owner-source-publish-policy.py")
+        try:
+            owner_gate.gate(fleet=fleet,central=central,local=local,
+                            unattended=unattended,boundary=boundary,
+                            owner_central=owner_central,owner_local=owner_local,
+                            repository=repository)
+        except owner_gate.Denied as exc:
+            raise Denied("missing protected owner-source central/local opt-in") from exc
+        check(event=="issue_comment" and type(request_comment_id) is int
+              and request_comment_id>0
+              and type(source_signing_comment_id) is int
+              and source_signing_comment_id>0
+              and source_signing_comment_id!=request_comment_id,
+              "owner signing and Publisher requests not distinct")
+    else:
+        check(source_signing_comment_id is None and owner_central is None
+              and owner_local is None,
+              "push-only source must not carry owner-source authorization")
     if event in ("workflow_dispatch","issue_comment"):
         owner_policy_gate(owner_policy)
     check(type(sha) is str and SHA.fullmatch(sha)
@@ -145,21 +172,50 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
                     event=event,actor=actor,comment_id=request_comment_id)
     except trigger.Denied as exc:
         raise Denied("central Publisher event not authenticated") from exc
-    check(type(proof) is dict and proof.get("schemaVersion")==1
-          and proof.get("status")=="REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING"
-          and proof.get("repository")==repository
-          and proof.get("mainMergeSha")==sha
-          and type(proof.get("sourceRunId")) is int
-          and proof["sourceRunId"]==source_run
-          and type(proof.get("sourceRunAttempt")) is int
-          and proof["sourceRunAttempt"]==1
-          and proof.get("realSigstoreRechecked") is True
-          and type(proof.get("blockingGrypeFindings")) is int
-          and proof["blockingGrypeFindings"]==0
-          and all(proof.get(k) is False for k in (
-              "publicationAuthorized","publishableReceipt",
-              "publisherTokenRequested","automaticReleaseEnabled")),
-          "original signed ZIP/SBOM/Grype cryptographic proof not established")
+    if owner_signed:
+        check(type(proof) is dict and type(proof.get("schemaVersion")) is int
+              and proof["schemaVersion"]==1
+              and proof.get("status")=="OWNER_MAIN_SIGNED_SOURCE_INDEPENDENTLY_VERIFIED_NONPUBLISHING"
+              and proof.get("sourceKind")==OWNER_KIND
+              and proof.get("sourceEvent")=="issue_comment"
+              and proof.get("repository")==repository
+              and proof.get("mainSha")==sha
+              and type(proof.get("sourceRunId")) is int
+              and proof["sourceRunId"]==source_run
+              and type(proof.get("sourceRunAttempt")) is int
+              and proof["sourceRunAttempt"]==1
+              and type(proof.get("sourceCommentId")) is int
+              and proof["sourceCommentId"]==source_signing_comment_id
+              and proof.get("originalAndFreshDualSigstoreAgree") is True
+              and proof.get("publisherEligible") is False
+              and proof.get("PUBLISH")=="DENY"
+              and all(proof.get(k) is False for k in (
+                  "publicationAuthorized","publishableReceipt",
+                  "publisherWriteAuthorized"))
+              and type(proof.get("SHA256")) is dict
+              and type(proof.get("maintainedMajors")) is list,
+              "real original/fresh owner Sigstore source proof not established")
+        # The source's read-only admission alone does not authorize a release.
+        # Blocking Grype is independently evaluated before any privileged write.
+        check(type(proof.get("blockingGrypeFindings")) is int
+              and proof["blockingGrypeFindings"]==0,
+              "blocking owner-source Grype findings not independently cleared")
+    else:
+        check(type(proof) is dict and proof.get("schemaVersion")==1
+              and proof.get("status")=="REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING"
+              and proof.get("repository")==repository
+              and proof.get("mainMergeSha")==sha
+              and type(proof.get("sourceRunId")) is int
+              and proof["sourceRunId"]==source_run
+              and type(proof.get("sourceRunAttempt")) is int
+              and proof["sourceRunAttempt"]==1
+              and proof.get("realSigstoreRechecked") is True
+              and type(proof.get("blockingGrypeFindings")) is int
+              and proof["blockingGrypeFindings"]==0
+              and all(proof.get(k) is False for k in (
+                  "publicationAuthorized","publishableReceipt",
+                  "publisherTokenRequested","automaticReleaseEnabled")),
+              "original signed ZIP/SBOM/Grype cryptographic proof not established")
     check(type(manifest) is dict and manifest.get("name")==repository.split("/")[1],
           "source manifest/repository mismatch")
     try:
@@ -170,8 +226,11 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         raise Denied("invalid maintained PG versions/upstream/tag") from exc
     check(proof.get("maintainedMajors")==majors and bool(majors),
           "original signed PG major list mismatch")
-    for kind in ("zip","spdx","grype"):
-        hashes=proof.get(kind+"Sha256ByMajor")
+    for kind,suffix in (("zip",".zip"),("spdx",".spdx.json"),
+                        ("grype",".vulnerabilities.json")):
+        hashes=(proof.get(kind+"Sha256ByMajor") if not owner_signed else
+                {str(m):proof.get("SHA256",{}).get(ident.asset_stem(manifest,m)+suffix)
+                 for m in majors})
         check(type(hashes) is dict and set(hashes)=={str(m) for m in majors}
               and all(type(d) is str and HASH.fullmatch(d) for d in hashes.values()),
               "missing signed "+kind+" digest evidence")
@@ -200,10 +259,12 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           and scoped["repositories"][0].get("full_name")==repository,
           "independent Publisher token scope unknown or expanded")
     receipt={
-        "schemaVersion":1,"status":("VERIFIED_AUTOMATIC_SCHEDULE" if event=="schedule"
+        "schemaVersion":1,"status":("VERIFIED_OWNER_SIGNED_MAIN_ISSUE_COMMENT"
+                        if owner_signed else "VERIFIED_AUTOMATIC_SCHEDULE" if event=="schedule"
                         else "VERIFIED_OWNER_ISSUE_COMMENT" if event=="issue_comment"
                         else "VERIFIED_OWNER_DISPATCH"),
-        "authorizationMode":("automatic-schedule" if event=="schedule"
+        "authorizationMode":("owner-signed-main-issue-comment" if owner_signed
+                             else "automatic-schedule" if event=="schedule"
                              else "owner-issue-comment" if event=="issue_comment"
                              else "owner-dispatch"),
         "repository":repository,"trustedCommit":sha,
@@ -213,11 +274,13 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         "publisherWorkflow":SCHEDULE,
         "publisherRunId":publisher_run,"publisherRunAttempt":1,
         "publisherMainSha":central_sha,
-        "signedSourceWorkflow":SOURCE,"sourceRunId":source_run,
+        "signedSourceWorkflow":(OWNER_SOURCE if owner_signed else SOURCE),
+        "sourceRunId":source_run,
         "sourceRunAttempt":1,"signedArtifactsVerified":True,
         "publicationAuthorized":True,"publishableReceipt":True,
         "publisherWriteAuthorized":True,"automaticReleaseEnabled":True,
-        "approvalProvenance":("INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE" if event=="schedule"
+        "approvalProvenance":("INDEPENDENT_LIVE_OWNER_MAIN_SIGNING_AND_PUBLISH_REQUEST"
+                         if owner_signed else "INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE" if event=="schedule"
                          else "INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE" if event=="issue_comment"
                          else "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
     }
@@ -225,6 +288,11 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         receipt["operator"]=actor
     if event=="issue_comment":
         receipt["requestCommentId"]=request_comment_id
+    if owner_signed:
+        receipt["sourceKind"]=OWNER_KIND
+        receipt["sourceEvent"]="issue_comment"
+        receipt["sourceSigningCommentId"]=source_signing_comment_id
+        receipt["originalAndFreshDualSigstoreAgree"]=True
     typed.validate_receipt(receipt,repository=repository,commit=sha,
                            actor=actor,event=event)
     return receipt

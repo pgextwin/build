@@ -381,6 +381,9 @@ jobs:
       - name: Authenticate owner formal-source request and reject nonpublishing escalation
         run: python tests/test-publisher-owner-source-publish-request.py
 
+      - name: Reject forged owner original Sigstore proof or incomplete in-process Publisher policy
+        run: python tests/test-owner-source-publisher-inprocess.py
+
       - name: Deny forged scheduled candidate snapshots and preserve manual PUBLISH
         run: python tests/test-scheduled-fleet-candidate.py
 
