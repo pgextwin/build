@@ -266,5 +266,47 @@ class FinalizerAdmissionTests(TestCase):
         self.assertNotIn('schedule:', source)
 
 
+class OwnerSignerPinTests(TestCase):
+    """Keep the genuine owner's exact reviewed builder separate from old manual pins."""
+
+    def test_approved_owner_builder_matches_shared_signed_source(self):
+        import re
+        spec = importlib.util.spec_from_file_location(
+            "owner_signer_audit_pin", ROOT / "scripts/chat-signed-main-audit.py")
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        source = (ROOT / ".github/workflows/chat-signed-main-source.yml").read_text("utf-8")
+        pins = re.findall(r"build-extension-attested\.yml@([0-9a-f]{40})", source)
+        self.assertEqual(pins, [audit.OWNER_SIGNER_SHA])
+        self.assertEqual(audit.OWNER_SIGNER_SHA,
+                         "95418c3b16a843854e931bd4089a4f5827ffe211")
+        self.assertNotEqual(audit.OWNER_SIGNER_SHA, audit.pin.SIGNER_SHA)
+        self.assertEqual(audit.pin.SIGNER_SHA,
+                         "5756b3c5136a8bf4db710016cfe97555f0a71c6d")
+        text = (ROOT / "scripts/chat-signed-main-audit.py").read_text("utf-8")
+        self.assertNotIn("pin.SIGNER_SHA", text)
+        self.assertNotIn("or pin.SIGNER_SHA", text)
+
+    def test_sigstore_requires_exact_new_owner_signer_digest(self):
+        import subprocess
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location(
+            "owner_signer_verify_pin", ROOT / "scripts/chat-signed-main-audit.py")
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        fake = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout='[{"verificationResult":{"signed":"test"}}]', stderr="")
+        with patch.object(audit.subprocess, "run", return_value=fake) as fake_run:
+            result = audit.verify(ROOT / "fake-owner.zip",
+                                  audit.pin.SLSA, REPO, SHA)
+            args = fake_run.call_args.args[0]
+        self.assertEqual(result["verificationResult"]["signed"], "test")
+        self.assertEqual(args[args.index("--signer-digest") + 1],
+                         audit.OWNER_SIGNER_SHA)
+        self.assertNotEqual(args[args.index("--signer-digest") + 1],
+                            audit.pin.SIGNER_SHA)
+
+
 if __name__ == "__main__":
     main()
