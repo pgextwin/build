@@ -32,6 +32,11 @@ pin = module("owner_main_pin", "issue-75-attempt-pin-migration-offline.py")
 vuln = module("owner_main_grype", "automatic-grype-publisher-policy.py")
 SOURCE_KIND = "OWNER_ISSUE_COMMENT_MAIN_SIGNING"
 CALLER = ".github/workflows/chat-signed-main.yml"
+# Exact approved builder digest for this genuine owner source only.  Legacy
+# workflow_dispatch/manual provenance pins remain separate and unchanged.
+# Change only with protected source workflow pin, required CI, and original
+# postmerge proof. No wildcard or fallback signer is authorized.
+OWNER_SIGNER_SHA = "95418c3b16a843854e931bd4089a4f5827ffe211"
 
 
 class Denied(ValueError):
@@ -50,7 +55,7 @@ def read(path):
 def verify(z, kind, repo, sha):
     cmd = ["gh", "attestation", "verify", str(z), "--repo", repo,
            "--signer-workflow", "pgextwin/build/" + pin.offline.SIGNER_PATH,
-           "--signer-digest", pin.SIGNER_SHA, "--source-digest", sha,
+           "--signer-digest", OWNER_SIGNER_SHA, "--source-digest", sha,
            "--source-ref", "refs/heads/main", "--predicate-type", kind,
            "--format", "json"]
     cp = subprocess.run(cmd, text=True, capture_output=True, timeout=180, check=False)
@@ -117,7 +122,7 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, auditor):
              and origin.get("packagingCommit") == sha
              and build.get("repository") == "pgextwin/build"
              and build.get("workflow") == pin.offline.SIGNER_PATH
-             and build.get("commit") == pin.SIGNER_SHA
+             and build.get("commit") == OWNER_SIGNER_SHA
              and wf.get("id") == run_id and wf.get("attempt") == 1
              and wf.get("event") == "issue_comment"
              and wf.get("ref") == "refs/heads/main"
@@ -131,7 +136,7 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, auditor):
         for kind in (pin.SLSA, pin.SPDX):
             proof = verify(z, kind, repo, sha)
             pin.proof_statement(proof, kind, repo=repo, sha=sha,
-                                signer_sha=pin.SIGNER_SHA, run_id=run_id,
+                                signer_sha=OWNER_SIGNER_SHA, run_id=run_id,
                                 attempt=1, event="issue_comment",
                                 config_path=CALLER, zip_name=z.name,
                                 zip_digest=digests[z.name], sbom=sbom)
