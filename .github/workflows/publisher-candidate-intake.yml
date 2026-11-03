@@ -21,6 +21,8 @@ on:
       - 'scripts/publisher-candidate-intake.py'
       - 'scripts/publisher-owner-source-admission.py'
       - 'scripts/publisher-owner-source-publish-request.py'
+      - 'scripts/owner-source-formal-publisher.py'
+      - 'scripts/automatic-release-provenance.py'
       - 'scripts/owner-source-publish-policy.py'
       - 'metadata/owner-source-publication.json'
       - 'scripts/verify-completed-signed-source.py'
@@ -191,6 +193,11 @@ jobs:
           startsWith(github.event.comment.body, '/pgextwin publish-owner-source ') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      owner_source_selected: ${{ steps.select.outputs.owner_source_selected }}
+      repository: ${{ steps.select.outputs.repository }}
+      source_run: ${{ steps.select.outputs.source_run }}
+      main_sha: ${{ steps.select.outputs.main_sha }}
     permissions:
       contents: read
       actions: read
@@ -204,6 +211,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Require immutable owner comment, protected dual opt-in and genuine fresh signed bytes
+        id: select
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -215,7 +223,8 @@ jobs:
             --unattended metadata/unattended-publication.json \
             --publisher-boundary metadata/publisher-write-boundary.json \
             --lifecycle metadata/postgresql.json \
-            --output "$RUNNER_TEMP/owner-formal-source-selection.json"
+            --output "$RUNNER_TEMP/owner-formal-source-selection.json" \
+            --github-output "$GITHUB_OUTPUT"
           echo 'OWNER_SOURCE_READONLY; no App token or Release authority. PUBLISH_DENY.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve no-authority original/fresh source selection
         if: always()
@@ -471,5 +480,76 @@ jobs:
           path: |
             ${{ runner.temp }}/verified-automatic-release.json
             ${{ runner.temp }}/publisher-recovery.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  isolated_owner_source_formal_publisher:
+    # New, strictly separate owner source-kind. Do not treat owner issue_comment
+    # as the legacy signed main/push. A successful read-only selector is only
+    # a prerequisite, NEVER a receipt or proof for this privileged job.
+    name: Isolated original owner signed-main formal Publisher (create only)
+    needs: independent_owner_source_publish_request
+    if: >-
+      ${{ github.repository == 'pgextwin/build' &&
+          github.ref == 'refs/heads/main' &&
+          github.event_name == 'issue_comment' &&
+          github.event.action == 'created' &&
+          github.event.issue.number == 311 &&
+          !github.event.issue.pull_request &&
+          github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' &&
+          github.run_attempt == 1 &&
+          startsWith(github.event.comment.body, '/pgextwin publish-owner-source ') &&
+          needs.independent_owner_source_publish_request.result == 'success' &&
+          needs.independent_owner_source_publish_request.outputs.owner_source_selected == 'true' }}
+    environment: publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      issues: read
+    steps:
+      - name: Checkout protected central issuer with no persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Same-job original/fresh Sigstore and blocking Grype -> App -> formal create-only Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHER_APP_ID: ${{ vars.PGEXTWIN_PUBLISHER_APP_ID }}
+          PUBLISHER_INSTALLATION_ID: ${{ vars.PGEXTWIN_PUBLISHER_INSTALLATION_ID }}
+          PUBLISHER_PRIVATE_KEY: ${{ secrets.PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY }}
+          TARGET_REPOSITORY: ${{ needs.independent_owner_source_publish_request.outputs.repository }}
+          ORIGINAL_SOURCE_RUN: ${{ needs.independent_owner_source_publish_request.outputs.source_run }}
+          ORIGINAL_SOURCE_SHA: ${{ needs.independent_owner_source_publish_request.outputs.main_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/owner-source-formal-publisher.py \
+            --repository "$TARGET_REPOSITORY" \
+            --source-run "$ORIGINAL_SOURCE_RUN" \
+            --source-sha "$ORIGINAL_SOURCE_SHA" \
+            --fleet metadata/automation-fleet.json \
+            --central-policy metadata/release-promotion.json \
+            --owner-central-policy metadata/owner-source-publication.json \
+            --owner-policy metadata/owner-dispatch-publication.json \
+            --unattended metadata/unattended-publication.json \
+            --publisher-boundary metadata/publisher-write-boundary.json \
+            --lifecycle metadata/postgresql.json \
+            --recovery "$RUNNER_TEMP/owner-formal-recovery.json" \
+            --output "$RUNNER_TEMP/owner-formal-verified.json"
+      - name: Record no-secret result and ambiguous write recovery state
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owner-signed-main-formal-release-receipt
+          path: |
+            ${{ runner.temp }}/owner-formal-verified.json
+            ${{ runner.temp }}/owner-formal-recovery.json
           if-no-files-found: warn
           retention-days: 30
