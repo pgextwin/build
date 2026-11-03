@@ -346,24 +346,24 @@ def render_release_notes(ext, receipt):
     majors_text = ", ".join(str(n) for n in majors)
     name = ext["name"]
     return (
-        f"# {name} — Windows x64\\n\\n"
-        "## English\\n\\n"
+        f"# {name} — Windows x64\n\n"
+        "## English\n\n"
         f"Unofficial Windows x64 binaries for PostgreSQL {majors_text}. "
-        "Choose the ZIP matching your PostgreSQL major version.\\n\\n"
+        "Choose the ZIP matching your PostgreSQL major version.\n\n"
         f"See [installation and usage](https://github.com/{REPO}/blob/main/README.md) "
         "and the upstream documentation before installing. Some extensions require "
-        "additional settings or a PostgreSQL restart.\\n\\n"
+        "additional settings or a PostgreSQL restart.\n\n"
         "Check downloads against SHA256SUMS.txt. SPDX SBOMs, vulnerability reports, "
         "and signed build/SBOM attestations are also provided. Vulnerability reports "
-        "reflect the scan at publication and do not guarantee zero risk.\\n\\n"
-        "## 日本語\\n\\n"
+        "reflect the scan at publication and do not guarantee zero risk.\n\n"
+        "## 日本語\n\n"
         f"PostgreSQL {majors_text} 向けの非公式Windows x64バイナリです。"
-        "利用中のPostgreSQLメジャーバージョンに一致するZIPを選んでください。\\n\\n"
+        "利用中のPostgreSQLメジャーバージョンに一致するZIPを選んでください。\n\n"
         f"[導入・利用方法](https://github.com/{REPO}/blob/main/README_ja.md)と"
-        "上流ドキュメントを確認してください。拡張機能によっては追加設定や再起動が必要です。\\n\\n"
+        "上流ドキュメントを確認してください。拡張機能によっては追加設定や再起動が必要です。\n\n"
         "ダウンロードしたファイルはSHA256SUMS.txtで照合できます。"
         "SPDX形式のSBOM、脆弱性レポート、署名付きのビルド・SBOM証明も付属します。"
-        "脆弱性レポートは公開時点の結果であり、安全性を保証するものではありません。\\n"
+        "脆弱性レポートは公開時点の結果であり、安全性を保証するものではありません。\n"
     )
 
 
