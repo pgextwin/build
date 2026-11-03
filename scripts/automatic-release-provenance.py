@@ -27,6 +27,8 @@ ORIGINS={
     "automatic-schedule": ("VERIFIED_AUTOMATIC_SCHEDULE", "INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE"),
     "owner-dispatch": ("VERIFIED_OWNER_DISPATCH", "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
     "owner-issue-comment": ("VERIFIED_OWNER_ISSUE_COMMENT", "INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE"),
+    "owner-signed-main-issue-comment": ("VERIFIED_OWNER_SIGNED_MAIN_ISSUE_COMMENT",
+                                         "INDEPENDENT_LIVE_OWNER_MAIN_SIGNING_AND_PUBLISH_REQUEST"),
 }
 
 def require(ok,reason):
@@ -58,12 +60,19 @@ def claim(receipt):
     }
     if mode=="owner-issue-comment":
         result["requestCommentId"]=receipt.get("requestCommentId")
+    if mode=="owner-signed-main-issue-comment":
+        result["requestCommentId"]=receipt.get("requestCommentId")
+        result["sourceSigningCommentId"]=receipt.get("sourceSigningCommentId")
+        result["sourceKind"]=receipt.get("sourceKind")
     validate(result)
     return result
 
 def validate(value):
-    require(type(value) is dict and set(value)==
-            (FIELDS|{"requestCommentId"} if value.get("authorizationMode")=="owner-issue-comment" else FIELDS)
+    mode=value.get("authorizationMode") if type(value) is dict else None
+    extra=({"requestCommentId","sourceSigningCommentId","sourceKind"}
+           if mode=="owner-signed-main-issue-comment" else
+           {"requestCommentId"} if mode=="owner-issue-comment" else set())
+    require(type(value) is dict and set(value)==FIELDS|extra
             and type(value.get("schemaVersion")) is int
             and value["schemaVersion"]==1
             and type(value.get("authorizationMode")) is str
@@ -73,7 +82,10 @@ def validate(value):
             and type(value.get("packagingCommit")) is str and HEX40.fullmatch(value["packagingCommit"])
             and type(value.get("sourceRunId")) is int and value["sourceRunId"]>0
             and type(value.get("sourceRunAttempt")) is int and value["sourceRunAttempt"]==1
-            and value.get("sourceWorkflow")==".github/workflows/update-watch.yml"
+            and value.get("sourceWorkflow")==(
+                ".github/workflows/chat-signed-main.yml"
+                if mode=="owner-signed-main-issue-comment"
+                else ".github/workflows/update-watch.yml")
             and value.get("publisherRepository")=="pgextwin/build"
             and type(value.get("publisherRunId")) is int and value["publisherRunId"]>0
             and value["publisherRunId"]!=value["sourceRunId"]
@@ -83,9 +95,16 @@ def validate(value):
             and type(value.get("publisherAppId")) is int and value["publisherAppId"]==5451798
             and value.get("approvalProvenance")==ORIGINS[value["authorizationMode"]][1],
             "invalid automatic signed Publisher public Run locator")
-    if value["authorizationMode"]=="owner-issue-comment":
-        require(type(value.get("requestCommentId")) is int and value["requestCommentId"]>0,
+    if mode in ("owner-issue-comment","owner-signed-main-issue-comment"):
+        require(type(value.get("requestCommentId")) is int
+                and value["requestCommentId"]>0,
                 "invalid owner comment ID")
+    if mode=="owner-signed-main-issue-comment":
+        require(value.get("sourceKind")=="OWNER_ISSUE_COMMENT_MAIN_SIGNING"
+                and type(value.get("sourceSigningCommentId")) is int
+                and value["sourceSigningCommentId"]>0
+                and value["sourceSigningCommentId"]!=value["requestCommentId"],
+                "unbound distinct owner signer and Publisher commands")
     return value
 
 def encode(receipt):

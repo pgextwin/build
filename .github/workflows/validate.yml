@@ -384,6 +384,9 @@ jobs:
       - name: Reject forged owner original Sigstore proof or incomplete in-process Publisher policy
         run: python tests/test-owner-source-publisher-inprocess.py
 
+      - name: Reject forged owner signed-main formal Publisher original or blocking Grype
+        run: python tests/test-owner-source-formal-publisher.py
+
       - name: Deny forged scheduled candidate snapshots and preserve manual PUBLISH
         run: python tests/test-scheduled-fleet-candidate.py
 
