@@ -75,15 +75,32 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Release package evidence must name the actual trusted triggering event.
-# The new "push" value is inert until a separately gated extension publisher
-# exists; this finalizer never authorizes an event or publishes a Release.
+# Preserve the actual event in package metadata. The finalizer never
+# authorizes publication. A genuine owner issue_comment is a separate signing
+# source only after the independent, live-GET, fail-closed owner verifier passes.
 if ($BuildMode -eq "release-attested") {
-    if ($WorkflowEvent -notin @("workflow_dispatch", "push")) {
-        throw "Unsupported attested Release triggering event."
-    }
     if ($WorkflowRef -ne "refs/heads/main") {
         throw "Attested Release packages require a main-branch workflow ref."
+    }
+    if ($WorkflowEvent -eq "issue_comment") {
+        if ($WorkflowRunAttempt -ne 1 -or
+            $env:GITHUB_EVENT_NAME -ne "issue_comment" -or
+            $env:GITHUB_REF -ne $WorkflowRef -or
+            $env:GITHUB_REPOSITORY -ne $PackagingRepository -or
+            $env:GITHUB_RUN_ID -ne [string]$WorkflowRunId -or
+            $env:GITHUB_RUN_ATTEMPT -ne "1" -or
+            [string]::IsNullOrWhiteSpace($env:GITHUB_EVENT_PATH)) {
+            throw "Unverified original owner issue_comment workflow context."
+        }
+        $ownerVerifier = Join-Path $BuildInfrastructureDir "scripts/finalize-owner-source.py"
+        $fleetPath = Join-Path $BuildInfrastructureDir "metadata/automation-fleet.json"
+        & python $ownerVerifier --event $env:GITHUB_EVENT_PATH --fleet $fleetPath --repository $PackagingRepository --run-id $WorkflowRunId --ref $WorkflowRef
+        if ($LASTEXITCODE -ne 0) {
+            throw "Original owner issue_comment source denied by live authentication."
+        }
+    }
+    elseif ($WorkflowEvent -notin @("workflow_dispatch", "push")) {
+        throw "Unsupported attested Release triggering event."
     }
 }
 
