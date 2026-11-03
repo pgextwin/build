@@ -59,6 +59,19 @@ def make_assets(folder,ext,run=123,workflow_event="workflow_dispatch"):
         }))
 
 class FleetPublisherTests(TestCase):
+    def test_release_notes_are_bilingual_and_match_selected_majors(self):
+        ext, lc, receipt = fixture()
+        receipt["majors"] = [16, 17, 18]
+        with patch.object(p, "REPO", REPO):
+            notes = p.render_release_notes(ext, receipt)
+        self.assertIn("PostgreSQL 16, 17, 18", notes)
+        self.assertIn("## English", notes)
+        self.assertIn("## 日本語", notes)
+        self.assertIn("SHA256SUMS.txt", notes)
+        self.assertNotIn("PG14〜18", notes)
+        with self.assertRaises(p.Denied):
+            p.render_release_notes(ext, {**receipt, "majors": []})
+
     def test_exact_per_pg_15_files_5_distinct_sources(self):
         ext,lc,receipt=fixture()
         with TemporaryDirectory() as tmp,patch.object(p,"REPO",REPO):

@@ -338,6 +338,41 @@ def check_remote(tag, expected, draft, release_id):
                 check(digest(Path(d)/name) == expected_sha,
                       "remote SHA mismatch: " + name)
 
+def render_release_notes(ext, receipt):
+    """Bilingual user-facing notes, independent from the existing proof locator."""
+    majors = receipt.get("majors")
+    if majors is not None:
+        check(type(majors) is list and len(majors) > 0
+              and all(type(n) is int for n in majors), "invalid majors in Release notes")
+    major_phrase_en = ("PostgreSQL " + ", ".join(str(n) for n in majors)
+                       if majors is not None else
+                       "the PostgreSQL versions represented by the attached ZIPs")
+    major_phrase_ja = ("PostgreSQL " + ", ".join(str(n) for n in majors)
+                       if majors is not None else
+                       "このReleaseに含まれるPostgreSQLの各バージョン")
+    name = ext["name"]
+    return (
+        f"# {name} — Windows x64\n\n"
+        "## English\n\n"
+        f"Unofficial Windows x64 binaries for {major_phrase_en}. "
+        "Choose the ZIP matching your PostgreSQL major version.\n\n"
+        f"See [installation and usage](https://github.com/{REPO}/blob/main/README.md) "
+        "and the upstream documentation before installing. Some extensions require "
+        "additional settings or a PostgreSQL restart.\n\n"
+        "Check downloads against SHA256SUMS.txt. SPDX SBOMs, vulnerability reports, "
+        "and signed build/SBOM attestations are also provided. Vulnerability reports "
+        "reflect the scan at publication and do not guarantee zero risk.\n\n"
+        "## 日本語\n\n"
+        f"{major_phrase_ja} 向けの非公式Windows x64バイナリです。"
+        "利用中のPostgreSQLメジャーバージョンに一致するZIPを選んでください。\n\n"
+        f"[導入・利用方法](https://github.com/{REPO}/blob/main/README_ja.md)と"
+        "上流ドキュメントを確認してください。拡張機能によっては追加設定や再起動が必要です。\n\n"
+        "ダウンロードしたファイルはSHA256SUMS.txtで照合できます。"
+        "SPDX形式のSBOM、脆弱性レポート、署名付きのビルド・SBOM証明も付属します。"
+        "脆弱性レポートは公開時点の結果であり、安全性を保証するものではありません。\n"
+    )
+
+
 def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_run_id):
     """Existing create-only formal Release writer after SAME-JOB full preflight.
 
@@ -354,11 +389,7 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
     expected["SHA256SUMS.txt"]=digest(folder/"SHA256SUMS.txt")
     stage="PREFLIGHT_OK"
     notes=Path(recovery).with_suffix(".md")
-    notes_text = ("# "+ext["name"]+" Windows x64\n\n"
-        +"Unofficial Windows x64 binaries built from per-PostgreSQL SHA-pinned upstream sources. "
-        +"All maintained requested PG majors were smoke-tested; SPDX 2.3 SBOM, report-only Grype, "
-        +"signed provenance, signed SBOM attestations and SHA256SUMS included.\n"
-        +"非公式Windows x64バイナリです。対応するPG14〜18と検証可能な証明を含みます。\n")
+    notes_text = render_release_notes(ext, receipt)
     if receipt.get("authorizationMode") in (
             "automatic-schedule", "owner-dispatch", "owner-issue-comment",
             "owner-signed-main-issue-comment"):
