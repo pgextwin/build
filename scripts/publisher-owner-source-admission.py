@@ -24,6 +24,7 @@ SOURCE_WORKFLOW = ".github/workflows/chat-signed-main.yml"
 CENTRAL_WORKFLOW = ".github/workflows/publisher-candidate-intake.yml"
 OWNER = {"login": "ShutenOishi", "id": 27071164, "type": "User"}
 REQUEST = re.compile(r"^/pgextwin admit-owner-source (pgextwin/[a-z][a-z0-9_]*) ([1-9][0-9]*)$")
+PUBLISH_REQUEST = re.compile(r"^/pgextwin publish-owner-source (pgextwin/[a-z][a-z0-9_]*) ([1-9][0-9]*)$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -70,7 +71,7 @@ def get(repo, route):
                or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\?per_page=100", route)
                or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", route)
                or re.fullmatch(r"issues/comments/[1-9][0-9]*", route)
-               or re.fullmatch(r"contents/config/extension\.json\?ref=[0-9a-f]{40}", route))
+               or re.fullmatch(r"contents/config/(?:extension|release-promotion|owner-source-publication)\.json\?ref=[0-9a-f]{40}", route))
     need(bool(allowed), "non-allowlisted source GET")
     raw = command(["gh", "api", "--method", "GET",
                    "repos/" + repo + "/" + route])
@@ -79,9 +80,10 @@ def get(repo, route):
     need(type(result) is dict, "malformed GitHub API document")
     return result
 
-def authenticate_request(event, live, central, central_branch, env):
+def authenticate_request(event, live, central, central_branch, env, *, request_pattern=REQUEST):
     """Validate independent central Publisher original comment, not a fake push."""
-    m = REQUEST.fullmatch((event.get("comment") or {}).get("body", ""))
+    need(request_pattern in (REQUEST, PUBLISH_REQUEST), "unsupported owner request class")
+    m = request_pattern.fullmatch((event.get("comment") or {}).get("body", ""))
     need(m is not None and env.get("GITHUB_REPOSITORY") == "pgextwin/build"
          and env.get("GITHUB_EVENT_NAME") == "issue_comment"
          and env.get("GITHUB_RUN_ATTEMPT") == "1"
