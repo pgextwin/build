@@ -276,7 +276,7 @@ class OwnerSignerPinTests(TestCase):
         audit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(audit)
         source = (ROOT / ".github/workflows/chat-signed-main-source.yml").read_text("utf-8")
-        pins = re.findall(r"build-extension-attested\\.yml@([0-9a-f]{40})", source)
+        pins = re.findall(r"build-extension-attested\.yml@([0-9a-f]{40})", source)
         self.assertEqual(pins, [audit.OWNER_SIGNER_SHA])
         self.assertEqual(audit.OWNER_SIGNER_SHA,
                          "95418c3b16a843854e931bd4089a4f5827ffe211")
