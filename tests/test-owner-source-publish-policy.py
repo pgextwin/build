@@ -51,12 +51,12 @@ class OwnerSourcePolicyTests(unittest.TestCase):
         self.assertFalse(result["publicationAuthorized"])
         self.assertFalse(result["publishableReceipt"])
 
-    def test_protected_default_denies_without_publisher_entry(self):
+    def test_protected_owner_pilot_does_not_admit_unlisted_fleet_member(self):
         data=synthetic()
         data["owner_central"]=json.loads(
             (ROOT/"metadata/owner-source-publication.json").read_text("utf-8"))
-        self.assertEqual(data["owner_central"]["mode"],"DENY")
-        self.assertEqual(data["owner_central"]["allowedRepositories"],[])
+        self.assertEqual(data["owner_central"]["mode"],"ENFORCE")
+        self.assertEqual(data["owner_central"]["allowedRepositories"],["pgextwin/plpgsql_check"])
         with self.assertRaises(policy.Denied):
             policy.gate(**data)
 
