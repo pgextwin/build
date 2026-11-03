@@ -175,5 +175,97 @@ class MainSigningSourceTests(TestCase):
             audit.join(first, first)
 
 
+class FinalizerAdmissionTests(TestCase):
+    """The finalizer independently repeats fresh GET checks before ZIP metadata."""
+
+    def verifier(self):
+        spec = importlib.util.spec_from_file_location(
+            "finalizer_owner_source", ROOT / "scripts/finalize-owner-source.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def api(self, override=None):
+        original = {
+            "issues/comments/123456": live(),
+            "branches/main": branch(),
+            "actions/runs/8888": run(),
+        }
+        if override:
+            original.update(override)
+        def get(repository, resource):
+            self.assertEqual(repository, REPO)
+            return original[resource]
+        return get
+
+    def test_original_owner_source_accepts_only_nonpublishing(self):
+        proof = self.verifier().authenticate(event(), fleet(), env(), self.api())
+        self.assertEqual(proof["sourceKind"], "OWNER_ISSUE_COMMENT_MAIN_SIGNING")
+        self.assertEqual(proof["sourceEvent"], "issue_comment")
+        self.assertEqual(proof["PUBLISH"], "DENY")
+        self.assertFalse(proof["publicationAuthorized"])
+
+    def test_hostile_source_and_missing_live_get_fail_closed(self):
+        v = self.verifier()
+        for key, bad_value in (
+            ("GITHUB_ACTOR", "attacker"), ("GITHUB_ACTOR_ID", "1"),
+            ("GITHUB_TRIGGERING_ACTOR", "attacker"),
+            ("GITHUB_RUN_ATTEMPT", "2"), ("GITHUB_REF", "refs/heads/evil"),
+            ("GITHUB_EVENT_NAME", "push"), ("GITHUB_REPOSITORY", "pgextwin/evil"),
+            ("GITHUB_SHA", "b" * 40),
+        ):
+            with self.subTest(runtime=key):
+                altered = env()
+                altered[key] = bad_value
+                with self.assertRaises((auth.Denied, KeyError)):
+                    v.authenticate(event(), fleet(), altered, self.api())
+        for field, value in (
+            ("action", "edited"),
+            ("issue", {"number": 78, "pull_request": {}}),
+            ("comment", {**event()["comment"], "body": "/pgextwin publish-owner-source"}),
+            ("sender", {"login": "ShutenOishi", "id": 1}),
+        ):
+            altered = event()
+            altered[field] = value
+            with self.subTest(event=field):
+                with self.assertRaises(auth.Denied):
+                    v.authenticate(altered, fleet(), env(), self.api())
+        cases = [
+            {"issues/comments/123456": {**live(), "updated_at": "2026-11-03T00:05:00Z"}},
+            {"issues/comments/123456": {**live(), "id": 7}},
+            {"branches/main": {**branch(), "protected": False}},
+            {"actions/runs/8888": {**run(), "event": "push"}},
+            {"actions/runs/8888": {**run(), "run_attempt": 2}},
+        ]
+        for i, case in enumerate(cases):
+            with self.subTest(live_case=i):
+                with self.assertRaises(auth.Denied):
+                    v.authenticate(event(), fleet(), env(), self.api(case))
+        def missing_get(_repo, _resource):
+            raise OSError("GitHub GET unavailable")
+        with self.assertRaises(OSError):
+            v.authenticate(event(), fleet(), env(), missing_get)
+
+    def test_source_verifier_is_wired_to_actual_finalizer_only(self):
+        finalizer = (ROOT / "scripts/finalize-package.ps1").read_text("utf-8")
+        builder = (ROOT / ".github/workflows/build-extension-attested.yml").read_text("utf-8")
+        source = (ROOT / ".github/workflows/chat-signed-main-source.yml").read_text("utf-8")
+        guard = (ROOT / "scripts/finalize-owner-source.py").read_text("utf-8")
+        self.assertIn('$WorkflowEvent -eq "issue_comment"', finalizer)
+        self.assertIn('scripts/finalize-owner-source.py', finalizer)
+        self.assertIn('if ($LASTEXITCODE -ne 0)', finalizer)
+        self.assertIn('"workflow_dispatch", "push"', finalizer)
+        self.assertIn('GH_TOKEN: ${{ github.token }}', builder)
+        self.assertIn('issues: read', builder)
+        self.assertIn('actions: read', builder)
+        self.assertIn('issues: read', source)
+        self.assertIn('actions: read', source)
+        self.assertIn('auth.check(event, live, branch, run, fleet, env, issue_number)', guard)
+        self.assertIn('method="GET"', guard)
+        self.assertNotIn('gh release create', guard)
+        self.assertNotIn('contents: write', source)
+        self.assertNotIn('schedule:', source)
+
+
 if __name__ == "__main__":
     main()
