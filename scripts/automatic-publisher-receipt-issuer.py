@@ -259,10 +259,12 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           and scoped["repositories"][0].get("full_name")==repository,
           "independent Publisher token scope unknown or expanded")
     receipt={
-        "schemaVersion":1,"status":("VERIFIED_AUTOMATIC_SCHEDULE" if event=="schedule"
+        "schemaVersion":1,"status":("VERIFIED_OWNER_SIGNED_MAIN_ISSUE_COMMENT"
+                        if owner_signed else "VERIFIED_AUTOMATIC_SCHEDULE" if event=="schedule"
                         else "VERIFIED_OWNER_ISSUE_COMMENT" if event=="issue_comment"
                         else "VERIFIED_OWNER_DISPATCH"),
-        "authorizationMode":("automatic-schedule" if event=="schedule"
+        "authorizationMode":("owner-signed-main-issue-comment" if owner_signed
+                             else "automatic-schedule" if event=="schedule"
                              else "owner-issue-comment" if event=="issue_comment"
                              else "owner-dispatch"),
         "repository":repository,"trustedCommit":sha,
@@ -272,11 +274,13 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         "publisherWorkflow":SCHEDULE,
         "publisherRunId":publisher_run,"publisherRunAttempt":1,
         "publisherMainSha":central_sha,
-        "signedSourceWorkflow":SOURCE,"sourceRunId":source_run,
+        "signedSourceWorkflow":(OWNER_SOURCE if owner_signed else SOURCE),
+        "sourceRunId":source_run,
         "sourceRunAttempt":1,"signedArtifactsVerified":True,
         "publicationAuthorized":True,"publishableReceipt":True,
         "publisherWriteAuthorized":True,"automaticReleaseEnabled":True,
-        "approvalProvenance":("INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE" if event=="schedule"
+        "approvalProvenance":("INDEPENDENT_LIVE_OWNER_MAIN_SIGNING_AND_PUBLISH_REQUEST"
+                         if owner_signed else "INDEPENDENT_LIVE_SCHEDULE_AND_SIGNED_SOURCE" if event=="schedule"
                          else "INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE" if event=="issue_comment"
                          else "INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE"),
     }
@@ -284,6 +288,11 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         receipt["operator"]=actor
     if event=="issue_comment":
         receipt["requestCommentId"]=request_comment_id
+    if owner_signed:
+        receipt["sourceKind"]=OWNER_KIND
+        receipt["sourceEvent"]="issue_comment"
+        receipt["sourceSigningCommentId"]=source_signing_comment_id
+        receipt["originalAndFreshDualSigstoreAgree"]=True
     typed.validate_receipt(receipt,repository=repository,commit=sha,
                            actor=actor,event=event)
     return receipt
