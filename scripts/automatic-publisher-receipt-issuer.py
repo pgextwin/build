@@ -172,21 +172,50 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
                     event=event,actor=actor,comment_id=request_comment_id)
     except trigger.Denied as exc:
         raise Denied("central Publisher event not authenticated") from exc
-    check(type(proof) is dict and proof.get("schemaVersion")==1
-          and proof.get("status")=="REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING"
-          and proof.get("repository")==repository
-          and proof.get("mainMergeSha")==sha
-          and type(proof.get("sourceRunId")) is int
-          and proof["sourceRunId"]==source_run
-          and type(proof.get("sourceRunAttempt")) is int
-          and proof["sourceRunAttempt"]==1
-          and proof.get("realSigstoreRechecked") is True
-          and type(proof.get("blockingGrypeFindings")) is int
-          and proof["blockingGrypeFindings"]==0
-          and all(proof.get(k) is False for k in (
-              "publicationAuthorized","publishableReceipt",
-              "publisherTokenRequested","automaticReleaseEnabled")),
-          "original signed ZIP/SBOM/Grype cryptographic proof not established")
+    if owner_signed:
+        check(type(proof) is dict and type(proof.get("schemaVersion")) is int
+              and proof["schemaVersion"]==1
+              and proof.get("status")=="OWNER_MAIN_SIGNED_SOURCE_INDEPENDENTLY_VERIFIED_NONPUBLISHING"
+              and proof.get("sourceKind")==OWNER_KIND
+              and proof.get("sourceEvent")=="issue_comment"
+              and proof.get("repository")==repository
+              and proof.get("mainSha")==sha
+              and type(proof.get("sourceRunId")) is int
+              and proof["sourceRunId"]==source_run
+              and type(proof.get("sourceRunAttempt")) is int
+              and proof["sourceRunAttempt"]==1
+              and type(proof.get("sourceCommentId")) is int
+              and proof["sourceCommentId"]==source_signing_comment_id
+              and proof.get("originalAndFreshDualSigstoreAgree") is True
+              and proof.get("publisherEligible") is False
+              and proof.get("PUBLISH")=="DENY"
+              and all(proof.get(k) is False for k in (
+                  "publicationAuthorized","publishableReceipt",
+                  "publisherWriteAuthorized"))
+              and type(proof.get("SHA256")) is dict
+              and type(proof.get("maintainedMajors")) is list,
+              "real original/fresh owner Sigstore source proof not established")
+        # The source's read-only admission alone does not authorize a release.
+        # Blocking Grype is independently evaluated before any privileged write.
+        check(type(proof.get("blockingGrypeFindings")) is int
+              and proof["blockingGrypeFindings"]==0,
+              "blocking owner-source Grype findings not independently cleared")
+    else:
+        check(type(proof) is dict and proof.get("schemaVersion")==1
+              and proof.get("status")=="REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING"
+              and proof.get("repository")==repository
+              and proof.get("mainMergeSha")==sha
+              and type(proof.get("sourceRunId")) is int
+              and proof["sourceRunId"]==source_run
+              and type(proof.get("sourceRunAttempt")) is int
+              and proof["sourceRunAttempt"]==1
+              and proof.get("realSigstoreRechecked") is True
+              and type(proof.get("blockingGrypeFindings")) is int
+              and proof["blockingGrypeFindings"]==0
+              and all(proof.get(k) is False for k in (
+                  "publicationAuthorized","publishableReceipt",
+                  "publisherTokenRequested","automaticReleaseEnabled")),
+              "original signed ZIP/SBOM/Grype cryptographic proof not established")
     check(type(manifest) is dict and manifest.get("name")==repository.split("/")[1],
           "source manifest/repository mismatch")
     try:
@@ -197,8 +226,11 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         raise Denied("invalid maintained PG versions/upstream/tag") from exc
     check(proof.get("maintainedMajors")==majors and bool(majors),
           "original signed PG major list mismatch")
-    for kind in ("zip","spdx","grype"):
-        hashes=proof.get(kind+"Sha256ByMajor")
+    for kind,suffix in (("zip",".zip"),("spdx",".spdx.json"),
+                        ("grype",".vulnerabilities.json")):
+        hashes=(proof.get(kind+"Sha256ByMajor") if not owner_signed else
+                {str(m):proof.get("SHA256",{}).get(ident.asset_stem(manifest,m)+suffix)
+                 for m in majors})
         check(type(hashes) is dict and set(hashes)=={str(m) for m in majors}
               and all(type(d) is str and HASH.fullmatch(d) for d in hashes.values()),
               "missing signed "+kind+" digest evidence")
