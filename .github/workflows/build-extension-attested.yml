@@ -80,6 +80,8 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
+      issues: read
+      actions: read
       id-token: write
       attestations: write
       artifact-metadata: write
@@ -182,6 +184,8 @@ jobs:
 
       - name: Finalize and validate package metadata
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           & ".pgextwin-build/scripts/finalize-package.ps1" -ExtensionName "${{ needs.matrix.outputs.extension_name }}" -UpstreamDir (Join-Path $PWD "upstream") -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" -UpstreamRef "${{ matrix.upstreamRef }}" -UpstreamVersion "${{ matrix.upstreamVersion }}" -PostgreSqlMajor ([int]"${{ matrix.major }}") -PostgreSqlTestedVersion "${{ matrix.minor }}" -ChocolateyPackage "${{ matrix.chocolateyPackage }}" -ChocolateyPackageVersion "${{ matrix.chocolateyVersion }}" -PackagingRepository "${{ github.repository }}" -BuildRepository "${{ job.workflow_repository }}" -BuildCommit "${{ job.workflow_sha }}" -ReusableWorkflow ".github/workflows/build-extension-attested.yml" -BuildMode "release-attested" -WorkflowRunId ([long]"${{ github.run_id }}") -WorkflowRunAttempt ([int]"${{ github.run_attempt }}") -WorkflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" -WorkflowEvent "${{ github.event_name }}" -WorkflowRef "${{ github.ref }}"
 
