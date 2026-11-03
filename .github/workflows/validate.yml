@@ -378,6 +378,9 @@ jobs:
       - name: Reject forged owner-signed formal source receipts and policy escalation
         run: python tests/test-owner-source-publish-policy.py
 
+      - name: Authenticate owner formal-source request and reject nonpublishing escalation
+        run: python tests/test-publisher-owner-source-publish-request.py
+
       - name: Deny forged scheduled candidate snapshots and preserve manual PUBLISH
         run: python tests/test-scheduled-fleet-candidate.py
 
