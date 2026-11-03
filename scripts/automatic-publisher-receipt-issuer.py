@@ -29,6 +29,8 @@ APP=5451798
 INSTALLATION=174720074
 SCHEDULE=".github/workflows/publisher-candidate-intake.yml"
 SOURCE=".github/workflows/update-watch.yml"
+OWNER_SOURCE=".github/workflows/chat-signed-main.yml"
+OWNER_KIND="OWNER_ISSUE_COMMENT_MAIN_SIGNING"
 
 class Denied(ValueError): pass
 def check(value,why):
@@ -117,7 +119,9 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
           app_identity, installation_identity, minted, scoped,
           repository, sha, source_run, central_sha, publisher_run,
           event, ref, attempt, tag, tag_absent, release_absent, actor,
-          owner_policy=None,request_comment_id=None):
+          owner_policy=None,request_comment_id=None,
+          source_kind=None,source_signing_comment_id=None,
+          owner_central=None,owner_local=None):
     """In-process Release receipt: only after all genuinely independent gates.
 
     The caller must supply proof produced by real verify_completed_source()
@@ -125,6 +129,29 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
     Caller must also establish the live App issuer and token using JWT requests.
     """
     policy_gate(fleet,central,local,unattended,boundary,repository)
+    owner_signed=source_kind==OWNER_KIND
+    check(source_kind is None or owner_signed,
+          "unsupported owner source-kind")
+    if owner_signed:
+        owner_gate=load("inprocess_owner_source_protected_policy",
+                        "owner-source-publish-policy.py")
+        try:
+            owner_gate.gate(fleet=fleet,central=central,local=local,
+                            unattended=unattended,boundary=boundary,
+                            owner_central=owner_central,owner_local=owner_local,
+                            repository=repository)
+        except owner_gate.Denied as exc:
+            raise Denied("missing protected owner-source central/local opt-in") from exc
+        check(event=="issue_comment" and type(request_comment_id) is int
+              and request_comment_id>0
+              and type(source_signing_comment_id) is int
+              and source_signing_comment_id>0
+              and source_signing_comment_id!=request_comment_id,
+              "owner signing and Publisher requests not distinct")
+    else:
+        check(source_signing_comment_id is None and owner_central is None
+              and owner_local is None,
+              "push-only source must not carry owner-source authorization")
     if event in ("workflow_dispatch","issue_comment"):
         owner_policy_gate(owner_policy)
     check(type(sha) is str and SHA.fullmatch(sha)
