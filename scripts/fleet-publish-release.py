@@ -340,15 +340,21 @@ def check_remote(tag, expected, draft, release_id):
 
 def render_release_notes(ext, receipt):
     """Bilingual user-facing notes, independent from the existing proof locator."""
-    majors = receipt["majors"]
-    check(type(majors) is list and len(majors) > 0
-          and all(type(n) is int for n in majors), "invalid majors in Release notes")
-    majors_text = ", ".join(str(n) for n in majors)
+    majors = receipt.get("majors")
+    if majors is not None:
+        check(type(majors) is list and len(majors) > 0
+              and all(type(n) is int for n in majors), "invalid majors in Release notes")
+    major_phrase_en = ("PostgreSQL " + ", ".join(str(n) for n in majors)
+                       if majors is not None else
+                       "the PostgreSQL versions represented by the attached ZIPs")
+    major_phrase_ja = ("PostgreSQL " + ", ".join(str(n) for n in majors)
+                       if majors is not None else
+                       "このReleaseに含まれるPostgreSQLの各バージョン")
     name = ext["name"]
     return (
         f"# {name} — Windows x64\n\n"
         "## English\n\n"
-        f"Unofficial Windows x64 binaries for PostgreSQL {majors_text}. "
+        f"Unofficial Windows x64 binaries for {major_phrase_en}. "
         "Choose the ZIP matching your PostgreSQL major version.\n\n"
         f"See [installation and usage](https://github.com/{REPO}/blob/main/README.md) "
         "and the upstream documentation before installing. Some extensions require "
@@ -357,7 +363,7 @@ def render_release_notes(ext, receipt):
         "and signed build/SBOM attestations are also provided. Vulnerability reports "
         "reflect the scan at publication and do not guarantee zero risk.\n\n"
         "## 日本語\n\n"
-        f"PostgreSQL {majors_text} 向けの非公式Windows x64バイナリです。"
+        f"{major_phrase_ja} 向けの非公式Windows x64バイナリです。"
         "利用中のPostgreSQLメジャーバージョンに一致するZIPを選んでください。\n\n"
         f"[導入・利用方法](https://github.com/{REPO}/blob/main/README_ja.md)と"
         "上流ドキュメントを確認してください。拡張機能によっては追加設定や再起動が必要です。\n\n"
