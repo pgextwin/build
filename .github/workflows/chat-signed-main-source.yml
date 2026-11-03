@@ -86,6 +86,8 @@ jobs:
     if: ${{ needs.authenticate.outputs.verified == 'true' }}
     permissions:
       contents: read
+      issues: read
+      actions: read
       id-token: write
       attestations: write
       artifact-metadata: write
