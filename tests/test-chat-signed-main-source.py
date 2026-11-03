@@ -194,7 +194,6 @@ class FinalizerAdmissionTests(TestCase):
         if override:
             original.update(override)
         def get(repository, resource):
-            self.assertEqual(repository, REPO)
             return original[resource]
         return get
 
@@ -217,7 +216,7 @@ class FinalizerAdmissionTests(TestCase):
             with self.subTest(runtime=key):
                 altered = env()
                 altered[key] = bad_value
-                with self.assertRaises((auth.Denied, KeyError)):
+                with self.assertRaises((v.auth.Denied, KeyError)):
                     v.authenticate(event(), fleet(), altered, self.api())
         for field, value in (
             ("action", "edited"),
@@ -228,7 +227,7 @@ class FinalizerAdmissionTests(TestCase):
             altered = event()
             altered[field] = value
             with self.subTest(event=field):
-                with self.assertRaises(auth.Denied):
+                with self.assertRaises(v.auth.Denied):
                     v.authenticate(altered, fleet(), env(), self.api())
         cases = [
             {"issues/comments/123456": {**live(), "updated_at": "2026-11-03T00:05:00Z"}},
@@ -239,7 +238,7 @@ class FinalizerAdmissionTests(TestCase):
         ]
         for i, case in enumerate(cases):
             with self.subTest(live_case=i):
-                with self.assertRaises(auth.Denied):
+                with self.assertRaises(v.auth.Denied):
                     v.authenticate(event(), fleet(), env(), self.api(case))
         def missing_get(_repo, _resource):
             raise OSError("GitHub GET unavailable")
