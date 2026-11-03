@@ -150,7 +150,8 @@ class OwnerFormalRuntimeTests(TestCase):
         # No front door can be considered verified without exact protected
         # central AND local opt-ins (default DENY remains the starting policy).
         central=json.loads((ROOT/"metadata/owner-source-publication.json").read_text("utf-8"))
-        self.assertEqual(central["mode"],"DENY")
+        self.assertEqual(central["mode"],"ENFORCE")
+        self.assertEqual(central["allowedRepositories"],["pgextwin/plpgsql_check"])
 
 if __name__=="__main__":
     main()
