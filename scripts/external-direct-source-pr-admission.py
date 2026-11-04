@@ -91,7 +91,21 @@ def check_owner_event(env, event, api):
             and online.get("html_url") ==
             f"https://github.com/pgextwin/build/issues/112#issuecomment-{comment['id']}",
             "online owner comment mismatch")
-    return head, comment["id"]
+    run_id = env.get("GITHUB_RUN_ID", "")
+    require(type(run_id) is str and run_id.isdecimal() and int(run_id) > 0,
+            "original central Publisher Run ID absent")
+    original = api("GET", f"/repos/pgextwin/build/actions/runs/{run_id}", token)
+    require(original.get("id") == int(run_id)
+            and original.get("event") == "issue_comment"
+            and original.get("head_sha") == head
+            and original.get("head_branch") == "main"
+            and original.get("run_attempt") == 1
+            and original.get("status") == "in_progress"
+            and original.get("actor", {}).get("login") == "ShutenOishi"
+            and original.get("triggering_actor", {}).get("login") == "ShutenOishi"
+            and original.get("path") == ".github/workflows/publisher-candidate-intake.yml",
+            "original central Publisher Run identity mismatch")
+    return head, comment["id"], int(run_id)
 
 
 def verify_catalog_source(catalog, catalog_sha, read_token, api, *, exec_cmd=subprocess.run):
@@ -237,7 +251,10 @@ def scoped_catalog_token(api, jwt, private_key, *, sleep=time.sleep):
             require(revoked, "same-token 401 revocation missing")
 
 
-def proposal_bytes(candidate, byte_result, source_sha, build_sha, comment_id):
+def proposal_bytes(candidate, byte_result, source_sha, build_sha, comment_id, run_id):
+    require(type(run_id) is int and run_id > 0
+            and type(comment_id) is int and comment_id > 0,
+            "missing genuine central Run or owner comment")
     require(candidate["catalogCommit"] == source_sha
             and len(candidate["records"]) == 2
             and all(x["bytesVerified"] for x in byte_result),
@@ -267,6 +284,8 @@ def proposal_bytes(candidate, byte_result, source_sha, build_sha, comment_id):
         "sourceKind": SOURCE_KIND, "mode": "PROTECTED_PR_PROPOSAL_ONLY",
         "sourceCatalogCommit": source_sha, "sourceBuildCommit": build_sha,
         "originalOwnerCommentId": comment_id,
+        "originalPublisherRunId": run_id,
+        "originalPublisherRunAttempt": 1,
         "externalAppId": APP, "externalInstallationId": INSTALL,
         "requiredEnvironment": "external-direct-provider-publisher",
         "approvedOperation": "PROPOSE_DIRECT_ORIGINAL_REFERENCE_ONLY",
@@ -332,13 +351,13 @@ def main():
         env = dict(os.environ)
         key = env.pop("EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY", "")
         event = json.loads(Path(env["GITHUB_EVENT_PATH"]).read_text("utf-8"))
-        build_sha, comment_id = check_owner_event(env, event, shared.api)
+        build_sha, comment_id, run_id = check_owner_event(env, event, shared.api)
         catalog = Path(env["PGEXTWIN_CATALOG_CHECKOUT"]).resolve()
         source_sha = env["EXTERNAL_CATALOG_SOURCE_SHA"]
         candidate, byte_result = verify_catalog_source(
             catalog, source_sha, env["GITHUB_TOKEN"], shared.api)
         payload = proposal_bytes(candidate, byte_result, source_sha,
-                                 build_sha, comment_id)
+                                 build_sha, comment_id, run_id)
         with scoped_catalog_token(shared.api, shared.jwt, key) as token:
             report = create_protected_pr(shared.api, token,
                                          source_sha=source_sha, payload=payload)
