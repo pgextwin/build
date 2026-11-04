@@ -31,6 +31,12 @@ class FakeAPI:
             return {"id": 123456, "body": mod.COMMAND,
                     "html_url": "https://github.com/pgextwin/build/issues/112#issuecomment-123456",
                     "user": {"login": "ShutenOishi"}}
+        if path == "/repos/pgextwin/build/actions/runs/789":
+            return {"id":789, "event":"issue_comment", "head_sha":HEAD,
+                    "head_branch":"main", "run_attempt":1, "status":"in_progress",
+                    "actor":{"login":"ShutenOishi"},
+                    "triggering_actor":{"login":"ShutenOishi"},
+                    "path":".github/workflows/publisher-candidate-intake.yml"}
         if path == "/app":
             return {"id": 15368 if self.bad == "wrong-app" else mod.APP,
                     "slug": mod.APP_SLUG}
@@ -79,7 +85,8 @@ def env():
     return {"GITHUB_EVENT_NAME": "issue_comment", "GITHUB_REPOSITORY": "pgextwin/build",
             "GITHUB_REF": "refs/heads/main", "GITHUB_ACTOR": "ShutenOishi",
             "GITHUB_TRIGGERING_ACTOR": "ShutenOishi", "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_SHA": HEAD, "GITHUB_TOKEN": "synthetic-read-only-token"}
+            "GITHUB_SHA": HEAD, "GITHUB_RUN_ID":"789",
+            "GITHUB_TOKEN": "synthetic-read-only-token"}
 
 
 def event():
@@ -92,8 +99,8 @@ def event():
 class Tests(unittest.TestCase):
     def test_genuine_owner_requires_online_confirmation(self):
         api=FakeAPI()
-        sha, n = mod.check_owner_event(env(),event(),api)
-        self.assertEqual((sha,n),(HEAD,123456))
+        sha, n, run = mod.check_owner_event(env(),event(),api)
+        self.assertEqual((sha,n,run),(HEAD,123456,789))
         self.assertIn(("GET","/repos/pgextwin/build/issues/comments/123456"),api.calls)
 
     def test_spoofed_schedule_replay_issue_or_owner_denied(self):
@@ -103,7 +110,8 @@ class Tests(unittest.TestCase):
                           ("GITHUB_RUN_ATTEMPT","2"),
                           ("GITHUB_ACTOR","attacker"),
                           ("GITHUB_TRIGGERING_ACTOR","attacker"),
-                          ("GITHUB_SHA","f")):
+                          ("GITHUB_SHA","f"),
+                          ("GITHUB_RUN_ID","0")):
             with self.subTest(key=key,value=value):
                 e=env()
                 e[key]=value
@@ -170,11 +178,11 @@ class Tests(unittest.TestCase):
         proofs=[{"sourceRepo":"laurenz/oracle_fdw","releaseId":335861225,
                  "assetId":442625860,"bytesVerified":True}]
         with self.assertRaises(mod.Denied):
-            mod.proposal_bytes(data,proofs,HEAD,HEAD,123456)
+            mod.proposal_bytes(data,proofs,HEAD,HEAD,123456,789)
         data["records"].append(dict(data["records"][0]))
         data["records"][0]["downloadAuthorized"]=True
         with self.assertRaises(mod.Denied):
-            mod.proposal_bytes(data,proofs,HEAD,HEAD,123456)
+            mod.proposal_bytes(data,proofs,HEAD,HEAD,123456,789)
 
 
 if __name__=="__main__":
