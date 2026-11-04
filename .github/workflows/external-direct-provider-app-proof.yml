@@ -1,0 +1,31 @@
+name: External direct-provider App original-main nonpublishing proof
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/external-direct-provider-app-proof.yml'
+      - 'scripts/probe-external-direct-provider-app.py'
+      - 'tests/test-probe-external-direct-provider-app.py'
+permissions:
+  contents: read
+concurrency:
+  group: external-direct-provider-app-proof
+  cancel-in-progress: false
+jobs:
+  original-main-credential-proof:
+    if: github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: external-direct-provider-publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout genuine current protected build/main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify isolated App JWT, Catalog-only scoped write and token revocation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY: ${{ secrets.EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY }}
+        run: python3 scripts/probe-external-direct-provider-app.py
