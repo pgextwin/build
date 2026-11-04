@@ -553,3 +553,61 @@ jobs:
             ${{ runner.temp }}/owner-formal-recovery.json
           if-no-files-found: warn
           retention-days: 30
+
+  isolated_external_direct_catalog_pr:
+    # Isolated EXTERNAL_GITHUB_RELEASE_ASSET source-kind, reusing central Publisher
+    # workflow. Approved operation: protected Catalog PR only. NO Release.
+    if: >-
+      ${{ github.repository == 'pgextwin/build' &&
+          github.ref == 'refs/heads/main' &&
+          github.event_name == 'issue_comment' &&
+          github.event.action == 'created' &&
+          github.event.issue.number == 112 &&
+          !github.event.issue.pull_request &&
+          github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' &&
+          github.run_attempt == 1 &&
+          github.event.comment.body == '/pgextwin external-direct propose-pg18' }}
+    name: Exact original source plus App -> protected Catalog PR (no publish)
+    environment: external-direct-provider-publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      attestations: read
+    steps:
+      - name: Checkout current central protected Publisher source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Authenticate exact protected Catalog main before source checkout
+        id: catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="$(gh api --method GET repos/pgextwin/catalog/branches/main)"
+          [[ "$(jq -r '.protected' <<< "$branch")" == true ]]
+          sha="$(jq -er '.commit.sha | select(test("^[0-9a-f]{40}$"))' <<< "$branch")"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Checkout exact protected Catalog source with deny-only signed candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/catalog
+          ref: ${{ steps.catalog.outputs.sha }}
+          path: .pgextwin-external-catalog
+          persist-credentials: false
+      - name: Verify signed source and exact original ZIP bytes, then open protected PR only
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXTERNAL_CATALOG_SOURCE_SHA: ${{ steps.catalog.outputs.sha }}
+          PGEXTWIN_CATALOG_CHECKOUT: .pgextwin-external-catalog
+          EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY: ${{ secrets.EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/external-direct-source-pr-admission.py
+          echo 'EXTERNAL_SOURCE_SPECIFIC_CATALOG_PR_PROPOSED; RELEASE_DENY DOWNLOAD_DENY=203 MIRROR_DENY=203'
