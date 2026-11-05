@@ -56,7 +56,7 @@ class OwnerSourcePolicyTests(unittest.TestCase):
         data["owner_central"]=json.loads(
             (ROOT/"metadata/owner-source-publication.json").read_text("utf-8"))
         self.assertEqual(data["owner_central"]["mode"],"ENFORCE")
-        self.assertEqual(data["owner_central"]["allowedRepositories"],["pgextwin/plpgsql_check"])
+        self.assertEqual(data["owner_central"]["allowedRepositories"],["pgextwin/plpgsql_check", "pgextwin/pg_ivm"])
         with self.assertRaises(policy.Denied):
             policy.gate(**data)
 
