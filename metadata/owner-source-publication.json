@@ -4,7 +4,8 @@
   "mode": "ENFORCE",
   "allowedRepositories": [
     "pgextwin/plpgsql_check",
-    "pgextwin/pg_ivm"
+    "pgextwin/pg_ivm",
+    "pgextwin/set_user"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
