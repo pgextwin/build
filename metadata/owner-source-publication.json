@@ -3,7 +3,8 @@
   "sourceKind": "OWNER_ISSUE_COMMENT_MAIN_SIGNING",
   "mode": "ENFORCE",
   "allowedRepositories": [
-    "pgextwin/plpgsql_check"
+    "pgextwin/plpgsql_check",
+    "pgextwin/pg_ivm"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
