@@ -243,14 +243,42 @@ def make_manifest(*, build_sha, runid, catalog_sha, row, proof, now):
         }]
     }
 
+# Fixed, nonsecret stage labels only; never log exceptions or API response bodies.
+DENIAL_STAGES = frozenset({
+    "EVENT", "OWNER_RUN", "CATALOG_PROVIDER", "ORIGINAL_ZIP",
+    "APP_MODULE", "APP_SCOPE", "SOURCE_RECHECK", "MANIFEST", "OUTPUT_CREATE",
+})
+
+def denial_diagnostic(stage, error):
+    label = stage if stage in DENIAL_STAGES else "UNKNOWN"
+    category = "POLICY" if isinstance(error, Denied) else "RUNTIME"
+    return ("EXTERNAL_DIRECT_GET_ISSUER_DENY STAGE=" + label +
+            " CLASS=" + category +
+            "; no tokens or untrusted API payloads emitted")
+
+def load_external_app_helpers():
+    """Import the actual nonpublishing App probe and reuse its original primitives."""
+    source = importlib.util.spec_from_file_location(
+        "external_app_proof",
+        Path(__file__).with_name("probe-external-direct-provider-app.py"))
+    require(source is not None and source.loader is not None,
+            "external App probe module unavailable")
+    mod = importlib.util.module_from_spec(source)
+    source.loader.exec_module(mod)
+    # probe-external-direct-provider-app.py imports the shared probe as _existing.
+    return mod._existing.api, mod._existing.jwt
+
 def main():
+    stage = "EVENT"
     try:
         env = dict(os.environ)
         event = json.loads(Path(env["GITHUB_EVENT_PATH"]).read_text("utf-8"),
                            object_pairs_hook=no_duplicates)
+        stage = "OWNER_RUN"
         build, runid = validate_original_owner_run(env, event,
             gh_get("repos/pgextwin/build/branches/main"),
             gh_get("repos/pgextwin/build/actions/runs/" + env["GITHUB_RUN_ID"]))
+        stage = "CATALOG_PROVIDER"
         catalog_root = Path(env["CATALOG_CHECKOUT"])
         sha, row = validate_catalog_and_provider(catalog_root,
             gh_get("repos/pgextwin/catalog/branches/main"),
@@ -258,20 +286,23 @@ def main():
             gh_get("repos/trickle-labs/pg-trickle/releases/tags/v0.108.3"),
             gh_get(f"repos/pgextwin/catalog/actions/runs/{RUNTIME_RUN}"),
             gh_get(f"repos/trickle-labs/pg-trickle/actions/runs/{UPSTREAM_RUN}"))
+        stage = "ORIGINAL_ZIP"
         zip_proof = verify_original_zip(env["ORIGINAL_ZIP"])
-        source=importlib.util.spec_from_file_location(
-            "external_app_proof", Path(__file__).with_name("probe-external-direct-provider-app.py"))
-        mod=importlib.util.module_from_spec(source)
-        source.loader.exec_module(mod)
+        stage = "APP_MODULE"
+        api, jwt = load_external_app_helpers()
+        stage = "APP_SCOPE"
         verify_app_readonly(env["EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY"],
-                            api=mod.shared.api, jwt=mod.shared.jwt)
+                            api=api, jwt=jwt)
+        stage = "SOURCE_RECHECK"
         # TOCTOU protection: reauthenticate Build and Catalog main immediately
         # before emitting an unsigned manifest for the real OIDC signer.
         require(gh_get("repos/pgextwin/build/branches/main")["commit"]["sha"] == build
                 and gh_get("repos/pgextwin/catalog/branches/main")["commit"]["sha"] == sha,
                 "protected source advanced before issuance")
+        stage = "MANIFEST"
         payload = make_manifest(build_sha=build, runid=runid, catalog_sha=sha,
                                 row=row, proof=zip_proof, now=datetime.now(timezone.utc))
+        stage = "OUTPUT_CREATE"
         output = Path(env["OUTPUT_FILE"])
         require(not output.exists() and not output.is_symlink(),
                 "non-create-only issuer output")
@@ -280,9 +311,8 @@ def main():
                                 ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
         print("GET_ONLY_MANIFEST_CREATED_UNSIGNED; NEXT=REAL_OIDC_ATTESTATION "
               "PUBLICATION=DENY MIRROR=DENY REDISTRIBUTION=DENY")
-    except Exception:
-        print("EXTERNAL_DIRECT_GET_ISSUER_DENY; no tokens or untrusted API payloads emitted",
-              file=sys.stderr)
+    except Exception as error:
+        print(denial_diagnostic(stage, error), file=sys.stderr)
         raise SystemExit(1)
 
 if __name__ == "__main__":
