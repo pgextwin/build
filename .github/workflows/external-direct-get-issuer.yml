@@ -89,13 +89,25 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/external-get-admission.json
+      - name: Stage signed metadata in a flat two-file artifact
+        shell: bash
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          admission="$RUNNER_TEMP/external-get-admission.json"
+          proof="$RUNNER_TEMP/external-get-proof"
+          test -f "$admission" && test ! -L "$admission"
+          test -f "$BUNDLE_PATH" && test ! -L "$BUNDLE_PATH"
+          mkdir "$proof"
+          cp -- "$admission" "$proof/external-get-admission.json"
+          cp -- "$BUNDLE_PATH" "$proof/attestation.json"
       - name: Store short-lived signed METADATA only (no original ZIP)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pgextwin-pg-trickle-get-only-signed-admission
-          path: |
-            ${{ runner.temp }}/external-get-admission.json
-            ${{ steps.attest.outputs.bundle-path }}
+          path: ${{ runner.temp }}/external-get-proof/
           if-no-files-found: error
           retention-days: 1
 
@@ -157,3 +169,4 @@ jobs:
           jq -e 'length>=1' "$RUNNER_TEMP/verified.json"
           test "$(gh api repos/pgextwin/build/branches/main --jq .commit.sha)" = "$SOURCE"
           echo "SOURCE_SPECIFIC_GET_ONLY_SIGSTORE=PASS MIRROR=DENY RELEASE=DENY"
+

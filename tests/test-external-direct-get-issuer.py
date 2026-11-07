@@ -3,7 +3,9 @@
 import copy
 from datetime import datetime, timezone
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -88,6 +90,46 @@ class Tests(unittest.TestCase):
         self.assertEqual(
             doc["jobs"]["independent-verify"]["if"],
             "${{ needs['issue-and-attest'].result == 'success' }}")
+
+    def test_workflow_stages_nested_bundle_flat_and_fails_closed(self):
+        import yaml
+        text = (Path(__file__).resolve().parents[1] /
+                ".github/workflows/external-direct-get-issuer.yml").read_text("utf-8")
+        doc = yaml.load(text, Loader=yaml.BaseLoader)
+        steps = doc["jobs"]["issue-and-attest"]["steps"]
+        stage = next(s for s in steps if s.get("name") ==
+                     "Stage signed metadata in a flat two-file artifact")
+        upload = next(s for s in steps if s.get("name") ==
+                      "Store short-lived signed METADATA only (no original ZIP)")
+        self.assertEqual(upload["with"]["path"],
+                         "${{ runner.temp }}/external-get-proof/")
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            admission = temp / "external-get-admission.json"
+            admission.write_bytes(b"subject bytes")
+            nested = temp / "random-attest-dir"
+            nested.mkdir()
+            bundle = nested / "attestation.json"
+            bundle.write_bytes(b"signature bundle bytes")
+            e = {**os.environ, "RUNNER_TEMP": directory, "BUNDLE_PATH": str(bundle)}
+            first = subprocess.run(["bash", "-c", stage["run"]], env=e,
+                                   capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            proof = temp / "external-get-proof"
+            self.assertEqual({p.name for p in proof.iterdir()},
+                             {"external-get-admission.json", "attestation.json"})
+            self.assertEqual((proof / "external-get-admission.json").read_bytes(),
+                             admission.read_bytes())
+            self.assertEqual((proof / "attestation.json").read_bytes(),
+                             bundle.read_bytes())
+            # A previous staging directory or missing bundle cannot be accepted.
+            again = subprocess.run(["bash", "-c", stage["run"]], env=e,
+                                   capture_output=True, text=True)
+            self.assertNotEqual(again.returncode, 0)
+            e["BUNDLE_PATH"] = str(temp / "missing.json")
+            missing = subprocess.run(["bash", "-c", stage["run"]], env=e,
+                                     capture_output=True, text=True)
+            self.assertNotEqual(missing.returncode, 0)
 
     def test_real_provider_helper_binding_no_network_or_credentials(self):
         # Exercises the exact two real Python modules, not a hand-written stub.
@@ -247,3 +289,4 @@ class Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
