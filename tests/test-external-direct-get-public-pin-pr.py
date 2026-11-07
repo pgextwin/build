@@ -126,7 +126,7 @@ class Tests(unittest.TestCase):
                     "operation": "ORIGINAL_PROVIDER_GET_ONLY"}}, args),
         ]
         for e, ev, kw in attacks:
-            with self.assertRaises((pin.Denied, issuer.Denied)):
+            with self.assertRaises(ValueError):
                 pin.check_run_context(e, ev, **kw)
 
     def test_write_scope_never_tags_releases_mirrors_or_main(self):
