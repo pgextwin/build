@@ -44,7 +44,7 @@ jobs:
       attestations: write
       artifact-metadata: write
     outputs:
-      source: ${{ steps.issuer.outputs.source }
+      source: ${{ steps.issuer.outputs.source }}
     steps:
       - name: Checkout exact original Build workflow
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,12 +71,12 @@ jobs:
       - name: Verify genuine owner Run, protected mains, external App and exact provider bytes
         id: issuer
         env:
-          GH_TOKEN: ${{ github.token }
-          GITHUB_TOKEN: ${{ github.token }
-          EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY: ${{ secrets.EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY }
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY: ${{ secrets.EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY }}
           CATALOG_CHECKOUT: catalog-source
-          ORIGINAL_ZIP: ${{ runner.temp }/original-pg-trickle.zip
-          OUTPUT_FILE: ${{ runner.temp }/external-get-admission.json
+          ORIGINAL_ZIP: ${{ runner.temp }}/original-pg-trickle.zip
+          OUTPUT_FILE: ${{ runner.temp }}/external-get-admission.json
         shell: bash
         run: |
           set -euo pipefail
@@ -88,20 +88,20 @@ jobs:
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }/external-get-admission.json
+          subject-path: ${{ runner.temp }}/external-get-admission.json
       - name: Store short-lived signed METADATA only (no original ZIP)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pgextwin-pg-trickle-get-only-signed-admission
           path: |
-            ${{ runner.temp }/external-get-admission.json
-            ${{ steps.attest.outputs.bundle-path }
+            ${{ runner.temp }}/external-get-admission.json
+            ${{ steps.attest.outputs.bundle-path }}
           if-no-files-found: error
           retention-days: 1
 
   independent-verify:
     needs: issue-and-attest
-    if: needs.issue-and-attest.result == 'success'
+    if: ${{ needs['issue-and-attest'].result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -111,11 +111,11 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: pgextwin-pg-trickle-get-only-signed-admission
-          path: ${{ runner.temp }/proof
+          path: ${{ runner.temp }}/proof
       - name: Independently verify exact Build/main signer and no-mirror operation
         env:
-          GH_TOKEN: ${{ github.token }
-          SOURCE: ${{ needs.issue-and-attest.outputs.source }
+          GH_TOKEN: ${{ github.token }}
+          SOURCE: ${{ needs['issue-and-attest'].outputs.source }}
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/proof"

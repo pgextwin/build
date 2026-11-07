@@ -66,6 +66,29 @@ def fake_row():
 
 
 class Tests(unittest.TestCase):
+    def test_workflow_is_only_real_owner_dispatch_and_actions_expressions_parse(self):
+        import yaml
+        text = (Path(__file__).resolve().parents[1] /
+                ".github/workflows/external-direct-get-issuer.yml").read_text("utf-8")
+        # GitHub expressions must have exactly one closing pair, even when
+        # they occur inside a path such as ${{ runner.temp }}/original.zip.
+        for line in text.splitlines():
+            if "${{" in line:
+                self.assertEqual(line.count("${{"), line.count("}}"), line)
+        doc = yaml.load(text, Loader=yaml.BaseLoader)
+        self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
+        self.assertEqual(
+            set(doc["on"]["workflow_dispatch"]["inputs"]),
+            {"extension", "operation"})
+        self.assertEqual(set(doc["jobs"]), {"issue-and-attest", "independent-verify"})
+        self.assertEqual(
+            doc["jobs"]["issue-and-attest"]["environment"],
+            "external-direct-provider-publisher")
+        self.assertNotIn("environment", doc["jobs"]["independent-verify"])
+        self.assertEqual(
+            doc["jobs"]["independent-verify"]["if"],
+            "${{ needs['issue-and-attest'].result == 'success' }}")
+
     def test_genuine_original_owner_dispatch_can_pass_shape(self):
         self.assertEqual(
             issuer.validate_original_owner_run(env(), event(), branch(), run()),
