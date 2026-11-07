@@ -82,7 +82,8 @@ class Tests(unittest.TestCase):
         self.assertEqual(
             set(doc["on"]["workflow_dispatch"]["inputs"]),
             {"extension", "operation"})
-        self.assertEqual(set(doc["jobs"]), {"issue-and-attest", "independent-verify"})
+        self.assertEqual(set(doc["jobs"]), {"issue-and-attest", "independent-verify",
+                                            "propose-public-pin-pr"})
         self.assertEqual(
             doc["jobs"]["issue-and-attest"]["environment"],
             "external-direct-provider-publisher")
