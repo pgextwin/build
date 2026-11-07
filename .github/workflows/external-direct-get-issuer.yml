@@ -1,0 +1,159 @@
+name: Issue112 authentic external original GET-only Sigstore issuer
+
+# This is a NEW source-specific genuine owner workflow_dispatch for pg_trickle.
+# It must NOT react to synthetic push/schedule/comment/PR events.
+# Requires the already protected Build Environment with manual owner reviewer.
+# No Release, tag, Catalog write, pgextwin mirror, or public binary upload.
+on:
+  workflow_dispatch:
+    inputs:
+      extension:
+        description: Exact source-specific pilot (no other external source)
+        required: true
+        type: choice
+        options: [pg_trickle]
+      operation:
+        description: Immutable original provider ZIP to user local disk ONLY
+        required: true
+        type: choice
+        options: [ORIGINAL_PROVIDER_GET_ONLY]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue112-external-original-get-only-issuer
+  cancel-in-progress: false
+
+jobs:
+  issue-and-attest:
+    if: >-
+      github.repository == 'pgextwin/build' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'ShutenOishi' &&
+      github.run_attempt == 1 &&
+      inputs.extension == 'pg_trickle' &&
+      inputs.operation == 'ORIGINAL_PROVIDER_GET_ONLY'
+    environment: external-direct-provider-publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      source: ${{ steps.issuer.outputs.source }
+    steps:
+      - name: Checkout exact original Build workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout current protected Catalog candidate (reverified by issuer)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/catalog
+          ref: main
+          path: catalog-source
+          persist-credentials: false
+      - name: Fetch only the exact upstream original Windows ZIP privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/trickle-labs/pg-trickle/releases/download/v0.108.3/pg_trickle-0.108.3-pg18-windows-amd64.zip"
+          curl --fail --silent --show-error --location --max-redirs 3 --max-time 150 \
+            --proto '=https' --proto-redir '=https' --retry 0 \
+            --output "$RUNNER_TEMP/original-pg-trickle.zip" "$url"
+          test "$(stat -c %s "$RUNNER_TEMP/original-pg-trickle.zip")" = "7029107"
+          test "$(sha256sum "$RUNNER_TEMP/original-pg-trickle.zip" | cut -d' ' -f1)" = \
+            "c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b"
+      - name: Verify genuine owner Run, protected mains, external App and exact provider bytes
+        id: issuer
+        env:
+          GH_TOKEN: ${{ github.token }
+          GITHUB_TOKEN: ${{ github.token }
+          EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY: ${{ secrets.EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY }
+          CATALOG_CHECKOUT: catalog-source
+          ORIGINAL_ZIP: ${{ runner.temp }/original-pg-trickle.zip
+          OUTPUT_FILE: ${{ runner.temp }/external-get-admission.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/test-external-direct-get-issuer.py
+          python3 scripts/external-direct-get-issuer.py
+          echo "source=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          rm -f "$ORIGINAL_ZIP"
+      - name: Sign only the source-specific, direct-only ephemeral admission
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }/external-get-admission.json
+      - name: Store short-lived signed METADATA only (no original ZIP)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pgextwin-pg-trickle-get-only-signed-admission
+          path: |
+            ${{ runner.temp }/external-get-admission.json
+            ${{ steps.attest.outputs.bundle-path }
+          if-no-files-found: error
+          retention-days: 1
+
+  independent-verify:
+    needs: issue-and-attest
+    if: needs.issue-and-attest.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Retrieve only same-run OIDC subject and signature bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pgextwin-pg-trickle-get-only-signed-admission
+          path: ${{ runner.temp }/proof
+      - name: Independently verify exact Build/main signer and no-mirror operation
+        env:
+          GH_TOKEN: ${{ github.token }
+          SOURCE: ${{ needs.issue-and-attest.outputs.source }
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/proof"
+          ls -la "$d"
+          test "$(find "$d" -maxdepth 1 -type f | wc -l)" -eq 2
+          test -f "$d/external-get-admission.json"
+          bundle="$(find "$d" -maxdepth 1 -name '*.json' ! -name 'external-get-admission.json' -print -quit)"
+          test -n "$bundle"
+          python3 - "$d/external-get-admission.json" "$SOURCE" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert set(d)=={"schemaVersion","sourceKind","issuerRepository","issuerCommit",
+            "catalogCommit","issuerEvent","issuerRunId","issuerRunAttempt","ownerActor",
+            "ownerId","publisherEnvironment","publisherAppId","approvedOperation",
+            "issuedAt","expiresAt","downloadAuthorized","mirrorAuthorized",
+            "redistributionAuthorized","records"}
+          assert d["schemaVersion"]=="pgextwin-external-direct-get-admission/v1"
+          assert d["issuerCommit"]==sys.argv[2] and d["issuerRepository"]=="pgextwin/build"
+          assert d["issuerEvent"]=="workflow_dispatch" and d["issuerRunAttempt"]==1
+          assert d["ownerActor"]=="ShutenOishi" and d["ownerId"]==27071164
+          assert d["publisherEnvironment"]=="external-direct-provider-publisher"
+          assert d["publisherAppId"]==5609317
+          assert d["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
+          assert d["downloadAuthorized"] is True
+          assert d["mirrorAuthorized"] is False and d["redistributionAuthorized"] is False
+          assert len(d["records"])==1
+          r=d["records"][0]
+          assert r["sourceRepo"]=="trickle-labs/pg-trickle" and r["pgMajor"]=="18"
+          assert r["assetId"]==616203967 and r["releaseId"]==404988260
+          assert r["originalSha256"]=="c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b"
+          assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
+          assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+          PY
+          gh attestation verify "$d/external-get-admission.json" \
+            --repo pgextwin/build --bundle "$bundle" \
+            --signer-workflow pgextwin/build/.github/workflows/external-direct-get-issuer.yml \
+            --source-ref refs/heads/main --source-digest "$SOURCE" \
+            --deny-self-hosted-runners --format json > "$RUNNER_TEMP/verified.json"
+          jq -e 'length>=1' "$RUNNER_TEMP/verified.json"
+          test "$(gh api repos/pgextwin/build/branches/main --jq .commit.sha)" = "$SOURCE"
+          echo "SOURCE_SPECIFIC_GET_ONLY_SIGSTORE=PASS MIRROR=DENY RELEASE=DENY"

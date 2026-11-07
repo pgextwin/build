@@ -39,6 +39,8 @@ jobs:
 
       - name: Reject forged external Publisher source, overbroad App and Release write (NO CREDENTIALS)
         run: python tests/test-external-direct-source-pr-admission.py
+      - name: Require original-owner, protected-main and no-mirror signed GET-only issuer (OFFLINE)
+        run: python tests/test-external-direct-get-issuer.py
 
       - name: Install schema validator
         run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
