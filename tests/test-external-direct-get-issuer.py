@@ -89,6 +89,31 @@ class Tests(unittest.TestCase):
             doc["jobs"]["independent-verify"]["if"],
             "${{ needs['issue-and-attest'].result == 'success' }}")
 
+    def test_real_provider_helper_binding_no_network_or_credentials(self):
+        # Exercises the exact two real Python modules, not a hand-written stub.
+        # A stale mod.shared reference previously passed all issuer unit tests.
+        api, jwt = issuer.load_external_app_helpers()
+        self.assertTrue(callable(api))
+        self.assertTrue(callable(jwt))
+        self.assertEqual(api.__module__, "existing_publisher_probe")
+        self.assertEqual(jwt.__module__, "existing_publisher_probe")
+        self.assertFalse(hasattr(issuer, "shared"))
+
+    def test_fixed_deny_stage_does_not_expose_exception_or_api_body(self):
+        secret = "Bearer private-token and original API response body"
+        self.assertEqual(
+            issuer.denial_diagnostic("APP_SCOPE", issuer.Denied(secret)),
+            "EXTERNAL_DIRECT_GET_ISSUER_DENY STAGE=APP_SCOPE CLASS=POLICY; "
+            "no tokens or untrusted API payloads emitted")
+        self.assertEqual(
+            issuer.denial_diagnostic("APP_MODULE", AttributeError(secret)),
+            "EXTERNAL_DIRECT_GET_ISSUER_DENY STAGE=APP_MODULE CLASS=RUNTIME; "
+            "no tokens or untrusted API payloads emitted")
+        self.assertEqual(
+            issuer.denial_diagnostic(secret, RuntimeError(secret)),
+            "EXTERNAL_DIRECT_GET_ISSUER_DENY STAGE=UNKNOWN CLASS=RUNTIME; "
+            "no tokens or untrusted API payloads emitted")
+
     def test_genuine_original_owner_dispatch_can_pass_shape(self):
         self.assertEqual(
             issuer.validate_original_owner_run(env(), event(), branch(), run()),
