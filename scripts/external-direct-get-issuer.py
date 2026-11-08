@@ -57,7 +57,8 @@ def no_duplicates(items):
 
 def gh_get(route):
     require(REPO_PATH.fullmatch(route) is not None or
-            route in ("repos/pgextwin/catalog", "repos/trickle-labs/pg-trickle"),
+            route in ("repos/pgextwin/catalog", "repos/trickle-labs/pg-trickle",
+                      "repos/HypoPG/hypopg"),
             "nonallowlisted GitHub read")
     result = subprocess.run(["gh", "api", "--method", "GET", route],
                             capture_output=True, check=False, timeout=60)
@@ -65,7 +66,8 @@ def gh_get(route):
             "GitHub authenticated GET unavailable")
     return json.loads(result.stdout, object_pairs_hook=no_duplicates)
 
-def validate_original_owner_run(env, event, build_branch, run):
+def validate_original_owner_run(env, event, build_branch, run, expected_extension="pg_trickle"):
+    require(expected_extension in ("pg_trickle", "hypopg"), "unreviewed dispatch cohort")
     """A real owner workflow_dispatch is not equivalent to a Chat flag."""
     expected = {
         "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": BUILD,
@@ -83,7 +85,7 @@ def validate_original_owner_run(env, event, build_branch, run):
             and int(runid) > 0, "invalid protected build source")
     require(type(event) is dict
             and set(event.get("inputs", {})) == {"extension", "operation"}
-            and event["inputs"] == {"extension": "pg_trickle", "operation": OPERATION}
+            and event["inputs"] == {"extension": expected_extension, "operation": OPERATION}
             and (event.get("repository") or {}).get("full_name") == BUILD,
             "wrong exact source-specific dispatch")
     require(type(build_branch) is dict and build_branch.get("protected") is True
