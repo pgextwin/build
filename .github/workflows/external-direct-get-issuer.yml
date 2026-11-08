@@ -11,7 +11,7 @@ on:
         description: Exact source-specific pilot (no other external source)
         required: true
         type: choice
-        options: [pg_trickle, hypopg]
+        options: [pg_trickle, hypopg, portalcorp_pgvector]
       operation:
         description: Immutable original provider ZIP to user local disk ONLY
         required: true
@@ -33,7 +33,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.actor == 'ShutenOishi' &&
       github.run_attempt == 1 &&
-      (inputs.extension == 'pg_trickle' || inputs.extension == 'hypopg') &&
+      (inputs.extension == 'pg_trickle' || inputs.extension == 'hypopg' || inputs.extension == 'portalcorp_pgvector') &&
       inputs.operation == 'ORIGINAL_PROVIDER_GET_ONLY'
     environment: external-direct-provider-publisher
     runs-on: ubuntu-latest
@@ -71,6 +71,7 @@ jobs:
           CATALOG_CHECKOUT: catalog-source
           ORIGINAL_ZIP: ${{ runner.temp }}/original-pg-trickle.zip
           ORIGINAL_BATCH_DIR: ${{ runner.temp }}/original-hypopg
+          ORIGINAL_PORTALCORP_ZIP: ${{ runner.temp }}/original-portalcorp-pg16.zip
           EXTENSION: ${{ inputs.extension }}
           OUTPUT_FILE: ${{ runner.temp }}/external-get-admission.json
         shell: bash
@@ -79,11 +80,13 @@ jobs:
           python3 tests/test-external-direct-get-issuer.py
           if [ "$EXTENSION" = "hypopg" ]; then
             python3 scripts/external-direct-get-hypopg-issuer.py
+          elif [ "$EXTENSION" = "portalcorp_pgvector" ]; then
+            python3 scripts/external-direct-get-portalcorp-issuer.py
           else
             python3 scripts/external-direct-get-issuer.py
           fi
           echo "source=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-          rm -f "$ORIGINAL_ZIP"
+          rm -f "$ORIGINAL_ZIP" "$ORIGINAL_PORTALCORP_ZIP"
           rm -f "$RUNNER_TEMP"/original-hypopg/*.zip
       - name: Sign only the source-specific, direct-only ephemeral admission
         id: attest
@@ -154,11 +157,23 @@ jobs:
           assert d["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
           assert d["downloadAuthorized"] is True
           assert d["mirrorAuthorized"] is False and d["redistributionAuthorized"] is False
-          if len(d["records"])==1:
+          if len(d["records"])==1 and d["records"][0]["sourceRepo"]=="trickle-labs/pg-trickle":
             r=d["records"][0]
             assert r["sourceRepo"]=="trickle-labs/pg-trickle" and r["pgMajor"]=="18"
             assert r["assetId"]==616203967 and r["releaseId"]==404988260
             assert r["originalSha256"]=="c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b"
+            assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
+            assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+          elif len(d["records"])==1 and d["records"][0]["sourceRepo"]=="portalcorp/pgvector_compiled":
+            r=d["records"][0]
+            assert r["extension"]=="vector" and r["pgMajor"]=="16"
+            assert r["repositoryId"]==835861704 and r["releaseId"]==182821763
+            assert r["releaseTag"]=="v0.16.105" and r["assetId"]==203009337
+            assert r["originalBytes"]==163732 and r["assetName"]=="pgvector-x86_64-pc-windows-msvc-pg16.zip"
+            assert r["originalSha256"]=="a9c63a3e51c09c18f192277a28be3fb021f3872a7cc2d23e4ca06e10f2c99571"
+            assert r["originalProviderUrl"]=="https://github.com/portalcorp/pgvector_compiled/releases/download/v0.16.105/pgvector-x86_64-pc-windows-msvc-pg16.zip"
+            assert r["licenseUrl"]=="https://github.com/portalcorp/pgvector_compiled/blob/v0.16.105/LICENSE"
+            assert "https://github.com/pgvector/pgvector/blob/v0.8.0/LICENSE" in r["noticeTreatment"]
             assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
             assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
           elif len(d["records"])==3:
@@ -230,6 +245,8 @@ jobs:
             pg_trickle) python3 scripts/external-direct-get-public-pin-pr.py ;;
             hypopg) python3 tests/test-external-direct-get-hypopg-cohort.py &&
                     python3 scripts/external-direct-get-hypopg-pin-pr.py ;;
+            portalcorp_pgvector) python3 tests/test-external-direct-get-portalcorp-cohort.py &&
+                    python3 scripts/external-direct-get-portalcorp-pin-pr.py ;;
             *) exit 1 ;;
           esac
           echo 'PUBLIC_PIN_PR_PROPOSED; PROTECTED_MERGE_AND_POSTMERGE_STILL_REQUIRED; ORIGINAL_ZIP_NOT_STORED'
