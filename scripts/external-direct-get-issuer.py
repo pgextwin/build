@@ -39,7 +39,7 @@ RUNTIME_HEAD = "47b8351250c283a923b5e4f6d0ed74f9d7db6d10"
 UPSTREAM_RUN = 37489585623
 UPSTREAM_HEAD = "ce709f06327b4801f79fc48934bc96107b450907"
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
-REPO_PATH = re.compile(r"repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:branches/main|actions/runs/[0-9]+(?:/jobs\\?per_page=100)?|releases/tags/[A-Za-z0-9_.-]+)\Z")
+REPO_PATH = re.compile(r"repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:branches/main|actions/runs/[0-9]+(?:/jobs\?per_page=100)?|releases/tags/[A-Za-z0-9_.-]+)\Z")
 
 class Denied(ValueError):
     pass
