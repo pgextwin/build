@@ -151,9 +151,11 @@ def verify_manifest(data, *, build_sha, catalog_sha, run_id, now):
                 "required end-user notice absent")
     return expires
 
-def check_run_context(env, event, *, branch, run, jobs, approvals, catalog):
+def check_run_context(env, event, *, branch, run, jobs, approvals, catalog,
+                      expected_extension="pg_trickle"):
     issuer = load_module("issue112_get_issuer", ISSUER_MODULE)
-    build_sha, run_id = issuer.validate_original_owner_run(env, event, branch, run)
+    build_sha, run_id = issuer.validate_original_owner_run(env, event, branch, run,
+                                                    expected_extension=expected_extension)
     require(catalog.get("protected") is True and
             SHA40.fullmatch((catalog.get("commit") or {}).get("sha", "")) is not None,
             "Catalog main is unprotected")

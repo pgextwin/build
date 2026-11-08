@@ -11,7 +11,7 @@ on:
         description: Exact source-specific pilot (no other external source)
         required: true
         type: choice
-        options: [pg_trickle]
+        options: [pg_trickle, hypopg]
       operation:
         description: Immutable original provider ZIP to user local disk ONLY
         required: true
@@ -33,7 +33,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.actor == 'ShutenOishi' &&
       github.run_attempt == 1 &&
-      inputs.extension == 'pg_trickle' &&
+      (inputs.extension == 'pg_trickle' || inputs.extension == 'hypopg') &&
       inputs.operation == 'ORIGINAL_PROVIDER_GET_ONLY'
     environment: external-direct-provider-publisher
     runs-on: ubuntu-latest
@@ -57,17 +57,11 @@ jobs:
           ref: main
           path: catalog-source
           persist-credentials: false
-      - name: Fetch only the exact upstream original Windows ZIP privately
+      - name: Fetch only selected pinned original ZIP bytes privately
         shell: bash
         run: |
           set -euo pipefail
-          url="https://github.com/trickle-labs/pg-trickle/releases/download/v0.108.3/pg_trickle-0.108.3-pg18-windows-amd64.zip"
-          curl --fail --silent --show-error --location --max-redirs 3 --max-time 150 \
-            --proto '=https' --proto-redir '=https' --retry 0 \
-            --output "$RUNNER_TEMP/original-pg-trickle.zip" "$url"
-          test "$(stat -c %s "$RUNNER_TEMP/original-pg-trickle.zip")" = "7029107"
-          test "$(sha256sum "$RUNNER_TEMP/original-pg-trickle.zip" | cut -d' ' -f1)" = \
-            "c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b"
+          bash scripts/external-direct-get-originals.sh "${{ inputs.extension }}"
       - name: Verify genuine owner Run, protected mains, external App and exact provider bytes
         id: issuer
         env:
@@ -76,14 +70,21 @@ jobs:
           EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY: ${{ secrets.EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY }}
           CATALOG_CHECKOUT: catalog-source
           ORIGINAL_ZIP: ${{ runner.temp }}/original-pg-trickle.zip
+          ORIGINAL_BATCH_DIR: ${{ runner.temp }}/original-hypopg
+          EXTENSION: ${{ inputs.extension }}
           OUTPUT_FILE: ${{ runner.temp }}/external-get-admission.json
         shell: bash
         run: |
           set -euo pipefail
           python3 tests/test-external-direct-get-issuer.py
-          python3 scripts/external-direct-get-issuer.py
+          if [ "$EXTENSION" = "hypopg" ]; then
+            python3 scripts/external-direct-get-hypopg-issuer.py
+          else
+            python3 scripts/external-direct-get-issuer.py
+          fi
           echo "source=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           rm -f "$ORIGINAL_ZIP"
+          rm -f "$RUNNER_TEMP"/original-hypopg/*.zip
       - name: Sign only the source-specific, direct-only ephemeral admission
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -106,7 +107,7 @@ jobs:
       - name: Store short-lived signed METADATA only (no original ZIP)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: pgextwin-pg-trickle-get-only-signed-admission
+          name: pgextwin-external-get-only-signed-admission
           path: ${{ runner.temp }}/external-get-proof/
           if-no-files-found: error
           retention-days: 1
@@ -122,7 +123,7 @@ jobs:
       - name: Retrieve only same-run OIDC subject and signature bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: pgextwin-pg-trickle-get-only-signed-admission
+          name: pgextwin-external-get-only-signed-admission
           path: ${{ runner.temp }}/proof
       - name: Independently verify exact Build/main signer and no-mirror operation
         env:
@@ -153,13 +154,31 @@ jobs:
           assert d["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
           assert d["downloadAuthorized"] is True
           assert d["mirrorAuthorized"] is False and d["redistributionAuthorized"] is False
-          assert len(d["records"])==1
-          r=d["records"][0]
-          assert r["sourceRepo"]=="trickle-labs/pg-trickle" and r["pgMajor"]=="18"
-          assert r["assetId"]==616203967 and r["releaseId"]==404988260
-          assert r["originalSha256"]=="c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b"
-          assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
-          assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+          if len(d["records"])==1:
+            r=d["records"][0]
+            assert r["sourceRepo"]=="trickle-labs/pg-trickle" and r["pgMajor"]=="18"
+            assert r["assetId"]==616203967 and r["releaseId"]==404988260
+            assert r["originalSha256"]=="c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b"
+            assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
+            assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+          elif len(d["records"])==3:
+            pins={
+              "14":(164673161,23115,"ac1114d1392494e688b5b6b6f151aebe6ccab2d8ae1a004ec510669c47ef3634"),
+              "15":(164673166,23123,"d23ea9ba7d064ee08e431b12ade50bed4b19a725b5f4df1e088e79e4af8d08ec"),
+              "16":(164673171,22997,"7afd7cda50050829787d4e901fc8292cf1eb2bc5ad59c996a92e414a1bead1f7"),
+            }
+            assert [r["pgMajor"] for r in d["records"]]==["14","15","16"]
+            for r in d["records"]:
+              aid,size,sha=pins[r["pgMajor"]]
+              assert r["extension"]=="hypopg" and r["sourceRepo"]=="HypoPG/hypopg"
+              assert r["repositoryId"]==37308208 and r["releaseId"]==153113229
+              assert r["releaseTag"]=="1.4.1" and r["assetId"]==aid and r["originalBytes"]==size
+              assert r["originalSha256"]==sha
+              assert r["assetName"]=="hypopg-1.4.1-pg"+r["pgMajor"]+"-x64.zip"
+              assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
+              assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+          else:
+            raise ValueError("unsupported exact signed cohort")
           PY
           gh attestation verify "$d/external-get-admission.json" \
             --repo pgextwin/build --bundle "$bundle" \
@@ -194,7 +213,7 @@ jobs:
       - name: Download only same-Run signed metadata and Sigstore bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: pgextwin-pg-trickle-get-only-signed-admission
+          name: pgextwin-external-get-only-signed-admission
           path: ${{ runner.temp }}/signed-metadata
       - name: Adversarial contract tests for create-only metadata proposal
         run: python3 tests/test-external-direct-get-public-pin-pr.py
@@ -203,8 +222,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           SIGNED_METADATA_DIR: ${{ runner.temp }}/signed-metadata
+          EXTENSION: ${{ inputs.extension }}
           EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY: ${{ secrets.EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          python3 scripts/external-direct-get-public-pin-pr.py
+          case "$EXTENSION" in
+            pg_trickle) python3 scripts/external-direct-get-public-pin-pr.py ;;
+            hypopg) python3 tests/test-external-direct-get-hypopg-cohort.py &&
+                    python3 scripts/external-direct-get-hypopg-pin-pr.py ;;
+            *) exit 1 ;;
+          esac
           echo 'PUBLIC_PIN_PR_PROPOSED; PROTECTED_MERGE_AND_POSTMERGE_STILL_REQUIRED; ORIGINAL_ZIP_NOT_STORED'
