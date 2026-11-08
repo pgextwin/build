@@ -58,7 +58,8 @@ def no_duplicates(items):
 def gh_get(route):
     require(REPO_PATH.fullmatch(route) is not None or
             route in ("repos/pgextwin/catalog", "repos/trickle-labs/pg-trickle",
-                      "repos/HypoPG/hypopg"),
+                      "repos/HypoPG/hypopg", "repos/portalcorp/pgvector_compiled",
+                      "repos/portalcorp/pgvector_compiled/git/ref/tags/v0.16.105"),
             "nonallowlisted GitHub read")
     result = subprocess.run(["gh", "api", "--method", "GET", route],
                             capture_output=True, check=False, timeout=60)
@@ -67,7 +68,7 @@ def gh_get(route):
     return json.loads(result.stdout, object_pairs_hook=no_duplicates)
 
 def validate_original_owner_run(env, event, build_branch, run, expected_extension="pg_trickle"):
-    require(expected_extension in ("pg_trickle", "hypopg"), "unreviewed dispatch cohort")
+    require(expected_extension in ("pg_trickle", "hypopg", "portalcorp_pgvector"), "unreviewed dispatch cohort")
     """A real owner workflow_dispatch is not equivalent to a Chat flag."""
     expected = {
         "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": BUILD,

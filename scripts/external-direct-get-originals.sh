@@ -66,6 +66,13 @@ case "$extension" in
       "c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b" \
       "pg_trickle PG18 asset=616203967"
     ;;
+  portalcorp_pgvector)
+    get_exact \
+      "https://github.com/portalcorp/pgvector_compiled/releases/download/v0.16.105/pgvector-x86_64-pc-windows-msvc-pg16.zip" \
+      "$RUNNER_TEMP/original-portalcorp-pg16.zip" 163732 \
+      "a9c63a3e51c09c18f192277a28be3fb021f3872a7cc2d23e4ca06e10f2c99571" \
+      "portalcorp pgvector PG16 asset=203009337"
+    ;;
   hypopg)
     mkdir "$RUNNER_TEMP/original-hypopg"
     while read -r pg asset size sha; do
