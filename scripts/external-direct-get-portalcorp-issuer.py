@@ -58,7 +58,7 @@ def verify_original(path, catalog):
         require(binary[:2] == b"MZ" and len(binary)>128, "not a Windows DLL")
         pe_off=struct.unpack_from("<I", binary, 0x3c)[0]
         require(pe_off+6 <= len(binary)
-                and binary[pe_off:pe_off+4] == b"PE\\0\\0"
+                and binary[pe_off:pe_off+4] == b"PE\0\0"
                 and struct.unpack_from("<H", binary, pe_off+4)[0] == 0x8664,
                 "not a PE AMD64 original")
         control=z.read(controls[0])
@@ -197,7 +197,7 @@ def main():
         payload=manifest(build,runid,sha,row,proof,datetime.now(timezone.utc))
         with output.open("xb") as file:
             file.write((json.dumps(payload,sort_keys=True,separators=(",",":"),
-                        allow_nan=False)+"\\n").encode("utf-8"))
+                        allow_nan=False)+"\n").encode("utf-8"))
         print("PORTALCORP_PG16_SIGNABLE_SUBJECT_CREATED ZIP_UPLOAD=NONE MIRROR=DENY")
     except Exception as e:
         print(old.denial_diagnostic(stage,e),file=sys.stderr)
