@@ -85,7 +85,10 @@ class Cohort(unittest.TestCase):
         self.assertEqual(doc["jobs"]["propose-public-pin-pr"]["environment"],
                          "external-direct-provider-publisher")
         self.assertNotIn("environment",doc["jobs"]["independent-verify"])
-        self.assertIn("gh attestation verify",doc["jobs"]["independent-verify"]["steps"][1]["run"])
+        verifier_steps = [step.get("run", "") for step in doc["jobs"]["independent-verify"]["steps"]
+                          if step.get("name") == "Independently verify exact Build/main signer and no-mirror operation"]
+        self.assertEqual(len(verifier_steps), 1)
+        self.assertIn("gh attestation verify", verifier_steps[0])
         self.assertIn("SOURCE_RECHECK", (ROOT/"scripts/external-direct-get-hypopg-issuer.py").read_text())
 
     def test_source_fetcher_has_no_upload_or_release_api(self):
