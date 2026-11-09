@@ -51,7 +51,7 @@ def fake_doc():
     for pg, (aid, size, sha) in issuer.hypopg.PINS.items():
         name = f"hypopg-1.4.1-pg{pg}-x64.zip"
         row = {
-            "pgMajor": pg, "targetEnvironment": f"EDB PostgreSQL {pg} Windows x64",
+            "pgMajor": pg, "targetEnvironment": f"EDB PostgreSQL {pg} Windows x64; archived source-only original with reviewed runtime dependencies",
             "assetId": aid, "assetName": name, "originalBytes": size,
             "originalSha256": sha, "originalProviderUrl":
                 f"https://github.com/HypoPG/hypopg/releases/download/1.4.1/{name}",
@@ -60,7 +60,7 @@ def fake_doc():
         }
         hypo.append((row, {}))
     portal = {
-        "targetEnvironment": "EDB PostgreSQL 16.15.5 Windows x64",
+        "targetEnvironment": "EDB PostgreSQL 16.15.5 Windows x64; original vector 0.8.0 with reviewed runtime dependencies",
         "originalProviderUrl":
             "https://github.com/portalcorp/pgvector_compiled/releases/download/"
             "v0.16.105/pgvector-x86_64-pc-windows-msvc-pg16.zip",
