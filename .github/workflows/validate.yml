@@ -48,6 +48,9 @@ jobs:
       - name: Reject wrong portalcorp PG16 original ZIP binding and GET escalation (OFFLINE)
         run: python tests/test-external-direct-get-portalcorp-cohort.py
 
+      - name: Reject altered five-original owner-signed cohort and unsigned PR (OFFLINE)
+        run: python tests/test-external-direct-get-qualified-cohort.py
+
       - name: Install schema validator
         run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
 

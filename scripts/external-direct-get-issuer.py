@@ -68,7 +68,7 @@ def gh_get(route):
     return json.loads(result.stdout, object_pairs_hook=no_duplicates)
 
 def validate_original_owner_run(env, event, build_branch, run, expected_extension="pg_trickle"):
-    require(expected_extension in ("pg_trickle", "hypopg", "portalcorp_pgvector"), "unreviewed dispatch cohort")
+    require(expected_extension in ("pg_trickle", "hypopg", "portalcorp_pgvector", "qualified_cohort"), "unreviewed dispatch cohort")
     """A real owner workflow_dispatch is not equivalent to a Chat flag."""
     expected = {
         "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": BUILD,

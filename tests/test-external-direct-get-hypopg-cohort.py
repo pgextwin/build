@@ -79,7 +79,7 @@ class Cohort(unittest.TestCase):
                       Loader=yaml.BaseLoader)
         self.assertEqual(set(doc["on"]),{"workflow_dispatch"})
         inputs=doc["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(set(inputs["extension"]["options"]),{"pg_trickle","hypopg","portalcorp_pgvector"})
+        self.assertEqual(set(inputs["extension"]["options"]),{"pg_trickle","hypopg","portalcorp_pgvector","qualified_cohort"})
         self.assertEqual(doc["jobs"]["issue-and-attest"]["environment"],
                          "external-direct-provider-publisher")
         self.assertEqual(doc["jobs"]["propose-public-pin-pr"]["environment"],

@@ -1,6 +1,6 @@
 name: Issue112 authentic external original GET-only Sigstore issuer
 
-# This is a NEW source-specific genuine owner workflow_dispatch for pg_trickle.
+# Genuine owner-only, source-specific or exact five-asset cohort workflow_dispatch.
 # It must NOT react to synthetic push/schedule/comment/PR events.
 # Requires the already protected Build Environment with manual owner reviewer.
 # No Release, tag, Catalog write, pgextwin mirror, or public binary upload.
@@ -11,7 +11,7 @@ on:
         description: Exact source-specific pilot (no other external source)
         required: true
         type: choice
-        options: [pg_trickle, hypopg, portalcorp_pgvector]
+        options: [pg_trickle, hypopg, portalcorp_pgvector, qualified_cohort]
       operation:
         description: Immutable original provider ZIP to user local disk ONLY
         required: true
@@ -33,7 +33,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.actor == 'ShutenOishi' &&
       github.run_attempt == 1 &&
-      (inputs.extension == 'pg_trickle' || inputs.extension == 'hypopg' || inputs.extension == 'portalcorp_pgvector') &&
+      (inputs.extension == 'pg_trickle' || inputs.extension == 'hypopg' || inputs.extension == 'portalcorp_pgvector' || inputs.extension == 'qualified_cohort') &&
       inputs.operation == 'ORIGINAL_PROVIDER_GET_ONLY'
     environment: external-direct-provider-publisher
     runs-on: ubuntu-latest
@@ -61,7 +61,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/external-direct-get-originals.sh "${{ inputs.extension }}"
+          if [ "${{ inputs.extension }}" = "qualified_cohort" ]; then
+            for original in pg_trickle hypopg portalcorp_pgvector; do
+              bash scripts/external-direct-get-originals.sh "$original"
+            done
+          else
+            bash scripts/external-direct-get-originals.sh "${{ inputs.extension }}"
+          fi
       - name: Verify genuine owner Run, protected mains, external App and exact provider bytes
         id: issuer
         env:
@@ -81,6 +87,8 @@ jobs:
             python3 scripts/external-direct-get-hypopg-issuer.py
           elif [ "$EXTENSION" = "portalcorp_pgvector" ]; then
             python3 scripts/external-direct-get-portalcorp-issuer.py
+          elif [ "$EXTENSION" = "qualified_cohort" ]; then
+            python3 scripts/external-direct-get-qualified-cohort-issuer.py
           else
             python3 scripts/external-direct-get-issuer.py
           fi
@@ -191,6 +199,45 @@ jobs:
               assert r["assetName"]=="hypopg-1.4.1-pg"+r["pgMajor"]+"-x64.zip"
               assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
               assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+          elif len(d["records"])==5:
+            # Independent source check: one exact trickle, three exact historical
+            # HypoPG, one exact portalcorp. Do not trust an unsigned candidate.
+            expected=[
+              ("trickle-labs/pg-trickle","pg_trickle","18",1164857056,404988260,616203967,7029107,
+               "c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b",
+               "v0.108.3","pg_trickle-0.108.3-pg18-windows-amd64.zip"),
+              ("HypoPG/hypopg","hypopg","14",37308208,153113229,164673161,23115,
+               "ac1114d1392494e688b5b6b6f151aebe6ccab2d8ae1a004ec510669c47ef3634",
+               "1.4.1","hypopg-1.4.1-pg14-x64.zip"),
+              ("HypoPG/hypopg","hypopg","15",37308208,153113229,164673166,23123,
+               "d23ea9ba7d064ee08e431b12ade50bed4b19a725b5f4df1e088e79e4af8d08ec",
+               "1.4.1","hypopg-1.4.1-pg15-x64.zip"),
+              ("HypoPG/hypopg","hypopg","16",37308208,153113229,164673171,22997,
+               "7afd7cda50050829787d4e901fc8292cf1eb2bc5ad59c996a92e414a1bead1f7",
+               "1.4.1","hypopg-1.4.1-pg16-x64.zip"),
+              ("portalcorp/pgvector_compiled","vector","16",835861704,182821763,203009337,163732,
+               "a9c63a3e51c09c18f192277a28be3fb021f3872a7cc2d23e4ca06e10f2c99571",
+               "v0.16.105","pgvector-x86_64-pc-windows-msvc-pg16.zip"),
+            ]
+            keys={"sourceGroup","extension","pgMajor","targetEnvironment",
+              "sourceRepo","repositoryId","releaseTag","releaseId","assetName",
+              "assetId","originalBytes","originalSha256","originalProviderUrl",
+              "licenseUrl","noticeTreatment","dependencyTreatment",
+              "approvedOperation","downloadAuthorized","mirrorAuthorized"}
+            for r,(repo,ext,pg,rid,release,asset,size,sha,tag,name) in zip(d["records"],expected):
+              assert set(r)==keys
+              assert r["sourceGroup"]=="external" and r["extension"]==ext and r["pgMajor"]==pg
+              assert (r["sourceRepo"],r["repositoryId"],r["releaseId"],r["assetId"])==(repo,rid,release,asset)
+              assert (r["releaseTag"],r["assetName"],r["originalBytes"],r["originalSha256"])==(tag,name,size,sha)
+              assert r["originalProviderUrl"]=="https://github.com/"+repo+"/releases/download/"+tag+"/"+name
+              assert "PostgreSQL "+pg in r["targetEnvironment"] and "Windows x64" in r["targetEnvironment"]
+              assert min(len(r["noticeTreatment"]),len(r["dependencyTreatment"]))>=60
+              assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
+              assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+            assert d["records"][0]["licenseUrl"]=="https://github.com/trickle-labs/pg-trickle/blob/v0.108.3/LICENSE"
+            assert all(r["licenseUrl"]=="https://github.com/HypoPG/hypopg/blob/1.4.1/LICENSE" for r in d["records"][1:4])
+            assert d["records"][4]["licenseUrl"]=="https://github.com/portalcorp/pgvector_compiled/blob/v0.16.105/LICENSE"
+            assert "https://github.com/pgvector/pgvector/blob/v0.8.0/LICENSE" in d["records"][4]["noticeTreatment"]
           else:
             raise ValueError("unsupported exact signed cohort")
           PY
@@ -245,6 +292,8 @@ jobs:
             hypopg) python3 tests/test-external-direct-get-hypopg-cohort.py &&
                     python3 scripts/external-direct-get-hypopg-pin-pr.py ;;
             portalcorp_pgvector) python3 scripts/external-direct-get-portalcorp-pin-pr.py ;;
+            qualified_cohort) python3 tests/test-external-direct-get-qualified-cohort.py &&
+                              python3 scripts/external-direct-get-qualified-cohort-pin-pr.py ;;
             *) exit 1 ;;
           esac
           echo 'PUBLIC_PIN_PR_PROPOSED; PROTECTED_MERGE_AND_POSTMERGE_STILL_REQUIRED; ORIGINAL_ZIP_NOT_STORED'
