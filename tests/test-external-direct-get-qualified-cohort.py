@@ -86,7 +86,7 @@ class ExactFiveOriginals(unittest.TestCase):
         self.assertEqual(proposal.verify_qualified_manifest(
             doc, SHA, CATALOG, RUN, NOW + timedelta(minutes=1)),
             NOW + timedelta(hours=6))
-        with self.assertRaises(proposal.old.Denied):
+        with self.assertRaises(ValueError):
             proposal.verify_qualified_manifest(
                 doc, SHA, CATALOG, RUN, NOW + timedelta(hours=7))
 
@@ -108,7 +108,7 @@ class ExactFiveOriginals(unittest.TestCase):
             with self.subTest(case=index):
                 bad = copy.deepcopy(doc)
                 mutate(bad)
-                with self.assertRaises(proposal.old.Denied):
+                with self.assertRaises(ValueError):
                     proposal.verify_qualified_manifest(
                         bad, SHA, CATALOG, RUN, NOW + timedelta(minutes=1))
 
@@ -144,9 +144,9 @@ class ExactFiveOriginals(unittest.TestCase):
         self.assertEqual(
             proposal.path_for(RUN, "external-get-admission.json"),
             "external/signed-direct-get/qualified_cohort/run-1234/external-get-admission.json")
-        with self.assertRaises(proposal.old.Denied):
+        with self.assertRaises(ValueError):
             proposal.path_for(RUN, "original.zip")
-        with self.assertRaises(proposal.old.Denied):
+        with self.assertRaises(ValueError):
             proposal.path_for(RUN, "../attestation.json")
         with self.assertRaises(issuer.trickle.Denied):
             issuer.combine_manifests(
