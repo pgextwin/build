@@ -45,6 +45,17 @@ class PortalcorpCohort(unittest.TestCase):
             issuer.manifest("a"*40,12345,"b"*40,record(),
                 {"bytes":163732,"sha256":"0"*64,"zipMembers":48},NOW)
 
+
+    def test_private_portalcorp_original_zip_binding(self):
+        """Regression: owner issuer must read the ZIP actually fetched for portalcorp."""
+        script=(ROOT/"scripts/external-direct-get-portalcorp-issuer.py").read_text("utf-8")
+        workflow=(ROOT/".github/workflows/external-direct-get-issuer.yml").read_text("utf-8")
+        originals=(ROOT/"scripts/external-direct-get-originals.sh").read_text("utf-8")
+        self.assertIn('proof=verify_original(env["ORIGINAL_PORTALCORP_ZIP"],catalog)',script)
+        self.assertNotIn('proof=verify_original(env["ORIGINAL_ZIP"],catalog)',script)
+        self.assertIn('ORIGINAL_PORTALCORP_ZIP: ${{ runner.temp }}/original-portalcorp-pg16.zip',workflow)
+        self.assertIn('"$RUNNER_TEMP/original-portalcorp-pg16.zip"',originals)
+
     def test_workflow_owner_and_no_public_zip(self):
         workflow=(ROOT/".github/workflows/external-direct-get-issuer.yml").read_text()
         sh=(ROOT/"scripts/external-direct-get-originals.sh").read_text()
