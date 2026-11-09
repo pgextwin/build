@@ -45,6 +45,9 @@ jobs:
       - name: Fault-inject private original provider 502/503/504, connection loss, and byte-deny (OFFLINE)
         run: python tests/test-external-direct-get-originals.py
 
+      - name: Reject wrong portalcorp PG16 original ZIP binding and GET escalation (OFFLINE)
+        run: python tests/test-external-direct-get-portalcorp-cohort.py
+
       - name: Install schema validator
         run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
 
