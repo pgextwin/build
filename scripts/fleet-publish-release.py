@@ -363,13 +363,13 @@ def render_release_notes(ext, receipt):
         "and signed build/SBOM attestations are also provided. Vulnerability reports "
         "reflect the scan at publication and do not guarantee zero risk.\n\n"
         "## 日本語\n\n"
-        f"{major_phrase_ja} 向けの非公式Windows x64バイナリです。"
-        "利用中のPostgreSQLメジャーバージョンに一致するZIPを選んでください。\n\n"
+        f"{major_phrase_ja}向けの非公式Windows x64バイナリです。"
+        "使用しているPostgreSQLのメジャーバージョンに合うZIPを選んでください。\n\n"
         f"[導入・利用方法](https://github.com/{REPO}/blob/main/README_ja.md)と"
-        "上流ドキュメントを確認してください。拡張機能によっては追加設定や再起動が必要です。\n\n"
-        "ダウンロードしたファイルはSHA256SUMS.txtで照合できます。"
+        "上流ドキュメントを確認してください。拡張機能によっては、追加の設定やPostgreSQLの再起動が必要です。\n\n"
+        "ダウンロードしたファイルは`SHA256SUMS.txt`と照合できます。"
         "SPDX形式のSBOM、脆弱性レポート、署名付きのビルド・SBOM証明も付属します。"
-        "脆弱性レポートは公開時点の結果であり、安全性を保証するものではありません。\n"
+        "脆弱性レポートは公開時点の検査結果であり、安全性を保証するものではありません。\n"
     )
 
 
