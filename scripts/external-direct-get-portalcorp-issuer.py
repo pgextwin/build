@@ -182,7 +182,7 @@ def main():
             old.gh_get(f"repos/pgextwin/catalog/actions/runs/{RUNTIME_RUN}"),
             old.gh_get(f"repos/pgextwin/catalog/actions/runs/{RUNTIME_RUN}/jobs?per_page=100"))
         stage="ORIGINAL_ZIP"
-        proof=verify_original(env["ORIGINAL_ZIP"],catalog)
+        proof=verify_original(env["ORIGINAL_PORTALCORP_ZIP"],catalog)
         stage="APP_SCOPE"
         api,jwt=old.load_external_app_helpers()
         old.verify_app_readonly(env["EXTERNAL_DIRECT_PROVIDER_APP_PRIVATE_KEY"],api=api,jwt=jwt)
