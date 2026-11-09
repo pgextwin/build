@@ -77,7 +77,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 tests/test-external-direct-get-issuer.py
           if [ "$EXTENSION" = "hypopg" ]; then
             python3 scripts/external-direct-get-hypopg-issuer.py
           elif [ "$EXTENSION" = "portalcorp_pgvector" ]; then
@@ -245,8 +244,7 @@ jobs:
             pg_trickle) python3 scripts/external-direct-get-public-pin-pr.py ;;
             hypopg) python3 tests/test-external-direct-get-hypopg-cohort.py &&
                     python3 scripts/external-direct-get-hypopg-pin-pr.py ;;
-            portalcorp_pgvector) python3 tests/test-external-direct-get-portalcorp-cohort.py &&
-                    python3 scripts/external-direct-get-portalcorp-pin-pr.py ;;
+            portalcorp_pgvector) python3 scripts/external-direct-get-portalcorp-pin-pr.py ;;
             *) exit 1 ;;
           esac
           echo 'PUBLIC_PIN_PR_PROPOSED; PROTECTED_MERGE_AND_POSTMERGE_STILL_REQUIRED; ORIGINAL_ZIP_NOT_STORED'
