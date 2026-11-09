@@ -85,6 +85,19 @@ case "$extension" in
       '15 164673166 23123 d23ea9ba7d064ee08e431b12ade50bed4b19a725b5f4df1e088e79e4af8d08ec' \
       '16 164673171 22997 7afd7cda50050829787d4e901fc8292cf1eb2bc5ad59c996a92e414a1bead1f7')
     ;;
+  reviewed_pg18)
+    mkdir "$RUNNER_TEMP/original-reviewed-pg18"
+    get_exact \
+      "https://github.com/laurenz/oracle_fdw/releases/download/ORACLE_FDW_2_9_0/oracle_fdw-2.9.0-pg18-win64.zip" \
+      "$RUNNER_TEMP/original-reviewed-pg18/oracle_fdw-2.9.0-pg18-win64.zip" 365101 \
+      "ad1fc057888b89f968de34f14bd7088c2b05d674a8df4b40ba47ed772c317678" \
+      "oracle_fdw PG18 asset=442625860"
+    get_exact \
+      "https://github.com/andreiramani/pgvector_pgsql_windows/releases/download/0.8.7/vector.v0.8.7-pg18.zip" \
+      "$RUNNER_TEMP/original-reviewed-pg18/vector.v0.8.7-pg18.zip" 174796 \
+      "7c4ae0e2b2cb1e547779209a34a7d3f05b82fd7912818bf3d7042266eda87e7d" \
+      "community pgvector PG18 asset=661612613"
+    ;;
   *)
     echo 'Unknown reviewed original provider; fail-closed' >&2
     exit 1

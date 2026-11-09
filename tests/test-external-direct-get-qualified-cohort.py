@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hostile offline regression: exactly five original ZIPs, genuine owner/CI gates.
+"""Hostile offline regression: immutable five- and seven-original signed cohorts.
 
 All fixtures are UNSIGNED; tests must never create a real GitHub authorizing Run,
 download provider bytes, publish ZIPs or create a Release.
@@ -34,7 +34,7 @@ DEPENDENCIES = ("Requires the matching EDB PostgreSQL Windows x64 runtime and it
                 "third-party dependencies; no installer or automatic relocation.")
 
 
-def fake_doc():
+def fake_doc(with_pg18=False):
     t = issuer.trickle
     trickle = {
         "sourceRepo": t.SOURCE_REPO, "assetId": t.ASSET_ID,
@@ -69,15 +69,31 @@ def fake_doc():
         "noticeTreatment": NOTICE + " https://github.com/pgvector/pgvector/blob/v0.8.0/LICENSE",
         "dependencyTreatment": DEPENDENCIES,
     }
+    pg18_rows = None
+    if with_pg18:
+        pg18_rows = []
+        for pin in issuer.reviewed.PINS:
+            review = dict(sourceRepo=pin[0], extension=pin[1], pgMajor=pin[2],
+                repositoryId=pin[3], releaseId=pin[4], releaseTag=pin[5],
+                assetId=pin[6], assetName=pin[7], originalBytes=pin[8],
+                originalSha256=pin[9], packageLicenseUrl=pin[10],
+                originalProviderUrl=f"https://github.com/{pin[0]}/releases/download/{pin[5]}/{pin[7]}",
+                referenceLinkReviewed=True, downloadAuthorized=False, mirrorAuthorized=False,
+                targetEnvironment="EDB PostgreSQL 18.6.5 Windows x64",
+                providerStatusNotice="Unofficial community binary; not upstream endorsed." if pin[1] == "pgvector" else "Official oracle_fdw provider; Oracle Client obtained separately.",
+                dependencyInformationUrl="https://github.com/example/provider/README",
+                dependencyLicenseUrl="https://www.oracle.com/downloads/licenses/instant-client-lic.html" if pin[1] == "oracle_fdw" else None,
+                noticeTreatment="Original ZIP has no LICENSE/NOTICE; upstream copyright notice is available with the provider link. " + NOTICE if pin[1] == "pgvector" else "Oracle Instant Client separately obtained under Oracle terms. " + NOTICE)
+            pg18_rows.append(issuer.reviewed.expected_row(pin, review))
     return issuer.combine_manifests(
         SHA, RUN, CATALOG, trickle,
         {"bytes": t.ASSET_SIZE, "sha256": t.ASSET_SHA, "zipMembers": 158},
         hypo, portal,
         {"bytes": 163732, "sha256": issuer.portalcorp.ASSET_SHA, "zipMembers": 48},
-        NOW)
+        NOW, pg18_rows)
 
 
-class ExactFiveOriginals(unittest.TestCase):
+class ExactReviewedOriginals(unittest.TestCase):
     def test_reuses_all_three_exact_source_manifest_validators(self):
         doc = fake_doc()
         self.assertEqual(len(doc["records"]), 5)
@@ -112,6 +128,29 @@ class ExactFiveOriginals(unittest.TestCase):
                     proposal.verify_qualified_manifest(
                         bad, SHA, CATALOG, RUN, NOW + timedelta(minutes=1))
 
+    def test_signed_seven_originals_and_reviewed_pg18_tampering(self):
+        doc = fake_doc(with_pg18=True)
+        self.assertEqual(len(doc["records"]), 7)
+        self.assertEqual([r["sourceRepo"] for r in doc["records"][5:]],
+            ["laurenz/oracle_fdw", "andreiramani/pgvector_pgsql_windows"])
+        self.assertEqual(proposal.verify_qualified_manifest(
+            doc, SHA, CATALOG, RUN, NOW + timedelta(minutes=1)),
+            NOW + timedelta(hours=6))
+        for index, change in enumerate([
+            lambda d: d["records"][5].update({"assetId": 1}),
+            lambda d: d["records"][6].update({"originalSha256": "0" * 64}),
+            lambda d: d["records"][5].update({"dependencyTreatment": ""}),
+            lambda d: d["records"][6].update({"mirrorAuthorized": True}),
+            lambda d: d["records"].reverse(),
+            lambda d: d["records"].pop(),
+        ]):
+            with self.subTest(case=index):
+                bad = copy.deepcopy(doc)
+                change(bad)
+                with self.assertRaises(ValueError):
+                    proposal.verify_qualified_manifest(
+                        bad, SHA, CATALOG, RUN, NOW + timedelta(minutes=1))
+
     def test_owner_event_only_and_reviewed_single_batch(self):
         doc = yaml.load((ROOT / ".github/workflows/external-direct-get-issuer.yml")
                         .read_text("utf-8"), Loader=yaml.BaseLoader)
@@ -129,11 +168,11 @@ class ExactFiveOriginals(unittest.TestCase):
         verify = next(step for step in jobs["independent-verify"]["steps"]
                       if step.get("name") ==
                       "Independently verify exact Build/main signer and no-mirror operation")
-        self.assertIn('elif len(d["records"])==5:', verify["run"])
+        self.assertIn('elif len(d["records"]) in (5,7):', verify["run"])
         self.assertIn('gh attestation verify', verify["run"])
         fetch = next(step for step in jobs["issue-and-attest"]["steps"]
                      if step.get("name") == "Fetch only selected pinned original ZIP bytes privately")
-        self.assertIn("for original in pg_trickle hypopg portalcorp_pgvector", fetch["run"])
+        self.assertIn("for original in pg_trickle hypopg portalcorp_pgvector reviewed_pg18", fetch["run"])
         self.assertIn("bash scripts/external-direct-get-originals.sh", fetch["run"])
         self.assertNotIn("gh release", fetch["run"])
         proposal_job = jobs["propose-public-pin-pr"]["steps"][-1]

@@ -59,6 +59,7 @@ def gh_get(route):
     require(REPO_PATH.fullmatch(route) is not None or
             route in ("repos/pgextwin/catalog", "repos/trickle-labs/pg-trickle",
                       "repos/HypoPG/hypopg", "repos/portalcorp/pgvector_compiled",
+                      "repos/laurenz/oracle_fdw", "repos/andreiramani/pgvector_pgsql_windows",
                       "repos/portalcorp/pgvector_compiled/git/ref/tags/v0.16.105"),
             "nonallowlisted GitHub read")
     result = subprocess.run(["gh", "api", "--method", "GET", route],

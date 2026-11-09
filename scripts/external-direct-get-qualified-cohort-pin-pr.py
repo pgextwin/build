@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Issue #112: original owner/Environment signed five-asset metadata-only PR.
+"""Issue #112: original owner/Environment signed seven-asset metadata-only PR.
 
 No issuer authority is inferred from a synthetic subject or past successful Run.
 A dedicated Catalog-only App creates a fresh protected PR with the exact original
@@ -29,6 +29,7 @@ def load(name, filename):
 old = load("qualified_existing_signed_proposal", "external-direct-get-public-pin-pr.py")
 hypopg = load("qualified_hypopg_signed_proposal", "external-direct-get-hypopg-pin-pr.py")
 portalcorp = load("qualified_portalcorp_signed_proposal", "external-direct-get-portalcorp-pin-pr.py")
+reviewed = load("qualified_reviewed_signed_proposal", "external-direct-get-reviewed-pg18.py")
 COHORT = "qualified_cohort"
 
 
@@ -36,7 +37,7 @@ def verify_qualified_manifest(doc, build, catalog, runid, now):
     old.require(type(doc) is dict and set(doc) == old.TOP_KEYS,
                 "unknown combined signed envelope")
     rows = doc.get("records")
-    old.require(type(rows) is list and len(rows) == 5,
+    old.require(type(rows) is list and len(rows) in (5, 7),
                 "wrong number of independently reviewed original assets")
     # Each source's existing strict immutable validator independently checks
     # every exact ID, SHA256, licence, ABI, operation, and issuer envelope.
@@ -45,11 +46,13 @@ def verify_qualified_manifest(doc, build, catalog, runid, now):
                             build_sha=build, catalog_sha=catalog, run_id=runid, now=now),
         hypopg.verify_hypopg_manifest({**doc, "records": rows[1:4]},
                                       build, catalog, runid, now),
-        portalcorp.verify_portalcorp_manifest({**doc, "records": rows[4:]},
+        portalcorp.verify_portalcorp_manifest({**doc, "records": rows[4:5]},
                                                build, catalog, runid, now),
     )
     old.require(checks[0] == checks[1] == checks[2],
                 "inconsistent original source expiry")
+    if len(rows) == 7:
+        reviewed.verify_signed_rows(rows[5:])
     return checks[0]
 
 
@@ -62,7 +65,7 @@ def path_for(runid, filename):
 
 def make_pr(api, token, runid, catalog_sha, files, expires):
     base = "/repos/pgextwin/catalog"
-    branch = f"issue112-five-originals-signed-get-run-{runid}"
+    branch = f"issue112-seven-originals-signed-get-run-{runid}"
     old.require(set(files) == {"external-get-admission.json", "attestation.json"},
                 "nonflat signed metadata set")
     current = api("GET", base + "/branches/main", token)
@@ -78,7 +81,7 @@ def make_pr(api, token, runid, catalog_sha, files, expires):
         route = base + "/contents/" + path_for(runid, name)
         payload = files[name]
         api("PUT", route, token, {
-            "message": "chore(#112): create-only signed five-source GET metadata " + name,
+            "message": "chore(#112): create-only signed reviewed cohort GET metadata " + name,
             "branch": branch, "content": base64.b64encode(payload).decode("ascii")})
         readback = api("GET", route + "?ref=" + branch, token)
         old.require(readback.get("type") == "file" and
@@ -91,17 +94,21 @@ def make_pr(api, token, runid, catalog_sha, files, expires):
                 datetime.now(timezone.utc) < expires,
                 "Catalog changed or admission expired before PR")
     pr = api("POST", base + "/pulls", token, {
-        "title": f"feat(#112): authentic owner-signed five-original GET-only Run {runid}",
+        "title": f"feat(#112): authentic owner-signed seven-original GET-only Run {runid}",
         "head": branch, "base": "main", "draft": False,
         "body": (
             "Authentic owner workflow_dispatch protected Build/main, twice-reviewed "
-            "Publisher Environment, same-Run independent Sigstore and exact five "
-            "original provider ZIPs across pg_trickle PG18, HypoPG PG14–16 and "
-            "portalcorp pgvector PG16. Signed metadata only, no provider ZIPs. "
+            "Publisher Environment, same-Run independent Sigstore and seven "
+            "original provider ZIPs across pg_trickle PG18, HypoPG PG14–16, "
+            "portalcorp pgvector PG16, official oracle_fdw PG18 and unofficial "
+            "community pgvector PG18. Original providers retain all ZIP bytes. "
+            "Oracle Client is separately licensed and obtained by the user; "
+            "community pgvector has no bundled LICENSE/NOTICE, see Catalog "
+            "rights ledger for upstream license and clear unofficial status. "
             "Expiry six hours, MIRROR_DENY/REDISTRIBUTION_DENY, no install. "
             "Public permission requires this PR's protected merge, true postmerge, "
-            "and public Windows CLI original-byte GET E2E. Held oracle_fdw and "
-            "andreiramani sources remain excluded. Related: pgextwin/build#112.")})
+            "and public Windows CLI original-byte GET E2E. Other discovery "
+            "candidates remain DENY. Related: pgextwin/build#112.")})
     old.require(type(pr.get("number")) is int and pr["number"] > 0 and
                 pr.get("head", {}).get("ref") == branch and
                 pr.get("base", {}).get("ref") == "main",
@@ -134,10 +141,10 @@ def main():
                 helpers.shared._existing.api, helpers.shared._existing.jwt, key) as token:
             number = make_pr(helpers.shared._existing.api, token, runid,
                              catalog, files, expires)
-        print(f"QUALIFIED_FIVE_ORIGINALS_SIGNED_METADATA_PR={number} "
+        print(f"QUALIFIED_SEVEN_ORIGINALS_SIGNED_METADATA_PR={number} "
               "APP_REVOKED=TRUE RELEASE=NONE ZIP_UPLOAD=NONE MIRROR=DENY")
     except Exception:
-        print("QUALIFIED_FIVE_SIGNED_METADATA_PR_DENY; no source tokens or ZIPs emitted",
+        print("QUALIFIED_SEVEN_SIGNED_METADATA_PR_DENY; no source tokens or ZIPs emitted",
               file=sys.stderr)
         raise SystemExit(1)
 

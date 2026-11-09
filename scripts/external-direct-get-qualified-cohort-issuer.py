@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Issue #112: assemble five independently qualified provider originals for ONE owner Run.
+"""Issue #112: assemble seven independently qualified provider originals for ONE owner Run.
 
 This creates only an unsigned, six-hour GET-only subject. A real protected-main
 owner workflow_dispatch and Environment, then a separate OIDC/Sigstore signer,
@@ -28,11 +28,13 @@ def load(name, path):
 trickle = load("qualified_trickle", "external-direct-get-issuer.py")
 hypopg = load("qualified_hypopg", "external-direct-get-hypopg-issuer.py")
 portalcorp = load("qualified_portalcorp", "external-direct-get-portalcorp-issuer.py")
+reviewed = load("qualified_reviewed_pg18", "external-direct-get-reviewed-pg18.py")
 COHORT = "qualified_cohort"
 
 
 def combine_manifests(build, runid, catalog_sha, trickle_row, trickle_proof,
-                      hypopg_verified, portalcorp_row, portalcorp_proof, now):
+                      hypopg_verified, portalcorp_row, portalcorp_proof, now,
+                      pg18_rows=None):
     """Pure unsigned data assembly: three source validators own their exact pins."""
     sources = [
         trickle.make_manifest(build_sha=build, runid=runid, catalog_sha=catalog_sha,
@@ -53,6 +55,10 @@ def combine_manifests(build, runid, catalog_sha, trickle_row, trickle_proof,
                         ("HypoPG/hypopg", "16"),
                         ("portalcorp/pgvector_compiled", "16")],
                     "unreviewed source or original asset cohort")
+    if pg18_rows is not None:
+        reviewed.verify_signed_rows(pg18_rows)
+        records.extend(pg18_rows)
+    trickle.require(len(records) in (5, 7), "unreviewed mixed source count")
     return dict(root, records=records)
 
 
@@ -89,7 +95,14 @@ def main():
             trickle.gh_get("repos/portalcorp/pgvector_compiled/releases/tags/v0.16.105"),
             trickle.gh_get(f"repos/pgextwin/catalog/actions/runs/{portalcorp.RUNTIME_RUN}"),
             trickle.gh_get(f"repos/pgextwin/catalog/actions/runs/{portalcorp.RUNTIME_RUN}/jobs?per_page=100"))
-        trickle.require(catalog_sha == hypo_sha == portal_sha,
+        pg18_sha, pg18_rows = reviewed.validate_rows(
+            catalog_root, branch,
+            [trickle.gh_get("repos/" + p[0]) for p in reviewed.PINS],
+            [trickle.gh_get("repos/" + p[0] + "/releases/tags/" + p[5])
+             for p in reviewed.PINS],
+            [trickle.gh_get("repos/pgextwin/catalog/actions/runs/" + str(p[11]))
+             for p in reviewed.PINS])
+        trickle.require(catalog_sha == hypo_sha == portal_sha == pg18_sha,
                         "reviewed protected Catalog source changed across providers")
 
         stage = "ORIGINAL_ZIP"
@@ -110,7 +123,7 @@ def main():
         stage = "MANIFEST"
         doc = combine_manifests(build, runid, catalog_sha, trickle_row,
                                 trickle_proof, hypo_verified, portal_row, portal_proof,
-                                datetime.now(timezone.utc))
+                                datetime.now(timezone.utc), pg18_rows)
         stage = "OUTPUT_CREATE"
         output = Path(env["OUTPUT_FILE"])
         trickle.require(not output.exists() and not output.is_symlink(),
@@ -118,7 +131,7 @@ def main():
         with output.open("xb") as stream:
             stream.write((json.dumps(doc, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
-        print("QUALIFIED_FIVE_ASSET_UNSIGNED_SUBJECT_CREATED SIGNATURE=PENDING "
+        print("QUALIFIED_SEVEN_ASSET_UNSIGNED_SUBJECT_CREATED SIGNATURE=PENDING "
               "RELEASE=NONE ZIP_UPLOAD=NONE MIRROR=DENY")
     except Exception as error:
         print(trickle.denial_diagnostic(stage, error), file=sys.stderr)
