@@ -29,6 +29,7 @@ trickle = load("qualified_trickle", "external-direct-get-issuer.py")
 hypopg = load("qualified_hypopg", "external-direct-get-hypopg-issuer.py")
 portalcorp = load("qualified_portalcorp", "external-direct-get-portalcorp-issuer.py")
 reviewed = load("qualified_reviewed_pg18", "external-direct-get-reviewed-pg18.py")
+latest = load("qualified_reviewed_pg14_17", "external-direct-get-reviewed-latest-majors.py")
 COHORT = "qualified_cohort"
 
 
@@ -62,6 +63,26 @@ def combine_manifests(build, runid, catalog_sha, trickle_row, trickle_proof,
     return dict(root, records=records)
 
 
+
+def combine_latest_manifests(build, runid, catalog_sha, trickle_row,
+                             trickle_proof, latest_rows, pg18_rows, now):
+    """Newest Windows originals only. Older signed seven-ZIP archives remain untouched."""
+    latest.verify_signed_rows(latest_rows)
+    reviewed.verify_signed_rows(pg18_rows)
+    doc = trickle.make_manifest(build_sha=build, runid=runid, catalog_sha=catalog_sha,
+                                row=trickle_row, proof=trickle_proof, now=now)
+    records = doc["records"] + latest_rows + pg18_rows
+    trickle.require(len(records) == 11 and
+                    len({(r["extension"], r["pgMajor"]) for r in records}) == 11 and
+                    set(r["extension"] for r in records) ==
+                    {"pg_trickle", "oracle_fdw", "pgvector"} and
+                    set(r["pgMajor"] for r in records if r["extension"] in
+                        ("oracle_fdw", "pgvector")) ==
+                    {"14", "15", "16", "17", "18"},
+                    "newest reviewed eleven-original cohort mismatch")
+    return dict(doc, records=records)
+
+
 def main():
     stage = "OWNER_RUN"
     try:
@@ -82,19 +103,6 @@ def main():
             trickle.gh_get("repos/trickle-labs/pg-trickle/releases/tags/v0.108.3"),
             trickle.gh_get(f"repos/pgextwin/catalog/actions/runs/{trickle.RUNTIME_RUN}"),
             trickle.gh_get(f"repos/trickle-labs/pg-trickle/actions/runs/{trickle.UPSTREAM_RUN}"))
-        hypo_sha, hypo_verified = hypopg.validate_source(
-            catalog_root, branch,
-            trickle.gh_get("repos/HypoPG/hypopg"),
-            trickle.gh_get("repos/HypoPG/hypopg/releases/tags/1.4.1"),
-            trickle.gh_get(f"repos/pgextwin/catalog/actions/runs/{hypopg.RUNTIME_RUN_ID}"),
-            trickle.gh_get(f"repos/pgextwin/catalog/actions/runs/{hypopg.RUNTIME_RUN_ID}/jobs?per_page=100"))
-        portal_sha, portal_row = portalcorp.validate_source(
-            catalog_root, branch,
-            trickle.gh_get("repos/portalcorp/pgvector_compiled"),
-            trickle.gh_get("repos/portalcorp/pgvector_compiled/git/ref/tags/v0.16.105"),
-            trickle.gh_get("repos/portalcorp/pgvector_compiled/releases/tags/v0.16.105"),
-            trickle.gh_get(f"repos/pgextwin/catalog/actions/runs/{portalcorp.RUNTIME_RUN}"),
-            trickle.gh_get(f"repos/pgextwin/catalog/actions/runs/{portalcorp.RUNTIME_RUN}/jobs?per_page=100"))
         pg18_sha, pg18_rows = reviewed.validate_rows(
             catalog_root, branch,
             [trickle.gh_get("repos/" + p[0]) for p in reviewed.PINS],
@@ -102,12 +110,21 @@ def main():
              for p in reviewed.PINS],
             [trickle.gh_get("repos/pgextwin/catalog/actions/runs/" + str(p[11]))
              for p in reviewed.PINS])
-        trickle.require(catalog_sha == hypo_sha == portal_sha == pg18_sha,
-                        "reviewed protected Catalog source changed across providers")
+        latest_sha, latest_rows = latest.validate_rows(
+            catalog_root, branch,
+            [trickle.gh_get("repos/" + repo) for repo in
+             ("laurenz/oracle_fdw", "andreiramani/pgvector_pgsql_windows")],
+            [trickle.gh_get("repos/laurenz/oracle_fdw/releases/tags/ORACLE_FDW_2_9_0"),
+             trickle.gh_get("repos/andreiramani/pgvector_pgsql_windows/releases/tags/0.8.7")],
+            trickle.gh_get("repos/pgextwin/catalog/actions/runs/" + str(latest.PILOT_RUN)),
+            trickle.gh_get("repos/pgextwin/catalog/actions/runs/" +
+                           str(latest.PILOT_RUN) + "/jobs?per_page=100"),
+            pg18_rows, env["ORIGINAL_PG14_17_DIR"])
+        trickle.require(catalog_sha == pg18_sha == latest_sha,
+                        "protected Catalog source changed across current providers")
 
         stage = "ORIGINAL_ZIP"
         trickle_proof = trickle.verify_original_zip(env["ORIGINAL_ZIP"])
-        portal_proof = portalcorp.verify_original(env["ORIGINAL_PORTALCORP_ZIP"], catalog_root)
 
         stage = "APP_SCOPE"
         api, jwt = trickle.load_external_app_helpers()
@@ -121,9 +138,9 @@ def main():
             "protected source moved before combined subject")
 
         stage = "MANIFEST"
-        doc = combine_manifests(build, runid, catalog_sha, trickle_row,
-                                trickle_proof, hypo_verified, portal_row, portal_proof,
-                                datetime.now(timezone.utc), pg18_rows)
+        doc = combine_latest_manifests(build, runid, catalog_sha, trickle_row,
+                                       trickle_proof, latest_rows, pg18_rows,
+                                       datetime.now(timezone.utc))
         stage = "OUTPUT_CREATE"
         output = Path(env["OUTPUT_FILE"])
         trickle.require(not output.exists() and not output.is_symlink(),
@@ -131,7 +148,7 @@ def main():
         with output.open("xb") as stream:
             stream.write((json.dumps(doc, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
-        print("QUALIFIED_SEVEN_ASSET_UNSIGNED_SUBJECT_CREATED SIGNATURE=PENDING "
+        print("QUALIFIED_LATEST_ELEVEN_ASSET_UNSIGNED_SUBJECT_CREATED SIGNATURE=PENDING "
               "RELEASE=NONE ZIP_UPLOAD=NONE MIRROR=DENY")
     except Exception as error:
         print(trickle.denial_diagnostic(stage, error), file=sys.stderr)

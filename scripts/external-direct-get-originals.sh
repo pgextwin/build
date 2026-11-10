@@ -85,6 +85,17 @@ case "$extension" in
       '15 164673166 23123 d23ea9ba7d064ee08e431b12ade50bed4b19a725b5f4df1e088e79e4af8d08ec' \
       '16 164673171 22997 7afd7cda50050829787d4e901fc8292cf1eb2bc5ad59c996a92e414a1bead1f7')
     ;;
+  reviewed_pg14_17)
+    # All eight exact ZIP URLs and SHA256 digests are emitted from one immutable
+    # protected Build pin table; fail closed unless eight originals pass.
+    mkdir "$RUNNER_TEMP/original-reviewed-pg14-17"
+    while read -r url name size sha asset; do
+      test -n "$url" && test -n "$name" && test -n "$size" &&
+        test -n "$sha" && test -n "$asset"
+      get_exact "$url" "$RUNNER_TEMP/original-reviewed-pg14-17/$name" "$size" "$sha" "latest PG14-17 original asset=$asset"
+    done < <(python3 scripts/external-direct-get-reviewed-latest-majors.py --download-plan)
+    test "$(find "$RUNNER_TEMP/original-reviewed-pg14-17" -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 8
+    ;;
   reviewed_pg18)
     mkdir "$RUNNER_TEMP/original-reviewed-pg18"
     get_exact \
