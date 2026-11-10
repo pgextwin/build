@@ -282,7 +282,7 @@ class ExactReviewedOriginals(unittest.TestCase):
                          {("pgvector", str(i)) for i in range(14, 19)} |
                          {("pg_trickle", "18")})
         latest_selection = json.loads(proposal.latest_manifest(
-            (json.dumps(newest) + "\\n").encode(), RUN))
+            (json.dumps(newest) + "\n").encode(), RUN))
         self.assertEqual(len(latest_selection["records"]), 11)
         mutations = [
             lambda d: d["records"][1].update({"assetId": 1}),
