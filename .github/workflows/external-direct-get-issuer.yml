@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ inputs.extension }}" = "qualified_cohort" ]; then
-            for original in pg_trickle hypopg portalcorp_pgvector reviewed_pg18; do
+            for original in pg_trickle reviewed_pg14_17 reviewed_pg18; do
               bash scripts/external-direct-get-originals.sh "$original"
             done
           else
@@ -79,6 +79,7 @@ jobs:
           ORIGINAL_BATCH_DIR: ${{ runner.temp }}/original-hypopg
           ORIGINAL_PORTALCORP_ZIP: ${{ runner.temp }}/original-portalcorp-pg16.zip
           ORIGINAL_PG18_DIR: ${{ runner.temp }}/original-reviewed-pg18
+          ORIGINAL_PG14_17_DIR: ${{ runner.temp }}/original-reviewed-pg14-17
           EXTENSION: ${{ inputs.extension }}
           OUTPUT_FILE: ${{ runner.temp }}/external-get-admission.json
         shell: bash
@@ -97,6 +98,7 @@ jobs:
           rm -f "$ORIGINAL_ZIP" "$ORIGINAL_PORTALCORP_ZIP"
           rm -f "$RUNNER_TEMP"/original-hypopg/*.zip
           rm -f "$RUNNER_TEMP"/original-reviewed-pg18/*.zip
+          rm -f "$RUNNER_TEMP"/original-reviewed-pg14-17/*.zip
       - name: Sign only the source-specific, direct-only ephemeral admission
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -205,6 +207,28 @@ jobs:
               assert r["assetName"]=="hypopg-1.4.1-pg"+r["pgMajor"]+"-x64.zip"
               assert r["approvedOperation"]=="ORIGINAL_PROVIDER_GET_ONLY"
               assert r["downloadAuthorized"] is True and r["mirrorAuthorized"] is False
+          elif len(d["records"]) == 11:
+            # Independently recheck the signed latest cohort, including exact
+            # immutable PG14-17 Windows candidate IDs and the reviewed PG18
+            # official/community binary rights treatment. No historical ZIPs.
+            assert len({(r["extension"],r["pgMajor"]) for r in d["records"]}) == 11
+            first=d["records"][0]
+            assert first["sourceRepo"]=="trickle-labs/pg-trickle"
+            assert first["extension"]=="pg_trickle" and first["pgMajor"]=="18"
+            assert first["releaseId"]==404988260 and first["assetId"]==616203967
+            assert first["originalSha256"]=="c2841dacee6fa1a09400c7e9a0f74159f2b7f36847a60ef10291d1beb06bd96b"
+            import importlib.util
+            def load(name,path):
+              spec=importlib.util.spec_from_file_location(name,path)
+              mod=importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(mod)
+              return mod
+            current=load("reviewed_latest_majors",
+                         "scripts/external-direct-get-reviewed-latest-majors.py")
+            current.verify_signed_rows(d["records"][1:9])
+            existing=load("reviewed_pg18",
+                          "scripts/external-direct-get-reviewed-pg18.py")
+            existing.verify_signed_rows(d["records"][9:])
           elif len(d["records"]) in (5,7):
             # Independent source check: one exact trickle, three exact historical
             # HypoPG, one exact portalcorp. Do not trust an unsigned candidate.
