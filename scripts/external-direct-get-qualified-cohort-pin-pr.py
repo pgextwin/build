@@ -32,6 +32,7 @@ old = load("qualified_existing_signed_proposal", "external-direct-get-public-pin
 hypopg = load("qualified_hypopg_signed_proposal", "external-direct-get-hypopg-pin-pr.py")
 portalcorp = load("qualified_portalcorp_signed_proposal", "external-direct-get-portalcorp-pin-pr.py")
 reviewed = load("qualified_reviewed_signed_proposal", "external-direct-get-reviewed-pg18.py")
+latest = load("qualified_latest_pg14_17_proposal", "external-direct-get-reviewed-latest-majors.py")
 COHORT = "qualified_cohort"
 LATEST_PATH = "external/signed-direct-get/qualified_cohort/latest.json"
 LATEST_FIELDS = (
@@ -45,8 +46,17 @@ def verify_qualified_manifest(doc, build, catalog, runid, now):
     old.require(type(doc) is dict and set(doc) == old.TOP_KEYS,
                 "unknown combined signed envelope")
     rows = doc.get("records")
-    old.require(type(rows) is list and len(rows) in (5, 7),
+    old.require(type(rows) is list and len(rows) in (5, 7, 11),
                 "wrong number of independently reviewed original assets")
+    if len(rows) == 11:
+        expiry = old.verify_manifest(
+            {**doc, "records": rows[:1]}, build_sha=build,
+            catalog_sha=catalog, run_id=runid, now=now)
+        latest.verify_signed_rows(rows[1:9])
+        reviewed.verify_signed_rows(rows[9:11])
+        old.require(len({(r["extension"], r["pgMajor"]) for r in rows}) == 11,
+                    "duplicate extension / PG binary in newest cohort")
+        return expiry
     # Each source's existing strict immutable validator independently checks
     # every exact ID, SHA256, licence, ABI, operation, and issuer envelope.
     checks = (
@@ -108,7 +118,7 @@ def latest_manifest(admission_bytes, runid):
 
 def make_pr(api, token, runid, catalog_sha, files, expires):
     base = "/repos/pgextwin/catalog"
-    branch = f"issue112-seven-originals-signed-get-run-{runid}"
+    branch = f"issue112-eleven-originals-signed-get-run-{runid}"
     old.require(set(files) == {"external-get-admission.json", "attestation.json"},
                 "nonflat signed metadata set")
     current = api("GET", base + "/branches/main", token)
@@ -165,10 +175,11 @@ def make_pr(api, token, runid, catalog_sha, files, expires):
         "head": branch, "base": "main", "draft": False,
         "body": (
             "Authentic owner workflow_dispatch protected Build/main, twice-reviewed "
-            "Publisher Environment, same-Run independent Sigstore and seven "
-            "original provider ZIPs across pg_trickle PG18, HypoPG PG14–16, "
-            "portalcorp pgvector PG16, official oracle_fdw PG18 and unofficial "
-            "community pgvector PG18. Original providers retain all ZIP bytes. "
+            "Publisher Environment, same-Run independent Sigstore and eleven newest "
+            "original provider ZIPs across pg_trickle PG18, official oracle_fdw "
+            "PG14–18 and unofficial community pgvector 0.8.7 PG14–18. "
+            "Historical HypoPG and portalcorp originals remain archived "
+            "but are excluded from latest selection. Original providers retain all ZIP bytes. "
             "Catalog latest.json advances in this same PR and binds every "
             "selected release / asset identity to the exact SHA256 of the "
             "owner-signed admission; an older signed version cannot satisfy a "
@@ -215,7 +226,7 @@ def main():
         print(f"QUALIFIED_LATEST_ORIGINALS_SIGNED_METADATA_PR={number} "
               "APP_REVOKED=TRUE RELEASE=NONE ZIP_UPLOAD=NONE MIRROR=DENY")
     except Exception:
-        print("QUALIFIED_SEVEN_SIGNED_METADATA_PR_DENY; no source tokens or ZIPs emitted",
+        print("QUALIFIED_LATEST_SIGNED_METADATA_PR_DENY; no source tokens or ZIPs emitted",
               file=sys.stderr)
         raise SystemExit(1)
 
