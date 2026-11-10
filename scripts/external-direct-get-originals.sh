@@ -86,32 +86,13 @@ case "$extension" in
       '16 164673171 22997 7afd7cda50050829787d4e901fc8292cf1eb2bc5ad59c996a92e414a1bead1f7')
     ;;
   reviewed_pg14_17)
-    # Metadata-only fixed plan from protected Build; reuse existing original-byte
-    # GET/SHA256/ZIP/CRC and finite retry helper, with no provider fallback.
+    # All eight exact ZIP URLs and SHA256 digests are emitted from one immutable
+    # protected Build pin table; fail closed unless eight originals pass.
     mkdir "$RUNNER_TEMP/original-reviewed-pg14-17"
-    while IFS=
-    get_exact \
-      "https://github.com/laurenz/oracle_fdw/releases/download/ORACLE_FDW_2_9_0/oracle_fdw-2.9.0-pg18-win64.zip" \
-      "$RUNNER_TEMP/original-reviewed-pg18/oracle_fdw-2.9.0-pg18-win64.zip" 365101 \
-      "ad1fc057888b89f968de34f14bd7088c2b05d674a8df4b40ba47ed772c317678" \
-      "oracle_fdw PG18 asset=442625860"
-    get_exact \
-      "https://github.com/andreiramani/pgvector_pgsql_windows/releases/download/0.8.7/vector.v0.8.7-pg18.zip" \
-      "$RUNNER_TEMP/original-reviewed-pg18/vector.v0.8.7-pg18.zip" 174796 \
-      "7c4ae0e2b2cb1e547779209a34a7d3f05b82fd7912818bf3d7042266eda87e7d" \
-      "community pgvector PG18 asset=661612613"
-    ;;
-  *)
-    echo 'Unknown reviewed original provider; fail-closed' >&2
-    exit 1
-    ;;
-esac
-echo "ORIGINAL_SOURCE_PRIVATE_BYTES=PASS SOURCE=$extension RELEASE=NONE MIRROR=DENY"
-\t' read -r url name size sha asset; do
+    while read -r url name size sha asset; do
       test -n "$url" && test -n "$name" && test -n "$size" &&
         test -n "$sha" && test -n "$asset"
-      get_exact "$url" "$RUNNER_TEMP/original-reviewed-pg14-17/$name" \
-        "$size" "$sha" "latest PG14-17 original asset=$asset"
+      get_exact "$url" "$RUNNER_TEMP/original-reviewed-pg14-17/$name" "$size" "$sha" "latest PG14-17 original asset=$asset"
     done < <(python3 scripts/external-direct-get-reviewed-latest-majors.py --download-plan)
     test "$(find "$RUNNER_TEMP/original-reviewed-pg14-17" -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 8
     ;;
