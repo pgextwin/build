@@ -5,10 +5,13 @@ All fixtures are UNSIGNED; tests must never create a real GitHub authorizing Run
 download provider bytes, publish ZIPs or create a Release.
 """
 import copy
+import base64
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import unittest
+from urllib.error import HTTPError
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,6 +97,97 @@ def fake_doc(with_pg18=False):
 
 
 class ExactReviewedOriginals(unittest.TestCase):
+    def test_proposal_advances_latest_pointer_with_signed_archive_atomically(self):
+        doc = fake_doc(with_pg18=True)
+        files = {
+            "external-get-admission.json":
+                (json.dumps(doc, sort_keys=True, separators=(",", ":")) + "\n").encode(),
+            "attestation.json": b"synthetic-sigstore-bundle" * 10,
+        }
+        stored = {}
+        calls = []
+        branch = f"issue112-seven-originals-signed-get-run-{RUN}"
+        catalog = "/repos/pgextwin/catalog"
+
+        def api(method, route, token, body=None):
+            calls.append((method, route, body))
+            if method == "GET" and route == catalog + "/branches/main":
+                return {"protected": True, "commit": {"sha": CATALOG}}
+            if method == "POST" and route == catalog + "/git/refs":
+                self.assertEqual(body, {"ref": "refs/heads/" + branch, "sha": CATALOG})
+                return {"ref": body["ref"]}
+            if method == "GET" and route.startswith(catalog + "/contents/"):
+                path = route.split("/contents/", 1)[1].split("?", 1)[0]
+                if path not in stored:
+                    raise HTTPError(route, 404, "Not Found", None, None)
+                return {"type": "file", "path": path,
+                        "content": base64.b64encode(stored[path]).decode("ascii")}
+            if method == "PUT" and route.startswith(catalog + "/contents/"):
+                path = route.split("/contents/", 1)[1]
+                stored[path] = base64.b64decode(body["content"], validate=True)
+                return {"content": {"path": path}}
+            if method == "POST" and route == catalog + "/pulls":
+                return {"number": 987, "head": {"ref": branch},
+                        "base": {"ref": "main"}, "body": body["body"]}
+            raise AssertionError((method, route))
+
+        number = proposal.make_pr(api, "fake-token", RUN, CATALOG, files,
+                                  datetime.now(timezone.utc) + timedelta(hours=1))
+        self.assertEqual(number, 987)
+        self.assertEqual(set(stored), {
+            proposal.path_for(RUN, "external-get-admission.json"),
+            proposal.path_for(RUN, "attestation.json"),
+            proposal.LATEST_PATH,
+        })
+        self.assertEqual(stored[proposal.path_for(RUN, "external-get-admission.json")],
+                         files["external-get-admission.json"])
+        latest = json.loads(stored[proposal.LATEST_PATH])
+        self.assertEqual(latest["issuerRunId"], RUN)
+        self.assertEqual(latest["admissionSha256"],
+                         hashlib.sha256(files["external-get-admission.json"]).hexdigest())
+        self.assertEqual(len(latest["records"]), 7)
+        self.assertEqual(sum(method == "POST" and route == catalog + "/pulls"
+                             for method, route, _ in calls), 1)
+
+    def test_catalog_latest_selector_is_bound_to_exact_owner_subject(self):
+        doc = fake_doc(with_pg18=True)
+        admission = (json.dumps(doc, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        latest = json.loads(proposal.latest_manifest(admission, RUN))
+        self.assertEqual(latest["schemaVersion"],
+                         "pgextwin-external-latest-original-pins/v1")
+        self.assertEqual(latest["issuerRunId"], RUN)
+        self.assertEqual(latest["admissionSha256"], hashlib.sha256(admission).hexdigest())
+        self.assertEqual(len(latest["records"]), 7)
+        self.assertEqual([(x["extension"], x["pgMajor"]) for x in latest["records"]],
+                         sorted((x["extension"], x["pgMajor"]) for x in latest["records"]))
+        for pin in latest["records"]:
+            signed = next(x for x in doc["records"]
+                          if (x["extension"], x["pgMajor"]) ==
+                          (pin["extension"], pin["pgMajor"]))
+            self.assertEqual(pin["releaseTag"], signed["releaseTag"])
+            self.assertEqual(pin["releaseId"], signed["releaseId"])
+            self.assertEqual(pin["assetId"], signed["assetId"])
+            self.assertEqual(pin["originalSha256"], signed["originalSha256"])
+
+        # Advancing Catalog's latest version changes both the selected identity
+        # and the subject digest; the previous owner signature cannot match it.
+        newer = copy.deepcopy(doc)
+        newer["records"][0]["releaseTag"] = "v0.108.4"
+        newer_admission = (json.dumps(newer, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        newer_latest = json.loads(proposal.latest_manifest(newer_admission, RUN))
+        self.assertNotEqual(newer_latest["admissionSha256"], latest["admissionSha256"])
+        trickle_latest = next(x for x in newer_latest["records"]
+                              if x["extension"] == "pg_trickle")
+        self.assertEqual(trickle_latest["releaseTag"], "v0.108.4")
+        with self.assertRaises(ValueError):
+            proposal.latest_manifest(admission, RUN + 1)
+        duplicate = copy.deepcopy(doc)
+        duplicate["records"].append(copy.deepcopy(duplicate["records"][0]))
+        duplicate_bytes = (json.dumps(duplicate, sort_keys=True,
+                                      separators=(",", ":")) + "\n").encode()
+        with self.assertRaises(ValueError):
+            proposal.latest_manifest(duplicate_bytes, RUN)
+
     def test_reuses_all_three_exact_source_manifest_validators(self):
         doc = fake_doc()
         self.assertEqual(len(doc["records"]), 5)
@@ -187,6 +281,8 @@ class ExactReviewedOriginals(unittest.TestCase):
             proposal.path_for(RUN, "original.zip")
         with self.assertRaises(ValueError):
             proposal.path_for(RUN, "../attestation.json")
+        self.assertEqual(proposal.LATEST_PATH,
+            "external/signed-direct-get/qualified_cohort/latest.json")
         with self.assertRaises(issuer.trickle.Denied):
             issuer.combine_manifests(
                 SHA, RUN, CATALOG, {}, {}, [], {}, {}, NOW)
