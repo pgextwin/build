@@ -106,7 +106,7 @@ class ExactReviewedOriginals(unittest.TestCase):
         }
         stored = {}
         calls = []
-        branch = f"issue112-seven-originals-signed-get-run-{RUN}"
+        branch = f"issue112-eleven-originals-signed-get-run-{RUN}"
         catalog = "/repos/pgextwin/catalog"
 
         def api(method, route, token, body=None):
@@ -245,6 +245,65 @@ class ExactReviewedOriginals(unittest.TestCase):
                     proposal.verify_qualified_manifest(
                         bad, SHA, CATALOG, RUN, NOW + timedelta(minutes=1))
 
+
+    def test_latest_eleven_uses_exact_source_provenance_and_denies_tampering(self):
+        doc = fake_doc(with_pg18=True)
+        latest = issuer.latest
+        rows = []
+        for pin in latest.PINS:
+            repo, ext, pg, repository_id, release_id, tag, asset_id, name, size, sha, license_url = pin
+            # Reuse the already validated PG18 legal/notice/dependency template,
+            # never any old HypoPG or portalcorp candidate.
+            reference = copy.deepcopy(doc["records"][5 if ext == "oracle_fdw" else 6])
+            reference.update(pgMajor=pg, targetEnvironment="EDB PostgreSQL " + pg +
+                " Windows x64; independently tested original ZIP",
+                assetId=asset_id, assetName=name, originalBytes=size,
+                originalSha256=sha, originalProviderUrl=latest.original_url(pin))
+            rows.append(reference)
+        newest = {**doc, "records": [doc["records"][0]] + rows + doc["records"][5:]}
+        self.assertEqual(len(newest["records"]), 11)
+        self.assertEqual(proposal.verify_qualified_manifest(
+            newest, SHA, CATALOG, RUN, NOW + timedelta(minutes=1)),
+            NOW + timedelta(hours=6))
+        expected = issuer.combine_latest_manifests(
+            SHA, RUN, CATALOG,
+            {"sourceRepo": issuer.trickle.SOURCE_REPO, "assetId": issuer.trickle.ASSET_ID,
+             "releaseTag": "v0.108.3",
+             "assetName": "pg_trickle-0.108.3-pg18-windows-amd64.zip",
+             "targetEnvironment": "EDB PostgreSQL 18.6.5 Windows x64",
+             "originalProviderUrl": "https://github.com/trickle-labs/pg-trickle/releases/download/v0.108.3/pg_trickle-0.108.3-pg18-windows-amd64.zip",
+             "licenseUrl": "https://github.com/trickle-labs/pg-trickle/blob/v0.108.3/LICENSE",
+             "noticeTreatment": NOTICE, "dependencyTreatment": DEPENDENCIES},
+            {"bytes": issuer.trickle.ASSET_SIZE, "sha256": issuer.trickle.ASSET_SHA,
+             "zipMembers": 158}, rows, doc["records"][5:], NOW)
+        self.assertEqual(len(expected["records"]), 11)
+        self.assertEqual({(r["extension"], r["pgMajor"]) for r in expected["records"]},
+                         {("oracle_fdw", str(i)) for i in range(14, 19)} |
+                         {("pgvector", str(i)) for i in range(14, 19)} |
+                         {("pg_trickle", "18")})
+        latest_selection = json.loads(proposal.latest_manifest(
+            (json.dumps(newest) + "\\n").encode(), RUN))
+        self.assertEqual(len(latest_selection["records"]), 11)
+        mutations = [
+            lambda d: d["records"][1].update({"assetId": 1}),
+            lambda d: d["records"][2].update({"originalSha256": "0" * 64}),
+            lambda d: d["records"][3].update({"pgMajor": "18"}),
+            lambda d: d["records"][4].update({"licenseUrl": "https://evil.test"}),
+            lambda d: d["records"][5].update({"downloadAuthorized": False}),
+            lambda d: d["records"][6].update({"mirrorAuthorized": True}),
+            lambda d: d["records"][7].update({"dependencyTreatment": ""}),
+            lambda d: d["records"].append(copy.deepcopy(d["records"][5])),
+            lambda d: d["records"].reverse(),
+            lambda d: d["records"].pop(),
+        ]
+        for i, change in enumerate(mutations):
+            with self.subTest(case=i):
+                altered = copy.deepcopy(newest)
+                change(altered)
+                with self.assertRaises(ValueError):
+                    proposal.verify_qualified_manifest(
+                        altered, SHA, CATALOG, RUN, NOW + timedelta(minutes=1))
+
     def test_owner_event_only_and_reviewed_single_batch(self):
         doc = yaml.load((ROOT / ".github/workflows/external-direct-get-issuer.yml")
                         .read_text("utf-8"), Loader=yaml.BaseLoader)
@@ -266,7 +325,7 @@ class ExactReviewedOriginals(unittest.TestCase):
         self.assertIn('gh attestation verify', verify["run"])
         fetch = next(step for step in jobs["issue-and-attest"]["steps"]
                      if step.get("name") == "Fetch only selected pinned original ZIP bytes privately")
-        self.assertIn("for original in pg_trickle hypopg portalcorp_pgvector reviewed_pg18", fetch["run"])
+        self.assertIn("for original in pg_trickle reviewed_pg14_17 reviewed_pg18", fetch["run"])
         self.assertIn("bash scripts/external-direct-get-originals.sh", fetch["run"])
         self.assertNotIn("gh release", fetch["run"])
         proposal_job = jobs["propose-public-pin-pr"]["steps"][-1]
