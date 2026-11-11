@@ -5,14 +5,14 @@ on:
     paths:
       - .github/workflows/issue112-track-owned-source-signed.yml
       - scripts/issue112-track-owned-source-signed-audit.py
-      - tests/test-issue112-track-owned-source-signed.py
+      - tests/test_issue112_track_owned_source_signed.py
   push:
     branches:
       - main
     paths:
       - .github/workflows/issue112-track-owned-source-signed.yml
       - scripts/issue112-track-owned-source-signed-audit.py
-      - tests/test-issue112-track-owned-source-signed.py
+      - tests/test_issue112_track_owned_source_signed.py
 
 # No tag, Release, Publisher, public GET, dispatch, or artifact mirror.
 # Attestation is only for the distinct source-owned candidate, not Cybertec.
@@ -54,7 +54,7 @@ jobs:
           test "$(git -C pinned-catalog rev-parse HEAD)" = 'c87161a39c0c18ad849082f41e75e7fc40cf6a92'
           test "$(git -C pinned-upstream rev-parse HEAD)" = '36a23f3c6d684c40140da1a24b1c3ee0e707b77a'
           python3 -m unittest discover -s pinned-catalog/tests -p 'test_issue112_track_owned_source_pilot.py' -v
-          python3 -m unittest discover -s tests -p 'test-issue112-track-owned-source-signed.py' -v
+          python3 -m unittest discover -s tests -p 'test_issue112_track_owned_source_signed.py' -v
           python3 pinned-catalog/scripts/issue112_track_owned_source_pilot.py \
             --source pinned-upstream --pg 18 --output "$RUNNER_TEMP/track-private-preflight.zip"
           test -s "$RUNNER_TEMP/track-private-preflight.zip"
