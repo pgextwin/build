@@ -1,0 +1,132 @@
+name: Issue112 pg_track_settings source-owned main build (PRIVATE)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/issue112-track-owned-source-main.yml
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/issue112-track-owned-source-main.yml
+
+# Source-owned candidate only; NEVER a public ZIP, signed release, or Publisher.
+permissions:
+  contents: read
+
+jobs:
+  immutable-source-preview:
+    if: >-
+      github.repository == 'pgextwin/build' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact invoking Build revision (read-only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out verified Catalog source-only builder (immutable)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/catalog
+          ref: c87161a39c0c18ad849082f41e75e7fc40cf6a92
+          path: pinned-catalog
+          persist-credentials: false
+      - name: Check out exact upstream pg_track_settings sources (immutable)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rjuju/pg_track_settings
+          ref: 36a23f3c6d684c40140da1a24b1c3ee0e707b77a
+          path: pinned-upstream
+          persist-credentials: false
+      - name: Verify genuine invocation and all three Git identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'pgextwin/build'
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+            push:refs/heads/main|pull_request:refs/pull/*) ;;
+            *) echo 'INVALID_EVENT_OR_REF' >&2; exit 1 ;;
+          esac
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C pinned-catalog rev-parse HEAD)" = 'c87161a39c0c18ad849082f41e75e7fc40cf6a92'
+          test "$(git -C pinned-upstream rev-parse HEAD)" = '36a23f3c6d684c40140da1a24b1c3ee0e707b77a'
+          echo "VERIFIED_BUILD_EVENT=$GITHUB_EVENT_NAME BUILD_HEAD=$GITHUB_SHA RUN=$GITHUB_RUN_ID ATTEMPT=$GITHUB_RUN_ATTEMPT"
+      - name: Reuse passed offline hostile tests (no Windows or provider ZIP GET)
+        shell: bash
+        run: python3 -m unittest discover -s pinned-catalog/tests -p 'test_issue112_track_owned_source_pilot.py' -v
+      - name: Produce five create-only local candidate ZIPs; no artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pg in 14 15 16 17 18; do
+            python3 pinned-catalog/scripts/issue112_track_owned_source_pilot.py \
+              --source pinned-upstream --pg "$pg" \
+              --output "$RUNNER_TEMP/pg_track_settings-source-pg$pg.zip" \
+              > "$RUNNER_TEMP/pg$pg-private-build-receipt.json"
+          done
+      - name: Independently compare source bytes, archive members, hashes and denial flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import os
+          import zipfile
+
+          upstream = Path('pinned-upstream')
+          private = Path(os.environ['RUNNER_TEMP'])
+          names = sorted(p.name for p in upstream.iterdir()
+                         if p.is_file() and p.name.startswith('pg_track_settings--')
+                         and p.name.endswith('.sql'))
+          if len(names) != 12:
+              raise RuntimeError('unexpected upstream SQL inventory')
+          source_names = ['LICENSE', 'pg_track_settings.control', *names]
+          expected = sorted(['LICENSE', 'SOURCE-INPUTS.json'] +
+                            ['share/extension/' + n for n in source_names if n != 'LICENSE'])
+          hashes = {name: hashlib.sha256((upstream / name).read_bytes()).hexdigest()
+                    for name in source_names}
+          digests = set()
+          for pg in ('14', '15', '16', '17', '18'):
+              archive_path = private / f'pg_track_settings-source-pg{pg}.zip'
+              raw = archive_path.read_bytes()
+              digest = hashlib.sha256(raw).hexdigest()
+              receipt = json.loads((private / f'pg{pg}-private-build-receipt.json').read_text())
+              if receipt != {'status': 'CANDIDATE_ONLY', 'postgresqlMajor': pg,
+                             'sha256': digest, 'size': len(raw), 'members': 15,
+                             'licenseMember': 'LICENSE', 'publicGet': 'DENY',
+                             'mirror': 'DENY', 'release': 'DENY'}:
+                  raise RuntimeError('builder receipt mismatch')
+              with zipfile.ZipFile(archive_path, 'r') as bundle:
+                  if bundle.namelist() != expected or bundle.testzip() is not None:
+                      raise RuntimeError('archive allowlist or integrity mismatch')
+                  declared = json.loads(bundle.read('SOURCE-INPUTS.json'))
+                  if (declared.get('status') != 'CANDIDATE_ONLY' or
+                      declared.get('kind') != 'PGEXTWIN_OWNED_SOURCE_ONLY_PRIVATE_PILOT_NOT_CYBERTEC_ORIGINAL' or
+                      declared.get('upstreamRepository') != 'rjuju/pg_track_settings' or
+                      declared.get('upstreamCommit') != '36a23f3c6d684c40140da1a24b1c3ee0e707b77a' or
+                      declared.get('upstreamVersion') != '2.1.2' or
+                      declared.get('postgresqlMajor') != pg or
+                      declared.get('sourceFileSha256') != hashes or
+                      declared.get('rightsNoticeIncluded') is not True):
+                      raise RuntimeError('source/rights manifest mismatch')
+                  for flag in ('cybertecProducerAttestation', 'independentSignatureVerified',
+                               'downloadAuthorized', 'mirrorAuthorized', 'releaseAuthorized',
+                               'publisherAuthorized'):
+                      if declared.get(flag) is not False:
+                          raise RuntimeError('forged provenance or publication permission')
+                  for name in source_names:
+                      member = name if name == 'LICENSE' else 'share/extension/' + name
+                      if bundle.read(member) != (upstream / name).read_bytes():
+                          raise RuntimeError('source bytes differ: ' + name)
+              digests.add(digest)
+              print(f'PG{pg}=PASS SHA256={digest} LICENSE=EXACT PRIVATE_ONLY=true')
+          if len(digests) != 5:
+              raise RuntimeError('PG major archives are not individually bound')
+          print('PROTECTED_MAIN_SOURCE_BUILD=' + ('PASS' if os.environ['GITHUB_EVENT_NAME'] == 'push' else 'PR_PREVIEW'))
+          print('SOURCE_ONLY=YES PUBLIC_GET=DENY MIRROR=DENY RELEASE=DENY PUBLISH=DENY ARTIFACT_UPLOAD=NONE')
+          PY
