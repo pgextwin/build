@@ -5,7 +5,9 @@
   "allowedRepositories": [
     "pgextwin/plpgsql_check",
     "pgextwin/pg_ivm",
-    "pgextwin/set_user"
+    "pgextwin/set_user",
+    "pgextwin/orafce",
+    "pgextwin/pg_hint_plan"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
