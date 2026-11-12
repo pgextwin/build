@@ -151,7 +151,7 @@ class OwnerFormalRuntimeTests(TestCase):
         # central AND local opt-ins (default DENY remains the starting policy).
         central=json.loads((ROOT/"metadata/owner-source-publication.json").read_text("utf-8"))
         self.assertEqual(central["mode"],"ENFORCE")
-        self.assertEqual(central["allowedRepositories"],["pgextwin/plpgsql_check", "pgextwin/pg_ivm", "pgextwin/set_user"])
+        self.assertEqual(central["allowedRepositories"],["pgextwin/plpgsql_check", "pgextwin/pg_ivm", "pgextwin/set_user", "pgextwin/orafce", "pgextwin/pg_hint_plan"])
 
 if __name__=="__main__":
     main()
