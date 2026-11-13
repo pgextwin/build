@@ -1,0 +1,237 @@
+name: Issue112 pg_permissions original-main source-owned Sigstore (NONPUBLISHING)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/issue112-permissions-owned-source-signed.yml
+      - scripts/issue112-permissions-owned-source-signed-audit.py
+      - tests/test_issue112_permissions_owned_source_signed.py
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/issue112-permissions-owned-source-signed.yml
+      - scripts/issue112-permissions-owned-source-signed-audit.py
+      - tests/test_issue112_permissions_owned_source_signed.py
+
+# No tag, Release, Publisher, public GET, dispatch, or artifact mirror.
+# Attestation is only for the distinct source-owned candidate, not Cybertec.
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: PR/read-only source and negative-tests gate
+    if: >-
+      github.repository == 'pgextwin/build' &&
+      github.run_attempt == 1 &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/catalog
+          ref: 7f18abe7d72795d0880c78300099abd5e96e12f8
+          path: pinned-catalog
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cybertec-postgresql/pg_permissions
+          ref: 3360447e0668fed2b9db6a0ae1d086533781f9bd
+          path: pinned-upstream
+          persist-credentials: false
+      - name: Check exact pinned source, hostile tests and one private package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C pinned-catalog rev-parse HEAD)" = '7f18abe7d72795d0880c78300099abd5e96e12f8'
+          test "$(git -C pinned-upstream rev-parse HEAD)" = '3360447e0668fed2b9db6a0ae1d086533781f9bd'
+          python3 -m unittest discover -s pinned-catalog/tests -p 'test_issue112_pg_permissions_owned_source_pilot.py' -v
+          python3 -m unittest discover -s pinned-catalog/tests -p 'test_issue112_pg_permissions_private_sbom.py' -v
+          python3 -m unittest discover -s tests -p 'test_issue112_permissions_owned_source_signed.py' -v
+          python3 pinned-catalog/scripts/issue112_pg_permissions_owned_source_pilot.py \
+            --source pinned-upstream --pg 18 --output "$RUNNER_TEMP/permissions-private-preflight.zip"
+          test -s "$RUNNER_TEMP/permissions-private-preflight.zip"
+
+  sign:
+    name: Genuine protected-main original signed source candidate (NO PUBLISH)
+    needs: preflight
+    if: >-
+      github.repository == 'pgextwin/build' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pgextwin/catalog
+          ref: 7f18abe7d72795d0880c78300099abd5e96e12f8
+          path: pinned-catalog
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cybertec-postgresql/pg_permissions
+          ref: 3360447e0668fed2b9db6a0ae1d086533781f9bd
+          path: pinned-upstream
+          persist-credentials: false
+      - name: Authenticate actual main branch, original Run and all three commit identities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'pgextwin/build'
+          test "$GITHUB_EVENT_NAME" = 'push'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C pinned-catalog rev-parse HEAD)" = '7f18abe7d72795d0880c78300099abd5e96e12f8'
+          test "$(git -C pinned-upstream rev-parse HEAD)" = '3360447e0668fed2b9db6a0ae1d086533781f9bd'
+          gh api --method GET "repos/$GITHUB_REPOSITORY/branches/main" > "$RUNNER_TEMP/main.json"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$RUNNER_TEMP/run.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          main = json.loads((Path(os.environ["RUNNER_TEMP"]) / "main.json").read_text())
+          run = json.loads((Path(os.environ["RUNNER_TEMP"]) / "run.json").read_text())
+          assert main["protected"] is True
+          assert main["commit"]["sha"] == os.environ["GITHUB_SHA"]
+          assert run["id"] == int(os.environ["GITHUB_RUN_ID"])
+          assert run["event"] == "push" and run["head_branch"] == "main"
+          assert run["head_sha"] == os.environ["GITHUB_SHA"]
+          assert run["run_attempt"] == 1
+          assert run["repository"]["full_name"] == "pgextwin/build"
+          PY
+      - name: Create five ZIP/SPDX pairs from immutable source (no public delivery)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/private-candidates"
+          for pg in 14 15 16 17 18; do
+            python3 pinned-catalog/scripts/issue112_pg_permissions_owned_source_pilot.py \
+              --source pinned-upstream --pg "$pg" \
+              --output "$RUNNER_TEMP/private-candidates/pg_permissions-source-pg$pg.zip"
+            python3 pinned-catalog/scripts/issue112_pg_permissions_private_sbom.py \
+              --source pinned-upstream --pg "$pg" \
+              --zip "$RUNNER_TEMP/private-candidates/pg_permissions-source-pg$pg.zip" \
+              --output "$RUNNER_TEMP/private-candidates/pg_permissions-source-pg$pg.spdx.json"
+          done
+          test "$(find "$RUNNER_TEMP/private-candidates" -type f -name '*.zip' | wc -l)" -eq 5
+          test "$(find "$RUNNER_TEMP/private-candidates" -type f -name '*.spdx.json' | wc -l)" -eq 5
+      - name: Issue original GitHub OIDC/Sigstore provenance for five source-owned ZIPs and five SPDX inventories
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/private-candidates/*
+      - name: Retain only nonpublishing ZIP/SPDX candidate bytes for independent audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue112-permissions-owned-source-signed-nonpublishing
+          path: ${{ runner.temp }}/private-candidates/*
+          if-no-files-found: error
+          retention-days: 7
+
+  independent_audit:
+    name: Independent original byte/Sigstore auditor (${{ matrix.auditor }})
+    needs: sign
+    if: >-
+      github.repository == 'pgextwin/build' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        auditor: [first, second]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cybertec-postgresql/pg_permissions
+          ref: 3360447e0668fed2b9db6a0ae1d086533781f9bd
+          path: pinned-upstream
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: issue112-permissions-owned-source-signed-nonpublishing
+          path: ${{ runner.temp }}/candidates
+      - name: Verify independently downloaded ZIP member bytes, source and Sigstore
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDITOR: ${{ matrix.auditor }}
+        run: |
+          set -euo pipefail
+          python3 scripts/issue112-permissions-owned-source-signed-audit.py audit \
+            --source pinned-upstream --dist "$RUNNER_TEMP/candidates" \
+            --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --auditor "$AUDITOR" \
+            --output "$RUNNER_TEMP/audit-$AUDITOR.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue112-permissions-audit-${{ matrix.auditor }}
+          path: ${{ runner.temp }}/audit-${{ matrix.auditor }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  join:
+    name: Require dual independent exact-byte signature agreement (PUBLISH DENY)
+    needs: [sign, independent_audit]
+    if: >-
+      github.repository == 'pgextwin/build' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: issue112-permissions-audit-first
+          path: ${{ runner.temp }}/first
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: issue112-permissions-audit-second
+          path: ${{ runner.temp }}/second
+      - name: Join identical run/HEAD/ZIP hashes and keep Publisher denied
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/issue112-permissions-owned-source-signed-audit.py join \
+            --first "$RUNNER_TEMP/first/audit-first.json" \
+            --second "$RUNNER_TEMP/second/audit-second.json" \
+            --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+          echo 'Source-owned candidate Sigstore independently verified. No Publisher, Release, public Catalog pin or ZIP mirror authorized.' >> "$GITHUB_STEP_SUMMARY"
