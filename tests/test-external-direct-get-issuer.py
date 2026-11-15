@@ -266,7 +266,7 @@ class Tests(unittest.TestCase):
         self.assertFalse(data["redistributionAuthorized"])
         self.assertEqual(len(data["records"]), 1)
         self.assertEqual(data["records"][0]["assetId"], issuer.ASSET_ID)
-        self.assertEqual(data["expiresAt"], "2026-11-07T06:00:00Z")
+        self.assertEqual(data["expiresAt"], "2026-11-08T00:00:00Z")
         for bad in ({"bytes": 1, "sha256": issuer.ASSET_SHA, "zipMembers": 158},
                     {"bytes": issuer.ASSET_SIZE, "sha256": "0" * 64, "zipMembers": 158},
                     {"bytes": issuer.ASSET_SIZE, "sha256": issuer.ASSET_SHA, "zipMembers": 0}):

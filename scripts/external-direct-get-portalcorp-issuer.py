@@ -144,7 +144,7 @@ def manifest(build, runid, catalog_sha, row, proof, now):
         "publisherEnvironment":"external-direct-provider-publisher",
         "publisherAppId":old.APP_ID, "approvedOperation":old.OPERATION,
         "issuedAt":n.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "expiresAt":(n+timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "expiresAt":(n+timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "downloadAuthorized":True, "mirrorAuthorized":False,
         "redistributionAuthorized":False,
         "records":[{

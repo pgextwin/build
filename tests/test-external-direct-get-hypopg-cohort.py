@@ -42,7 +42,7 @@ class Cohort(unittest.TestCase):
         self.assertEqual(len(d["records"]),3)
         result=proposer.verify_hypopg_manifest(
             d,"a"*40,"b"*40,1234,now+timedelta(minutes=1))
-        self.assertEqual(result,now+timedelta(hours=6))
+        self.assertEqual(result,now+timedelta(hours=24))
         self.assertFalse(d["mirrorAuthorized"])
         self.assertTrue(d["downloadAuthorized"])
         self.assertEqual(d["issuerEvent"],"workflow_dispatch")

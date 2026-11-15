@@ -195,10 +195,10 @@ class ExactReviewedOriginals(unittest.TestCase):
                          ["18", "14", "15", "16", "16"])
         self.assertEqual(proposal.verify_qualified_manifest(
             doc, SHA, CATALOG, RUN, NOW + timedelta(minutes=1)),
-            NOW + timedelta(hours=6))
+            NOW + timedelta(hours=24))
         with self.assertRaises(ValueError):
             proposal.verify_qualified_manifest(
-                doc, SHA, CATALOG, RUN, NOW + timedelta(hours=7))
+                doc, SHA, CATALOG, RUN, NOW + timedelta(hours=25))
 
     def test_malicious_source_set_rejected(self):
         doc = fake_doc()
@@ -229,7 +229,7 @@ class ExactReviewedOriginals(unittest.TestCase):
             ["laurenz/oracle_fdw", "andreiramani/pgvector_pgsql_windows"])
         self.assertEqual(proposal.verify_qualified_manifest(
             doc, SHA, CATALOG, RUN, NOW + timedelta(minutes=1)),
-            NOW + timedelta(hours=6))
+            NOW + timedelta(hours=24))
         for index, change in enumerate([
             lambda d: d["records"][5].update({"assetId": 1}),
             lambda d: d["records"][6].update({"originalSha256": "0" * 64}),
@@ -264,7 +264,7 @@ class ExactReviewedOriginals(unittest.TestCase):
         self.assertEqual(len(newest["records"]), 11)
         self.assertEqual(proposal.verify_qualified_manifest(
             newest, SHA, CATALOG, RUN, NOW + timedelta(minutes=1)),
-            NOW + timedelta(hours=6))
+            NOW + timedelta(hours=24))
         expected = issuer.combine_latest_manifests(
             SHA, RUN, CATALOG,
             {"sourceRepo": issuer.trickle.SOURCE_REPO, "assetId": issuer.trickle.ASSET_ID,

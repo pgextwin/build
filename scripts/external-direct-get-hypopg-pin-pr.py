@@ -45,7 +45,7 @@ def verify_hypopg_manifest(doc, build_sha, catalog_sha, runid, now):
                 "untrusted source/operation/owner identity: " + key)
     issued = old.parse_utc(doc["issuedAt"])
     expires = old.parse_utc(doc["expiresAt"])
-    require(expires - issued == timedelta(hours=6)
+    require(expires - issued == timedelta(hours=24)
             and issued <= now < expires, "invalid/expired original cohort permission")
     rows = doc["records"]
     require(type(rows) is list and len(rows) == 3, "unknown signed cohort size")
@@ -114,7 +114,7 @@ def make_pr(api, token, runid, catalog_sha, contents, expiry):
         "body": (
             "True owner workflow_dispatch protected Build/main, reviewed Publisher "
             "Environment, same-Run independent Sigstore and exact original source/Windows "
-            "PG14-16 bytes. Metadata only. Six-hour expiry; MIRROR_DENY and "
+            "PG14-16 bytes. Metadata only. 24-hour expiry; MIRROR_DENY and "
             "REDISTRIBUTION_DENY. No public permission until protected merge plus "
             "original postmerge and actual public CLI GET E2E. "
             "HypoPG upstream LICENSE link (ZIP has no embedded LICENSE/NOTICE), "

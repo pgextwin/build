@@ -46,8 +46,8 @@ class Tests(unittest.TestCase):
         d = valid_manifest()
         self.assertEqual(pin.verify_manifest(d, build_sha=BUILD,
             catalog_sha=CATALOG, run_id=1234, now=NOW),
-            NOW - timedelta(seconds=1) + timedelta(hours=6))
-        for bad_now in (NOW - timedelta(seconds=3), NOW + timedelta(hours=6)):
+            NOW - timedelta(seconds=1) + timedelta(hours=24))
+        for bad_now in (NOW - timedelta(seconds=3), NOW + timedelta(hours=24)):
             with self.subTest(bad_now=bad_now), self.assertRaises(pin.Denied):
                 pin.verify_manifest(d, build_sha=BUILD, catalog_sha=CATALOG,
                     run_id=1234, now=bad_now)
@@ -61,7 +61,7 @@ class Tests(unittest.TestCase):
             ("publisherEnvironment", "publisher"),
             ("publisherAppId", 5451798), ("approvedOperation", "MIRROR"),
             ("downloadAuthorized", False), ("mirrorAuthorized", True),
-            ("redistributionAuthorized", True), ("expiresAt", "2026-11-09T00:00:00Z"),
+            ("redistributionAuthorized", True), ("expiresAt", "2026-11-08T06:00:00Z"),
             ("unexpected", True),
         ]
         for name, value in variants:

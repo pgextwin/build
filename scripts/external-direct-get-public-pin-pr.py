@@ -120,8 +120,8 @@ def verify_manifest(data, *, build_sha, catalog_sha, run_id, now):
         require(type(data[key]) is type(expected) and data[key] == expected,
                 "untrusted admission field " + key)
     issued, expires = parse_utc(data["issuedAt"]), parse_utc(data["expiresAt"])
-    require(expires - issued == timedelta(hours=6)
-            and issued <= now < expires, "expired or altered six-hour admission")
+    require(expires - issued == timedelta(hours=24)
+            and issued <= now < expires, "expired or altered 24-hour admission")
     records = data["records"]
     require(type(records) is list and len(records) == 1
             and type(records[0]) is dict and set(records[0]) == ROW_KEYS,
@@ -243,7 +243,7 @@ def make_pr(*, api, token, run_id, catalog_sha, contents, expires):
             "Original Build owner workflow_dispatch, Run %d / attempt 1, "
             "protected main, dedicated Environment owner review, same-Run "
             "independent Sigstore verification and exact signed bytes verified. "
-            "Metadata only; zero third-party ZIPs. Six-hour expiry; an expired "
+            "Metadata only; zero third-party ZIPs. 24-hour expiry; an expired "
             "pin is DENY and MUST NOT be refreshed without a fresh genuine issuer. "
             "This PR is NOT an authorized public Catalog pin until protected "
             "merge and original postmerge succeed. External ZIP MIRROR_DENY, "

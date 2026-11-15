@@ -28,7 +28,7 @@ class PortalcorpCohort(unittest.TestCase):
              {"bytes":163732,"sha256":issuer.ASSET_SHA,"zipMembers":48},NOW)
         self.assertEqual(proposer.verify_portalcorp_manifest(
             doc,"a"*40,"b"*40,12345,NOW),
-            NOW+timedelta(hours=6))
+            NOW+timedelta(hours=24))
         self.assertEqual(proposer.path_for(12345,"attestation.json"),
                          "external/signed-direct-get/portalcorp_pgvector/run-12345/attestation.json")
         for field,value in (("originalSha256","0"*64),("sourceRepo","laurenz/oracle_fdw"),
@@ -40,7 +40,7 @@ class PortalcorpCohort(unittest.TestCase):
                 proposer.verify_portalcorp_manifest(d,"a"*40,"b"*40,12345,NOW)
         with self.assertRaises(proposer.old.Denied):
             proposer.verify_portalcorp_manifest(doc,"a"*40,"b"*40,12345,
-                                                NOW+timedelta(hours=7))
+                                                NOW+timedelta(hours=25))
         with self.assertRaises(issuer.old.Denied):
             issuer.manifest("a"*40,12345,"b"*40,record(),
                 {"bytes":163732,"sha256":"0"*64,"zipMembers":48},NOW)
