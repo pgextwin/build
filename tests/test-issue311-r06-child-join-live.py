@@ -8,6 +8,7 @@ import io
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 import urllib.request
 import zipfile
 
@@ -17,6 +18,12 @@ mod = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(mod)
 
 
+def historical_targets():
+    raw = (ROOT / "tests/fixtures/issue311-r05-fleet-69918265.json").read_bytes()
+    assert mod.store.blob_hash(raw) == mod.FLEET_BLOB
+    return sorted(x["repository"] for x in json.loads(raw)["entries"])
+
+
 def declaration():
     return {"schemaVersion": 1, "kind": "pgextwin-r06-original-child-join",
         "requestId": "r-20261030-r06join17test01", "mode": "AUDIT_ONLY", "requestedBy": "ShutenOishi",
@@ -24,7 +31,7 @@ def declaration():
         "central": {"requestId": "r-20261029-r06prepare17test07", "runId": 100, "headSha": "a"*40,
                     "artifactId": 101, "zipSha256": "b"*64},
         "children": [{"repo": r, "runId": i+200, "requestId": "r-20261030-r06local" + str(i) + "test07"}
-                     for i, r in enumerate(sorted(mod.targets()))],
+                     for i, r in enumerate(historical_targets())],
         "missingCompletionRepo": "pgextwin/orafce", "publicReleaseAuthorized": False,
         "stateWriteScope": "BUILD_ONLY_REQUEST_LIFECYCLE"}
 
@@ -38,20 +45,23 @@ class BoundaryTests(unittest.TestCase):
                     "          path: .pgextwin-build\n      - name: " + name + "\n"
                     "        env:\n          GH_TOKEN: ${{ github.token }}\n"
                     "        run: python .pgextwin-build/scripts/issue311-r06-fleet-local-prepare.py run\n")
-        for repo, name in [("pgextwin/orafce", mod.SHARED_VERIFY_STEP),
-                           ("pgextwin/pg_ivm", mod.SHARED_VERIFY_STEP),
-                           ("pgextwin/pg_repack", mod.VERIFY_STEP),
-                           ("pgextwin/pg_bigm", mod.VERIFY_STEP)]:
-            mod.original_verification_step(repo, job(name), workflow(name))
-        original = workflow(mod.VERIFY_STEP)
-        cases = [(job(mod.SHARED_VERIFY_STEP), original),
-                 (job(mod.VERIFY_STEP, "failure"), original),
-                 (job(mod.VERIFY_STEP), original.replace("ff551bd2", "00000000")),
-                 (job(mod.VERIFY_STEP), original.replace(".py run", ".py fake")),
-                 (job(mod.VERIFY_STEP), original.replace("GH_TOKEN:", "OTHER_TOKEN:"))]
-        for record, text in cases:
-            with self.assertRaises(ValueError):
-                mod.original_verification_step("pgextwin/pg_repack", record, text)
+        with patch.object(mod, "targets", return_value=set(historical_targets())):
+            for repo, name in [("pgextwin/orafce", mod.SHARED_VERIFY_STEP),
+                               ("pgextwin/pg_ivm", mod.SHARED_VERIFY_STEP),
+                               ("pgextwin/pg_repack", mod.VERIFY_STEP),
+                               ("pgextwin/pg_bigm", mod.VERIFY_STEP)]:
+                mod.original_verification_step(repo, job(name), workflow(name))
+            original = workflow(mod.VERIFY_STEP)
+            cases = [(job(mod.SHARED_VERIFY_STEP), original),
+                     (job(mod.VERIFY_STEP, "failure"), original),
+                     (job(mod.VERIFY_STEP), original.replace("ff551bd2", "00000000")),
+                     (job(mod.VERIFY_STEP), original.replace(".py run", ".py fake")),
+                     (job(mod.VERIFY_STEP), original.replace("GH_TOKEN:", "OTHER_TOKEN:"))]
+            for record, text in cases:
+                with self.assertRaises(ValueError):
+                    mod.original_verification_step("pgextwin/pg_repack", record, text)
+        with self.assertRaisesRegex(ValueError, "trusted registry drift"):
+            mod.targets()
 
     def test_authentic_central_scan_flag_is_not_the_app_state_flag(self):
         self.assertTrue(mod.central_scope({"publicationAuthorized": False}))
@@ -61,8 +71,9 @@ class BoundaryTests(unittest.TestCase):
 
     def validate(self, request):
         path = ".github/execution-requests/" + request["requestId"] + ".json"
-        return mod.validate_request(json.dumps(request).encode(), path,
-            now=datetime(2026, 10, 29, 22, 1, tzinfo=timezone.utc))
+        with patch.object(mod, "targets", return_value=set(historical_targets())):
+            return mod.validate_request(json.dumps(request).encode(), path,
+                now=datetime(2026, 10, 29, 22, 1, tzinfo=timezone.utc))
 
     def test_exact_scope_is_inert_and_rejects_privileged_or_incomplete(self):
         good = declaration()
@@ -130,24 +141,26 @@ class BoundaryTests(unittest.TestCase):
                 mod.preflight_child(central, bad)
 
     def test_actual_terminal_preserves_normal_and_quarantines_anomalies_without_replay(self):
-        children = [{"repo": r, "receipt": {"result": "NO_UPDATE"}} for r in sorted(mod.targets())]
-        initial = mod.life.new("r-20261030-r06join17test01", "d"*64, "a"*40,
-            sorted(mod.targets()), "2026-10-29T21:20:00Z")
-        bound = mod.life.bind_source(initial, 0, "source", run_id=500, attempt=1, head_sha="a"*40)
-        with self.assertRaises(ValueError):
-            mod.bounded_terminal(bound, children, 500, 501, "e"*64, now="2026-10-29T21:19:59Z")
-        terminal = mod.bounded_terminal(bound, children, 500, 501, "e"*64, now="2026-10-29T21:21:00Z")
-        self.assertEqual(terminal["eventTransport"], "BOUNDED_WATCHDOG")
-        self.assertEqual(list(terminal["targets"].values()).count("NO_UPDATE"), 13)
-        self.assertEqual(list(terminal["targets"].values()).count("QUARANTINED"), 4)
-        mod.store.require_transition(bound, terminal)
-        with self.assertRaises(ValueError):
-            mod.life._apply(terminal, 2, "second-event", {"op": "replay"}, lambda s: s.update(terminal=None))
-        changed = copy.deepcopy(children)
-        normal = next(x for x in changed if x["repo"] not in mod.ANOMALIES)
-        normal["receipt"]["result"] = "UPDATE_PRESENT_NOT_AUTHORIZED"
-        quarantine = mod.bounded_terminal(bound, changed, 500, 501, "e"*64, now="2026-10-29T21:21:00Z")
-        self.assertEqual(quarantine["targets"][normal["repo"]], "QUARANTINED")
+        hist = historical_targets()
+        with patch.object(mod, "targets", return_value=set(hist)):
+            children = [{"repo": r, "receipt": {"result": "NO_UPDATE"}} for r in hist]
+            initial = mod.life.new("r-20261030-r06join17test01", "d"*64, "a"*40,
+                hist, "2026-10-29T21:20:00Z")
+            bound = mod.life.bind_source(initial, 0, "source", run_id=500, attempt=1, head_sha="a"*40)
+            with self.assertRaises(ValueError):
+                mod.bounded_terminal(bound, children, 500, 501, "e"*64, now="2026-10-29T21:19:59Z")
+            terminal = mod.bounded_terminal(bound, children, 500, 501, "e"*64, now="2026-10-29T21:21:00Z")
+            self.assertEqual(terminal["eventTransport"], "BOUNDED_WATCHDOG")
+            self.assertEqual(list(terminal["targets"].values()).count("NO_UPDATE"), 13)
+            self.assertEqual(list(terminal["targets"].values()).count("QUARANTINED"), 4)
+            mod.store.require_transition(bound, terminal)
+            with self.assertRaises(ValueError):
+                mod.life._apply(terminal, 2, "second-event", {"op": "replay"}, lambda s: s.update(terminal=None))
+            changed = copy.deepcopy(children)
+            normal = next(x for x in changed if x["repo"] not in mod.ANOMALIES)
+            normal["receipt"]["result"] = "UPDATE_PRESENT_NOT_AUTHORIZED"
+            quarantine = mod.bounded_terminal(bound, changed, 500, 501, "e"*64, now="2026-10-29T21:21:00Z")
+            self.assertEqual(quarantine["targets"][normal["repo"]], "QUARANTINED")
 
     def test_cross_host_artifact_redirect_drops_authorization(self):
         original = urllib.request.Request("https://api.github.com/repos/pgextwin/build/actions/artifacts/1/zip",

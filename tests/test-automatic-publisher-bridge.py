@@ -13,7 +13,12 @@ spec = importlib.util.spec_from_file_location(
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
 FLEET = manual_policy("automation-fleet.json")
+FLEET["entries"].append({
+    **deepcopy(FLEET["entries"][-1]),
+    "repository": "pgextwin/pg_permissions",
+})
 CENTRAL = manual_policy("release-promotion.json")
+CENTRAL["allowedRepositories"].append("pgextwin/pg_permissions")
 UNATTENDED = manual_policy("unattended-publication.json")
 REPO = "pgextwin/pg_ivm"
 SHA = "a" * 40

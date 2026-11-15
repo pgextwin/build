@@ -92,11 +92,14 @@ class Tests(unittest.TestCase):
 
     def test_real_git_registry_blob_survives_windows_checkout_crlf(self):
         # Pure bytes test also runs inside the no-.git policy projection fixture.
-        # Runtime obtains those canonical bytes using git show, not checkout bytes.
-        raw=Path("metadata/automation-fleet.json").read_bytes()
+        # Validate against the frozen R05 historical 17-repo blob fixture, and confirm
+        # live registry growth rejects stale R05 blob reuse.
+        raw=Path("tests/fixtures/issue311-r05-fleet-69918265.json").read_bytes()
         self.assertIn("HEAD:metadata/automation-fleet.json",
                       Path(p.__file__).read_text())
         self.assertEqual(len(p.verify_immutable_registry_bytes(raw)["entries"]),17)
+        with self.assertRaises(ValueError):
+            p.verify_immutable_registry_bytes(Path("metadata/automation-fleet.json").read_bytes())
         with self.assertRaises(ValueError):
             p.verify_immutable_registry_bytes(raw.replace(b"\n",b"\r\n"))
         with self.assertRaises(ValueError):
