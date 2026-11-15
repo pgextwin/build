@@ -217,7 +217,7 @@ def make_manifest(*, build_sha, runid, catalog_sha, row, proof, now):
             "missing independently verified original proof")
     assert row["assetId"] == ASSET_ID and row["sourceRepo"] == SOURCE_REPO
     n = now.astimezone(timezone.utc).replace(microsecond=0)
-    expiry = n + timedelta(hours=6)
+    expiry = n + timedelta(hours=24)
     return {
         "schemaVersion": "pgextwin-external-direct-get-admission/v1",
         "sourceKind": "EXTERNAL_GITHUB_RELEASE_ASSET",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Issue #112: assemble seven independently qualified provider originals for ONE owner Run.
 
-This creates only an unsigned, six-hour GET-only subject. A real protected-main
+This creates only an unsigned, 24-hour GET-only subject. A real protected-main
 owner workflow_dispatch and Environment, then a separate OIDC/Sigstore signer,
 independent verifier, and second Environment-approved PR are still required.
 No third-party ZIPs are uploaded, mirrored, installed, or published.

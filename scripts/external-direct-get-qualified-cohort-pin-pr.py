@@ -187,7 +187,7 @@ def make_pr(api, token, runid, catalog_sha, files, expires):
             "Oracle Client is separately licensed and obtained by the user; "
             "community pgvector has no bundled LICENSE/NOTICE, see Catalog "
             "rights ledger for upstream license and clear unofficial status. "
-            "Expiry six hours, MIRROR_DENY/REDISTRIBUTION_DENY, no install. "
+            "Expiry 24 hours, MIRROR_DENY/REDISTRIBUTION_DENY, no install. "
             "Public permission requires this PR's protected merge, true postmerge, "
             "and public Windows CLI original-byte GET E2E. Other discovery "
             "candidates remain DENY. Related: pgextwin/build#112.")})

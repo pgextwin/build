@@ -45,8 +45,8 @@ def verify_portalcorp_manifest(doc,build_sha,catalog_sha,runid,now):
     require(all(type(doc.get(k)) is type(v) and doc[k]==v for k,v in exact.items()),
             "unreviewed issuer event, App or source commit")
     issued,expires=old.parse_utc(doc["issuedAt"]),old.parse_utc(doc["expiresAt"])
-    require(expires-issued==timedelta(hours=6) and issued<=now<expires,
-            "six-hour portalcorp owner admission expired")
+    require(expires-issued==timedelta(hours=24) and issued<=now<expires,
+            "24-hour portalcorp owner admission expired")
     rows=doc["records"]
     require(type(rows) is list and len(rows)==1
             and type(rows[0]) is dict and set(rows[0])==old.ROW_KEYS,
@@ -101,7 +101,7 @@ def make_pr(api,token,runid,catalog_sha,files,expires):
                "Environment review twice, same-Run independent Sigstore, immutable "
                "provider original ZIP SHA256 and real Windows PG16 SQL. Metadata only. "
                "Public availability is subject to protected Catalog merge and original "
-               "postmerge Windows/public CLI E2E. Signature expiry six hours; expired "
+               "postmerge Windows/public CLI E2E. Signature expiry 24 hours; expired "
                "means GET_DENY. Packaging repo MIT license plus upstream pgvector "
                "PostgreSQL license disclosed. No binary mirror, redistribution, install "
                "or Oracle/community pgvector P3 hold modification. Refs pgextwin/build#112."})
