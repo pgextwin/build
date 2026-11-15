@@ -1,0 +1,66 @@
+# Future publication-policy full-repository projection CI (separated from validate.yml per R02).
+#
+# Automatic triggers:
+#   - pull_request and push (to main) when publication policy metadata or
+#     migration/projection implementation files listed under `paths:` change.
+# Manual execution (e.g., explicitly before a policy cutover):
+#   - GitHub Actions UI: Actions -> "Publication policy projection" -> "Run workflow"
+#   - GitHub CLI: `gh workflow run publication-policy-projection.yml --ref <branch>`
+name: Publication policy projection
+
+on:
+  pull_request:
+    paths:
+      - "metadata/automation-fleet.json"
+      - "metadata/release-promotion.json"
+      - "metadata/unattended-publication.json"
+      - "metadata/publisher-write-boundary.json"
+      - "metadata/manual-release-downstream.json"
+      - "scripts/automatic-publisher-receipt-issuer.py"
+      - "scripts/automatic-publisher-readiness.py"
+      - "scripts/catalog-downstream-policy.py"
+      - "scripts/publication-migration-plan.py"
+      - "tests/publication_policy_fixtures.py"
+      - "tests/test-publication-policy-transition.py"
+      - "tests/test-publication-policy-projection.py"
+      - ".github/workflows/publication-policy-projection.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "metadata/automation-fleet.json"
+      - "metadata/release-promotion.json"
+      - "metadata/unattended-publication.json"
+      - "metadata/publisher-write-boundary.json"
+      - "metadata/manual-release-downstream.json"
+      - "scripts/automatic-publisher-receipt-issuer.py"
+      - "scripts/automatic-publisher-readiness.py"
+      - "scripts/catalog-downstream-policy.py"
+      - "scripts/publication-migration-plan.py"
+      - "tests/publication_policy_fixtures.py"
+      - "tests/test-publication-policy-transition.py"
+      - "tests/test-publication-policy-projection.py"
+      - ".github/workflows/publication-policy-projection.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  projection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out build infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install Python test dependencies
+        run: python -m pip install --disable-pip-version-check 'PyYAML==6.0.3' 'jsonschema>=4,<5'
+
+      - name: Run full-repository Python CI and readiness check on a nonpublishing future-policy copy
+        run: python tests/test-publication-policy-projection.py

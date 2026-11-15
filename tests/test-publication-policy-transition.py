@@ -1,44 +1,33 @@
 #!/usr/bin/env python3
-"""Offline migration acceptance: real declarations and future-copy Python CI.
+"""Offline migration acceptance: small transition/control unit checks.
 
+Full-repository future-policy projection CI is separated into
+tests/test-publication-policy-projection.py and
+.github/workflows/publication-policy-projection.yml.
 No GitHub access, signing, token issuance, policy activation or Release writes.
 """
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import importlib.util
 import itertools
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
-from publication_policy_fixtures import manual_policy
+from publication_policy_fixtures import POLICY_FILES, automatic_policy, manual_policy
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=("automation-fleet.json","release-promotion.json",
-       "unattended-publication.json","publisher-write-boundary.json")
 spec=importlib.util.spec_from_file_location("migration_issuer",ROOT/"scripts/automatic-publisher-receipt-issuer.py")
 gate=importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
-spec=importlib.util.spec_from_file_location("projected_catalog_contract",ROOT/"scripts/catalog-downstream-policy.py")
-catalog=importlib.util.module_from_spec(spec);spec.loader.exec_module(catalog)
 
 def automatic(objects):
-    f,c,u,b=deepcopy(objects)
-    f["releasePolicy"]=gate.MODE
-    for row in f["entries"]:row["releasePolicy"]=gate.MODE
-    c["releasePolicy"]=gate.MODE
-    u["mode"]="UNATTENDED"
-    u["controls"]={name:True for name in u["controls"]}
-    b.update(mode="ENFORCE",publisherAppId=gate.APP,
-             publisherInstallationId=gate.INSTALLATION)
-    return [f,c,u,b]
+    return automatic_policy(objects, gate.MODE, gate.APP, gate.INSTALLATION)
 
 class TransitionTests(unittest.TestCase):
     def test_partial_policy_transitions_are_rejected(self):
-        old=[manual_policy(n) for n in FILES]
+        old=[manual_policy(n) for n in POLICY_FILES]
         new=automatic(old)
         for choices in itertools.product((0,1),repeat=4):
             objects=[deepcopy(new[i] if choice else old[i]) for i,choice in enumerate(choices)]
@@ -51,7 +40,7 @@ class TransitionTests(unittest.TestCase):
                     gate.deployment_policy(*objects)
 
     def test_registered_growth_and_unknown_controls_do_not_grant_authority(self):
-        objects=automatic([manual_policy(n) for n in FILES])
+        objects=automatic([manual_policy(n) for n in POLICY_FILES])
         row=deepcopy(objects[0]["entries"][0]);row["repository"]="pgextwin/future_extension"
         objects[0]["entries"].append(row)
         objects[1]["allowedRepositories"].append(row["repository"])
@@ -63,7 +52,7 @@ class TransitionTests(unittest.TestCase):
         with self.assertRaises(gate.Denied):gate.deployment_policy(*objects)
 
     def test_shared_workflow_flag_has_a_real_newline_in_both_modes(self):
-        old=[manual_policy(n) for n in FILES]
+        old=[manual_policy(n) for n in POLICY_FILES]
         with TemporaryDirectory() as tmp:
             for objects,expected in ((old,b"manual_only=true\n"),
                                      (automatic(old),b"manual_only=false\n")):
@@ -81,7 +70,7 @@ class TransitionTests(unittest.TestCase):
             self.assertFalse(out.exists())
 
     def test_scope_cli_is_nonpublishing_in_both_modes(self):
-        old=[manual_policy(n) for n in FILES]
+        old=[manual_policy(n) for n in POLICY_FILES]
         with TemporaryDirectory() as tmp:
             for objects in (old,automatic(old)):
                 f,b=Path(tmp)/"fleet.json",Path(tmp)/"boundary.json"
@@ -101,7 +90,7 @@ class TransitionTests(unittest.TestCase):
             watch=importlib.util.module_from_spec(spec);spec.loader.exec_module(watch)
         finally:
             sys.path.pop(0)
-        old=[manual_policy(n) for n in FILES]
+        old=[manual_policy(n) for n in POLICY_FILES]
         for objects in (old,automatic(old)):
             registry=deepcopy(objects[0])
             extra=deepcopy(registry["entries"][0]);extra["repository"]="pgextwin/future_extension"
@@ -116,42 +105,5 @@ class TransitionTests(unittest.TestCase):
             self.assertEqual(result["indeterminate"],0)
             self.assertEqual(result["publication"],"DENY")
             self.assertIs(result["candidatePrCreated"],False)
-
-    def test_projected_activation_passes_existing_python_ci_without_changing_source(self):
-        paths=FILES+("manual-release-downstream.json",)
-        original={name:(ROOT/"metadata"/name).read_bytes() for name in paths}
-        objects=automatic([json.loads(original[name]) for name in FILES])
-        with TemporaryDirectory(prefix="pgextwin-policy-projection-") as tmp:
-            projected=Path(tmp)/"build"
-            shutil.copytree(ROOT,projected,ignore=shutil.ignore_patterns(".git","__pycache__"))
-            for name,value in zip(FILES,objects):
-                (projected/"metadata"/name).write_text(json.dumps(value,indent=2)+"\n")
-            downstream=catalog.automatic_template(json.loads(original["manual-release-downstream.json"]),*objects[:2])
-            (projected/"metadata/manual-release-downstream.json").write_text(json.dumps(downstream,indent=2)+"\n")
-            suites=sorted(p.name for p in (projected/"tests").glob("test-*.py")
-                          if p.name!=Path(__file__).name)
-            self.assertTrue(suites)
-            def check(name):
-                run=subprocess.run([sys.executable,"tests/"+name],cwd=projected,
-                    capture_output=True,text=True,timeout=90)
-                return name,run.returncode,(run.stdout+run.stderr)[-1800:]
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                results=list(pool.map(check,suites))
-            failed={name:output for name,code,output in results if code}
-            self.assertEqual(failed,{},json.dumps(failed,indent=2))
-            # Check the same read-only deployment entrypoint used by required CI.
-            run=subprocess.run([sys.executable,"scripts/automatic-publisher-readiness.py",
-                "--fleet","metadata/automation-fleet.json",
-                "--central-policy","metadata/release-promotion.json",
-                "--unattended","metadata/unattended-publication.json",
-                "--publisher-boundary","metadata/publisher-write-boundary.json"],
-                cwd=projected,capture_output=True,text=True)
-            self.assertEqual(run.returncode,0,run.stderr)
-            decision=json.loads(run.stdout.splitlines()[0])
-            self.assertIs(decision["staticPublisherReady"],True)
-            self.assertIs(decision["publicationAuthorized"],False)
-            self.assertIs(decision["publishableReceipt"],False)
-        self.assertEqual(original,{name:(ROOT/"metadata"/name).read_bytes() for name in paths})
-        print("PROJECTED_AUTOMATIC_PYTHON_CI="+str(len(suites))+"; no activation, signing or Release")
 
 if __name__=="__main__":unittest.main()
