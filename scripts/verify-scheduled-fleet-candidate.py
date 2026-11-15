@@ -25,30 +25,48 @@ HOST = "https://api.github.com/repos/"
 BUILD = "pgextwin/build"
 WATCH_PATH = ".github/workflows/fleet-upstream-watch.yml"
 SHA = re.compile(r"^[0-9a-f]{40}$")
-COHORT_14 = "16b886b9d06d6f389b369b87ce0c155767697ca0"
-COHORT_3 = "acd6eb28be6d750e89b626fa4ccd4403e1265cd6"
-OLD = {"pg_bigm", "pg_cron", "pg_hint_plan", "pgaudit", "set_user",
-       "pg_repack", "pg_ivm", "pg_qualstats", "plpgsql_check", "hypopg",
-       "wal2json", "pg_partman", "pg_stat_monitor", "orafce"}
-NEW = {"pgtap", "pg_variables", "pg_store_plans"}
-REPOSITORIES = {"pgextwin/" + r for r in OLD | NEW}
 # These 17 existing trusted repos remain mandatory, not the maximum count.
 # No future repository is authorized merely by its name matching a regex.
-HISTORICAL_FLOOR = frozenset(REPOSITORIES)
+HISTORICAL_FLOOR = frozenset({
+    "pgextwin/pg_bigm", "pgextwin/pg_cron", "pgextwin/pg_hint_plan",
+    "pgextwin/pgaudit", "pgextwin/set_user", "pgextwin/pg_repack",
+    "pgextwin/pg_ivm", "pgextwin/pg_qualstats", "pgextwin/plpgsql_check",
+    "pgextwin/hypopg", "pgextwin/wal2json", "pgextwin/pg_partman",
+    "pgextwin/pg_stat_monitor", "pgextwin/orafce", "pgextwin/pgtap",
+    "pgextwin/pg_variables", "pgextwin/pg_store_plans",
+})
 MAX_FLEET = 128
 ROOT = Path(__file__).resolve().parents[1]
 _fleet_spec = importlib.util.spec_from_file_location(
     "scheduled_shared_fleet_policy", ROOT / "scripts/fleet-policy.py")
 fleet_policy = importlib.util.module_from_spec(_fleet_spec)
 _fleet_spec.loader.exec_module(fleet_policy)
+_contents_spec = importlib.util.spec_from_file_location(
+    "scheduled_shared_github_contents", ROOT / "scripts/github_contents.py")
+github_contents = importlib.util.module_from_spec(_contents_spec)
+_contents_spec.loader.exec_module(github_contents)
 
 
-def protected_fleet(registry=None):
-    """Exact immutable-checkout manifest, not live unpinned caller metadata."""
+def fetch_live_manifest(commit_sha, token):
+    """Fetch and decode metadata/automation-fleet.json at protected build main."""
+    need(type(commit_sha) is str and SHA.fullmatch(commit_sha),
+         "current central protected main SHA missing")
+    source = api(HOST + BUILD + "/contents/metadata/automation-fleet.json?ref=" + commit_sha,
+                 token)
     try:
-        policy = registry if registry is not None else fleet_policy.read(
-            ROOT / "metadata/automation-fleet.json")
+        return github_contents.decode_json_file(source, "metadata/automation-fleet.json")
+    except (ValueError, UnicodeError, TypeError, KeyError) as exc:
+        raise Denied("untrusted protected central fleet manifest") from exc
+
+
+def protected_fleet(registry=None, *, commit_sha=None, token=None):
+    """Live protected central build main manifest, never unpinned checkout metadata."""
+    try:
+        policy = (registry if registry is not None
+                  else fetch_live_manifest(commit_sha, token))
         rows = fleet_policy.members(policy, require_build=True)
+    except Denied:
+        raise
     except (fleet_policy.Denied, OSError, ValueError, TypeError, KeyError) as exc:
         raise Denied("untrusted protected central fleet manifest") from exc
     need(HISTORICAL_FLOOR.issubset(rows) and
@@ -57,14 +75,14 @@ def protected_fleet(registry=None):
     return frozenset(rows)
 
 # Every blob must match across the original scheduled scan, current protected
-# build main and the immutable reusable-workflow checkout before live replay.
+# build main and the immutable reusable-workflow checkout before live replay
+# or cross-SHA caller authorization.
 REPLAY_SOURCE_PATHS = (
     ".github/workflows/fleet-upstream-watch.yml",
     "scripts/fleet-upstream-watch.py",
     "scripts/fleet-control.py",
     "scripts/fleet-policy.py",
     "scripts/update_watch_lib.py",
-    "metadata/automation-fleet.json",
 )
 
 
@@ -118,35 +136,33 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
     approved = protected_fleet(registry)
     need(repository in approved, "unregistered candidate repository")
     need(type(head) is str and SHA.fullmatch(head), "invalid candidate main SHA")
+    need(type(build_branch) is dict and type(run) is dict,
+         "protected branch or central run missing")
     current_build = (build_branch.get("commit") or {}).get("sha")
     need(type(current_build) is str and SHA.fullmatch(current_build),
          "current central protected main SHA missing")
-    if repository in HISTORICAL_FLOOR:
-        expected = COHORT_14 if repository.split("/")[1] in OLD else COHORT_3
-        need(pin == expected, "invalid immutable historical detector cohort")
-    else:
-        # A newly registered source must invoke this reusable workflow by an
-        # immutable central source SHA, surfaced by GitHub job.workflow_sha.
-        # The same SHA must be the actual protected current/scheduled build
-        # main, never a caller-selected arbitrary repository or workflow ref.
-        source_sha = workflow_sha if workflow_sha is not None else os.environ.get(
-            "PGEXTWIN_WORKFLOW_SHA")
-        need(type(source_sha) is str and SHA.fullmatch(source_sha)
-             and pin == source_sha
-             and source_sha in (current_build, run.get("head_sha")),
-             "future detector lacks exact protected immutable source binding")
+    source_sha = workflow_sha if workflow_sha is not None else os.environ.get(
+        "PGEXTWIN_WORKFLOW_SHA")
+    need(type(source_sha) is str and SHA.fullmatch(source_sha)
+         and pin == source_sha,
+         "detector lacks exact protected immutable source binding")
+    run_head = run.get("head_sha")
+    if source_sha not in (current_build, run_head):
+        need(source_equivalent is True,
+             "pinned workflow SHA lacks authenticated code-closure equivalence")
     # Never silently accept a stale scheduled scan. Only a new, complete
     # registered-fleet live replay from identical immutable scan sources may
     # replace the old schedule-head binding; target main stays exact.
-    if current_build != run.get("head_sha"):
+    if current_build != run_head:
         need(live_replay is True and source_equivalent is True,
              "central SHA drift without authenticated immutable live replay")
     for branch, sha in ((build_branch, current_build if live_replay and
-                         source_equivalent else run.get("head_sha")),
+                         source_equivalent else run_head),
                         (target_branch, head)):
         need(type(branch) is dict and branch.get("protected") is True
-             and (branch.get("commit") or {}).get("sha") == sha
-             and SHA.fullmatch(sha), "protected exact-main evidence missing")
+             and type(sha) is str and SHA.fullmatch(sha)
+             and (branch.get("commit") or {}).get("sha") == sha,
+             "protected exact-main evidence missing")
     need(type(run) is dict and run.get("event") == "schedule"
          and run.get("path") == WATCH_PATH and run.get("head_branch") == "main"
          and run.get("run_attempt") == 1
@@ -272,7 +288,7 @@ def verify_replay_source_blobs(scheduled_sha, current_sha, token):
     return True
 
 
-def replay_live_fleet(token):
+def replay_live_fleet(token, registry=None):
     """Fallback when a caller GITHUB_TOKEN cannot download build's artifact.
 
     No cross-repository Actions token, credential widening, workflow dispatch,
@@ -281,6 +297,8 @@ def replay_live_fleet(token):
     GETs. An indeterminate row (or inaccessible public API) is always DENY.
     """
     import runpy
+    need(type(registry) is dict, "live protected central fleet manifest missing")
+    protected_fleet(registry)
     root = Path(__file__).resolve().parents[1]
     script_dir = str(root / "scripts")
     sys.path.insert(0, script_dir)
@@ -290,9 +308,7 @@ def replay_live_fleet(token):
             run_name="pgextwin_fleet_candidate_readonly_replay")["scan"]
     finally:
         sys.path.remove(script_dir)
-    policy = strict_json(
-        (root / "metadata" / "automation-fleet.json").read_text("utf-8"))
-    return scan(policy, lambda url: api(url, token))
+    return scan(registry, lambda url: api(url, token))
 
 
 
@@ -321,7 +337,8 @@ def original_outer_sha256(blob, artifact, report):
 
 
 def candidate_receipt(mode, central, artifact, report, build_branch,
-                      repository, head, source_kind, actual_outer_sha=None):
+                      repository, head, source_kind, actual_outer_sha=None,
+                      registry=None):
     """A source-typed preflight record. Never creates Publisher authority."""
     need(mode in ("none", "candidate"), "unaccepted receipt mode")
     need(source_kind in ("ORIGINAL_OUTER_ZIP_VERIFIED",
@@ -354,8 +371,9 @@ def candidate_receipt(mode, central, artifact, report, build_branch,
          and type(central.get("id")) is int and central["id"] > 0
          and (central.get("repository") or {}).get("full_name") == BUILD,
          "central schedule receipt identity absent")
-    need(report.get("fleetSize") == len(protected_fleet())
-         and len(report.get("extensions", [])) == len(protected_fleet()),
+    approved = protected_fleet(registry)
+    need(report.get("fleetSize") == len(approved)
+         and len(report.get("extensions", [])) == len(approved),
          "partial fleet receipt denied")
     canonical = json.dumps(report, sort_keys=True, ensure_ascii=False,
                            separators=(",", ":")).encode("utf-8")
@@ -372,19 +390,32 @@ def candidate_receipt(mode, central, artifact, report, build_branch,
         "originalOuterZipSha256Verified": actual_outer_sha,
         "originalOuterZipByteVerified": actual_outer_sha is not None,
         "reportCanonicalSha256": hashlib.sha256(canonical).hexdigest(),
-        "registeredFleetCount": len(protected_fleet()), "decision": mode,
+        "registeredFleetCount": len(approved), "decision": mode,
         "publisherSourceKindAuthorized": False, "publicationAuthorized": False,
     }
 
 
 def run(repository, head, pin, token, receipt_out=None):
-    need(repository in protected_fleet() and type(head) is str and SHA.fullmatch(head),
+    need(type(repository) is str and fleet_policy.REPO.fullmatch(repository)
+         and type(head) is str and SHA.fullmatch(head),
          "unregistered or invalid caller identity")
+    workflow_sha = os.environ.get("PGEXTWIN_WORKFLOW_SHA")
+    need(type(workflow_sha) is str and SHA.fullmatch(workflow_sha)
+         and pin == workflow_sha,
+         "detector lacks exact protected immutable source binding")
     need(os.environ.get("GITHUB_EVENT_NAME") == "schedule"
          and os.environ.get("GITHUB_REF") == "refs/heads/main"
          and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
          "only initial protected-main schedule may create a candidate")
     build_branch = api(HOST + BUILD + "/branches/main", token)
+    need(type(build_branch) is dict and build_branch.get("protected") is True,
+         "protected central main evidence missing")
+    current_build = (build_branch.get("commit") or {}).get("sha")
+    need(type(current_build) is str and SHA.fullmatch(current_build),
+         "current central protected main SHA missing")
+    registry = fetch_live_manifest(current_build, token)
+    approved = protected_fleet(registry)
+    need(repository in approved, "unregistered or invalid caller identity")
     target_branch = api(HOST + repository + "/branches/main", token)
     runs = api(HOST + BUILD + "/actions/runs?event=schedule&per_page=100", token)
     need(type(runs) is dict and type(runs.get("workflow_runs")) is list
@@ -422,16 +453,19 @@ def run(repository, head, pin, token, receipt_out=None):
     source_equivalent = False
     selected_artifact = None
     actual_outer_sha = None
-    if build_branch.get("commit", {}).get("sha") != exact.get("head_sha"):
+    if current_build != exact.get("head_sha"):
         # The original successful schedule remains necessary, but its old
-        # source cannot authorize fresh work unless the scanner/policy blobs
+        # source cannot authorize fresh work unless the scanner code blobs
         # match the pinned immutable reusable workflow and current main.
         source_equivalent = verify_replay_source_blobs(
-            exact["head_sha"], build_branch["commit"]["sha"], token)
-        report = replay_live_fleet(token)
+            exact["head_sha"], current_build, token)
+        report = replay_live_fleet(token, registry=registry)
         live_replay = True
         print("FLEET_EVIDENCE=FRESH_FLEET_REPLAY_WITH_IDENTICAL_IMMUTABLE_SOURCES")
     else:
+        if workflow_sha not in (current_build, exact.get("head_sha")):
+            source_equivalent = verify_replay_source_blobs(
+                exact["head_sha"], current_build, token)
         artifacts = api(HOST + BUILD + "/actions/runs/" + str(exact["id"])
                         + "/artifacts?per_page=100", token)
         need(type(artifacts) is dict and type(artifacts.get("artifacts")) is list
@@ -455,7 +489,7 @@ def run(repository, head, pin, token, receipt_out=None):
                 # on pgextwin/build. NEVER treat a failed archive download as
                 # proof of a successful candidate; rescan the complete protected fleet from
                 # repository sources and validate that independent evidence.
-                report = replay_live_fleet(token)
+                report = replay_live_fleet(token, registry=registry)
                 print("FLEET_EVIDENCE=INDEPENDENT_GET_ONLY_REPLAY; central artifact not downloaded")
             else:
                 root = Path(temp)
@@ -479,26 +513,29 @@ def run(repository, head, pin, token, receipt_out=None):
     try:
         mode = validate(report, exact, build_branch, target_branch, repository,
                         head, pin, datetime.now(timezone.utc),
-                        live_replay=live_replay, source_equivalent=source_equivalent)
+                        live_replay=live_replay, source_equivalent=source_equivalent,
+                        registry=registry, workflow_sha=workflow_sha)
     except SnapshotMainChanged:
         # A successful archive download can still contain the old packaging
         # main after a protected merge. Never authorize that stale row. Only
         # after the original snapshot passes every other authentication gate,
-        # bind the entire scanner/policy closure to scheduled/current/pinned
+        # bind the entire scanner code closure to scheduled/current/pinned
         # source and perform one distinct fresh complete GET-only replay.
         # A drift during an existing replay remains DENY, not an endless retry.
         if live_replay:
             raise
-        source_equivalent = verify_replay_source_blobs(
-            exact["head_sha"], build_branch["commit"]["sha"], token)
-        report = replay_live_fleet(token)
+        if not source_equivalent:
+            source_equivalent = verify_replay_source_blobs(
+                exact["head_sha"], current_build, token)
+        report = replay_live_fleet(token, registry=registry)
         live_replay = True
         actual_outer_sha = None
         print("FLEET_EVIDENCE=FRESH_FLEET_REPLAY_AFTER_PROTECTED_TARGET_MAIN_CHANGE; "
               "central artifact target row was not accepted")
         mode = validate(report, exact, build_branch, target_branch, repository,
                         head, pin, datetime.now(timezone.utc),
-                        live_replay=live_replay, source_equivalent=source_equivalent)
+                        live_replay=live_replay, source_equivalent=source_equivalent,
+                        registry=registry, workflow_sha=workflow_sha)
     need(api(HOST + BUILD + "/branches/main", token) == build_branch
          and api(HOST + repository + "/branches/main", token) == target_branch,
          "protected main changed during candidate authorization")
@@ -518,7 +555,8 @@ def run(repository, head, pin, token, receipt_out=None):
                        "ORIGINAL_EXTRACTED_UNVERIFIED_OUTER_ZIP")
         receipt_out.update(candidate_receipt(
             mode, exact, selected_artifact, report, build_branch,
-            repository, head, source_kind, actual_outer_sha))
+            repository, head, source_kind, actual_outer_sha,
+            registry=registry))
     return mode
 
 
