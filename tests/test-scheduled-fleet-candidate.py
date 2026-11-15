@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Offline hostile fixtures: completed central daily proof cannot mint PUBLISH."""
 from __future__ import annotations
+import base64
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import importlib.util
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,12 +14,27 @@ spec = importlib.util.spec_from_file_location("scheduled_fleet", ROOT / "scripts
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
+registered = json.loads((ROOT / "metadata/automation-fleet.json").read_text("utf-8"))
+
+
+def contents_payload(doc, path="metadata/automation-fleet.json"):
+    raw = json.dumps(doc, indent=2).encode("utf-8")
+    return {
+        "path": path,
+        "encoding": "base64",
+        "size": len(raw),
+        "sha": m.git_blob_sha(raw),
+        "content": base64.b64encode(raw).decode("ascii"),
+    }
+
+
 now = datetime.now(timezone.utc).replace(microsecond=0)
 iso = lambda dt: dt.isoformat()
 old = now - timedelta(minutes=4)
 end = now - timedelta(minutes=3)
 good_sha = "a" * 40
 build_sha = "b" * 40
+pinned_sha = "1" * 40
 repo = "pgextwin/pgtap"
 branch = lambda sha: {"protected": True, "commit": {"sha": sha}}
 run = {
@@ -28,7 +45,7 @@ run = {
     "repository": {"full_name": m.BUILD},
 }
 rows = [{"repository": r, "mainSha": good_sha, "status": "up-to-date", "updates": []}
-        for r in sorted(m.protected_fleet())]
+        for r in sorted(m.protected_fleet(registered))]
 for item in rows:
     if item["repository"] == repo:
         item["status"] = "update-available"
@@ -40,23 +57,55 @@ report = {
     "extensions": rows,
 }
 def check(document=report, event=run, bbranch=None, target=None, repository=repo,
-          head=good_sha, pin=m.COHORT_3, live_replay=False,
-          source_equivalent=False):
+          head=good_sha, pin=build_sha, live_replay=False,
+          source_equivalent=False, registry=registered, workflow_sha=build_sha):
     return m.validate(document, event, bbranch or branch(build_sha),
                       target or branch(good_sha), repository, head, pin, now,
                       live_replay=live_replay,
-                      source_equivalent=source_equivalent)
+                      source_equivalent=source_equivalent,
+                      registry=registry, workflow_sha=workflow_sha)
+
+for removed in ("COHORT_14", "COHORT_3", "OLD", "NEW"):
+    assert not hasattr(m, removed), removed
+assert "metadata/automation-fleet.json" not in m.REPLAY_SOURCE_PATHS
+assert len(m.REPLAY_SOURCE_PATHS) == 5
+
+# Live manifest is never read implicitly from the pinned checkout.
+for fn in (lambda: m.protected_fleet(), lambda: m.replay_live_fleet("opaque-token")):
+    try:
+        fn()
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("implicit checkout manifest fallback was not denied")
+
+with patch.object(m, "api", return_value=contents_payload(registered)) as fetch_manifest:
+    assert m.protected_fleet(commit_sha=build_sha, token="opaque-token") == m.protected_fleet(registered)
+    assert fetch_manifest.call_count == 1
+    assert fetch_manifest.call_args.args[0] == (
+        m.HOST + m.BUILD + "/contents/metadata/automation-fleet.json?ref=" + build_sha
+    )
+bad_contents = contents_payload(registered)
+bad_contents["sha"] = "0" * 40
+with patch.object(m, "api", return_value=bad_contents):
+    try:
+        m.protected_fleet(commit_sha=build_sha, token="opaque-token")
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("tampered Contents blob SHA accepted")
 
 assert check() == "candidate"
+# Same unified rule applies to historical 14-cohort repos too.
+assert check(repository="pgextwin/pg_bigm") == "none"
 # The independent fresh GET-only replay is not the central ZIP; it must
-# maintain the same protected-main, 17-row, candidate-only contract.
+# maintain the same protected-main, live-fleet, candidate-only contract.
 assert check(live_replay=True) == "candidate"
 
-# A prospective 18th entry is permitted ONLY after explicit protected
-# registration, complete 18-row genuine-schedule proof and a GitHub-owned
-# immutable reusable-workflow source SHA. This is candidate-only, never Release.
-import json
-registered = json.loads((ROOT / "metadata/automation-fleet.json").read_text("utf-8"))
+# A newly registered entry is permitted after explicit protected registration,
+# complete live-fleet schedule proof, and an immutable reusable-workflow SHA.
+# When the caller pin differs from both current build main and scheduled head,
+# the 5-file code closure must match both refs.
 future_repo = "pgextwin/future_registered"
 future_policy = deepcopy(registered)
 future_entry = deepcopy(future_policy["entries"][-1])
@@ -69,10 +118,25 @@ future_report["extensions"].append({
 })
 future_report["fleetSize"] = len(future_report["extensions"])
 future_report["updatesDetected"] = 2
-assert m.protected_fleet(future_policy) == m.protected_fleet() | {future_repo}
+assert m.protected_fleet(future_policy) == m.protected_fleet(registered) | {future_repo}
 assert m.validate(future_report, run, branch(build_sha), branch(good_sha),
                   future_repo, good_sha, build_sha, now,
                   registry=future_policy, workflow_sha=build_sha) == "candidate"
+# (a) Caller registered after pin froze is authorized when code closure matches.
+assert m.validate(future_report, run, branch(build_sha), branch(good_sha),
+                  future_repo, good_sha, pinned_sha, now,
+                  source_equivalent=True, registry=future_policy,
+                  workflow_sha=pinned_sha) == "candidate"
+# Without code-closure equivalence, a pinned SHA differing from both refs DENIES.
+try:
+    m.validate(future_report, run, branch(build_sha), branch(good_sha),
+               future_repo, good_sha, pinned_sha, now,
+               source_equivalent=False, registry=future_policy,
+               workflow_sha=pinned_sha)
+except m.Denied:
+    pass
+else:
+    raise AssertionError("cross-SHA caller accepted without code-closure equivalence")
 for name, changed in (
     ("not registered", registered),
     ("mismatched immutable pin", future_policy),
@@ -86,6 +150,7 @@ for name, changed in (
         pass
     else:
         raise AssertionError("future candidate escaped protected identity gate: " + name)
+# (e) Central report fleetSize / row set differing from the live manifest -> DENY.
 for field in ("fleetSize", "extensions", "updatesDetected"):
     broken = deepcopy(future_report)
     if field == "fleetSize":
@@ -102,8 +167,27 @@ for field in ("fleetSize", "extensions", "updatesDetected"):
         pass
     else:
         raise AssertionError("partial new-fleet proof accepted: " + field)
+swapped_report = deepcopy(future_report)
+swapped_report["extensions"][-1]["repository"] = "pgextwin/other_repo"
+try:
+    m.validate(swapped_report, run, branch(build_sha), branch(good_sha),
+               future_repo, good_sha, build_sha, now,
+               registry=future_policy, workflow_sha=build_sha)
+except m.Denied:
+    pass
+else:
+    raise AssertionError("mismatched row set vs live manifest accepted")
+# (b) Live manifest missing any HISTORICAL_FLOOR repository -> DENY.
+for idx in range(len(m.HISTORICAL_FLOOR)):
+    missing_floor = deepcopy(future_policy)
+    missing_floor["entries"].pop(idx)
+    try:
+        m.protected_fleet(missing_floor)
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("live manifest missing HISTORICAL_FLOOR repo accepted")
 for mutated in (
-    {**future_policy, "entries": future_policy["entries"][1:]},
     {**future_policy, "entries": future_policy["entries"] + [future_entry]},
     {**future_policy, "entries": future_policy["entries"] + [
         {**future_entry, "repository": "bad/unknown"}]},
@@ -113,9 +197,8 @@ for mutated in (
     except m.Denied:
         pass
     else:
-        raise AssertionError("untrusted or missing historical fleet registry accepted")
-# Even on a future row, no caller-supplied SHA may replace the actual
-# immutable central reusable workflow SHA.
+        raise AssertionError("untrusted or duplicate fleet registry accepted")
+# (d) detector_sha != workflow_sha -> DENY.
 try:
     m.validate(future_report, run, branch(build_sha), branch(good_sha),
                future_repo, good_sha, build_sha, now,
@@ -123,7 +206,7 @@ try:
 except m.Denied:
     pass
 else:
-    raise AssertionError("forged reusable workflow SHA accepted")
+    raise AssertionError("detector_sha != workflow_sha accepted")
 
 # Normal schedule-head exact match remains mandatory. Only a distinct fresh
 # live replay after an authenticated immutable source-identity comparison may
@@ -236,7 +319,7 @@ r = deepcopy(report)
 next(row for row in r["extensions"] if row["repository"] == repo)["mainSha"] = "d" * 40
 denials.append(("stale extension main", lambda: check(r)))
 denials.append(("unprotected main", lambda: check(target={"protected": False, "commit": {"sha": good_sha}})))
-denials.append(("detector branch swap", lambda: check(pin=m.COHORT_14)))
+denials.append(("detector_sha != workflow_sha", lambda: check(pin="e" * 40)))
 denials.append(("unregistered repository", lambda: check(repository="pgextwin/evil")))
 denials.append(("caller SHA drift", lambda: check(head="d" * 40)))
 replay_early = deepcopy(report)
@@ -289,13 +372,15 @@ for records, expected_reason in (([latest_fail], "LATEST_GENUINE_CENTRAL_SCAN_NO
                                  ([], "NO_GENUINE_CENTRAL_FLEET_SCHEDULE")):
     with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
                                  "GITHUB_REF": "refs/heads/main",
-                                 "GITHUB_RUN_ATTEMPT": "1"}):
-        responses = [branch(build_sha), branch(good_sha), {"workflow_runs": records}]
+                                 "GITHUB_RUN_ATTEMPT": "1",
+                                 "PGEXTWIN_WORKFLOW_SHA": build_sha}):
+        responses = [branch(build_sha), contents_payload(registered),
+                     branch(good_sha), {"workflow_runs": records}]
         if records:
             responses.append(latest_fail)
         with patch.object(m, "api", side_effect=responses):
             try:
-                m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+                m.run(repo, good_sha, build_sha, "opaque-token")
             except m.Deferred as e:
                 assert str(e) == expected_reason
             else:
@@ -303,7 +388,8 @@ for records, expected_reason in (([latest_fail], "LATEST_GENUINE_CENTRAL_SCAN_NO
 with TemporaryDirectory() as directory:
     output = Path(directory) / "output"
     with patch.dict(os.environ, {"GITHUB_REPOSITORY": repo, "GITHUB_SHA": good_sha,
-                                 "PGEXTWIN_DETECTOR_SHA": m.COHORT_3,
+                                 "PGEXTWIN_DETECTOR_SHA": build_sha,
+                                 "PGEXTWIN_WORKFLOW_SHA": build_sha,
                                  "GH_TOKEN": "never-log-secret",
                                  "GITHUB_OUTPUT": str(output)}):
         with patch.object(m, "run", side_effect=m.Deferred("LATEST_GENUINE_CENTRAL_SCAN_NOT_SUCCESSFUL")):
@@ -313,7 +399,7 @@ print("PASS: unavailable genuine central schedule is safe deferred, not candidat
 
 
 # A scheduled run delayed past the original strict three-hour TTL must never
-# trigger an expensive 17-repository replay or create a candidate. It is
+# trigger an expensive repository replay or create a candidate. It is
 # operationally DEFERRED (same as missing/failed schedule), not a green proof.
 expired = deepcopy(run)
 expired["created_at"] = iso(now - timedelta(hours=4))
@@ -322,16 +408,17 @@ expired["id"] = 99818
 def expired_run_check(original):
     with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
                                  "GITHUB_REF": "refs/heads/main",
-                                 "GITHUB_RUN_ATTEMPT": "1"}):
+                                 "GITHUB_RUN_ATTEMPT": "1",
+                                 "PGEXTWIN_WORKFLOW_SHA": build_sha}):
         with patch.object(m, "api", side_effect=[
-            branch(build_sha), branch(good_sha),
-            {"workflow_runs": [original]}, original
+            branch(build_sha), contents_payload(registered),
+            branch(good_sha), {"workflow_runs": [original]}, original
         ]) as getter:
             try:
-                m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+                m.run(repo, good_sha, build_sha, "opaque-token")
             except m.Deferred as exc:
                 assert str(exc) == "LATEST_GENUINE_CENTRAL_SCAN_EXPIRED"
-                assert getter.call_count == 4
+                assert getter.call_count == 5
             else:
                 raise AssertionError("expired central schedule was not safely deferred")
 expired_run_check(expired)
@@ -339,13 +426,14 @@ bad_clock = deepcopy(expired)
 bad_clock["updated_at"] = iso(now + timedelta(days=1))
 with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
                              "GITHUB_REF": "refs/heads/main",
-                             "GITHUB_RUN_ATTEMPT": "1"}):
+                             "GITHUB_RUN_ATTEMPT": "1",
+                             "PGEXTWIN_WORKFLOW_SHA": build_sha}):
     with patch.object(m, "api", side_effect=[
-        branch(build_sha), branch(good_sha),
-        {"workflow_runs": [bad_clock]}, bad_clock
+        branch(build_sha), contents_payload(registered),
+        branch(good_sha), {"workflow_runs": [bad_clock]}, bad_clock
     ]):
         try:
-            m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+            m.run(repo, good_sha, build_sha, "opaque-token")
         except m.Denied:
             pass
         else:
@@ -354,13 +442,14 @@ bad_actor = deepcopy(expired)
 bad_actor["event"] = "workflow_dispatch"
 with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
                              "GITHUB_REF": "refs/heads/main",
-                             "GITHUB_RUN_ATTEMPT": "1"}):
+                             "GITHUB_RUN_ATTEMPT": "1",
+                             "PGEXTWIN_WORKFLOW_SHA": build_sha}):
     with patch.object(m, "api", side_effect=[
-        branch(build_sha), branch(good_sha),
-        {"workflow_runs": [bad_actor]}, bad_actor
+        branch(build_sha), contents_payload(registered),
+        branch(good_sha), {"workflow_runs": [bad_actor]}, bad_actor
     ]):
         try:
-            m.run(repo, good_sha, m.COHORT_3, "opaque-token")
+            m.run(repo, good_sha, build_sha, "opaque-token")
         except m.Denied:
             pass
         else:
@@ -368,7 +457,8 @@ with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
 with TemporaryDirectory() as directory:
     output = Path(directory) / "output"
     with patch.dict(os.environ, {"GITHUB_REPOSITORY": repo, "GITHUB_SHA": good_sha,
-                                 "PGEXTWIN_DETECTOR_SHA": m.COHORT_3,
+                                 "PGEXTWIN_DETECTOR_SHA": build_sha,
+                                 "PGEXTWIN_WORKFLOW_SHA": build_sha,
                                  "GH_TOKEN": "never-log-secret",
                                  "GITHUB_OUTPUT": str(output)}):
         with patch.object(m, "run", side_effect=m.Deferred("LATEST_GENUINE_CENTRAL_SCAN_EXPIRED")):
@@ -400,6 +490,8 @@ def stale_archive_run(*, original=report, replay=fresh, tree=None,
         requests.append(url)
         if url == m.HOST + m.BUILD + "/branches/main":
             return branch(build_sha)
+        if url == m.HOST + m.BUILD + "/contents/metadata/automation-fleet.json?ref=" + build_sha:
+            return contents_payload(registered)
         if url == m.HOST + repo + "/branches/main":
             target_gets += 1
             return final_branch if final_branch is not None and target_gets > 1 else live_branch
@@ -425,13 +517,14 @@ def stale_archive_run(*, original=report, replay=fresh, tree=None,
     capture = StringIO()
     with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
                                  "GITHUB_REF": "refs/heads/main",
-                                 "GITHUB_RUN_ATTEMPT": "1"}):
+                                 "GITHUB_RUN_ATTEMPT": "1",
+                                 "PGEXTWIN_WORKFLOW_SHA": build_sha}):
         with patch.object(m, "api", side_effect=getter), \
              patch.object(m.subprocess, "run", side_effect=download), \
              patch.object(m, "replay_live_fleet", return_value=replay) as fresh_scan, \
              redirect_stdout(capture):
             try:
-                result = m.run(repo, new_head, m.COHORT_3, "opaque-token")
+                result = m.run(repo, new_head, build_sha, "opaque-token")
             except m.Denied as exc:
                 return None, exc, fresh_scan.call_count, requests, capture.getvalue()
             return result, None, fresh_scan.call_count, requests, capture.getvalue()
@@ -501,10 +594,11 @@ with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
     good_receipt = m.candidate_receipt(
         "none", run, outer_metadata, report, branch(build_sha),
         repo, good_sha, "ORIGINAL_OUTER_ZIP_VERIFIED",
-        outer_metadata["digest"][7:])
+        outer_metadata["digest"][7:], registry=registered)
     assert good_receipt["centralRunId"] == 12345
     assert good_receipt["centralArtifactId"] == 982
     assert good_receipt["localRunId"] == 23456
+    assert good_receipt["registeredFleetCount"] == len(registered["entries"])
     assert good_receipt["originalOuterZipByteVerified"] is True
     assert good_receipt["publicationAuthorized"] is False
     for kind, digest in (("ORIGINAL_OUTER_ZIP_VERIFIED", None),
@@ -513,15 +607,167 @@ with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
                          ("FORGED_ARCHIVE_KIND", None)):
         try:
             m.candidate_receipt("none", run, outer_metadata, report,
-                                branch(build_sha), repo, good_sha, kind, digest)
+                                branch(build_sha), repo, good_sha, kind, digest,
+                                registry=registered)
         except m.Denied:
             pass
         else:
             raise AssertionError("source-kind/digest spoof accepted: " + kind)
     replay = m.candidate_receipt(
         "none", run, outer_metadata, report, branch(build_sha),
-        repo, good_sha, "INDEPENDENT_GET_ONLY_REPLAY")
+        repo, good_sha, "INDEPENDENT_GET_ONLY_REPLAY",
+        registry=registered)
     assert replay["originalOuterZipByteVerified"] is False
     assert replay["originalOuterZipSha256Verified"] is None
     assert replay["centralArtifactDigestMetadata"] == outer_metadata["digest"]
+    future_receipt = m.candidate_receipt(
+        "candidate", run, outer_metadata, future_report, branch(build_sha),
+        future_repo, good_sha, "INDEPENDENT_GET_ONLY_REPLAY",
+        registry=future_policy)
+    assert future_receipt["registeredFleetCount"] == len(future_policy["entries"])
+    try:
+        m.candidate_receipt("none", run, outer_metadata, report,
+                            branch(build_sha), repo, good_sha,
+                            "INDEPENDENT_GET_ONLY_REPLAY")
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("candidate_receipt without live registry was accepted")
 print("PASS: X02 source-kind and actual central outer ZIP SHA256 hostile fixtures")
+
+# End-to-end m.run() coverage for live-manifest binding and unified caller rule:
+# (a) caller registered after pin froze authorized via 5-file code closure;
+# (b) live manifest missing HISTORICAL_FLOOR -> DENY;
+# (c) code-closure blob mismatch -> DENY;
+# (d) detector_sha != workflow_sha -> DENY;
+# (e) central report differing from live manifest -> DENY.
+def live_run(*, caller_repo=future_repo, manifest=future_policy, snapshot=future_report,
+             tree=None, pin=pinned_sha, workflow_sha=pinned_sha,
+             download_ok=True, replay_report=None):
+    requests = []
+
+    def getter(url, token):
+        requests.append(url)
+        if url == m.HOST + m.BUILD + "/branches/main":
+            return branch(build_sha)
+        if url == m.HOST + m.BUILD + "/contents/metadata/automation-fleet.json?ref=" + build_sha:
+            return contents_payload(manifest)
+        if url == m.HOST + caller_repo + "/branches/main":
+            return branch(good_sha)
+        if url == m.HOST + m.BUILD + "/actions/runs?event=schedule&per_page=100":
+            return {"workflow_runs": [run]}
+        if url == m.HOST + m.BUILD + "/actions/runs/12345":
+            return run
+        if url == m.HOST + m.BUILD + "/actions/runs/12345/artifacts?per_page=100":
+            return {"total_count": 1, "artifacts": [{
+                "id": 982, "name": "fleet-upstream-watch", "expired": False,
+                "size_in_bytes": 1234, "digest": outer_metadata["digest"],
+            }]}
+        if url == m.HOST + m.BUILD + "/git/trees/" + build_sha + "?recursive=1":
+            return pristine_tree() if tree is None else tree
+        raise AssertionError("unexpected GET during live_run: " + url)
+
+    def run_cmd(command, **kwargs):
+        if command[:3] == ["gh", "run", "download"]:
+            if not download_ok:
+                return SimpleNamespace(returncode=1)
+            destination = Path(command[-1])
+            (destination / "fleet-upstream-watch.json").write_text(json.dumps(snapshot), "utf-8")
+            (destination / "fleet-upstream-watch.md").write_text("central snapshot", "utf-8")
+            return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=1, stdout=b"")
+
+    seen_registry = []
+    def fake_replay(token, registry=None):
+        seen_registry.append(registry)
+        return replay_report if replay_report is not None else snapshot
+
+    receipt = {}
+    with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
+                                 "GITHUB_REF": "refs/heads/main",
+                                 "GITHUB_RUN_ATTEMPT": "1",
+                                 "GITHUB_RUN_ID": "23456",
+                                 "PGEXTWIN_WORKFLOW_SHA": workflow_sha}):
+        with patch.object(m, "api", side_effect=getter), \
+             patch.object(m.subprocess, "run", side_effect=run_cmd), \
+             patch.object(m, "replay_live_fleet", side_effect=fake_replay), \
+             redirect_stdout(StringIO()):
+            result = m.run(caller_repo, good_sha, pin, "opaque-token", receipt_out=receipt)
+    return result, receipt, requests, seen_registry
+
+mode, receipt, requests, seen_registry = live_run()
+assert mode == "candidate"
+assert seen_registry == []
+assert any("/git/trees/" + build_sha in url for url in requests)
+assert receipt["registeredFleetCount"] == len(future_policy["entries"])
+
+# Live replay fallback threads the live manifest (not checkout file).
+mode, receipt, _, seen_registry = live_run(download_ok=False)
+assert mode == "candidate"
+assert seen_registry == [future_policy]
+assert receipt["registeredFleetCount"] == len(future_policy["entries"])
+assert receipt["sourceKind"] == "INDEPENDENT_GET_ONLY_REPLAY"
+
+# Mismatching only metadata/automation-fleet.json in tree does NOT break code-closure check
+# when the live manifest itself is fetched via Contents API.
+tree_with_extra = pristine_tree()
+tree_with_extra["tree"].append({
+    "path": "metadata/automation-fleet.json", "type": "blob", "mode": "100644",
+    "sha": "9" * 40,
+})
+mode, _, _, _ = live_run(tree=tree_with_extra)
+assert mode == "candidate"
+
+for label, kwargs in (
+    ("missing HISTORICAL_FLOOR in live manifest", {
+        "manifest": {**future_policy, "entries": future_policy["entries"][1:]},
+    }),
+    ("code-closure blob mismatch", {
+        "tree": bad_tree,
+    }),
+    ("detector_sha != workflow_sha", {
+        "pin": "e" * 40,
+    }),
+    ("central report differs from live manifest", {
+        "snapshot": report,
+    }),
+):
+    try:
+        live_run(**kwargs)
+    except m.Denied:
+        pass
+    else:
+        raise AssertionError("live_run failed to deny: " + label)
+
+# replay_live_fleet scans with the supplied live registry, never checkout file.
+import runpy
+scanned_policies = []
+def fake_run_path(path, run_name=None):
+    def fake_scan(policy, fetch):
+        scanned_policies.append(policy)
+        return future_report
+    return {"scan": fake_scan}
+with patch.object(runpy, "run_path", side_effect=fake_run_path):
+    assert m.replay_live_fleet("opaque-token", registry=future_policy) == future_report
+assert scanned_policies == [future_policy]
+
+# m.main() hard-denies (exit code 2, no output) when detector_sha != workflow_sha.
+with TemporaryDirectory() as directory:
+    output = Path(directory) / "output"
+    receipt_file = Path(directory) / "receipt.json"
+    with patch.dict(os.environ, {"GITHUB_REPOSITORY": future_repo,
+                                 "GITHUB_SHA": good_sha,
+                                 "PGEXTWIN_DETECTOR_SHA": "e" * 40,
+                                 "PGEXTWIN_WORKFLOW_SHA": pinned_sha,
+                                 "PGEXTWIN_RECEIPT_PATH": str(receipt_file),
+                                 "GH_TOKEN": "never-log-secret",
+                                 "GITHUB_OUTPUT": str(output)}), \
+         redirect_stdout(StringIO()):
+        err_capture = StringIO()
+        from contextlib import redirect_stderr
+        with redirect_stderr(err_capture):
+            assert m.main() == 2
+        assert "SCHEDULED_FLEET_CANDIDATE=DENY;" in err_capture.getvalue()
+    assert not output.exists()
+    assert not receipt_file.exists()
+print("PASS: live manifest binding, 5-file code closure, and unified caller rule")

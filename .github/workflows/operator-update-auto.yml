@@ -44,7 +44,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PGEXTWIN_DETECTOR_SHA: ${{ inputs.detector_sha }}
           # GitHub-owned immutable source identity of this reusable workflow.
-          # Future (18th+) callers must pin their detector to this exact SHA.
+          # Every caller must pin detector_sha to this exact SHA; when it
+          # differs from both current build main and the scheduled scan head,
+          # the scan code closure must blob-match both refs. Fleet membership
+          # is read live from current protected build main.
           PGEXTWIN_WORKFLOW_SHA: ${{ job.workflow_sha }}
           PGEXTWIN_RECEIPT_PATH: ${{ runner.temp }}/pgextwin-central-fleet-preflight-receipt.json
         run: python .pgextwin-automation/scripts/verify-scheduled-fleet-candidate.py
