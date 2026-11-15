@@ -17,7 +17,8 @@
     "pgextwin/orafce",
     "pgextwin/pgtap",
     "pgextwin/pg_variables",
-    "pgextwin/pg_store_plans"
+    "pgextwin/pg_store_plans",
+    "pgextwin/pg_permissions"
   ],
   "releasePolicy": "automatic-signed-schedule"
 }

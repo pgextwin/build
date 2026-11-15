@@ -11,7 +11,7 @@ class Tests(unittest.TestCase):
         req=json.loads(Path(".github/execution-requests/r-20261029-r05readonly17b.json").read_text())
         fleet=json.loads(Path("metadata/automation-fleet.json").read_text())
         self.assertEqual(set(x["repo"] for x in req["targets"]),m.REPOS)
-        self.assertEqual(set(x["repository"] for x in fleet["entries"]),m.REPOS)
+        self.assertTrue(m.REPOS.issubset(x["repository"] for x in fleet["entries"]))
         self.assertEqual(req["mode"],"AUDIT_ONLY")
         self.assertFalse(req["approval"]["publicReleaseAuthorized"])
         self.assertFalse(req["approval"]["publicationGrants"])

@@ -28,14 +28,14 @@ run = {
     "repository": {"full_name": m.BUILD},
 }
 rows = [{"repository": r, "mainSha": good_sha, "status": "up-to-date", "updates": []}
-        for r in sorted(m.REPOSITORIES)]
+        for r in sorted(m.protected_fleet())]
 for item in rows:
     if item["repository"] == repo:
         item["status"] = "update-available"
         item["updates"] = [{"version": "v1.99", "commit": "c" * 40}]
 report = {
     "schemaVersion": 1, "scope": "STABLE_UPSTREAM_GET_ONLY",
-    "publication": "DENY", "candidatePrCreated": False, "fleetSize": 17,
+    "publication": "DENY", "candidatePrCreated": False, "fleetSize": len(rows),
     "indeterminate": 0, "generatedAt": iso(end), "updatesDetected": 1,
     "extensions": rows,
 }
@@ -67,9 +67,9 @@ future_report["extensions"].append({
     "repository": future_repo, "mainSha": good_sha,
     "status": "update-available", "updates": [{"version": "v3.0", "commit": "c" * 40}]
 })
-future_report["fleetSize"] = 18
+future_report["fleetSize"] = len(future_report["extensions"])
 future_report["updatesDetected"] = 2
-assert m.protected_fleet(future_policy) == m.HISTORICAL_FLOOR | {future_repo}
+assert m.protected_fleet(future_policy) == m.protected_fleet() | {future_repo}
 assert m.validate(future_report, run, branch(build_sha), branch(good_sha),
                   future_repo, good_sha, build_sha, now,
                   registry=future_policy, workflow_sha=build_sha) == "candidate"
@@ -89,7 +89,7 @@ for name, changed in (
 for field in ("fleetSize", "extensions", "updatesDetected"):
     broken = deepcopy(future_report)
     if field == "fleetSize":
-        broken[field] = 17
+        broken[field] = len(rows)
     elif field == "extensions":
         broken[field].pop()
     else:
@@ -103,7 +103,7 @@ for field in ("fleetSize", "extensions", "updatesDetected"):
     else:
         raise AssertionError("partial new-fleet proof accepted: " + field)
 for mutated in (
-    {**future_policy, "entries": future_policy["entries"][:-2] + [future_entry]},
+    {**future_policy, "entries": future_policy["entries"][1:]},
     {**future_policy, "entries": future_policy["entries"] + [future_entry]},
     {**future_policy, "entries": future_policy["entries"] + [
         {**future_entry, "repository": "bad/unknown"}]},

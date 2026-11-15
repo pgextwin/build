@@ -155,6 +155,15 @@
       "candidateEnabled": true,
       "releasePolicy": "automatic-signed-schedule",
       "reason": "Standing authorization for eligible new stable signed releases; exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
+    },
+    {
+      "repository": "pgextwin/pg_permissions",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 * * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "SQL-only pilot registration for pgextwin/pg_permissions (cybertec-postgresql/pg_permissions); exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
     }
   ]
 }

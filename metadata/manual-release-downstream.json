@@ -13,6 +13,7 @@
     "pg_hint_plan",
     "pg_ivm",
     "pg_partman",
+    "pg_permissions",
     "pg_qualstats",
     "pg_repack",
     "pg_stat_monitor",

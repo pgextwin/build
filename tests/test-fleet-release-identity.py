@@ -27,6 +27,7 @@ SOURCES = {
     "pgtap": ("v1.3.4", "1.3.4", "v1.3.4-windows.1"),
     "pg_variables": ("v1.2.1", "1.2.1", "v1.2.1-windows.1"),
     "pg_store_plans": ("1.10", "1.10", "v1.10-windows.1"),
+    "pg_permissions": ("REL_1_4_1", "1.4.1", "v1.4.1-windows.1"),
 }
 PER_MAJOR = {
     "pgaudit": {
@@ -57,7 +58,7 @@ def manifest(name):
 
 class IdentityTests(unittest.TestCase):
     def test_every_fleet_member_has_an_exact_tag_and_fifteen_assets(self):
-        self.assertEqual(len(lib.UPSTREAMS),17)
+        self.assertEqual(len(lib.UPSTREAMS),18)
         self.assertEqual(set(lib.UPSTREAMS),set(SOURCES)|set(PER_MAJOR))
         for name in lib.UPSTREAMS:
             with self.subTest(extension=name):

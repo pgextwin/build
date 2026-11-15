@@ -38,8 +38,8 @@ def fixture():
                 "head_sha": SHA, "head_branch": "main",
                 "event": "push", "path": ".github/workflows/update-watch.yml",
                 "status": "in_progress", "conclusion": None},
-        "fleet": manual_policy("automation-fleet.json"),
-        "central": manual_policy("release-promotion.json"),
+        "fleet": deepcopy(hand.tag_fixtures.pub.FLEET),
+        "central": deepcopy(hand.tag_fixtures.pub.CENTRAL),
         "local": {"schemaVersion": 1, "enabled": True,
                   "releasePolicy": "manual-dispatch"},
         "unattended": manual_policy("unattended-publication.json"),
@@ -124,7 +124,7 @@ class IndependentLivePublisherTests(unittest.TestCase):
                 live.assess(**obj)
 
     def test_live_policy_uses_actual_github_blob_not_self_claimed_json(self):
-        content = json.dumps(manual_policy("release-promotion.json")).encode()
+        content = json.dumps(hand.tag_fixtures.pub.CENTRAL).encode()
         path = "metadata/release-promotion.json"
         response = {
             "path": path, "encoding": "base64",

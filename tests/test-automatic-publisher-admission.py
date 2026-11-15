@@ -25,8 +25,8 @@ SCHEDULE_RUN=987654
 def fixture():
     signed,unused,manifest=plan.fixture()
     proposal=plan.run_plan()
-    fleet=manual_policy("automation-fleet.json")
-    central=manual_policy("release-promotion.json")
+    fleet=deepcopy(plan.pub.FLEET)
+    central=deepcopy(plan.pub.CENTRAL)
     unattended=manual_policy("unattended-publication.json")
     boundary=manual_policy("publisher-write-boundary.json")
     source={
