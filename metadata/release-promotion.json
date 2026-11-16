@@ -18,7 +18,8 @@
     "pgextwin/pgtap",
     "pgextwin/pg_variables",
     "pgextwin/pg_store_plans",
-    "pgextwin/pg_permissions"
+    "pgextwin/pg_permissions",
+    "pgextwin/pg_track_settings"
   ],
   "releasePolicy": "automatic-signed-schedule"
 }

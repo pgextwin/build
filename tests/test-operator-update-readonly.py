@@ -48,8 +48,9 @@ def run(repo, pin, *, dry="true", confirm="", expected="", actor="ShutenOishi",
 class SharedUpdateTests(unittest.TestCase):
     def test_all_seventeen_exact_live_roster_positive(self):
         self.assertEqual(len(ROSTER), len(set(ROSTER)))
-        self.assertEqual(len(ROSTER), 18)
-        cohort = tuple(repo for repo in ROSTER if repo != "pgextwin/pg_permissions")
+        self.assertEqual(len(ROSTER), 19)
+        unpinned = ("pgextwin/pg_permissions", "pgextwin/pg_track_settings")
+        cohort = tuple(repo for repo in ROSTER if repo not in unpinned)
         self.assertEqual(len(cohort), 17)
         self.assertTrue(WAVE3.issubset(cohort))
         for repo in cohort:
@@ -58,10 +59,11 @@ class SharedUpdateTests(unittest.TestCase):
                 self.assertEqual(run(repo, pin), (0, "mode=read-only\n"))
                 self.assertEqual(run(repo, pin, dry="false", confirm="UPDATE",
                                      expected=HEAD), (0, "mode=candidate\n"))
-        self.assertNotEqual(run("pgextwin/pg_permissions", NEW)[0], 0)
+        for repo in unpinned:
+            self.assertNotEqual(run(repo, NEW)[0], 0)
 
     def test_foreign_or_wrong_sha_cannot_be_called(self):
-        for repo in (r for r in ROSTER if r != "pgextwin/pg_permissions"):
+        for repo in (r for r in ROSTER if r not in ("pgextwin/pg_permissions", "pgextwin/pg_track_settings")):
             wrong = OLD if repo in WAVE3 else NEW
             self.assertNotEqual(run(repo, wrong)[0], 0, repo)
         for repo in ("pgextwin/build", "pgextwin/catalog", "other/pgtap",

@@ -8,7 +8,8 @@
     "pgextwin/set_user",
     "pgextwin/orafce",
     "pgextwin/pg_hint_plan",
-    "pgextwin/pg_permissions"
+    "pgextwin/pg_permissions",
+    "pgextwin/pg_track_settings"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164

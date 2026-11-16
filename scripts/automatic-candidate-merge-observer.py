@@ -45,10 +45,10 @@ def one_file(items):
 def verify_snapshot(*, event, commit, prs, files, branch, checks, runs,
                     repository, actor, expected_sha, roster):
     """Validate separately fetched GitHub REST data, without granting PUBLISH."""
-    require(type(roster) is list and len(roster) == 18
-            and len(set(roster)) == 18
+    require(type(roster) is list and len(roster) == 19
+            and len(set(roster)) == 19
             and all(type(r) is str and REPOSITORY.fullmatch(r) for r in roster)
-            and repository in roster, "not an exact member of protected 18-extension roster")
+            and repository in roster, "not an exact member of protected 19-extension roster")
     require(type(actor) is str and LOGIN.fullmatch(actor)
             and actor.lower() != "github-actions[bot]"
             and actor == "ShutenOishi", "operator not the approved human GitHub identity")
