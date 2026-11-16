@@ -1,9 +1,6 @@
 name: PostgreSQL update watch
 
 on:
-  schedule:
-    # GitHub Actions cron is UTC. Daily is sufficient for PostgreSQL release/lifecycle changes.
-    - cron: "29 5 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
