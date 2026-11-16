@@ -11,33 +11,33 @@
     },
     {
       "major": 15,
-      "minor": "15.19",
+      "minor": "15.20",
       "chocolateyPackage": "postgresql15",
-      "chocolateyVersion": "15.19.0",
+      "chocolateyVersion": "15.20.1",
       "eol": "2027-11-11",
       "testPort": 55432
     },
     {
       "major": 16,
-      "minor": "16.15",
+      "minor": "16.16",
       "chocolateyPackage": "postgresql16",
-      "chocolateyVersion": "16.15.5",
+      "chocolateyVersion": "16.16.1",
       "eol": "2028-11-09",
       "testPort": 55432
     },
     {
       "major": 17,
-      "minor": "17.11",
+      "minor": "17.12",
       "chocolateyPackage": "postgresql17",
-      "chocolateyVersion": "17.11.4",
+      "chocolateyVersion": "17.12.1",
       "eol": "2029-11-08",
       "testPort": 55432
     },
     {
       "major": 18,
-      "minor": "18.6",
+      "minor": "18.7",
       "chocolateyPackage": "postgresql18",
-      "chocolateyVersion": "18.6.5",
+      "chocolateyVersion": "18.7.1",
       "eol": "2030-11-14",
       "testPort": 55432
     }
