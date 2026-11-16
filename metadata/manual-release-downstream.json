@@ -18,6 +18,7 @@
     "pg_repack",
     "pg_stat_monitor",
     "pg_store_plans",
+    "pg_track_settings",
     "pg_variables",
     "pgaudit",
     "pgtap",
