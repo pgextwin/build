@@ -148,7 +148,7 @@ class ReadonlyFleet(TestCase):
 
     def test_protected_push_live_smoke_cannot_replace_genuine_schedule(self):
         workflow = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
-        self.assertIn('cron: "0 * * * *"', workflow)
+        self.assertIn('cron: "7 * * * *"', workflow)
         self.assertIn("  push:\n    branches: [main]\n    paths:\n", workflow)
         # Only the fleet scanner and its trusted sources may initiate this
         # extra read-only run. Extension manifest pushes and arbitrary PRs
@@ -173,7 +173,7 @@ class ReadonlyFleet(TestCase):
 
     def test_schedule_is_read_only_and_owner_gates_unchanged(self):
         y=(ROOT/".github/workflows/fleet-upstream-watch.yml").read_text()
-        self.assertIn('cron: "0 * * * *"',y)
+        self.assertIn('cron: "7 * * * *"',y)
         self.assertIn("permissions:\n  contents: read",y)
         for forbidden in ("issues: write","contents: write","pull-requests: write",
                           "secrets.","gh pr create","gh release","pull_request_target:"):
@@ -183,11 +183,11 @@ class ReadonlyFleet(TestCase):
         self.assertIn("candidatePrCreated", (ROOT/"scripts/fleet-upstream-watch.py").read_text())
 
 
-    def test_secondary_actual_schedule_keeps_primary_and_strict_admission(self):
+    def test_single_offpeak_schedule_keeps_strict_admission(self):
         workflow = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
-        self.assertEqual(workflow.count('    - cron: "0 * * * *"'), 1)
+        self.assertNotIn('    - cron: "0 * * * *"', workflow)
         self.assertEqual(workflow.count('    - cron: "7 * * * *"'), 1)
-        self.assertEqual(workflow.count('    - cron:'), 2)
+        self.assertEqual(workflow.count('    - cron:'), 1)
         self.assertIn("  readonly-fleet:", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         verifier = (ROOT / "scripts/verify-scheduled-fleet-candidate.py").read_text()
