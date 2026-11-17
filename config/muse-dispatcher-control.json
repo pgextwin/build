@@ -1,11 +1,6 @@
 {
-  "fleet-status.yml": {
-    "daily_utc": "00:45",
-    "ref": "main",
-    "inputs": {}
-  },
   "postgresql-update-watch.yml": {
-    "daily_utc": "05:29",
+    "daily_utc": "00:00",
     "ref": "main",
     "inputs": {
       "dry_run": "false"

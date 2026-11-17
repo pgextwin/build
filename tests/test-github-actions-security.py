@@ -310,8 +310,7 @@ else:
 # This in-repo contract is CI-verifiable; it does not prove live timer delivery.
 dispatcher_manifest = Path("config/muse-dispatcher-control.json")
 dispatcher_timers = {
-    "fleet-status.yml": ("00:45", {}),
-    "postgresql-update-watch.yml": ("05:29", {"dry_run": "false"}),
+    "postgresql-update-watch.yml": ("00:00", {"dry_run": "false"}),
 }
 
 
