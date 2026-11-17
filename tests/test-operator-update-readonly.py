@@ -51,7 +51,7 @@ class SharedUpdateTests(unittest.TestCase):
         self.assertEqual(len(ROSTER), 20)
         unpinned = ("pgextwin/pg_permissions", "pgextwin/pg_track_settings")
         cohort = tuple(repo for repo in ROSTER if repo not in unpinned)
-        self.assertEqual(len(cohort), 17)
+        self.assertEqual(len(cohort), 18)
         self.assertTrue(WAVE3.issubset(cohort))
         for repo in cohort:
             pin = NEW if repo in WAVE3 else OLD
