@@ -39,7 +39,7 @@ def target(status, name="orafce"):
 class HourlyQueueTests(unittest.TestCase):
     def test_all_seventeen_idle_no_publication(self):
         result = queue.plan(POLICY, snapshot())
-        self.assertEqual(result["fleetSize"], 19)
+        self.assertEqual(result["fleetSize"], 20)
         self.assertEqual(result["pending"], 0)
         self.assertEqual(result["actions"], [])
         self.assertIs(result["releaseAuthorized"], False)

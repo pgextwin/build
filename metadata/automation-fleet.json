@@ -173,6 +173,15 @@
       "candidateEnabled": true,
       "releasePolicy": "automatic-signed-schedule",
       "reason": "SQL-only registration for pgextwin/pg_track_settings (rjuju/pg_track_settings); exact protected local policy, native candidate CI, original signed main/push, independent Sigstore, scoped Publisher and create-only gates remain mandatory."
+    },
+    {
+      "repository": "pgextwin/pg_show_plans",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 * * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "pg_show_plans 2.1.8 own-build registration; shared owner-source route, PG15\u201318, exact upstream LICENSE."
     }
   ]
 }
