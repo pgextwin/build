@@ -1,0 +1,77 @@
+# R04: frozen evidence/layout re-proof is separate from current authorization CI.
+# Broad scripts/metadata/config filters conservatively cover transitive readers
+# and policies. No fetch-depth: 0 is needed: these fixtures are tracked files.
+# Manual: gh workflow run build-history.yml --ref <branch>
+name: Build historical evidence
+
+on:
+  pull_request:
+    paths:
+      - "evidence/issue-75/publication-migration/**"
+      - "metadata/**"
+      - "config/**"
+      - "scripts/**"
+      - "tests/fixtures/**"
+      - "tests/history/**"
+      - "tests/publication_policy_fixtures.py"
+      - "tests/test-publication-migration-plan.py"
+      - "tests/test-shared-manual-promotion.py"
+      - "tests/test-github-actions-security.py"
+      - ".github/workflows/promote-verified-release.yml"
+      - ".github/workflows/promote-legacy-verified-release.yml"
+      - ".github/workflows/build-extension-attested.yml"
+      - ".github/workflows/release-extension.y*ml"
+      - ".github/workflows/issue-75-principal-boundaries.y*ml"
+      - ".github/workflows/issue-75-wave3-actions-readonly.y*ml"
+      - ".github/workflows/validate-issue75-pr-oneoffs.y*ml"
+      - ".github/workflows/chocolatey-components-benchmark.y*ml"
+      - ".github/workflows/validate.yml"
+      - ".github/workflows/build-history.yml"
+      - "docs/r04-build-history-suite.md"
+  push:
+    branches:
+      - main
+    paths:
+      - "evidence/issue-75/publication-migration/**"
+      - "metadata/**"
+      - "config/**"
+      - "scripts/**"
+      - "tests/fixtures/**"
+      - "tests/history/**"
+      - "tests/publication_policy_fixtures.py"
+      - "tests/test-publication-migration-plan.py"
+      - "tests/test-shared-manual-promotion.py"
+      - "tests/test-github-actions-security.py"
+      - ".github/workflows/promote-verified-release.yml"
+      - ".github/workflows/promote-legacy-verified-release.yml"
+      - ".github/workflows/build-extension-attested.yml"
+      - ".github/workflows/release-extension.y*ml"
+      - ".github/workflows/issue-75-principal-boundaries.y*ml"
+      - ".github/workflows/issue-75-wave3-actions-readonly.y*ml"
+      - ".github/workflows/validate-issue75-pr-oneoffs.y*ml"
+      - ".github/workflows/chocolatey-components-benchmark.y*ml"
+      - ".github/workflows/validate.yml"
+      - ".github/workflows/build-history.yml"
+      - "docs/r04-build-history-suite.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out build infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Re-prove archived templates and retired workflow bodies (NO AUTHORITY)
+        run: python -m unittest discover -s tests/history -p 'test_*.py' -v
