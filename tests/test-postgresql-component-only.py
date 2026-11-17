@@ -9,6 +9,8 @@ old = (ROOT / "scripts/install-postgresql.ps1").read_text(encoding="utf-8")
 new = (ROOT / "scripts/install-postgresql-component-only.ps1").read_text(encoding="utf-8")
 workflow = (ROOT / "tests/fixtures/historical-workflows/chocolatey-components-benchmark.yml").read_text(encoding="utf-8")
 metadata = json.loads((ROOT / "metadata/postgresql.json").read_text(encoding="utf-8"))
+# The archived pilot records the versions tested then, not the live test pins.
+pilot = json.loads((ROOT / "evidence/issue-75/edb-pg14-18-exe-byte-observations-20261017.json").read_text(encoding="utf-8"))
 
 # The proven previous PR #110 approach is mandatory and must not disappear.
 assert '--ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in old
@@ -16,8 +18,8 @@ assert "--params \"/Password:postgres\"" in old
 assert "$maxAttempts = 3" in old
 assert [x["major"] for x in metadata["postgresql"]] == [14, 15, 16, 17, 18]
 assert set(re.findall(r"major: (\d+), package: (postgresql\d+), version: '([^']+)'",workflow)) == {
-    (str(row["major"]),row["chocolateyPackage"],row["chocolateyVersion"])
-    for row in metadata["postgresql"]
+    (row["package"].removeprefix("postgresql"),row["package"],row["version"])
+    for row in pilot["sources"][0]["sourcePackages"]
 }
 assert "max-parallel: 5" in workflow and "fail-fast: false" in workflow
 assert "github.event_name == 'pull_request'" in workflow

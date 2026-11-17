@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 import sys
 
@@ -305,6 +306,72 @@ else:
         errors.append("release-extension.yml: release notes must identify the attested signer workflow")
 
 
+# Muse owns only these build timers; the Publisher canary is not relocated.
+# This in-repo contract is CI-verifiable; it does not prove live timer delivery.
+dispatcher_manifest = Path("config/muse-dispatcher-control.json")
+dispatcher_timers = {
+    "fleet-status.yml": ("00:45", {}),
+    "postgresql-update-watch.yml": ("05:29", {"dry_run": "false"}),
+}
+
+
+def workflow_trigger(text: str, event: str):
+    # Read the literal block-style on: entrances used by these workflows.
+    triggers = re.search(r"^on:[ \t]*\n((?:[ \t]+[^\n]*\n|\n)*)", text, re.MULTILINE)
+    if triggers:
+        return re.search(
+            rf"^  {event}:[ \t]*\n((?: {{4}}[^\n]*\n|\n)*)", triggers[1], re.MULTILINE
+        )
+    return None
+
+
+dispatcher_controls = {}
+if dispatcher_manifest.exists():
+    try:
+        dispatcher_controls = json.loads(dispatcher_manifest.read_text(encoding="utf-8"))
+        if not isinstance(dispatcher_controls, dict):
+            raise ValueError("expected an object keyed by workflow filename")
+    except (OSError, ValueError) as exc:
+        errors.append(f"{dispatcher_manifest}: invalid dispatcher manifest: {exc}")
+        dispatcher_controls = {}
+
+valid_dispatcher_controls = set()
+for workflow_name, control in dispatcher_controls.items():
+    if workflow_name not in dispatcher_timers:
+        errors.append(f"{dispatcher_manifest}: workflow outside dispatcher timer allowlist: {workflow_name}")
+        continue
+    workflow_path = WORKFLOW_DIR / workflow_name
+    if not workflow_path.is_file():
+        errors.append(f"{dispatcher_manifest}: missing workflow {workflow_name}")
+        continue
+    dispatch = workflow_trigger(workflow_path.read_text(encoding="utf-8"), "workflow_dispatch")
+    if dispatch is None:
+        errors.append(f"{workflow_name}: dispatcher control requires workflow_dispatch entrance")
+        continue
+    daily_utc, inputs = dispatcher_timers[workflow_name]
+    if control != {"daily_utc": daily_utc, "ref": "main", "inputs": inputs}:
+        errors.append(f"{workflow_name}: dispatcher control must use daily {daily_utc} UTC, ref=main, inputs={inputs}")
+        continue
+    declared_inputs = set(re.findall(r"^      ([A-Za-z_][A-Za-z0-9_-]*):[ \t]*$", dispatch[1], re.MULTILINE))
+    if declared_inputs != set(inputs) or (inputs and "    inputs:\n" not in dispatch[1]):
+        errors.append(f"{workflow_name}: dispatcher inputs must match workflow_dispatch input declarations")
+        continue
+    if "dry_run" in inputs and not re.search(
+        r"^      dry_run:[ \t]*\n(?: {8}[^\n]*\n)*? {8}type: boolean[ \t]*$", dispatch[1], re.MULTILINE
+    ):
+        errors.append(f"{workflow_name}: dispatcher dry_run input must retain type: boolean")
+        continue
+    valid_dispatcher_controls.add(workflow_name)
+
+for workflow_name in dispatcher_timers:
+    workflow_path = WORKFLOW_DIR / workflow_name
+    if not workflow_path.is_file() or (
+        workflow_trigger(workflow_path.read_text(encoding="utf-8"), "schedule") is None
+        and workflow_name not in valid_dispatcher_controls
+    ):
+        errors.append(f"{workflow_name}: requires schedule: or a valid Muse dispatcher control")
+
+
 # Step 13 update-watch workflows are the only non-release workflows allowed to write Issues.
 extension_watch = WORKFLOW_DIR / "check-extension-updates.yml"
 postgres_watch = WORKFLOW_DIR / "postgresql-update-watch.yml"
@@ -346,7 +413,6 @@ if extension_watch.exists():
 if postgres_watch.exists():
     postgres_text = postgres_watch.read_text(encoding="utf-8")
     for required in (
-        "schedule:",
         "workflow_dispatch:",
         "scripts/check-postgresql-updates.py",
         "scripts/reconcile-update-issue.py",
