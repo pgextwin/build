@@ -267,43 +267,17 @@ for required in (
     if required not in generator:
         errors.append(f"generate-sbom.ps1: missing canonical source/SBOM setting: {required}")
 
-# Keep historical create-only contract checks without an executable old Release route.
-release_workflow = Path("tests/fixtures/historical-workflows/release-extension.yml")
-if not release_workflow.exists():
-    errors.append("archived release-extension.yml: required historical fixture missing")
-else:
-    release_text = release_workflow.read_text(encoding="utf-8")
-
-    if not re.search(r"^\s*contents:\s*write\s*$", release_text, re.MULTILINE):
-        errors.append("release-extension.yml: release job must explicitly request contents: write")
-
-    for forbidden in ("id-token: write", "attestations: write", "artifact-metadata: write"):
-        if forbidden in release_text:
-            errors.append(
-                f"release-extension.yml: publication workflow must not request attestation permission {forbidden}"
-            )
-
-    if "printf '%s\\n' ./*.zip ./*.spdx.json ./*.vulnerabilities.json | LC_ALL=C sort" not in release_text:
-        errors.append(
-            "release-extension.yml: checksum input must include ZIP, SPDX JSON, and vulnerability JSON in stable sorted order"
-        )
-    if 'sha256sum "${release_assets[@]}" > SHA256SUMS.txt' not in release_text:
-        errors.append("release-extension.yml: SHA256SUMS.txt generation must be preserved")
-    if release_text.count("dist/*.spdx.json") != 1:
-        errors.append("release-extension.yml: create-only publication must include SPDX JSON assets")
-    if release_text.count("dist/*.vulnerabilities.json") != 1:
-        errors.append("release-extension.yml: create-only publication must include vulnerability JSON assets")
-    for forbidden in ("gh release edit", "gh release upload", "--clobber"):
-        if forbidden in release_text:
-            errors.append("release-extension.yml: existing release mutation is forbidden: " + forbidden)
-    if release_text.count("gh release create") != 1:
-        errors.append("release-extension.yml: exactly one create-only publication path required")
-    if "gh attestation verify <zip-file>" not in release_text:
-        errors.append("release-extension.yml: future release notes must document provenance verification")
-    if SPDX_PREDICATE not in release_text:
-        errors.append("release-extension.yml: future release notes must document SPDX SBOM attestation verification")
-    if "pgextwin/build/.github/workflows/build-extension-attested.yml" not in release_text:
-        errors.append("release-extension.yml: release notes must identify the attested signer workflow")
+# Retired routes must remain inert even when archived body checks are not run.
+# Keep this list independent of fixture existence so deleting an archive cannot
+# silently permit its old workflow to return.
+for retired in (
+    "release-extension", "issue-75-principal-boundaries",
+    "issue-75-wave3-actions-readonly", "validate-issue75-pr-oneoffs",
+    "chocolatey-components-benchmark",
+):
+    for suffix in (".yml", ".yaml"):
+        if (WORKFLOW_DIR / (retired + suffix)).exists():
+            errors.append(f"{retired}{suffix}: retired workflow must remain archived")
 
 
 # Muse owns only these build timers; the Publisher canary is not relocated.

@@ -10,8 +10,11 @@ admission or per-version license implementation changes are proposed.
 
 ## B10: retained conservatively
 
-Every candidate file below remains in its existing normal selection (validate,
-the additional offline regressions workflow, or its dedicated policy workflow).
+Every candidate file below remains in its existing selection: 34 are called
+by the normal `resolver`, 21 more by dedicated workflows, and
+`test-issue311-r05-unified17.py` is currently only selected by the existing
+root-level full-policy projection glob. That pre-existing coverage gap is
+recorded, not broadened into this historical-only phase.
 A frozen target list/request ID is often the allowlist/key accepted by the reader;
 it is not safe to infer retirement from a date or a `pilot` filename. Each file
 contains hostile functional checks or enforces an input still consumed by a
@@ -61,8 +64,8 @@ workflow. No B10 tests move in this phase.
 | `test-issue311-r10-dispatch-input-journal.py` | (a) | Offline hostile contract for durable original PRE-WRITE dispatch inputs. Fixed IDs/targets remain reader scope or fixture inputs; no isolated historical-only move. |
 | `test-issue311-r10-final-readonly-report.py` | (a) | Offline adversarial R10-02 final-report tests; never network or credentials. Fixed IDs/targets remain reader scope or fixture inputs; no isolated historical-only move. |
 | `test-issue311-r10-negative-originals.py` | (a) | Offline hostile guards for R10's negative originals. No network or App key. Fixed IDs/targets remain reader scope or fixture inputs; no isolated historical-only move. |
-| `test-issue311-r10-negative-protected.py` | (b) | Pinned archive is still compared with independently recomputed original reports by active R10 proof workflows; keep integrity/count checks as live proof inputs. |
-| `test-issue311-r10-protected-report.py` | (b) | Pinned archive is still compared with independently recomputed original reports by active R10 proof workflows; keep integrity/count checks as live proof inputs. |
+| `test-issue311-r10-negative-protected.py` | (b) | Pinned archive is still read by an active dedicated R10 proof workflow; keep integrity/count checks conservatively as live proof inputs. |
+| `test-issue311-r10-protected-report.py` | (b) | Pinned archive is still read by an active dedicated R10 proof workflow; keep integrity/count checks conservatively as live proof inputs. |
 | `test-issue311-r10-publisher-write-unknown.py` | (a) | R10-01 real formal Publisher code boundary: controlled missing write ACK. Fixed IDs/targets remain reader scope or fixture inputs; no isolated historical-only move. |
 | `test-issue311-r10-replay-safe-id.py` | (a) | R10 replay-safe ID hostile tests; pure ID gate is not a live App CAS proof. Fixed IDs/targets remain reader scope or fixture inputs; no isolated historical-only move. |
 | `test-issue311-r11-functional-boundaries.py` | (a)/(b) | R11 frozen workflow source and conservative job-boundary checks. Current no-retirement/scope policy; retain exact inventories/pins conservatively. |
@@ -78,8 +81,10 @@ workflow. No B10 tests move in this phase.
 
 R10 reader dependency: `issue311-r10-final-readonly-report.yml` runs
 `issue311-r10-protected-report.py --verify` in both source and independent
-readback jobs. `issue311-r10-negative-protected.py` similarly restores/compares
-the negative-original archive. These are not treated as retired ledgers.
+readback jobs. `issue311-r10-negative-protected.yml` restores/checks the negative-original
+archive on source and independent readback runners (no fresh remote comparison
+there). Its archive input is ambiguous/live proof material; retain conservatively
+rather than treating it as retired based only on its date.
 
 ## B13 and related workflow tests
 
@@ -117,5 +122,25 @@ paths plus manual dispatch, read-only token, pinned checkout/Python actions.
 It runs no online historical proof, signer or Publisher. The normal resolver
 job name and required checks are unchanged.
 
-Commands and final counts are recorded after implementation below and in
-`../PROGRESS-C.md` in the task workspace.
+The broad `scripts/**`, `metadata/**`, `config/**` filters deliberately include
+transitive dynamically loaded readers and future policy changes. Fixture,
+evidence, history-test and normal-reader-test filters cover the retained
+materials. The active promotion/signer workflows, retired route names, suite
+workflows and this audit are also triggers. Unrelated documentation/package
+source changes do not run history. PR and main-push filters are identical.
+
+Local selection:
+
+```sh
+python tests/test-publication-migration-plan.py
+python tests/test-shared-manual-promotion.py
+python tests/test-github-actions-security.py
+python -m unittest discover -s tests/history -p 'test_*.py' -v
+```
+
+The three PRE-G4 files keep their existing normal workflow calls unchanged.
+The path-filtered projection workflow still selects only root `test-*.py`
+files, and never recursively includes history. No build full-history checkout
+was removed: R04 item 2's `fetch-depth: 0` optimization applies to catalog.
+
+Final commands/counts are recorded in the task workspace's `PROGRESS-C.md`.
