@@ -11,9 +11,6 @@ on:
       - scripts/fleet-control.py
       - scripts/chat-task-queue.py
       - .github/workflows/fleet-status.yml
-  schedule:
-    # An observation window after 00:00 UTC; not a guarantee watches have completed.
-    - cron: "45 0 * * *"
   workflow_dispatch:
 
 permissions:

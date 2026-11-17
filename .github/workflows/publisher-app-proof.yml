@@ -1,10 +1,7 @@
 name: Nonpublishing Publisher App proof
 on:
   workflow_dispatch:
-  # A single scoped token canary; the existing dispatch still audits all
-  # registered extensions when an operator explicitly requests it.
-  schedule:
-    - cron: '45 2 * * *'
+  # Explicit dispatch audits all registered extensions; no periodic canary.
   push:
     branches: [main]
     paths:
