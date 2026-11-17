@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Adversarial local checks for distinct genuine owner main-signing source."""
 import importlib.util
+import json
 from pathlib import Path
 from unittest import TestCase, main
 
@@ -72,6 +73,26 @@ class MainSigningSourceTests(TestCase):
         self.assertFalse(r["publisherEligible"])
         self.assertFalse(r["publicationAuthorized"])
         self.assertEqual(r["PUBLISH"], "DENY")
+
+    def test_sql_passengers_resolve_identity_from_original_context(self):
+        registered = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
+        for repo in ("pgextwin/pg_permissions", "pgextwin/pg_track_settings"):
+            with self.subTest(repository=repo):
+                e, runtime, r = event(), env(), run()
+                runtime["GITHUB_REPOSITORY"] = repo
+                e["repository"]["full_name"] = repo
+                e["issue"]["number"] = 1
+                e["comment"]["issue_url"] = f"https://api.github.com/repos/{repo}/issues/1"
+                r["repository"]["full_name"] = repo
+                result = check(event=e, live=dict(e["comment"]), run=r,
+                               env=runtime, fleet=registered, issue_number=1)
+                self.assertEqual(result["repository"], repo)
+                self.assertEqual(result["PUBLISH"], "DENY")
+                # The same shared verifier rejects a foreign event identity.
+                e["repository"]["full_name"] = "pgextwin/other"
+                with self.assertRaises(auth.Denied):
+                    check(event=e, live=dict(e["comment"]), run=r,
+                          env=runtime, fleet=registered, issue_number=1)
 
     def test_replay_foreign_actor_ref_and_source_kind(self):
         for key, replacement in (

@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Fail-closed independent Publisher-side owner-signed source admission tests."""
+import base64
 import copy
 import importlib.util
+import json
+import shutil
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from zipfile import ZipFile
 from pathlib import Path
 from unittest import TestCase, main
 
@@ -42,28 +48,28 @@ def run():
 def branch():
     return {"name": "main", "protected": True, "commit": {"sha": SHA}}
 
-def intent():
+def intent(repo=REPO, issue=78):
     return {"schemaVersion": 1, "sourceKind": mod.SOURCE_KIND,
-            "sourceEvent": "issue_comment", "repository": REPO, "mainSha": SHA,
-            "runId": 41486380278, "runAttempt": 1, "issueNumber": 78,
+            "sourceEvent": "issue_comment", "repository": repo, "mainSha": SHA,
+            "runId": 41486380278, "runAttempt": 1, "issueNumber": issue,
             "commentId": 4444, "signingEligible": True,
             "publisherEligible": False, "publicationAuthorized": False,
             "PUBLISH": "DENY"}
 
-def signed_run():
+def signed_run(repo=REPO):
     r = run()
     r.update(id=41486380278, status="completed", conclusion="success",
              path=mod.SOURCE_WORKFLOW,
-             repository={"full_name": REPO})
+             repository={"full_name": repo})
     return r
 
-def original_jobs():
+def original_jobs(majors=(14,15,16,17,18)):
     names = (["Original authenticated owner/main/comment source (DENY Publisher)",
               "Resolve extension and PostgreSQL matrix",
               "Independent original Sigstore/ZIP/SPDX/Grype audit (first)",
               "Independent original Sigstore/ZIP/SPDX/Grype audit (second)",
               "Require exact independent real-signature byte agreement (NO PUBLISH)"]
-             + [f"PostgreSQL {m} / Windows x64" for m in (14,15,16,17,18)])
+             + [f"PostgreSQL {m} / Windows x64" for m in majors])
     return {"total_count": len(names), "jobs": [
         {"name": n, "id": 100+i, "run_id": 41486380278, "run_attempt": 1,
          "head_sha": SHA, "status": "completed", "conclusion": "success"}
@@ -78,9 +84,9 @@ def source_artifacts():
         {"name": n, "id": i+1, "size_in_bytes": 40, "expired": False}
         for i, n in enumerate(names)]}
 
-def live_signing():
+def live_signing(repo=REPO, issue=78):
     return {"id": 4444, "body": "/pgextwin sign-main",
-            "issue_url": "https://api.github.com/repos/" + REPO + "/issues/78",
+            "issue_url": f"https://api.github.com/repos/{repo}/issues/{issue}",
             "created_at": "2026-11-03T00:00:00Z",
             "updated_at": "2026-11-03T00:00:00Z", "user": dict(USER)}
 
@@ -180,6 +186,110 @@ class AdmissionTests(TestCase):
                        "gh release create","secrets.","schedule:"):
             self.assertNotIn(denied,job)
         self.assertIn("PUBLISH_DENY",job)
+
+    def test_sql_passengers_use_same_admit_and_real_audit_code_offline(self):
+        # Only GitHub transport / cryptographic verification is mocked. Execute
+        # admit(), both audit() calls, proof_statement(), and join() unchanged.
+        # These synthetic fixtures grant no signing or publication authority.
+        def load(label, name):
+            spec = importlib.util.spec_from_file_location(label, ROOT / "tests" / name)
+            value = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(value)
+            return value
+        assets = load("owner_passenger_assets", "test-fleet-publish-release.py")
+        proofs = load("owner_passenger_proofs", "test-automatic-signed-candidate-audit.py")
+        fleet = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
+        lifecycle = assets.fixture()[1]
+        majors = [15,16,17,18]
+        for name, ref, version in (("pg_permissions", "REL_1_4_1", "1.4.1"),
+                                   ("pg_track_settings", "2.1.2", "2.1.2")):
+            repo = "pgextwin/" + name
+            manifest = {"schemaVersion": 1, "name": name,
+                        "upstream": {"repository": mod.ident.UPSTREAMS[name],
+                                     "ref": ref, "version": version, "commit": "b"*40},
+                        "postgresql": {"majors": majors}}
+            source_intent = intent(repo, 1)
+            run_id = source_intent["runId"]
+            uri = f"https://github.com/{repo}/actions/runs/{run_id}/attempts/1"
+            signer = ("https://github.com/pgextwin/build/" +
+                      mod.audit.pin.offline.SIGNER_PATH + "@" + mod.audit.OWNER_SIGNER_SHA)
+
+            def verify(path, kind, repository, sha):
+                entry = proofs.signed_result(path, kind, repository, sha)[0]
+                cert = entry["verificationResult"]["signature"]["certificate"]
+                cert.update(runInvocationURI=uri, buildSignerURI=signer,
+                            subjectAlternativeName=signer,
+                            buildSignerDigest=mod.audit.OWNER_SIGNER_SHA,
+                            buildConfigURI=f"https://github.com/{repository}/{mod.SOURCE_WORKFLOW}@refs/heads/main",
+                            buildTrigger="issue_comment")
+                if kind == mod.audit.pin.SLSA:
+                    entry["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"] = uri
+                return entry
+
+            with self.subTest(repository=repo), TemporaryDirectory() as td:
+                root = Path(td)
+                original = root / "assets"
+                original.mkdir()
+                assets.make_assets(original, manifest, run=run_id, workflow_event="issue_comment")
+                for path in original.glob("*.zip"):
+                    with ZipFile(path) as z:
+                        package = json.loads(z.read("PACKAGE-INFO.json"))
+                    package["package"].update(name=name, platform="windows", architecture="x64")
+                    package["source"]["packagingRepository"] = repo
+                    package["workflowRun"]["url"] = uri.removesuffix("/attempts/1")
+                    package["buildInfrastructure"]["commit"] = mod.audit.OWNER_SIGNER_SHA
+                    with ZipFile(path, "w") as z:
+                        z.writestr("PACKAGE-INFO.json", json.dumps(package))
+
+                with patch.object(mod.audit, "verify", side_effect=verify):
+                    receipts = {label: mod.audit.audit(
+                        original, source_intent, manifest, lifecycle,
+                        repo=repo, sha=SHA, run_id=run_id, auditor=label)
+                        for label in ("first", "second")}
+                    dual = mod.audit.join(receipts["first"], receipts["second"])
+
+                    def fetch(repository, source_run, artifact, folder, *, pattern=False):
+                        self.assertEqual((repository, source_run), (repo, run_id))
+                        folder.mkdir()
+                        if pattern:
+                            for path in original.iterdir():
+                                shutil.copyfile(path, folder / path.name)
+                        else:
+                            label = {
+                                "chat-main-source-intent-nonpublishing": ("owner-main-intent.json", source_intent),
+                                "chat-owner-sigstore-first-nonpublishing": ("chat-owner-audit-first.json", receipts["first"]),
+                                "chat-owner-sigstore-second-nonpublishing": ("chat-owner-audit-second.json", receipts["second"]),
+                                "chat-owner-dual-sigstore-nonpublishing": ("chat-owner-dual-sigstore.json", dual),
+                            }[artifact]
+                            (folder / label[0]).write_text(json.dumps(label[1]))
+
+                    def get(repository, route):
+                        self.assertEqual(repository, repo)
+                        return {
+                            "branches/main": branch(),
+                            f"contents/config/extension.json?ref={SHA}": {
+                                "encoding": "base64", "content": base64.b64encode(json.dumps(manifest).encode()).decode()},
+                            f"actions/runs/{run_id}": signed_run(repo),
+                            f"actions/runs/{run_id}/attempts/1/jobs?per_page=100": original_jobs(majors),
+                            f"actions/runs/{run_id}/artifacts?per_page=100": source_artifacts(),
+                            "issues/comments/4444": live_signing(repo, 1),
+                        }[route]
+
+                    with patch.object(mod, "get", side_effect=get), patch.object(mod, "fetch_artifact", side_effect=fetch):
+                        result = mod.admit(repo, run_id, scratch=root, fleet=fleet, lifecycle=lifecycle)
+                        self.assertEqual(result["repository"], repo)
+                        self.assertEqual(result["maintainedMajors"], majors)
+                        self.assertEqual(len(result["SHA256"]), 12)
+                        self.assertTrue(result["originalAndFreshDualSigstoreAgree"])
+                        self.assertEqual(result["PUBLISH"], "DENY")
+                        for field in ("publisherEligible", "publicationAuthorized", "publishableReceipt", "publisherWriteAuthorized"):
+                            self.assertIs(result[field], False)
+                        # A stale original receipt cannot pass a fresh byte audit.
+                        receipts["second"]["SHA256"] = {"foreign.zip": "0"*64}
+                        retry = root / "retry"
+                        retry.mkdir()
+                        with self.assertRaisesRegex(mod.Denied, "independent real Sigstore/byte recheck differs"):
+                            mod.admit(repo, run_id, scratch=retry, fleet=fleet, lifecycle=lifecycle)
 
 if __name__ == "__main__":
     main()

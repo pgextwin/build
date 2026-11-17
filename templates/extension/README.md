@@ -17,3 +17,8 @@ LICENSE
 ```
 
 The four PowerShell hook scripts are intentionally not generic templates because build and functional-test behavior is extension-specific. Follow `docs/hook-contract.md`.
+
+For an eligible registered extension's owner-comment signing route, reuse the
+minimal caller in [Shared owner-source readiness](../../docs/owner-source-route.md).
+Authentication, signed build, independent audit and admission already live in
+build; keep only extension configuration and hooks local.
