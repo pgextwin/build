@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pgextwin/build/blob/main/schema/local-candidate-authority.schema.json",
+  "title": "pgextwin local candidate authority, stage-2 DENY foundation",
+  "description": "Owner-reviewable delegation skeleton only. DENY, unset keys and unset delegation window are mandatory in this foundation. OBSERVE/ENFORCE and rate-limit enforcement require separate implementation and review.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mode",
+    "policyEpoch",
+    "issuerKeyId",
+    "issuerPublicKey",
+    "note",
+    "revokedPolicyEpochs",
+    "delegationStartsAt",
+    "delegationEndsAt",
+    "targetSet",
+    "allowedOperations",
+    "publication",
+    "boundaries",
+    "rateLimits"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "mode": {
+      "const": "DENY"
+    },
+    "policyEpoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "issuerKeyId": {
+      "const": null
+    },
+    "issuerPublicKey": {
+      "const": null
+    },
+    "note": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 1000
+    },
+    "revokedPolicyEpochs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      }
+    },
+    "delegationStartsAt": {
+      "const": null
+    },
+    "delegationEndsAt": {
+      "const": null
+    },
+    "targetSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "schemaVersion"
+      ],
+      "properties": {
+        "path": {
+          "const": "metadata/automation-fleet.json"
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        }
+      }
+    },
+    "allowedOperations": {
+      "const": [
+        "candidate",
+        "requalify"
+      ]
+    },
+    "publication": {
+      "const": false
+    },
+    "boundaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateManualOnlyInferred",
+        "releaseOptInInferred",
+        "environmentInferred",
+        "admissionInferred",
+        "note"
+      ],
+      "properties": {
+        "candidateManualOnlyInferred": {
+          "const": false
+        },
+        "releaseOptInInferred": {
+          "const": false
+        },
+        "environmentInferred": {
+          "const": false
+        },
+        "admissionInferred": {
+          "const": false
+        },
+        "note": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 1000
+        }
+      }
+    },
+    "rateLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxUnresolvedCandidatesPerRepository",
+        "candidateAuthorizationsPerRepositoryPer15Minutes",
+        "candidateAuthorizationsPerRepositoryPerHour"
+      ],
+      "properties": {
+        "maxUnresolvedCandidatesPerRepository": {
+          "type": "integer",
+          "const": 1
+        },
+        "candidateAuthorizationsPerRepositoryPer15Minutes": {
+          "type": "integer",
+          "const": 1
+        },
+        "candidateAuthorizationsPerRepositoryPerHour": {
+          "type": "integer",
+          "const": 4
+        }
+      }
+    }
+  }
+}
