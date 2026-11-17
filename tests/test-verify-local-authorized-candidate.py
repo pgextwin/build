@@ -362,12 +362,12 @@ class TicketTests(unittest.TestCase):
     def test_real_production_policy_always_denies(self):
         real = json.loads((ROOT / "metadata/local-candidate-authority.json").read_text())
         self.assertEqual(real["mode"], "DENY")
-        self.assertIsNone(real["issuerKeyId"])
-        self.assertIsNone(real["issuerPublicKey"])
+        self.assertEqual(real["issuerKeyId"], "local-auth-prod-1")
+        self.assertEqual(real["issuerPublicKey"], "d8aaf19ea48e7ef9ca82dea860a04b5eafad92ff82378b5cd73d2f137b3a727c")
         self.assert_rejected("DENY_MODE", lambda: verifier.authorize(self.ticket, self.inputs, real, self.fleet, self.now))
         # DENY also precedes every other failure, even with malformed evidence.
         self.assert_rejected("DENY_MODE", lambda: verifier.authorize({}, b"", real, set(), None))
-        self.assert_rejected("KEY_UNSET", lambda: self.verify(policy=real))
+        self.assert_rejected("ISSUER_MISMATCH", lambda: self.verify(policy=real))
 
     def test_deny_even_when_ticket_could_verify(self):
         self.policy["mode"] = "DENY"
@@ -416,7 +416,9 @@ class PolicySchemaTests(unittest.TestCase):
         self.assertEqual(self.policy["revokedPolicyEpochs"], [])
         self.assertEqual(self.policy["allowedOperations"], ["candidate", "requalify"])
         self.assertIs(self.policy["publication"], False)
-        for key in ("issuerKeyId", "issuerPublicKey", "delegationStartsAt", "delegationEndsAt"):
+        self.assertEqual(self.policy["issuerKeyId"], "local-auth-prod-1")
+        self.assertEqual(self.policy["issuerPublicKey"], "d8aaf19ea48e7ef9ca82dea860a04b5eafad92ff82378b5cd73d2f137b3a727c")
+        for key in ("delegationStartsAt", "delegationEndsAt"):
             self.assertIsNone(self.policy[key])
         self.assertIn("every ticket must be rejected", self.policy["note"])
         manifest = json.loads((ROOT / "metadata/automation-fleet.json").read_text())

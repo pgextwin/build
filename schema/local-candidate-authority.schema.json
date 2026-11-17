@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/pgextwin/build/blob/main/schema/local-candidate-authority.schema.json",
   "title": "pgextwin local candidate authority, stage-2 DENY foundation",
-  "description": "Owner-reviewable delegation skeleton only. DENY, unset keys and unset delegation window are mandatory in this foundation. OBSERVE/ENFORCE and rate-limit enforcement require separate implementation and review.",
+  "description": "Owner-reviewable delegation skeleton only. DENY, the pinned production issuer public key and an unset delegation window are mandatory in this foundation. OBSERVE/ENFORCE and rate-limit enforcement require separate implementation and review.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -35,10 +35,10 @@
       "maximum": 9007199254740991
     },
     "issuerKeyId": {
-      "const": null
+      "const": "local-auth-prod-1"
     },
     "issuerPublicKey": {
-      "const": null
+      "const": "d8aaf19ea48e7ef9ca82dea860a04b5eafad92ff82378b5cd73d2f137b3a727c"
     },
     "note": {
       "type": "string",
