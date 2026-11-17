@@ -138,7 +138,7 @@ Once the official Versioning Policy exposes PostgreSQL 19 as a supported product
 
 Each initial extension has one daily UTC schedule, staggered across repositories to avoid concentrating scheduled load. `workflow_dispatch` defaults to dry-run. Scheduled runs are normal mode so a genuine stable update can create/update/close the automation-owned Issue.
 
-`pgextwin/build` runs the PostgreSQL watch daily at 05:29 UTC. Its manual dispatch also defaults to dry-run.
+The Muse dispatcher runs the PostgreSQL watch in `pgextwin/build` daily at 00:00 UTC (09:00 JST), with `dry_run=false` and `ref=main`, as declared in `config/muse-dispatcher-control.json`. Manual dispatch defaults to dry-run.
 
 Dry-run performs live metadata queries, detection, and Issue decision calculation, but performs no Issue mutation.
 
