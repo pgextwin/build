@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "mode": "DENY",
+  "policyEpoch": 1,
+  "issuerKeyId": null,
+  "issuerPublicKey": null,
+  "note": "In DENY state no key is configured; every ticket must be rejected. This skeleton grants no execution authority.",
+  "revokedPolicyEpochs": [],
+  "delegationStartsAt": null,
+  "delegationEndsAt": null,
+  "targetSet": {
+    "path": "metadata/automation-fleet.json",
+    "schemaVersion": 1
+  },
+  "allowedOperations": ["candidate", "requalify"],
+  "publication": false,
+  "boundaries": {
+    "candidateManualOnlyInferred": false,
+    "releaseOptInInferred": false,
+    "environmentInferred": false,
+    "admissionInferred": false,
+    "note": "Existing candidate/manual-only boundaries, release opt-in, Environment approval and admission are NOT inferred from this delegation. Each remains an independent gate; issuer-repository opt-in is also required in a future stage."
+  },
+  "rateLimits": {
+    "maxUnresolvedCandidatesPerRepository": 1,
+    "candidateAuthorizationsPerRepositoryPer15Minutes": 1,
+    "candidateAuthorizationsPerRepositoryPerHour": 4
+  }
+}
