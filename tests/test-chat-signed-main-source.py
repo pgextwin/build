@@ -76,7 +76,7 @@ class MainSigningSourceTests(TestCase):
 
     def test_sql_passengers_resolve_identity_from_original_context(self):
         registered = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
-        for repo in ("pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling"):
+        for repo in ("pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots"):
             with self.subTest(repository=repo):
                 e, runtime, r = event(), env(), run()
                 runtime["GITHUB_REPOSITORY"] = repo

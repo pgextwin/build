@@ -10,6 +10,7 @@
     "orafce",
     "pg_bigm",
     "pg_cron",
+    "pg_failover_slots",
     "pg_hint_plan",
     "pg_ivm",
     "pg_partman",
