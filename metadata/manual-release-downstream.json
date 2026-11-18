@@ -22,6 +22,7 @@
     "pg_store_plans",
     "pg_track_settings",
     "pg_variables",
+    "pg_wait_sampling",
     "pgaudit",
     "pgtap",
     "pldebugger",

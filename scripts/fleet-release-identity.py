@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pure, fail-closed release identity for the 22 pgextwin Windows extensions.
+"""Pure, fail-closed release identity for the 23 pgextwin Windows extensions.
 
 Not a publisher. This module does NOT authorize, create, or modify Releases.
 The manual main-only gate must separately establish reviewed SHA-pinned sources,
@@ -32,6 +32,7 @@ UPSTREAMS = {
     "pg_profile": "zubkov-andrei/pg_profile",
     "pg_show_plans": "cybertec-postgresql/pg_show_plans",
     "pldebugger": "EnterpriseDB/pldebugger",
+    "pg_wait_sampling": "postgrespro/pg_wait_sampling",
 }
 TAG_NAME = re.compile(r"^v[0-9]+(?:\.[0-9]+){1,3}(?:-[0-9]{8})?-windows\.[1-9][0-9]*$")
 VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}$")
