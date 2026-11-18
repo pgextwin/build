@@ -48,8 +48,11 @@ def run(repo, pin, *, dry="true", confirm="", expected="", actor="ShutenOishi",
 class SharedUpdateTests(unittest.TestCase):
     def test_all_seventeen_exact_live_roster_positive(self):
         self.assertEqual(len(ROSTER), len(set(ROSTER)))
-        self.assertEqual(len(ROSTER), 20)
-        unpinned = ("pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans")
+        self.assertEqual(len(ROSTER), 21)
+        unpinned = (
+            "pgextwin/pg_permissions", "pgextwin/pg_track_settings",
+            "pgextwin/pg_show_plans", "pgextwin/pg_profile",
+        )
         cohort = tuple(repo for repo in ROSTER if repo not in unpinned)
         self.assertEqual(len(cohort), 17)
         self.assertTrue(WAVE3.issubset(cohort))
