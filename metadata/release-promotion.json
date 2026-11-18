@@ -21,7 +21,8 @@
     "pgextwin/pg_permissions",
     "pgextwin/pg_track_settings",
     "pgextwin/pg_show_plans",
-    "pgextwin/pg_profile"
+    "pgextwin/pg_profile",
+    "pgextwin/pldebugger"
   ],
   "releasePolicy": "automatic-signed-schedule"
 }
