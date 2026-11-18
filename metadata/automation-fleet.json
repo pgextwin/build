@@ -209,6 +209,15 @@
       "candidateEnabled": true,
       "releasePolicy": "automatic-signed-schedule",
       "reason": "pg_wait_sampling 1.1.11 own-build registration for PG15 through PG18 with the exact upstream PostgreSQL License."
+    },
+    {
+      "repository": "pgextwin/pg_failover_slots",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 * * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "pg_failover_slots 1.2.1 own-build registration for PG15 through PG18 with the exact upstream PostgreSQL License."
     }
   ]
 }

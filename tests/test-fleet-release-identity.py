@@ -33,6 +33,7 @@ SOURCES = {
     "pg_show_plans": ("v2.1.8", "2.1.8", "v2.1.8-windows.1"),
     "pldebugger": ("v1.10", "1.10", "v1.10-windows.1"),
     "pg_wait_sampling": ("v1.1.11", "1.1.11", "v1.1.11-windows.1"),
+    "pg_failover_slots": ("v1.2.1", "1.2.1", "v1.2.1-windows.1"),
 }
 PER_MAJOR = {
     "pgaudit": {
@@ -63,7 +64,7 @@ def manifest(name):
 
 class IdentityTests(unittest.TestCase):
     def test_every_fleet_member_has_an_exact_tag_and_fifteen_assets(self):
-        self.assertEqual(len(lib.UPSTREAMS),23)
+        self.assertEqual(len(lib.UPSTREAMS),24)
         self.assertEqual(set(lib.UPSTREAMS),set(SOURCES)|set(PER_MAJOR))
         for name in lib.UPSTREAMS:
             with self.subTest(extension=name):

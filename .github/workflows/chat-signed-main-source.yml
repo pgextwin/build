@@ -91,7 +91,7 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@c3c637b303ab456359bb72b8cb83156e506a8f17
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@89b2b8d49d1c09827307ce5d5c77beee3fa8641b
     with:
       extension_config_path: ${{ inputs.extension_config_path }}
       test_contract_path: ${{ inputs.test_contract_path }}

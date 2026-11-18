@@ -13,7 +13,8 @@
     "pgextwin/pg_show_plans",
     "pgextwin/pg_profile",
     "pgextwin/pldebugger",
-    "pgextwin/pg_wait_sampling"
+    "pgextwin/pg_wait_sampling",
+    "pgextwin/pg_failover_slots"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
