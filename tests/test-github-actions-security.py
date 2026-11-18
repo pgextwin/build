@@ -71,6 +71,27 @@ normal_workflow = WORKFLOW_DIR / "build-extension.yml"
 normal_text = normal_workflow.read_text(encoding="utf-8")
 check_self_pin(normal_workflow, normal_text)
 
+license_step = re.search(
+    r"^      - name: Verify upstream license files match packaging repository\n"
+    r"(.*?)(?=^      - name:|\Z)",
+    normal_text,
+    re.MULTILINE | re.DOTALL,
+)
+license_commands = (
+    "git -C upstream -c core.autocrlf=false checkout-index --force -- $upstreamLicensePath",
+    "git -c core.autocrlf=false checkout-index --force -- $repositoryPath",
+    "Get-FileHash $repositoryPath -Algorithm SHA256",
+    "Get-FileHash $upstreamPath -Algorithm SHA256",
+    "if ($repositoryHash -ne $upstreamHash)",
+    'throw "License file \'$repositoryPath\' differs from upstream',
+)
+license_step_text = license_step.group(1) if license_step else ""
+license_order = [license_step_text.find(command) for command in license_commands]
+if -1 in license_order or license_order != sorted(license_order):
+    errors.append(
+        "build-extension.yml: restore both license files with autocrlf disabled before enforcing SHA256 equality"
+    )
+
 for forbidden in (
     "contents: write",
     "id-token: write",
