@@ -182,6 +182,15 @@
       "candidateEnabled": true,
       "releasePolicy": "automatic-signed-schedule",
       "reason": "pg_show_plans 2.1.8 own-build registration; shared owner-source route, PG15\u201318, exact upstream LICENSE."
+    },
+    {
+      "repository": "pgextwin/pg_profile",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 * * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "pg_profile 4.16 SQL-only registration for PG15 through PG18 with the exact upstream LICENSE."
     }
   ]
 }

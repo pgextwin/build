@@ -29,6 +29,7 @@ SOURCES = {
     "pg_store_plans": ("1.10", "1.10", "v1.10-windows.1"),
     "pg_permissions": ("REL_1_4_1", "1.4.1", "v1.4.1-windows.1"),
     "pg_track_settings": ("2.1.2", "2.1.2", "v2.1.2-windows.1"),
+    "pg_profile": ("4.16", "4.16", "v4.16-windows.1"),
     "pg_show_plans": ("v2.1.8", "2.1.8", "v2.1.8-windows.1"),
 }
 PER_MAJOR = {
@@ -60,7 +61,7 @@ def manifest(name):
 
 class IdentityTests(unittest.TestCase):
     def test_every_fleet_member_has_an_exact_tag_and_fifteen_assets(self):
-        self.assertEqual(len(lib.UPSTREAMS),20)
+        self.assertEqual(len(lib.UPSTREAMS),21)
         self.assertEqual(set(lib.UPSTREAMS),set(SOURCES)|set(PER_MAJOR))
         for name in lib.UPSTREAMS:
             with self.subTest(extension=name):
