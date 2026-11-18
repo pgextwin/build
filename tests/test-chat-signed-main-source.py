@@ -76,7 +76,7 @@ class MainSigningSourceTests(TestCase):
 
     def test_sql_passengers_resolve_identity_from_original_context(self):
         registered = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
-        for repo in ("pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots"):
+        for repo in ("pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots", "pgextwin/pg_squeeze"):
             with self.subTest(repository=repo):
                 e, runtime, r = event(), env(), run()
                 runtime["GITHUB_REPOSITORY"] = repo
@@ -300,7 +300,7 @@ class OwnerSignerPinTests(TestCase):
         pins = re.findall(r"build-extension-attested\.yml@([0-9a-f]{40})", source)
         self.assertEqual(pins, [audit.OWNER_SIGNER_SHA])
         self.assertEqual(audit.OWNER_SIGNER_SHA,
-                         "89b2b8d49d1c09827307ce5d5c77beee3fa8641b")
+                         "0e8fee83b9d0301a5e86376187a594b2abab0268")
         self.assertNotEqual(audit.OWNER_SIGNER_SHA, audit.pin.SIGNER_SHA)
         self.assertEqual(audit.pin.SIGNER_SHA,
                          "5756b3c5136a8bf4db710016cfe97555f0a71c6d")

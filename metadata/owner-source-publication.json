@@ -14,7 +14,8 @@
     "pgextwin/pg_profile",
     "pgextwin/pldebugger",
     "pgextwin/pg_wait_sampling",
-    "pgextwin/pg_failover_slots"
+    "pgextwin/pg_failover_slots",
+    "pgextwin/pg_squeeze"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
