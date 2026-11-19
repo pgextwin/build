@@ -231,7 +231,7 @@
     {
       "repository": "pgextwin/odbc_fdw",
       "mode": "BUILD",
-      "strategy": "github-releases",
+      "strategy": "github-tags",
       "scheduleUtc": "0 * * * *",
       "candidateEnabled": true,
       "releasePolicy": "automatic-signed-schedule",
