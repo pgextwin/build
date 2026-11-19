@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import sys
 from unittest import TestCase, main
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -77,6 +78,15 @@ class FleetReleaseGapTests(TestCase):
                     {"13": {"version": "1.0"}}):
             with self.assertRaises(gap.GapDenied):
                 gap.stem("pgextwin/hypopg", bad)
+
+    def test_per_major_pg19_stem_follows_reviewed_admission_scope(self):
+        current = {"18": {"version": "18.1"}, "19": {"version": "19.0"}}
+        with self.assertRaises(gap.GapDenied):
+            gap.stem("pgextwin/pgaudit", current)
+        with patch.object(gap.identity, "PG19_ADMISSION_OPT_IN", frozenset({"pgaudit"})):
+            self.assertEqual(gap.stem("pgextwin/pgaudit", current), "v19.0")
+            with self.assertRaises(gap.GapDenied):
+                gap.stem("pgextwin/pg_hint_plan", current)
 
     def test_stale_or_untrusted_scan_is_rejected(self):
         for field, value in (

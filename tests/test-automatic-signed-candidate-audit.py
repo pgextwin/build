@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,9 +38,9 @@ def example():
            "path":audit.CALLER,"status":"in_progress","conclusion":None}
     return ext,lifecycle,intent,run
 
-def create_assets(path,ext):
+def create_assets(path,ext,majors=MAJORS):
     base.make_assets(path,ext,run=RUN,workflow_event="push")
-    for m in MAJORS:
+    for m in majors:
         zip_path=path/(audit.ident.asset_stem(ext,m)+".zip")
         with ZipFile(zip_path) as z:
             obj=json.loads(z.read("PACKAGE-INFO.json"))
@@ -115,6 +116,43 @@ class SignedCandidateReadOnly(unittest.TestCase):
         self.assertIs(result["signedArtifactsVerified"],True)
         for field in ("publishableReceipt","publicationAuthorized","automaticReleaseEnabled"):
             self.assertIs(result[field],False)
+
+    def test_opted_in_pg19_requires_the_exact_signed_subject_and_assets(self):
+        ext, lifecycle, intent, run = example()
+        majors = [*MAJORS, 19]
+        ext["postgresql"]["majors"] = majors
+        ext["upstream"]["perPostgresql"]["19"] = {
+            "ref": "19.1", "version": "19.1", "commit": base.UPSTREAM}
+        lifecycle["postgresql"].append({"major": 19, "eol": "2031-11-19"})
+        intent.update(maintainedMajors=majors, releaseTagStem="v19.1")
+        opt_in = frozenset({ext["name"]})
+        with TemporaryDirectory() as td, \
+                patch.object(audit.ident, "PG19_ADMISSION_OPT_IN", opt_in), \
+                patch.object(base.p.ident, "PG19_ADMISSION_OPT_IN", opt_in):
+            folder = Path(td)
+            create_assets(folder, ext, majors)
+
+            def verify_candidate(proof=signed_result):
+                return audit.audit(folder, ext, lifecycle, intent, run, deepcopy(run),
+                                   repo=REPO, sha=SHA, run_id=RUN, attempt=1, verify=proof)
+
+            result = verify_candidate()
+            stem = audit.ident.asset_stem(ext, 19)
+            self.assertEqual(result["zipSha256ByMajor"]["19"],
+                             sha256((folder / (stem + ".zip")).read_bytes()).hexdigest())
+            self.assertIs(result["publicationAuthorized"], False)
+
+            def wrong_pg19_subject(path, kind, repo, sha):
+                def tamper(item):
+                    item["verificationResult"]["statement"]["subject"][0]["digest"]["sha256"] = "0" * 64
+                return signed_result(path, kind, repo, sha,
+                                     tamper=tamper if path.name == stem + ".zip" else None)
+
+            with self.assertRaises(audit.Denied):
+                verify_candidate(wrong_pg19_subject)
+            (folder / (stem + ".spdx.json")).unlink()
+            with self.assertRaises(audit.Denied):
+                verify_candidate()
 
     def test_real_report_blocking_findings_never_grant_release(self):
         def critical(e,l,i,r,f):

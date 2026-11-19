@@ -9,11 +9,17 @@ Publisher; it is NEVER a publishable receipt or a grant of write privileges.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import sys
+
+_identity_spec = importlib.util.spec_from_file_location(
+    "handoff_release_identity", Path(__file__).with_name("fleet-release-identity.py"))
+identity = importlib.util.module_from_spec(_identity_spec)
+_identity_spec.loader.exec_module(identity)
 
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -99,9 +105,8 @@ def handoff(first, second, opinion, bridge, tag, fleet, *,
             and all(first.get(x) is False for x in DENIED[:3]),
             "original signed audit is not authentic-run bound or attempts PUBLISH")
     majors = first.get("maintainedMajors")
-    require(type(majors) is list and len(majors) > 0 and len(majors) <= 5
-            and all(type(m) is int and 14 <= m <= 18 for m in majors)
-            and majors == sorted(set(majors)), "malformed PostgreSQL major matrix")
+    require(identity.valid_admission_matrix(majors, repository.split("/")[1]),
+            "malformed PostgreSQL major matrix")
     keys = {str(m) for m in majors}
     for asset in ASSETS:
         values = first.get(asset + "Sha256ByMajor")

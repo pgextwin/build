@@ -201,6 +201,40 @@ $pg19Entry = @($pg19PerMajorMatrix.include | Where-Object { [int]$_.major -eq 19
 if ($pg19Entry.upstreamRef -ne "REL19_FIXTURE" -or $pg19Entry.upstreamVersion -ne "19-fixture") {
     throw "Synthetic PostgreSQL 19 per-major upstream metadata was not resolved correctly."
 }
+if ($pg19PerMajor["verify_upstream_license"] -ne "true" -or
+    @($pg19Entry.licenseFiles).Count -ne 1 -or
+    $pg19Entry.licenseFiles[0].repositoryPath -ne "licenses/pg19/COPYRIGHT" -or
+    $pg19Entry.licenseFiles[0].upstreamPath -ne "COPYRIGHT") {
+    throw "Expected the PostgreSQL 19 release's own license mapping."
+}
+
+$missingPg19License = New-TemporaryFile
+$missingPg19LicenseOutput = New-TemporaryFile
+$missingPg19LicenseDenied = $false
+try {
+    $pg19Manifest = Get-Content (Join-Path $PSScriptRoot "fixtures/extension-pg19-per-major.json") -Raw |
+        ConvertFrom-Json -AsHashtable
+    $pg19Manifest.license.perPostgresql.Remove("19")
+    $pg19Manifest | ConvertTo-Json -Depth 10 | Set-Content $missingPg19License
+    $env:GITHUB_OUTPUT = $missingPg19LicenseOutput.FullName
+    try {
+        & $resolver -ExtensionConfigPath $missingPg19License.FullName `
+            -PostgreSqlConfigPath (Join-Path $PSScriptRoot "fixtures/postgresql-pg19-readiness.json") `
+            -EffectiveDate "2026-10-06"
+    }
+    catch {
+        if ($_.Exception.Message -notlike "*license.perPostgresql has no mapping for eligible PostgreSQL major 19*") {
+            throw
+        }
+        $missingPg19LicenseDenied = $true
+    }
+}
+finally {
+    Remove-Item $missingPg19License, $missingPg19LicenseOutput -Force
+}
+if (-not $missingPg19LicenseDenied) {
+    throw "Expected resolver to reject a missing PostgreSQL 19 license mapping."
+}
 
 $missingOutput = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-output-" + [Guid]::NewGuid().ToString("N") + ".txt")
 $missingFailed = $false
