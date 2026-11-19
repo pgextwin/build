@@ -98,9 +98,7 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
     # cryptographic proofs of all three assets or Publisher authorization.
     digests = {kind: audit.get(kind + "Sha256ByMajor")
                for kind in ("zip", "spdx", "grype")}
-    require(type(majors) is list and len(majors) >= 1
-            and len(majors) <= 5 and all(type(v) is int and 14 <= v <= 18 for v in majors)
-            and majors == sorted(set(majors))
+    require(identity.valid_admission_matrix(majors, repo.split("/")[1])
             and all(type(values) is dict
                     and set(values) == {str(m) for m in majors}
                     and all(type(v) is str and HASH.fullmatch(v)

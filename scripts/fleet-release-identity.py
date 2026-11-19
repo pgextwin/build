@@ -41,7 +41,9 @@ TAG_NAME = re.compile(r"^v[0-9]+(?:\.[0-9]+){1,3}(?:-[0-9]{8})?-windows\.[1-9][0
 VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}$")
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SHA = re.compile(r"^[a-f0-9]{40}$")
-ALLOWED_MAJORS = {14, 15, 16, 17, 18}
+ALLOWED_MAJORS = frozenset({14, 15, 16, 17, 18})
+# Extension names approved by review in Build. Candidate inputs cannot opt in.
+PG19_ADMISSION_OPT_IN: frozenset[str] = frozenset()
 
 class Denied(ValueError):
     pass
@@ -49,6 +51,17 @@ class Denied(ValueError):
 def require(condition: bool, detail: str) -> None:
     if not condition:
         raise Denied(detail)
+
+def admission_majors(extension: object) -> frozenset[int]:
+    if isinstance(extension, str) and extension in PG19_ADMISSION_OPT_IN:
+        return ALLOWED_MAJORS | {19}
+    return ALLOWED_MAJORS
+
+def valid_admission_matrix(majors: object, extension: str) -> bool:
+    allowed = admission_majors(extension)
+    return (type(majors) is list and bool(majors)
+            and all(type(major) is int and major in allowed for major in majors)
+            and majors == sorted(set(majors)))
 
 def configured_majors(ext: dict) -> list[int]:
     p = ext.get("postgresql", {})
@@ -61,7 +74,8 @@ def configured_majors(ext: dict) -> list[int]:
         require(type(lo) is int and type(hi) is int and lo <= hi, "invalid PG range")
         majors = list(range(lo, hi + 1))
     require(bool(majors) and len(set(majors)) == len(majors)
-            and set(majors).issubset(ALLOWED_MAJORS), "untrusted or duplicate PG majors")
+            and set(majors).issubset(admission_majors(ext.get("name"))),
+            "untrusted or duplicate PG majors")
     return majors
 
 def maintained_majors(ext: dict, lifecycle: dict, today: date | None = None) -> list[int]:

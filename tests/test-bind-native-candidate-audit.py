@@ -9,6 +9,7 @@ from copy import deepcopy
 from datetime import date
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location(
@@ -75,6 +76,27 @@ class NativeArtifactBindingTests(unittest.TestCase):
             self.assertIs(x[field],False)
         self.assertNotIn("authorizationMode",x)
         self.assertNotIn("releaseTag",x)
+
+    def test_opted_in_pg19_requires_successful_native_evidence(self):
+        values = fixture()
+        values["ext"]["postgresql"]["majors"].append(19)
+        values["lifecycle"]["postgresql"].append({"major": 19, "eol": "2031-11-19"})
+        previous = values["audit"]["majors"][-1]
+        values["audit"]["majors"].append({
+            **previous, "major": 19,
+            **{key: previous[key].replace("-pg18-", "-pg19-")
+               for key in ("zip", "sbom", "grype")},
+        })
+        with self.assertRaisesRegex(b.Denied, "untrusted or duplicate PG majors"):
+            b.join(**values)
+        with patch.object(b.ident, "PG19_ADMISSION_OPT_IN", frozenset({"pg_ivm"})):
+            self.assertEqual(b.join(**values)["majors"], list(range(14, 20)))
+            values["audit"]["majors"][-1]["status"] = "FAILED"
+            with self.assertRaisesRegex(b.Denied, "untrusted per-major source digest"):
+                b.join(**values)
+            values["audit"]["majors"].pop()
+            with self.assertRaisesRegex(b.Denied, "missing, duplicate or unordered"):
+                b.join(**values)
 
     def test_reject_cross_run_forgery_duplicates_and_partial_receipts(self):
         cases=[

@@ -115,10 +115,7 @@ def assess(source,proposal,manifest,fleet,central,local,unattended,boundary,
                 "publishableReceipt","automaticReleaseEnabled")),
             "replayed/forged/incomplete independent real-signed source")
     majors=source.get("maintainedMajors")
-    require(type(majors) is list and bool(majors) and
-            len(majors)<=5 and
-            all(type(m) is int and m in (14,15,16,17,18) for m in majors) and
-            majors==sorted(set(majors)),
+    require(identity.valid_admission_matrix(majors, manifest["name"]),
             "invalid maintained signed PostgreSQL matrix")
     try:
         pins=identity.sources(manifest)

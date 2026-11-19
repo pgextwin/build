@@ -2,8 +2,10 @@
 """No-network heterogeneous 17-extension manual Release identity denial matrix."""
 from datetime import date
 import importlib.util
+import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("ident",ROOT/"scripts"/"fleet-release-identity.py")
@@ -86,6 +88,32 @@ class IdentityTests(unittest.TestCase):
         ext=manifest("hypopg")
         self.assertEqual(lib.maintained_majors(ext,data,date(2026,10,11)),[14,15,16,17,18])
         self.assertEqual(lib.maintained_majors(ext,data,date(2026,11,13)),[15,16,17,18])
+
+    def test_pg19_opt_in_uses_manifest_and_lifecycle(self):
+        data = json.loads((ROOT / "metadata/postgresql.json").read_text("utf-8"))
+        today = date(2026, 11, 19)
+        ext = manifest("hypopg")
+        ext["postgresql"] = {"minMajor": 14, "maxMajor": 19}
+        with self.assertRaisesRegex(lib.Denied, "untrusted or duplicate PG majors"):
+            lib.maintained_majors(ext, data, today)
+        with patch.object(lib, "PG19_ADMISSION_OPT_IN", frozenset({"hypopg"})):
+            self.assertEqual(lib.maintained_majors(ext, data, today), [15, 16, 17, 18, 19])
+            self.assertEqual(lib.maintained_majors(ext, data, date(2031, 1, 1)), [19])
+            self.assertEqual(lib.maintained_majors(manifest("hypopg"), data, today),
+                             [15, 16, 17, 18])
+            without_pg19 = {**data, "postgresql": [
+                row for row in data["postgresql"] if row["major"] != 19]}
+            with self.assertRaisesRegex(lib.Denied, "configured PG major absent"):
+                lib.maintained_majors(ext, without_pg19, today)
+            with self.assertRaisesRegex(lib.Denied, "configured PG major absent"):
+                lib.maintained_majors(ext, data, date(2032, 1, 1))
+            for majors in ([18, 20], [19, 19], ["19"], [True]):
+                with self.subTest(majors=majors), self.assertRaises(lib.Denied):
+                    lib.configured_majors({**ext, "postgresql": {"majors": majors}})
+            other = manifest("wal2json")
+            other["postgresql"]["majors"].append(19)
+            with self.assertRaises(lib.Denied):
+                lib.sources(other)
 
     def test_tampering_and_missing_sha_fail_closed(self):
         x=manifest("wal2json")

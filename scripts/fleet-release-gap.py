@@ -7,6 +7,7 @@ Publisher receipt, Catalog acceptance or authorization. Fail closed on drift.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,11 @@ import re
 import sys
 
 from update_watch_lib import WatchError, github_get_json
+
+_identity_spec = importlib.util.spec_from_file_location(
+    "gap_release_identity", Path(__file__).with_name("fleet-release-identity.py"))
+identity = importlib.util.module_from_spec(_identity_spec)
+_identity_spec.loader.exec_module(identity)
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}$")
@@ -41,9 +47,9 @@ def stem(repository, current):
     if "version" in current:
         version = current["version"]
     else:
-        majors = sorted(int(k) for k in current if re.fullmatch(r"(?:1[4-8])", k))
-        require(majors and len(majors) == len(current), "invalid per-PG version map")
-        most_recent = current.get(str(majors[-1]))
+        allowed = {str(major) for major in identity.admission_majors(name)}
+        require(set(current).issubset(allowed), "invalid per-PG version map")
+        most_recent = current[max(current, key=int)]
         require(type(most_recent) is dict, "invalid per-PG latest version")
         version = most_recent.get("version")
     require(type(version) is str and VERSION.fullmatch(version), "invalid current version")

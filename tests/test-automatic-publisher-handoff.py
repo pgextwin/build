@@ -4,6 +4,7 @@ from copy import deepcopy
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,6 +69,33 @@ class PublisherHandoffTests(unittest.TestCase):
         for forbidden in ("token", "confirmRelease", "operator",
                           "authorizationMode", "releaseId"):
             self.assertNotIn(forbidden, result)
+
+    def test_opted_in_pg19_can_cross_bridge_and_independent_handoff(self):
+        values = fixture()
+        audit = values["first"]
+        audit["maintainedMajors"].append(19)
+        for name in ("zip", "spdx", "grype"):
+            audit[name + "Sha256ByMajor"]["19"] = "1" * 64
+        audit["grypePolicyByMajor"]["19"] = deepcopy(audit["grypePolicyByMajor"]["18"])
+        values["second"] = deepcopy(audit)
+        values["opinion"]["maintainedMajors"] = audit["maintainedMajors"][:]
+        values["tag"]["releaseTagProposal"] = "v19.1-windows.1"
+        bridge = tag_fixtures.pub.bridge
+        inputs = tag_fixtures.pub.fixture()
+        inputs.update(audit=audit, repo=REPO)
+        with self.assertRaisesRegex(bridge.Denied, "SHA256 matrices"):
+            bridge.bridge(**inputs)
+        with patch.object(bridge.identity, "PG19_ADMISSION_OPT_IN", frozenset({"pgaudit"})):
+            values["bridge"] = deepcopy(bridge.bridge(**inputs))
+        with self.assertRaisesRegex(handoff.Denied, "malformed PostgreSQL major matrix"):
+            handoff.handoff(**values)
+        with patch.object(handoff.identity, "PG19_ADMISSION_OPT_IN", frozenset({"pgaudit"})):
+            result = handoff.handoff(**values)
+            self.assertEqual(result["maintainedMajors"], list(range(14, 20)))
+            self.assertIs(result["publicationAuthorized"], False)
+            values["bridge"]["zipSha256ByMajor"]["19"] = "0" * 64
+            with self.assertRaisesRegex(handoff.Denied, "signed zip differs"):
+                handoff.handoff(**values)
 
     def test_reject_tampered_or_incomplete_independent_proof(self):
         attacks = [
