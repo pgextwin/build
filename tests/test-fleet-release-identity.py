@@ -92,6 +92,10 @@ class IdentityTests(unittest.TestCase):
     def test_pg19_opt_in_uses_manifest_and_lifecycle(self):
         data = json.loads((ROOT / "metadata/postgresql.json").read_text("utf-8"))
         today = date(2026, 11, 19)
+        wal2json = manifest("wal2json")
+        wal2json["postgresql"]["majors"].append(19)
+        self.assertEqual(lib.maintained_majors(wal2json, data, today), [15, 16, 17, 18, 19])
+
         ext = manifest("hypopg")
         ext["postgresql"] = {"minMajor": 14, "maxMajor": 19}
         with self.assertRaisesRegex(lib.Denied, "untrusted or duplicate PG majors"):
@@ -110,7 +114,7 @@ class IdentityTests(unittest.TestCase):
             for majors in ([18, 20], [19, 19], ["19"], [True]):
                 with self.subTest(majors=majors), self.assertRaises(lib.Denied):
                     lib.configured_majors({**ext, "postgresql": {"majors": majors}})
-            other = manifest("wal2json")
+            other = manifest("pg_repack")
             other["postgresql"]["majors"].append(19)
             with self.assertRaises(lib.Denied):
                 lib.sources(other)
