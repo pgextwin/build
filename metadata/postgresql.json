@@ -40,6 +40,14 @@
       "chocolateyVersion": "18.7.1",
       "eol": "2030-11-14",
       "testPort": 55432
+    },
+    {
+      "major": 19,
+      "minor": "19.0",
+      "chocolateyPackage": "postgresql19",
+      "chocolateyVersion": "19.0.1",
+      "eol": "2031-11-19",
+      "testPort": 55432
     }
   ]
 }
