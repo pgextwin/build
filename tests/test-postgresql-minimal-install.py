@@ -7,7 +7,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 script = (ROOT / "scripts/install-postgresql.ps1").read_text(encoding="utf-8")
 meta = json.loads((ROOT / "metadata/postgresql.json").read_text(encoding="utf-8"))
-assert {v["major"] for v in meta["postgresql"]} == {14, 15, 16, 17, 18}
+assert {v["major"] for v in meta["postgresql"]} == {14, 15, 16, 17, 18, 19}
 for v in meta["postgresql"]:
     assert v["chocolateyPackage"] == f'postgresql{v["major"]}'
     assert re.fullmatch(r"\d+\.\d+\.\d+", v["chocolateyVersion"])
@@ -61,4 +61,4 @@ assert 'bin\\postgres.exe' in script and 'bin\\initdb.exe' in script
 assert 'bin\\psql.exe' in script and 'share\\extension\\plpgsql.control' in script
 assert '"PGROOT=$pgRoot" >> $env:GITHUB_ENV' in script
 assert '"$pgRoot\\bin" >> $env:GITHUB_PATH' in script
-print("PASS: PG14-18 metadata, Chocolatey installer args, retry and fail-closed contract")
+print("PASS: PostgreSQL metadata, Chocolatey installer args, retry and fail-closed contract")
