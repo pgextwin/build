@@ -7,6 +7,7 @@
   "automaticCatalogMerge": true,
   "allowedExtensions": [
     "hypopg",
+    "odbc_fdw",
     "orafce",
     "pg_bigm",
     "pg_cron",

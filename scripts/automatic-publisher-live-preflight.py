@@ -120,22 +120,22 @@ def assess(handoff, branch, run, fleet, central, local, unattended,
     require(type(fleet) is dict and fleet.get("schemaVersion") == 1
             and fleet.get("releasePolicy") == "manual-only"
             and type(fleet.get("entries")) is list
-            and len(fleet["entries"]) == 25,
-            "central 25-extension manual-only policy changed")
+            and len(fleet["entries"]) == 26,
+            "central 26-extension manual-only policy changed")
     roster = [v.get("repository") for v in fleet["entries"] if type(v) is dict]
-    require(len(roster) == 25 and len(set(roster)) == 25
+    require(len(roster) == 26 and len(set(roster)) == 26
             and repository in roster
             and all(type(x) is str and REPO.fullmatch(x) for x in roster)
             and all(v.get("mode") == "BUILD"
                     and v.get("candidateEnabled") is True
                     and v.get("releasePolicy") == "manual-only"
                     for v in fleet["entries"]),
-            "incomplete or altered 25-extension fleet")
+            "incomplete or altered 26-extension fleet")
     require(type(central) is dict and central.get("schemaVersion") == 1
             and central.get("releasePolicy") == "manual-dispatch"
             and set(central.get("allowedRepositories", [])) == set(roster)
             and type(central.get("allowedRepositories")) is list
-            and len(central["allowedRepositories"]) == 25,
+            and len(central["allowedRepositories"]) == 26,
             "central formal Release policy differs from expected DENY")
     require(local == {"schemaVersion": 1, "enabled": True,
                       "releasePolicy": "manual-dispatch"},

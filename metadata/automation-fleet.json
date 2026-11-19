@@ -227,6 +227,15 @@
       "candidateEnabled": true,
       "releasePolicy": "automatic-signed-schedule",
       "reason": "pg_squeeze 1.9.4 own-build registration for PG15 through PG18 with the exact upstream PostgreSQL License."
+    },
+    {
+      "repository": "pgextwin/odbc_fdw",
+      "mode": "BUILD",
+      "strategy": "github-releases",
+      "scheduleUtc": "0 * * * *",
+      "candidateEnabled": true,
+      "releasePolicy": "automatic-signed-schedule",
+      "reason": "odbc_fdw 0.5.2 own-build registration for PG15 through PG18 with the exact upstream PostgreSQL License."
     }
   ]
 }
