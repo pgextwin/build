@@ -16,7 +16,8 @@
     "pgextwin/pg_wait_sampling",
     "pgextwin/pg_failover_slots",
     "pgextwin/pg_squeeze",
-    "pgextwin/odbc_fdw"
+    "pgextwin/odbc_fdw",
+    "pgextwin/wal2json"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
