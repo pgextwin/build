@@ -1,6 +1,10 @@
 name: PG19 installer experiment (diagnostic, dispatch only)
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/pg19-installer-experiment.yml
+      - scripts/pg19-installer-experiment.ps1
 permissions:
   contents: read
 jobs:
