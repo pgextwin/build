@@ -36,13 +36,24 @@ $feedOutageCount = 0
 $installStartedUtc = [DateTime]::UtcNow
 $chocoLogging = @()
 if ($Major -eq 19) { $chocoLogging = @('--verbose') }
+# Explicitly allow only the already tested server + CLI components;
+# preserve the proven pgAdmin/StackBuilder exclusions (PR #110).
+# The hosted Windows image already supplies VC++ runtimes; the real
+# PG14-18 trial proved complete server, MSVC build and SQL smoke.
+# PG19 removed pgAdmin from the installer component list (it is now a
+# separate download gated by the install_pgadmin boolean, default 0).
+# Naming pgAdmin in --disable-components makes the PG19 installer exit
+# 1 immediately, before it writes any log detail: in the A/B/C
+# experiment (Build PR #600, byte-pinned EDB EXE on windows-2025) the
+# PG14-18 argument set exited 1, the PG19 set below exited 0 and
+# installed PostgreSQL 19.0, and no component arguments also exited 0.
+$installerArgs = "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"
+if ($Major -eq 19) {
+    $installerArgs = "--enable-components server,commandlinetools --disable-components stackbuilder --install-pgadmin 0 --create_shortcuts 0 --install_runtimes 0"
+}
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Write-Host "Installing $ChocolateyPackage version $ChocolateyVersion (attempt $attempt/$maxAttempts)."
-    # Explicitly allow only the already tested server + CLI components;
-    # preserve the proven pgAdmin/StackBuilder exclusions (PR #110).
-    # The hosted Windows image already supplies VC++ runtimes; the real
-    # PG14-18 trial proved complete server, MSVC build and SQL smoke.
-    $attemptOutput = @(& choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres" --ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0" @chocoLogging 2>&1)
+    $attemptOutput = @(& choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres" --ia $installerArgs @chocoLogging 2>&1)
     $code = $LASTEXITCODE
     $attemptOutput | ForEach-Object { Write-Host ([string]$_ -creplace '\bpostgres\b', '[redacted]') }
     if ($successCodes -contains $code) { break }
@@ -114,10 +125,7 @@ if ($successCodes -notcontains $code) {
         # Same server+CLI component subset as the successful Chocolatey path.
         # This runs only in an ephemeral GitHub Windows CI environment.
         $arguments = @('--mode','unattended','--unattendedmodeui','none',
-                       '--superpassword','postgres','--enable_acledit','1',
-                       '--enable-components','server,commandlinetools',
-                       '--disable-components','pgAdmin,stackbuilder',
-                       '--create_shortcuts','0','--install_runtimes','0')
+                       '--superpassword','postgres','--enable_acledit','1') + ($installerArgs -split ' ')
         $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
         if ($successCodes -notcontains $process.ExitCode) {
             throw "SHA256-verified EDB installer failed: exit $($process.ExitCode)"

@@ -13,7 +13,7 @@ metadata = json.loads((ROOT / "metadata/postgresql.json").read_text(encoding="ut
 pilot = json.loads((ROOT / "evidence/issue-75/edb-pg14-18-exe-byte-observations-20261017.json").read_text(encoding="utf-8"))
 
 # The proven previous PR #110 approach is mandatory and must not disappear.
-assert '--ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in old
+assert '$installerArgs = "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in old
 assert "--params \"/Password:postgres\"" in old
 assert "$maxAttempts = 3" in old
 assert [x["major"] for x in metadata["postgresql"]] == [14, 15, 16, 17, 18, 19]
