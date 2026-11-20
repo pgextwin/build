@@ -19,7 +19,8 @@
     "pgextwin/odbc_fdw",
     "pgextwin/wal2json",
     "pgextwin/pg_cron",
-    "pgextwin/hypopg"
+    "pgextwin/hypopg",
+    "pgextwin/pg_qualstats"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
