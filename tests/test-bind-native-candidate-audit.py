@@ -87,8 +87,9 @@ class NativeArtifactBindingTests(unittest.TestCase):
             **{key: previous[key].replace("-pg18-", "-pg19-")
                for key in ("zip", "sbom", "grype")},
         })
-        with self.assertRaisesRegex(b.Denied, "untrusted or duplicate PG majors"):
-            b.join(**values)
+        with patch.object(b.ident, "PG19_ADMISSION_OPT_IN", frozenset()):
+            with self.assertRaisesRegex(b.Denied, "untrusted or duplicate PG majors"):
+                b.join(**values)
         with patch.object(b.ident, "PG19_ADMISSION_OPT_IN", frozenset({"pg_ivm"})):
             self.assertEqual(b.join(**values)["majors"], list(range(14, 20)))
             values["audit"]["majors"][-1]["status"] = "FAILED"

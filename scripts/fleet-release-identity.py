@@ -43,7 +43,7 @@ REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SHA = re.compile(r"^[a-f0-9]{40}$")
 ALLOWED_MAJORS = frozenset({14, 15, 16, 17, 18})
 # Extension names approved by review in Build. Candidate inputs cannot opt in.
-PG19_ADMISSION_OPT_IN: frozenset[str] = frozenset({"wal2json", "pg_permissions"})
+PG19_ADMISSION_OPT_IN: frozenset[str] = frozenset({"wal2json", "pg_permissions", "pg_ivm"})
 
 class Denied(ValueError):
     pass
