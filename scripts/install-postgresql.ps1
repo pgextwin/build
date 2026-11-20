@@ -33,15 +33,18 @@ $successCodes = @(0, 1641, 3010)
 $maxAttempts = 3
 $code = -1
 $feedOutageCount = 0
+$installStartedUtc = [DateTime]::UtcNow
+$chocoLogging = @()
+if ($Major -eq 19) { $chocoLogging = @('--verbose') }
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Write-Host "Installing $ChocolateyPackage version $ChocolateyVersion (attempt $attempt/$maxAttempts)."
     # Explicitly allow only the already tested server + CLI components;
     # preserve the proven pgAdmin/StackBuilder exclusions (PR #110).
     # The hosted Windows image already supplies VC++ runtimes; the real
     # PG14-18 trial proved complete server, MSVC build and SQL smoke.
-    $attemptOutput = @(& choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres" --ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0" 2>&1)
+    $attemptOutput = @(& choco install $ChocolateyPackage "--version=$ChocolateyVersion" --yes --no-progress --params "/Password:postgres" --ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0" @chocoLogging 2>&1)
     $code = $LASTEXITCODE
-    $attemptOutput | ForEach-Object { Write-Host $_ }
+    $attemptOutput | ForEach-Object { Write-Host ([string]$_ -creplace '\bpostgres\b', '[redacted]') }
     if ($successCodes -contains $code) { break }
     # A failed checksum, mismatching version, or non-gateway-outage error must DENY.
     $failureText = $attemptOutput -join [Environment]::NewLine
@@ -56,6 +59,27 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 }
 if ($successCodes -notcontains $code) {
     if ($feedOutageCount -ne $maxAttempts) {
+        if ($Major -eq 19) {
+            # Chocolatey can run EDB with TEMP redirected to its own temp directory.
+            $tempDir = [IO.Path]::GetTempPath()
+            $logDirs = @($tempDir, $env:TEMP) | Where-Object { $_ } | ForEach-Object {
+                $directory = [IO.Path]::TrimEndingDirectorySeparator($_)
+                $directory
+                Join-Path $directory 'chocolatey'
+            } | Select-Object -Unique
+            $logs = @(Get-ChildItem -LiteralPath $logDirs -File -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.LastWriteTimeUtc -ge $installStartedUtc -and
+                    $_.Name -match '^(install-postgresql|(?:bitrock|installbuilder)_installer(?:_[^.]*)?)\.log$'
+                } | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 3)
+            if ($logs.Count -eq 0) { Write-Warning 'No PostgreSQL 19 installer log was created in the runner or Chocolatey temp directory.' }
+            foreach ($log in $logs) {
+                Write-Host "EDB installer log (last 100 lines): $($log.FullName)"
+                Get-Content -LiteralPath $log.FullName -Tail 100 -ErrorAction Continue | ForEach-Object {
+                    Write-Host "EDB | $($_ -creplace '\bpostgres\b', '[redacted]')"
+                }
+            }
+        }
         throw "Chocolatey failed after $maxAttempts attempts, without verified V2 HTTP 406/502/503/504 in every attempt; EDB fallback DENY."
     }
     # Only the exact EDB installer bytes independently retrieved and SHA256
