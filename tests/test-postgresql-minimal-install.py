@@ -13,7 +13,11 @@ for v in meta["postgresql"]:
     assert re.fullmatch(r"\d+\.\d+\.\d+", v["chocolateyVersion"])
 line = next(x.strip() for x in script.splitlines() if "& choco install " in x)
 assert line.count("--ia") == 1
-assert '--ia "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in line
+assert '--ia $installerArgs' in line
+assert '$installerArgs = "--enable-components server,commandlinetools --disable-components pgAdmin,stackbuilder --create_shortcuts 0 --install_runtimes 0"' in script
+# PG19 has no pgAdmin installer component; naming it in
+# --disable-components makes the PG19 installer exit 1 immediately.
+assert '$installerArgs = "--enable-components server,commandlinetools --disable-components stackbuilder --install-pgadmin 0 --create_shortcuts 0 --install_runtimes 0"' in script
 assert '"--version=$ChocolateyVersion"' in line
 assert '--params "/Password:postgres"' in line
 assert "--override" not in line and "--force" not in line
