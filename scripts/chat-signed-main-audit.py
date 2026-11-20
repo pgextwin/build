@@ -36,7 +36,7 @@ CALLER = ".github/workflows/chat-signed-main.yml"
 # workflow_dispatch/manual provenance pins remain separate and unchanged.
 # Change only with protected source workflow pin, required CI, and original
 # postmerge proof. No wildcard or fallback signer is authorized.
-OWNER_SIGNER_SHA = "f4933bc3e549e4218251786763ddae71f63068e4"
+OWNER_SIGNER_SHA = "d1afbd863a00ff214f86c7a3535835a307cb686e"
 
 
 class Denied(ValueError):
