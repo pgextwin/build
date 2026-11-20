@@ -98,8 +98,9 @@ class IdentityTests(unittest.TestCase):
 
         ext = manifest("hypopg")
         ext["postgresql"] = {"minMajor": 14, "maxMajor": 19}
-        with self.assertRaisesRegex(lib.Denied, "untrusted or duplicate PG majors"):
-            lib.maintained_majors(ext, data, today)
+        with patch.object(lib, "PG19_ADMISSION_OPT_IN", frozenset()):
+            with self.assertRaisesRegex(lib.Denied, "untrusted or duplicate PG majors"):
+                lib.maintained_majors(ext, data, today)
         with patch.object(lib, "PG19_ADMISSION_OPT_IN", frozenset({"hypopg"})):
             self.assertEqual(lib.maintained_majors(ext, data, today), [15, 16, 17, 18, 19])
             self.assertEqual(lib.maintained_majors(ext, data, date(2031, 1, 1)), [19])
