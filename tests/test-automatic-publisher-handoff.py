@@ -83,19 +83,19 @@ class PublisherHandoffTests(unittest.TestCase):
         bridge = tag_fixtures.pub.bridge
         inputs = tag_fixtures.pub.fixture()
         inputs.update(audit=audit, repo=REPO)
-        with self.assertRaisesRegex(bridge.Denied, "SHA256 matrices"):
-            bridge.bridge(**inputs)
-        with patch.object(bridge.identity, "PG19_ADMISSION_OPT_IN", frozenset({"pgaudit"})):
-            values["bridge"] = deepcopy(bridge.bridge(**inputs))
-        with self.assertRaisesRegex(handoff.Denied, "malformed PostgreSQL major matrix"):
-            handoff.handoff(**values)
-        with patch.object(handoff.identity, "PG19_ADMISSION_OPT_IN", frozenset({"pgaudit"})):
-            result = handoff.handoff(**values)
-            self.assertEqual(result["maintainedMajors"], list(range(14, 20)))
-            self.assertIs(result["publicationAuthorized"], False)
-            values["bridge"]["zipSha256ByMajor"]["19"] = "0" * 64
-            with self.assertRaisesRegex(handoff.Denied, "signed zip differs"):
+        with patch.object(bridge.identity, "PG19_ADMISSION_OPT_IN", frozenset()):
+            with self.assertRaisesRegex(bridge.Denied, "SHA256 matrices"):
+                bridge.bridge(**inputs)
+        values["bridge"] = deepcopy(bridge.bridge(**inputs))
+        with patch.object(handoff.identity, "PG19_ADMISSION_OPT_IN", frozenset()):
+            with self.assertRaisesRegex(handoff.Denied, "malformed PostgreSQL major matrix"):
                 handoff.handoff(**values)
+        result = handoff.handoff(**values)
+        self.assertEqual(result["maintainedMajors"], list(range(14, 20)))
+        self.assertIs(result["publicationAuthorized"], False)
+        values["bridge"]["zipSha256ByMajor"]["19"] = "0" * 64
+        with self.assertRaisesRegex(handoff.Denied, "signed zip differs"):
+            handoff.handoff(**values)
 
     def test_reject_tampered_or_incomplete_independent_proof(self):
         attacks = [
