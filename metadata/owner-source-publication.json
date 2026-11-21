@@ -21,7 +21,8 @@
     "pgextwin/pg_cron",
     "pgextwin/hypopg",
     "pgextwin/pg_qualstats",
-    "pgextwin/pg_bigm"
+    "pgextwin/pg_bigm",
+    "pgextwin/pg_stat_monitor"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
