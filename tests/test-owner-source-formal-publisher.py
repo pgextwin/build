@@ -151,7 +151,7 @@ class OwnerFormalRuntimeTests(TestCase):
         # central AND local opt-ins (default DENY remains the starting policy).
         central=json.loads((ROOT/"metadata/owner-source-publication.json").read_text("utf-8"))
         self.assertEqual(central["mode"],"ENFORCE")
-        self.assertEqual(central["allowedRepositories"],["pgextwin/plpgsql_check", "pgextwin/pg_ivm", "pgextwin/set_user", "pgextwin/orafce", "pgextwin/pg_hint_plan", "pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots", "pgextwin/pg_squeeze", "pgextwin/odbc_fdw", "pgextwin/wal2json", "pgextwin/pg_cron", "pgextwin/hypopg", "pgextwin/pg_qualstats"])
+        self.assertEqual(central["allowedRepositories"],["pgextwin/plpgsql_check", "pgextwin/pg_ivm", "pgextwin/set_user", "pgextwin/orafce", "pgextwin/pg_hint_plan", "pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots", "pgextwin/pg_squeeze", "pgextwin/odbc_fdw", "pgextwin/wal2json", "pgextwin/pg_cron", "pgextwin/hypopg", "pgextwin/pg_qualstats", "pgextwin/pg_bigm"])
 
 if __name__=="__main__":
     main()

@@ -300,7 +300,7 @@ class OwnerSignerPinTests(TestCase):
         pins = re.findall(r"build-extension-attested\.yml@([0-9a-f]{40})", source)
         self.assertEqual(pins, [audit.OWNER_SIGNER_SHA])
         self.assertEqual(audit.OWNER_SIGNER_SHA,
-                         "90cecaca1c0147ee5344247c6f79a51c1abd0845")
+                         "cb95fa6489df29853292dc3709ac13f00c1de9d0")
         self.assertNotEqual(audit.OWNER_SIGNER_SHA, audit.pin.SIGNER_SHA)
         self.assertEqual(audit.pin.SIGNER_SHA,
                          "5756b3c5136a8bf4db710016cfe97555f0a71c6d")
