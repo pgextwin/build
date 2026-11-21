@@ -39,9 +39,18 @@ def unique(a):
     return type(a) is list and len(a)==len(set(a))
 
 
+def require_artifact(artifact, name, run_id):
+    require(type(artifact) is dict and type(artifact.get("id")) is int
+            and artifact["id"] > 0 and artifact.get("name") == name
+            and type(artifact.get("size_in_bytes")) is int
+            and artifact["size_in_bytes"] > 0 and artifact.get("expired") is False
+            and (artifact.get("workflow_run") or {}).get("id") == run_id,
+            "missing or mismatched real GitHub audit artifact")
+
+
 def join(*, context, audit, ext, lifecycle, ci_run, audit_run,
          artifact, repository, current_main_sha, today=None,
-         central_receipt=None, audit_job=None):
+         central_row=None):
     """Independently bound *observations*, strictly never a publisher permit."""
     require(type(repository) is str and repository=="pgextwin/"+ext.get("name")
             and sha(current_main_sha), "invalid trusted repository/main")
@@ -75,10 +84,9 @@ def join(*, context, audit, ext, lifecycle, ci_run, audit_run,
             and ci_run.get("conclusion")=="success"
             and (ci_run.get("head_repository") or {}).get("full_name")==repository,
             "candidate audit refers to incomplete/foreign Windows CI")
-    if central_receipt is None:
+    if central_row is None:
         # Original independent extension-local workflow_run path is unchanged.
-        require(audit_job is None
-                and type(audit_run) is dict and type(audit_run.get("id")) is int
+        require(type(audit_run) is dict and type(audit_run.get("id")) is int
                 and audit_run["id"]>0
                 and audit_run.get("name")=="Upstream candidate after verified central daily fleet scan"
                 and audit_run.get("path")==".github/workflows/update-watch.yml"
@@ -88,59 +96,20 @@ def join(*, context, audit, ext, lifecycle, ci_run, audit_run,
                 and audit_run.get("status")=="completed"
                 and audit_run.get("conclusion")=="success",
                 "audit must belong to a real successful trusted-main workflow_run")
-        artifact_name="candidate-audit-native-pr"
+        require_artifact(artifact, "candidate-audit-native-pr", audit_run["id"])
     else:
-        # A genuine *central schedule* is a separate provenance TYPE. Never
-        # relabel it as the historically skipped extension workflow_run.
-        names={
-            ".github/workflows/recover-native-pr-fleet.yml":
-                ("Hourly central recovery of approved original native PR artifacts (NONPUBLISHING)",
-                 "Independent approved attempt and original ZIP/SPDX/Grype audit (no Release)"),
-            ".github/workflows/fleet-upstream-watch.yml":
-                ("Hourly stable upstream updates for all 17 extensions",
-                 "Independent original PR artifacts audit (genuine fleet schedule only; NO PUBLISH)"),
-        }
-        require(type(audit_run) is dict and type(central_receipt) is dict
-                and audit_run.get("path") in names
-                and type(audit_run.get("id")) is int and audit_run["id"]>0
-                and (audit_run.get("repository") or {}).get("full_name")=="pgextwin/build"
-                and audit_run.get("name")==names[audit_run["path"]][0]
-                and audit_run.get("event")=="schedule"
-                and audit_run.get("run_attempt")==1
-                and audit_run.get("head_branch")=="main"
-                and sha(audit_run.get("head_sha"))
-                and audit_run.get("status")=="completed"
-                and audit_run.get("conclusion")=="success",
-                "central auditor was not a genuine successful original schedule")
-        require(type(audit_job) is dict and type(audit_job.get("id")) is int
-                and audit_job["id"]>0
-                and audit_job.get("run_id")==audit_run["id"]
-                and audit_job.get("name")==names[audit_run["path"]][1]
-                and audit_job.get("status")=="completed"
-                and audit_job.get("conclusion")=="success",
-                "central schedule original audit job was skipped/failed/foreign")
-        require(central_receipt.get("schemaVersion")==1
-                and central_receipt.get("status")==
-                    "CENTRAL_GENUINE_SCHEDULE_ORIGINAL_NATIVE_CI_BYTES_VERIFIED_NONPUBLISHING"
-                and central_receipt.get("auditorRepository")=="pgextwin/build"
-                and central_receipt.get("auditorEvent")=="schedule"
-                and central_receipt.get("auditorSourceSha")==audit_run["head_sha"]
-                and central_receipt.get("targetRepository")==repository
-                and central_receipt.get("targetMainSha")==current_main_sha
-                and central_receipt.get("native")==context
-                and central_receipt.get("candidateAudit")==audit
-                and all(central_receipt.get(k) is False for k in
-                    ("signedArtifactsVerified","publicationAuthorized","publishableReceipt")),
-                "actual central schedule receipt and exact candidate bytes disagree")
-        artifact_name="registered-original-native-pr-audits"
-    require(type(artifact) is dict and type(artifact.get("id")) is int
-            and artifact["id"]>0
-            and artifact.get("name")==artifact_name
-            and type(artifact.get("size_in_bytes")) is int
-            and artifact["size_in_bytes"]>0
-            and artifact.get("expired") is False
-            and (artifact.get("workflow_run") or {}).get("id")==audit_run["id"],
-            "missing or mismatched real GitHub audit artifact")
+        # The central live binder already authenticated its job and artifact.
+        require(type(context.get("candidateRunAttempt")) is int
+                and context["candidateRunAttempt"] > 0
+                and type(audit.get("runAttempt")) is int
+                and ci_run.get("run_attempt") == context["candidateRunAttempt"] == audit["runAttempt"]
+                and type(context.get("candidateCheckSuiteId")) is int
+                and context["candidateCheckSuiteId"] > 0
+                and ci_run.get("check_suite_id") == context["candidateCheckSuiteId"]
+                and type(central_row.get("workflowId")) is int
+                and central_row["workflowId"] > 0
+                and ci_run.get("workflow_id") == central_row["workflowId"],
+                "central native workflow, suite or run attempt differs from verified bytes")
     try:
         majors=ident.maintained_majors(ext,lifecycle,today=today or date.today())
         sources=ident.sources(ext)
@@ -166,20 +135,24 @@ def join(*, context, audit, ext, lifecycle, ci_run, audit_run,
                 "untrusted per-major source digest/ZIP/SPDX/Grype identities")
         digests.append({"major":major,"sourceSha":expected["commit"],
                         "zipSha256":row["zipSha256"]})
-    return {"schemaVersion":1, "status":"BOUND_NATIVE_CANDIDATE_AUDIT_NONPUBLISHING",
+    result = {"schemaVersion":1, "status":"BOUND_NATIVE_CANDIDATE_AUDIT_NONPUBLISHING",
             "repository":repository,"candidatePr":context["candidatePr"],
             "candidateHeadSha":context["candidateHeadSha"],
             "candidateCiRunId":context["candidateRunId"],
             "nativeAuditRunId":audit_run["id"],
             "nativeAuditArtifactId":artifact["id"],
             "nativeAuditEvent":audit_run["event"],
-            "nativeAuditRepository":("pgextwin/build" if central_receipt is not None
+            "nativeAuditRepository":("pgextwin/build" if central_row is not None
                                      else repository),
             "candidateMergeSha":context["packagingMergeSha"],
             "mainShaAtAudit":current_main_sha,
             "majors":majors,"sourcesAndZipDigests":digests,
             "signedArtifactsVerified":False,"publishableReceipt":False,
             "publicationAuthorized":False}
+    if central_row is not None:
+        result["candidateRequiredCheckRunId"] = context.get("candidateRequiredCheckRunId")
+    return result
+
 
 
 if __name__=="__main__":

@@ -24,6 +24,8 @@ _spec=importlib.util.spec_from_file_location("native_required_check",
 required_check=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(required_check)
 class Denied(ValueError): pass
 
+class Unavailable(Denied): pass
+
 def require(x,msg):
     if not x: raise Denied(msg)
 
@@ -125,8 +127,8 @@ def gh_get(repo, endpoint):
         "GitHub GET path not allowlisted")
     p=subprocess.run(["gh","api","--method","GET","repos/"+repo+"/"+endpoint],
                      capture_output=True,text=True,timeout=40,check=False)
-    require(p.returncode==0 and len(p.stdout)<2*1024*1024,
-            "independent authenticated GitHub GET unavailable or too large")
+    if p.returncode != 0 or len(p.stdout) >= 2*1024*1024:
+        raise Unavailable("independent authenticated GitHub GET unavailable or too large")
     return json.loads(p.stdout)
 
 def live(repo, run_id, event):

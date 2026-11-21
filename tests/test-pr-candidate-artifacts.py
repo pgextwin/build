@@ -23,7 +23,7 @@ LIFECYCLE = {"schemaVersion":1,"postgresql":[
 
 
 def emit(folder, major, *, event="pull_request", packaging=MERGE,
-         ref=None, upstream=UPSTREAM, run_id=RUN):
+         ref=None, upstream=UPSTREAM, run_id=RUN, attempt=1):
     folder.mkdir(parents=True)
     if ref is None:
         ref = "refs/pull/28/merge" if event == "pull_request" else "refs/heads/" + BRANCH
@@ -33,7 +33,7 @@ def emit(folder, major, *, event="pull_request", packaging=MERGE,
                        "version":"1.17","commit":upstream},
            "source":{"packagingRepository":"pgextwin/pg_ivm",
                      "packagingCommit":packaging},
-           "workflowRun":{"id":run_id,"event":event,"ref":ref}}
+           "workflowRun":{"id":run_id,"attempt":attempt,"event":event,"ref":ref}}
     with ZipFile(folder / "file.zip", "w") as z:
         z.writestr("PACKAGE-INFO.json",json.dumps(pkg))
     (folder / "file.spdx.json").write_text('{"spdxVersion":"SPDX-2.3"}')

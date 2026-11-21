@@ -109,7 +109,6 @@ def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None,
             and type(event.get("before")) is str and SHA.fullmatch(event["before"]),
             "not an authenticated main push")
     before, after = event["before"], event["after"]
-    base = "repos/" + repo + "/"
     def get(suffix):
         return auth_api(repo, suffix)
     commit = get("commits/" + after)
@@ -179,7 +178,7 @@ def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None,
                 current_main_sha=before)
         except (binder.Denied, ValueError, TypeError, KeyError) as exc:
             raise Denied("matched native audit failed SHA/ZIP binding: "+str(exc)) from exc
-        matched.append(bound)
+        matched.append((bound, ci))
     require(len(matched)<=1, "ambiguous extension-local original audit evidence")
     if not matched:
         # Distinct original auditor: current protected build/main genuine
@@ -187,19 +186,19 @@ def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None,
         # as a local success or substituted with a dispatch.
         try:
             matched.append(central.recover(
-                repo,before,head,n,extension,lifecycle,
+                repo,before,head,pr,extension,lifecycle,
+                manifest_blob=manifest["sha"],
+                fetch_ci=lambda run_id: get("actions/runs/" + str(run_id)),
                 api=central_api or central.gh,
                 download=central_retrieve or central.download_original))
         except (central.Denied,ValueError,TypeError,KeyError) as exc:
             raise Denied("separate central genuine schedule DENY: "+str(exc)) from exc
     require(len(matched)==1, "no unique authenticated native audit witness")
-    # Re-fetch the exact original native Run. A dispatch on the same HEAD can
-    # have an identically named success; only this native check suite applies.
-    original_ci=get("actions/runs/"+str(matched[0]["candidateCiRunId"]))
+    bound, original_ci = matched[0]
     try:
         result = bridge.verify(repository=repo,event=event,commit=commit,
             pr=pr,pr_files=files,branch=branch,checks=checks,
-            ci_run=original_ci,bound=matched[0],manifest=extension,lifecycle=lifecycle,fleet=fleet)
+            ci_run=original_ci,bound=bound,manifest=extension,lifecycle=lifecycle,fleet=fleet)
     except (bridge.Denied, ValueError, TypeError, KeyError) as exc:
         raise Denied("postmerge bridge refused untrusted main event: "+str(exc)) from exc
     require(result.get("publicationAuthorized") is False

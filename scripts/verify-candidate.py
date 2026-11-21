@@ -4,12 +4,14 @@ import argparse
 from datetime import date
 import hashlib
 import json
+import lzma
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
+from zlib import error as ZlibError
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 OWNED = re.compile(r"^auto-candidate/([0-9a-f]{20})$")
@@ -26,7 +28,7 @@ def eligible(ext, lifecycle, today):
     return result
 
 def one(folder, ext, major, runid, branch_sha, branch, *,
-        event="workflow_dispatch", merge_sha=None, pr_number=None):
+        event="workflow_dispatch", merge_sha=None, pr_number=None, run_attempt=None):
     # PR CI checks out refs/pull/N/merge, not the exact candidate head.
     # This synthetic commit must be independently resolved by a trusted
     # GitHub GET caller; never take the value from a PR's own input.
@@ -70,6 +72,10 @@ def one(folder, ext, major, runid, branch_sha, branch, *,
     ]
     if any(actual!=expected for actual,expected in checks):
         raise ValueError("package identity / SHA / major / run does not match candidate manifest")
+    if run_attempt is not None:
+        attempt = pkg["workflowRun"].get("attempt")
+        if type(attempt) is not int or attempt != run_attempt:
+            raise ValueError("package workflow run attempt does not match authenticated run attempt")
     spdx=json.loads(sboms[0].read_text(encoding="utf-8-sig"))
     grype=json.loads(reports[0].read_text(encoding="utf-8-sig"))
     if not isinstance(spdx,dict) or spdx.get("spdxVersion")!="SPDX-2.3":
@@ -81,7 +87,7 @@ def one(folder, ext, major, runid, branch_sha, branch, *,
             "zip":zips[0].name,"sbom":sboms[0].name,"grype":reports[0].name}
 
 def audit(root, ext, lifecycle, runid, branch_sha, branch, matrix_result, today,
-          *, event="workflow_dispatch", merge_sha=None, pr_number=None):
+          *, event="workflow_dispatch", merge_sha=None, pr_number=None, run_attempt=None):
     if not SHA.fullmatch(branch_sha) or not OWNED.fullmatch(branch):
         raise ValueError("invalid candidate commit or branch")
     majors=eligible(ext,lifecycle,today)
@@ -92,13 +98,18 @@ def audit(root, ext, lifecycle, runid, branch_sha, branch, matrix_result, today,
             if not folder.is_dir():
                 raise ValueError("missing PG-major Actions artifact")
             items.append(one(folder,ext,major,runid,branch_sha,branch,
-                             event=event,merge_sha=merge_sha,pr_number=pr_number))
-        except (ValueError,OSError,KeyError,TypeError) as e:
+                             event=event,merge_sha=merge_sha,pr_number=pr_number,
+                             run_attempt=run_attempt))
+        except (ValueError, OSError, KeyError, TypeError, AttributeError, BadZipFile,
+                RuntimeError, EOFError, lzma.LZMAError, ZlibError) as e:
             items.append({"major":major,"status":"FAILED","error":str(e)})
     status="VERIFIED" if matrix_result=="success" and all(x["status"]=="SUCCESS" for x in items) else "FAILED"
-    return {"schemaVersion":1,"extension":ext["name"],"runId":runid,"branch":branch,
-            "originEvent":event,
-            "branchSha":branch_sha,"matrixResult":matrix_result,"status":status,"majors":items}
+    report = {"schemaVersion":1,"extension":ext["name"],"runId":runid,"branch":branch,
+              "originEvent":event,"branchSha":branch_sha,"matrixResult":matrix_result,
+              "status":status,"majors":items}
+    if run_attempt is not None:
+        report["runAttempt"] = run_attempt
+    return report
 
 def gh(*argv):
     p=subprocess.run(["gh",*argv],text=True,capture_output=True)

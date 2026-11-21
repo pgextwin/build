@@ -1,252 +1,246 @@
 #!/usr/bin/env python3
-"""Independent central scheduled native audit: fail-closed policy fixtures."""
-import importlib.util
+"""Offline fixtures for per-repository results on the central native PR schedule."""
+import base64
 from copy import deepcopy
+import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase, main
 from unittest.mock import patch
 
-ROOT=Path(__file__).resolve().parents[1]
-spec=importlib.util.spec_from_file_location("audit_fleet",ROOT/"scripts"/"recover-native-pr-fleet.py")
-mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
-fixtures=mod.load("fleet_native_fixtures","tests/test-native-pr-candidate-audit.py")
-artifacts=mod.load("fleet_artifact_fixtures","tests/test-pr-candidate-artifacts.py")
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("audit_fleet", ROOT / "scripts/recover-native-pr-fleet.py")
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+fixtures = mod.load("fleet_native_fixtures", "tests/test-native-pr-candidate-audit.py")
+artifacts = mod.load("fleet_artifact_fixtures", "tests/test-pr-candidate-artifacts.py")
 
-def dispatch_data():
-    x=fixtures.fixture()
-    held=deepcopy(x["run"])
-    held.update(conclusion="action_required",workflow_id=70)
-    run=deepcopy(x["run"])
-    run.update(id=held["id"]+1,event="workflow_dispatch",workflow_id=70,check_suite_id=800)
-    check=x["checks"]["check_runs"][0]
-    check.update(check_suite={"id":800},details_url="https://github.com/"+fixtures.REPO+
-                 "/actions/runs/"+str(run["id"])+"/job/"+str(check["id"]))
-    inventory={"total_count":1,"workflow_runs":[held]}
-    responses={
-        "actions/runs/"+str(held["id"]):held,
-        "actions/runs/"+str(held["id"])+"/jobs?per_page=100":{"total_count":0,"jobs":[]},
-        "actions/runs?event=workflow_dispatch&head_sha="+fixtures.SHA+"&per_page=100":
-            {"total_count":1,"workflow_runs":[run]},
-        "actions/runs/"+str(run["id"]):run,
-        "commits/"+fixtures.SHA+"/pulls?per_page=100":fixtures.association(),
-        "pulls/"+str(fixtures.PR):x["pr"],
-        "branches/main":x["main"],
-        "commits/"+fixtures.SHA+"/check-runs?per_page=100":x["checks"],
+SHA = "f" * 40
+SCHEDULE = {"GITHUB_EVENT_NAME": "schedule", "GITHUB_REPOSITORY": "pgextwin/build",
+            "GITHUB_REF": "refs/heads/main", "GITHUB_SHA": SHA, "GH_TOKEN": "fixture",
+            "GITHUB_RUN_ATTEMPT": "1", "GITHUB_RUN_ID": "450"}
+PULLS = "pulls?state=open&per_page=100"
+RUNS = "actions/runs?event=pull_request&head_sha=" + fixtures.SHA + "&per_page=100"
+RUN = "actions/runs/" + str(fixtures.RUN)
+FILES = f"pulls/{fixtures.PR}/files?per_page=100"
+MANIFEST = "contents/config/extension.json?ref=" + fixtures.SHA
+
+
+def responses(repo=fixtures.REPO):
+    x = fixtures.fixture()
+    run = {**x["run"], "workflow_id": 70}
+    ext = {**artifacts.EXT, "name": repo.split("/")[1]}
+    raw = json.dumps(ext).encode()
+    blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+    x["pr_files"][0]["sha"] = blob
+    entries = {
+        PULLS: [x["pr"]],
+        RUNS: {"total_count": 1, "workflow_runs": [deepcopy(run)]},
+        RUN: run,
+        "commits/" + fixtures.SHA + "/pulls?per_page=100": fixtures.association(),
+        f"pulls/{fixtures.PR}": x["pr"],
+        FILES: x["pr_files"],
+        f"git/ref/pull/{fixtures.PR}/merge": x["merge_ref"],
+        "branches/main": x["main"],
+        "commits/" + fixtures.SHA + "/check-runs?per_page=100": x["checks"],
+        MANIFEST: {"path": "config/extension.json", "encoding": "base64", "sha": blob,
+                   "content": base64.encodebytes(raw).decode()},
     }
-    return x,inventory,responses
+    return json.loads(json.dumps(entries).replace(fixtures.REPO, repo)
+                      .replace('"name": "pg_ivm"', '"name": "' + ext["name"] + '"'))
+
+
+def download(args, **kwargs):
+    assert args[1:6] == ["run", "download", str(fixtures.RUN), "--repo", fixtures.REPO]
+    for major in (14, 15):
+        artifacts.emit(Path(args[-1]) / f"pg_ivm-pg{major}-windows-x64", major)
+    return SimpleNamespace(returncode=0, stderr="")
+
 
 class FleetRecoveryTests(TestCase):
+    def collect(self, sources, retrieve=None):
+        calls = []
+
+        def api(repo, path):
+            calls.append((repo, path))
+            doc = sources[repo][path]
+            if isinstance(doc, Exception):
+                raise doc
+            return deepcopy(doc)
+
+        with patch.object(mod.recovery, "get_json", side_effect=api), \
+             patch.object(mod.native, "gh_get", side_effect=api), \
+             patch.object(mod, "gh_json", side_effect=api), \
+             patch.object(mod.subprocess, "run", side_effect=retrieve) as downloaded:
+            result = mod.collect(sources, artifacts.LIFECYCLE)
+        return result, calls, downloaded
+
     def test_roster_dynamic_no_fixed_repositories(self):
-        live=mod.membership(ROOT/"metadata/automation-fleet.json")
-        self.assertIn("pgextwin/hypopg",live)
-        self.assertGreater(len(live),1)
-        self.assertEqual(len(set(live)),len(live))
+        live = mod.membership(ROOT / "metadata/automation-fleet.json")
+        self.assertIn("pgextwin/hypopg", live)
+        self.assertGreater(len(live), 1)
+        self.assertEqual(len(set(live)), len(live))
 
     def test_membership_rejects_duplicates_and_untrusted_repositories(self):
-        data={"schemaVersion":1,"entries":[{"mode":"BUILD","candidateEnabled":True,
-                                            "repository":"pgextwin/hypopg"}]}
-        with TemporaryDirectory() as t:
-            p=Path(t)/"fleet.json"
-            p.write_text(json.dumps(data))
-            self.assertEqual(mod.membership(p),["pgextwin/hypopg"])
-            data["entries"].append(data["entries"][0])
-            p.write_text(json.dumps(data))
-            with self.assertRaises(mod.Denied): mod.membership(p)
-            data["entries"][1]={"mode":"BUILD","candidateEnabled":True,
-                                "repository":"rogue/hypopg"}
-            p.write_text(json.dumps(data))
-            with self.assertRaises(mod.Denied): mod.membership(p)
-
-    def test_only_real_central_main_schedule_trusted(self):
-        good={"GITHUB_EVENT_NAME":"schedule","GITHUB_REPOSITORY":"pgextwin/build",
-              "GITHUB_REF":"refs/heads/main","GITHUB_SHA":"a"*40,"GH_TOKEN":"fixture"}
-        with patch.dict(os.environ,good,clear=True),patch.object(mod,"gh_json",return_value={
-              "name":"main","protected":True,"commit":{"sha":"a"*40}}):
-            mod.central_schedule_gate()
-        for key,invalid in (("GITHUB_EVENT_NAME","workflow_dispatch"),
-                            ("GITHUB_EVENT_NAME","push"),
-                            ("GITHUB_REPOSITORY","pgextwin/hypopg"),
-                            ("GITHUB_REF","refs/heads/evil"),
-                            ("GITHUB_SHA","b"*40),
-                            ("GH_TOKEN","")):
-            with self.subTest(key=key,value=invalid),patch.dict(os.environ,{**good,key:invalid},clear=True):
-                with patch.object(mod,"gh_json",return_value={
-                    "name":"main","protected":True,"commit":{"sha":"a"*40}}):
-                    with self.assertRaises(mod.Denied): mod.central_schedule_gate()
-
-    def test_no_candidate_is_empty_and_no_artifact_download(self):
-        with patch.object(mod.recovery,"get_json",return_value=[]):
-            self.assertIsNone(mod.recover_one("pgextwin/hypopg",{}))
-
-    def test_jobless_approval_hold_uses_distinct_dispatch_suite(self):
-        x,inv,api=dispatch_data()
-        with self.assertRaisesRegex(mod.Denied,"not successfully completed"):
-            mod.recovery.choose_candidate(fixtures.REPO,[x["pr"]],inv)
-        with patch.object(mod,"gh_json",side_effect=lambda repo,path:api[path]):
-            result=mod.dispatch_after_approval_hold(fixtures.REPO,[x["pr"]],inv,x["main"])
-        self.assertEqual(result["candidateRunId"],fixtures.RUN+1)
-        self.assertEqual(result["candidateCheckSuiteId"],800)
-        self.assertEqual(result["blockedNativePrRunId"],fixtures.RUN)
-        self.assertNotIn("packagingMergeSha",result)
-        self.assertIn("NOT_NATIVE_PR",result["status"])
-        self.assertFalse(result["publicationAuthorized"])
-        self.assertFalse(result["signedArtifactsVerified"])
-
-    def test_successful_native_still_reconciles_and_rehashes_merge_bytes(self):
-        x=fixtures.fixture()
-        inv={"total_count":1,"workflow_runs":[x["run"]]}
-        api={"actions/runs/"+str(fixtures.RUN):x["run"],
-             "commits/"+fixtures.SHA+"/pulls?per_page=100":fixtures.association(),
-             "pulls/"+str(fixtures.PR):x["pr"],
-             "pulls/"+str(fixtures.PR)+"/files?per_page=100":x["pr_files"],
-             "git/ref/pull/"+str(fixtures.PR)+"/merge":x["merge_ref"],
-             "branches/main":x["main"],
-             "commits/"+fixtures.SHA+"/check-runs?per_page=100":x["checks"]}
-        def download(args,**kwargs):
-            from types import SimpleNamespace
-            self.assertEqual(args[3],str(fixtures.RUN))
-            for major in (14,15):
-                artifacts.emit(Path(args[-1])/f"pg_ivm-pg{major}-windows-x64",major)
-            return SimpleNamespace(returncode=0,stderr="")
-        with patch.object(mod.recovery,"get_json",side_effect=lambda repo,path:
-                          [x["pr"]] if path.startswith("pulls?") else inv),\
-             patch.object(mod.native,"gh_get",side_effect=lambda repo,path:api[path]),\
-             patch.object(mod,"gh_json",return_value=x["main"]),\
-             patch.object(mod,"candidate_bytes",return_value=artifacts.EXT),\
-             patch.object(mod.subprocess,"run",side_effect=download),\
-             patch.object(mod,"dispatch_after_approval_hold",side_effect=AssertionError("native fallback")),\
-             patch.dict(os.environ,{"GITHUB_SHA":"f"*40}):
-            receipt=mod.recover_one(fixtures.REPO,artifacts.LIFECYCLE)
-        self.assertIn("native",receipt)
-        self.assertNotIn("dispatch",receipt)
-        self.assertEqual(receipt["candidateAudit"]["originEvent"],"pull_request")
-        self.assertEqual(receipt["native"]["packagingMergeSha"],fixtures.MERGE)
-        self.assertEqual(receipt["candidateAudit"]["status"],"VERIFIED")
-
-    def test_incomplete_failed_or_job_bearing_native_still_denied(self):
-        for status,conclusion,jobs in (
-            ("queued",None,[]),("in_progress",None,[]),("completed","failure",[]),
-            ("completed","cancelled",[]),("completed","timed_out",[]),
-            ("completed","action_required",[{"id":999}]),
-        ):
-            with self.subTest(status=status,conclusion=conclusion,jobs=jobs):
-                x,inv,api=dispatch_data()
-                inv["workflow_runs"][0].update(status=status,conclusion=conclusion)
-                api["actions/runs/"+str(fixtures.RUN)+"/jobs?per_page=100"].update(
-                    total_count=len(jobs),jobs=jobs)
-                with self.assertRaises(mod.Denied):
-                    mod.recovery.choose_candidate(fixtures.REPO,[x["pr"]],inv)
-                with patch.object(mod,"gh_json",side_effect=lambda repo,path:api[path]):
+        entry = {"mode": "BUILD", "candidateEnabled": True, "repository": "pgextwin/hypopg"}
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "fleet.json"
+            for rows in ([entry], [entry, entry], [{**entry, "repository": "rogue/hypopg"}]):
+                path.write_text(json.dumps({"schemaVersion": 1, "entries": rows}))
+                if rows == [entry]:
+                    self.assertEqual(mod.membership(path), ["pgextwin/hypopg"])
+                else:
                     with self.assertRaises(mod.Denied):
-                        mod.dispatch_after_approval_hold(fixtures.REPO,[x["pr"]],inv,x["main"])
+                        mod.membership(path)
 
-    def test_dispatch_forgery_missing_proof_and_stale_base_denied(self):
-        for variant in ("head","repository","workflow","path","running","failure","missing",
-                        "ambiguous","truncated","suite","app","check-head","check-url",
-                        "check-failure","missing-required","duplicate-check","base","association",
-                        "ownership","marker","native-changed","native-jobs-incomplete"):
-            with self.subTest(variant=variant):
-                x,inv,api=dispatch_data()
-                run=api["actions/runs/"+str(fixtures.RUN+1)]
-                dispatch_inv=api["actions/runs?event=workflow_dispatch&head_sha="+fixtures.SHA+"&per_page=100"]
-                check=x["checks"]["check_runs"][0]
-                if variant=="head":run["head_sha"]="f"*40
-                elif variant=="repository":run["head_repository"]["full_name"]="evil/pg_ivm"
-                elif variant=="workflow":run["workflow_id"]=71
-                elif variant=="path":run["path"]=".github/workflows/other.yml"
-                elif variant=="running":run["status"]="in_progress"
-                elif variant=="failure":run["conclusion"]="failure"
-                elif variant=="missing":dispatch_inv.update(total_count=0,workflow_runs=[])
-                elif variant=="ambiguous":
-                    dispatch_inv["workflow_runs"].append(deepcopy(run));dispatch_inv["total_count"]=2
-                elif variant=="truncated":dispatch_inv["total_count"]=100
-                elif variant=="suite":check["check_suite"]["id"]=700
-                elif variant=="app":check["app"]["id"]=999
-                elif variant=="check-head":check["head_sha"]="f"*40
-                elif variant=="check-url":check["details_url"]="https://example.com/forged"
-                elif variant=="check-failure":check["conclusion"]="failure"
-                elif variant=="missing-required":check["name"]="other successful check"
-                elif variant=="duplicate-check":
-                    x["checks"]["check_runs"].append(deepcopy(check));x["checks"]["total_count"]=2
-                elif variant=="base":x["pr"]["base"]["sha"]="f"*40
-                elif variant=="association":api["commits/"+fixtures.SHA+"/pulls?per_page=100"]=[]
-                elif variant=="ownership":x["pr"]["user"]["login"]="attacker"
-                elif variant=="marker":x["pr"]["body"]="unowned"
-                elif variant=="native-changed":
-                    live=deepcopy(inv["workflow_runs"][0]);live["run_attempt"]=2
-                    api["actions/runs/"+str(fixtures.RUN)]=live
-                elif variant=="native-jobs-incomplete":
-                    api["actions/runs/"+str(fixtures.RUN)+"/jobs?per_page=100"]["total_count"]=1
-                with patch.object(mod,"gh_json",side_effect=lambda repo,path:api[path]):
-                    with self.assertRaises(mod.Denied):
-                        mod.dispatch_after_approval_hold(fixtures.REPO,[x["pr"]],inv,x["main"])
+    def test_only_real_central_first_attempt_main_schedule_trusted(self):
+        with patch.object(mod, "gh_json", return_value={
+                "name": "main", "protected": True, "commit": {"sha": SHA}}):
+            with patch.dict(os.environ, SCHEDULE, clear=True):
+                self.assertEqual(mod.central_schedule_gate()["runId"], 450)
+            for key, invalid in (("GITHUB_EVENT_NAME", "workflow_dispatch"),
+                                 ("GITHUB_EVENT_NAME", "push"),
+                                 ("GITHUB_REPOSITORY", fixtures.REPO),
+                                 ("GITHUB_REF", "refs/heads/evil"), ("GITHUB_SHA", "b" * 40),
+                                 ("GH_TOKEN", ""), ("GITHUB_RUN_ATTEMPT", "2")):
+                with self.subTest(key=key, invalid=invalid), \
+                     patch.dict(os.environ, {**SCHEDULE, key: invalid}, clear=True), \
+                     self.assertRaises(mod.Denied):
+                    mod.central_schedule_gate()
 
-    def test_fleet_rehashes_dispatch_bytes_without_native_merge_relabel(self):
-        # Exercise the actual existing ZIP auditor, including its event/ref/SHA
-        # distinction. A dispatch cannot satisfy the native postmerge binder.
-        for corrupt in (False,True):
-            with self.subTest(corrupt=corrupt):
-                x,inv,api=dispatch_data()
-                def discovery(repo,path):
-                    return [x["pr"]] if path.startswith("pulls?") else inv
-                def download(args,**kwargs):
-                    from types import SimpleNamespace
-                    root=Path(args[-1])
-                    self.assertEqual(args[3],str(fixtures.RUN+1))
-                    for major in (14,15):
-                        artifacts.emit(root/f"pg_ivm-pg{major}-windows-x64",major,
-                            event="workflow_dispatch",packaging=fixtures.SHA,
-                            run_id=fixtures.RUN+1,ref="refs/heads/"+fixtures.BRANCH)
-                    if corrupt:
-                        (root/"pg_ivm-pg14-windows-x64/file.spdx.json").unlink()
-                    return SimpleNamespace(returncode=0,stderr="")
-                with patch.object(mod.recovery,"get_json",side_effect=discovery),\
-                     patch.object(mod,"gh_json",side_effect=lambda repo,path:api[path]),\
-                     patch.object(mod,"candidate_bytes",return_value=artifacts.EXT),\
-                     patch.object(mod.subprocess,"run",side_effect=download),\
-                     patch.dict(os.environ,{"GITHUB_SHA":"f"*40}):
-                    if corrupt:
-                        with self.assertRaisesRegex(mod.Denied,"byte audit failed"):
-                            mod.recover_one(fixtures.REPO,artifacts.LIFECYCLE)
-                        continue
-                    receipt=mod.recover_one(fixtures.REPO,artifacts.LIFECYCLE)
-                self.assertNotIn("native",receipt)
-                self.assertIn("dispatch",receipt)
-                self.assertEqual(receipt["candidateAudit"]["originEvent"],"workflow_dispatch")
-                self.assertEqual(receipt["candidateAudit"]["status"],"VERIFIED")
-                self.assertTrue(all(len(r["zipSha256"])==64 for r in receipt["candidateAudit"]["majors"]))
-                binder=mod.load("fleet_binder","scripts/bind-native-candidate-audit.py")
-                with self.assertRaises(binder.Denied):
-                    binder.join(context=receipt["dispatch"],audit=receipt["candidateAudit"],
-                        ext=artifacts.EXT,lifecycle=artifacts.LIFECYCLE,ci_run={},audit_run={},
-                        artifact={},repository=fixtures.REPO,current_main_sha=fixtures.BASE)
+    def test_empty_and_unavailable_are_distinct_and_have_no_evidence(self):
+        empty, broken = "pgextwin/hypopg", "pgextwin/orafce"
+        rows, _, retrieved = self.collect({
+            empty: {PULLS: []}, broken: {PULLS: mod.Unavailable("GitHub GET unavailable")}})
+        self.assertEqual(rows[empty]["status"], "no_candidate")
+        self.assertIsNotNone(rows[empty]["observedAt"])
+        self.assertEqual(rows[broken], {"status": "unavailable", "observedAt": None,
+                                        "reason": "GitHub GET unavailable"})
+        retrieved.assert_not_called()
 
-    def test_workflow_is_exact_schedule_and_nonprivileged(self):
-        src=(ROOT/".github/workflows/recover-native-pr-fleet.yml").read_text()
-        self.assertIn('cron: "47 * * * *"',src)
-        self.assertIn("github.event_name == 'schedule'",src)
-        self.assertIn("actions: read",src)
-        self.assertNotIn("workflow_dispatch:",src)
-        self.assertNotIn("contents: write",src)
-        self.assertNotIn("id-token: write",src)
-        self.assertNotIn("attestations: write",src)
-        # The first :47 schedule may be dropped by GitHub. Reuse the
-        # established scanner's true schedule without granting any publish
-        # rights or accepting its push/dispatch smoke as an audit.
-        fallback=(ROOT/".github/workflows/fleet-upstream-watch.yml").read_text()
-        self.assertIn("original-native-audit-fallback:",fallback)
-        self.assertIn("github.event_name == 'schedule'",fallback)
-        self.assertIn("python scripts/recover-native-pr-fleet.py",fallback)
-        self.assertIn("registered-original-native-pr-audits",fallback)
-        self.assertNotIn("contents: write",fallback)
-        self.assertNotIn("id-token: write",fallback)
-        code=(ROOT/"scripts/recover-native-pr-fleet.py").read_text()
-        self.assertIn("recovery.reconcile(",code)
-        self.assertIn("candidate.audit(",code)
-        self.assertNotIn("gh pr merge",code)
-        self.assertNotIn("gh workflow run",code)
+    def test_jobless_hold_and_running_wait_without_discovery_of_dispatch_or_jobs(self):
+        for status, conclusion in (("completed", "action_required"), ("in_progress", None),
+                                   ("queued", None), ("waiting", None)):
+            with self.subTest(status=status):
+                source = responses()
+                source[RUNS]["workflow_runs"][0].update(status=status, conclusion=conclusion)
+                rows, calls, retrieved = self.collect({fixtures.REPO: source})
+                row = rows[fixtures.REPO]
+                self.assertEqual(row["status"], "waiting")
+                self.assertEqual(row["candidatePr"], fixtures.PR)
+                self.assertIn(f"{status}/{conclusion}", row["reason"])
+                self.assertEqual(calls, [(fixtures.REPO, PULLS), (fixtures.REPO, RUNS)])
+                retrieved.assert_not_called()
 
-if __name__=="__main__":main()
+    def test_failed_ci_refuses_original_conclusion(self):
+        source = responses()
+        source[RUNS]["workflow_runs"][0]["conclusion"] = "failure"
+        rows, _, retrieved = self.collect({fixtures.REPO: source})
+        row = rows[fixtures.REPO]
+        self.assertEqual(row["status"], "rejected")
+        self.assertIn("completed/failure", row["reason"])
+        retrieved.assert_not_called()
+
+    def test_original_attempt_must_match_inventory_and_package_bytes(self):
+        for changed in ("live", "package"):
+            with self.subTest(changed=changed):
+                source = responses()
+                source[RUN]["run_attempt"] = 2
+                if changed == "package":
+                    source[RUNS]["workflow_runs"][0]["run_attempt"] = 2
+                rows, _, retrieved = self.collect({fixtures.REPO: source}, download)
+                row = rows[fixtures.REPO]
+                self.assertEqual(row["status"], "rejected")
+                self.assertNotIn("candidateAudit", row)
+                if changed == "live":
+                    self.assertIn("re-fetched native run changed identity or attempt", row["reason"])
+                    retrieved.assert_not_called()
+                else:
+                    self.assertIn("package workflow run attempt does not match", row["reason"])
+                    retrieved.assert_called_once()
+
+    def test_multi_file_and_blob_rejections_do_not_stop_native_success(self):
+        partman, orafce = "pgextwin/pg_partman", "pgextwin/orafce"
+        multi, changed = responses(partman), responses(orafce)
+        multi[FILES].extend({"filename": name, "status": "modified", "sha": "c" * 40}
+                            for name in (".github/workflows/bgw.yml", "scripts/build.ps1",
+                                         "scripts/test.ps1", "scripts/package.ps1", "README.md"))
+        changed[FILES][0]["sha"] = "2c6cea58646b7224c1369e6863a22e90a043ae11"
+        rows, calls, retrieved = self.collect({
+            partman: multi, fixtures.REPO: responses(), orafce: changed}, download)
+        for repo, reason in ((partman, "candidate modifies files other than pinned manifest"),
+                             (orafce, "PR manifest bytes differ from exact PR patch")):
+            self.assertEqual(rows[repo]["status"], "rejected")
+            self.assertEqual(rows[repo]["reason"], reason)
+            self.assertNotIn("candidateAudit", rows[repo])
+            self.assertNotIn("native", rows[repo])
+        passed = rows[fixtures.REPO]
+        self.assertEqual(passed["status"], "verified")
+        self.assertEqual(passed["native"]["packagingMergeSha"], fixtures.MERGE)
+        self.assertEqual(passed["targetMainSha"], fixtures.BASE)
+        self.assertEqual(passed["manifestBlob"], responses()[FILES][0]["sha"])
+        self.assertEqual(passed["workflowId"], 70)
+        audit = passed["candidateAudit"]
+        self.assertEqual(audit["originEvent"], "pull_request")
+        self.assertEqual(audit["runAttempt"], 1)
+        self.assertTrue(all(len(row["zipSha256"]) == 64 for row in audit["majors"]))
+        retrieved.assert_called_once()
+        for repo in rows:
+            self.assertEqual(calls.count((repo, FILES)), 1)
+
+    def test_failure_to_finish_all_targets_still_records_remaining_rows(self):
+        exhausted = "pgextwin/orafce"
+        with patch.object(mod.time, "monotonic", side_effect=[1, 2, mod.FLEET_SECONDS + 2]):
+            rows, _, _ = self.collect({fixtures.REPO: {PULLS: []}, exhausted: {}})
+        self.assertEqual(rows[exhausted]["status"], "unavailable")
+        self.assertIsNone(rows[exhausted]["observedAt"])
+        self.assertEqual(rows[fixtures.REPO]["status"], "no_candidate")
+
+    def test_candidate_timeout_during_byte_audit_still_records_next_repository(self):
+        empty = "pgextwin/hypopg"
+        with patch.object(mod.candidate, "one", side_effect=mod.CandidateTimeout("time budget")):
+            rows, _, _ = self.collect({fixtures.REPO: responses(), empty: {PULLS: []}}, download)
+        self.assertEqual(rows[fixtures.REPO]["status"], "unavailable")
+        self.assertEqual(rows[fixtures.REPO]["reason"], "time budget")
+        self.assertNotIn("candidateAudit", rows[fixtures.REPO])
+        self.assertEqual(rows[empty]["status"], "no_candidate")
+
+    def test_complete_results_and_summary_written_even_with_rejections(self):
+        with TemporaryDirectory() as temp:
+            path, summary = Path(temp) / "result.json", Path(temp) / "summary.md"
+            rows = {fixtures.REPO: {"status": "rejected", "reason": "original reason",
+                                    "observedAt": "2026-11-21T01:00:00Z",
+                                    "candidatePr": fixtures.PR, "candidateHeadSha": fixtures.SHA}}
+            with patch.dict(os.environ, {**SCHEDULE, "GITHUB_STEP_SUMMARY": str(summary)}), \
+                 patch.object(mod, "gh_json", return_value={"protected": True, "commit": {"sha": SHA}}), \
+                 patch.object(mod, "collect", return_value=rows), \
+                 patch.object(mod.sys, "argv", ["recover", "--output", str(path)]), \
+                 patch("builtins.print"):
+                self.assertEqual(mod.main(), 0)
+            report = json.loads(path.read_text())
+            self.assertEqual(report["schemaVersion"], 2)
+            self.assertEqual(report["results"], rows)
+            self.assertIs(report["publicationAuthorized"], False)
+            self.assertIn("original reason", summary.read_text())
+
+    def test_workflows_keep_scan_and_original_audit_in_separate_readonly_runs(self):
+        workflow = (ROOT / ".github/workflows/recover-native-pr-fleet.yml").read_text()
+        self.assertIn('cron: "47 * * * *"', workflow)
+        self.assertIn("github.event_name == 'schedule'", workflow)
+        self.assertIn("registered-original-native-pr-audits", workflow)
+        self.assertIn("if-no-files-found: error", workflow)
+        for field in ("workflow_dispatch:", "contents: write", "id-token: write", "attestations: write"):
+            self.assertNotIn(field, workflow)
+        scan = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
+        self.assertIn("name: fleet-upstream-watch", scan)
+        for field in ("original-native-audit-fallback:", "merged-bot-requalification-readonly:",
+                      "registered-original-native-pr-audits", "contents: write"):
+            self.assertNotIn(field, scan)
+
+
+if __name__ == "__main__":
+    main()

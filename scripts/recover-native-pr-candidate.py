@@ -22,7 +22,6 @@ spec = importlib.util.spec_from_file_location("original_native_validator", SCRIP
 native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 Denied = native.Denied
-CANDIDATE = re.compile(r"^auto-candidate/[0-9a-f]{20}$")
 
 
 def require(ok, message):
@@ -37,25 +36,27 @@ def get_json(repo, resource):
             "non-read-only or unexpected discovery path")
     p = subprocess.run(["gh", "api", "--method", "GET", "repos/" + repo + "/" + resource],
                        capture_output=True, text=True, timeout=40, check=False)
-    require(p.returncode == 0 and len(p.stdout) < 2_000_000, "authenticated discovery GET unavailable")
+    if p.returncode != 0 or len(p.stdout) >= 2_000_000:
+        raise native.Unavailable("authenticated discovery GET unavailable")
     return json.loads(p.stdout)
 
 
-def choose_candidate(repo, pulls, inventory):
-    require(isinstance(pulls, list) and len(pulls) < 100, "candidate PR list truncated")
-    require(isinstance(inventory, dict)
-            and type(inventory.get("total_count")) is int
-            and inventory["total_count"] < 100
-            and isinstance(inventory.get("workflow_runs"), list),
-            "native CI run inventory truncated or invalid")
+def open_candidate(pulls):
+    if type(pulls) is not list or len(pulls) >= 100:
+        raise native.Unavailable("candidate PR list truncated")
     owned = [p for p in pulls if type(p) is dict
              and p.get("state") == "open"
              and (p.get("user") or {}).get("login") == "github-actions[bot]"
-             and CANDIDATE.fullmatch((p.get("head") or {}).get("ref", ""))]
+             and native.OWNED.fullmatch((p.get("head") or {}).get("ref", ""))]
     require(len(owned) <= 1, "ambiguous bot candidates; no automatic selection")
-    if not owned:
-        return None
-    pr = owned[0]
+    return owned[0] if owned else None
+
+
+def exact_native_run(repo, pr, inventory):
+    if not (type(inventory) is dict and type(inventory.get("total_count")) is int
+            and type(inventory.get("workflow_runs")) is list
+            and len(inventory["workflow_runs"]) == inventory["total_count"] < 100):
+        raise native.Unavailable("native CI run inventory truncated or invalid")
     head = (pr.get("head") or {}).get("sha")
     branch = (pr.get("head") or {}).get("ref")
     require(native.SHA.fullmatch(head or "") and (pr.get("base") or {}).get("ref") == "main",
@@ -69,12 +70,21 @@ def choose_candidate(repo, pulls, inventory):
                and r.get("head_branch") == branch
                and (r.get("head_repository") or {}).get("full_name") == repo]
     require(len(matches) == 1, "missing or ambiguous exact native PR Windows CI run")
-    r = matches[0]
-    require(r.get("status") == "completed" and r.get("conclusion") == "success"
-            and type(r.get("id")) is int and r["id"] > 0
-            and type(r.get("run_attempt")) is int and r["run_attempt"] >= 1,
-            "original native PR run not successfully completed")
-    return r["id"]
+    return matches[0]
+
+
+def successful_run_id(run):
+    require(run.get("status") == "completed" and run.get("conclusion") == "success"
+            and native.required_check.positive(run.get("id"))
+            and native.required_check.positive(run.get("run_attempt")),
+            "original native PR run not successfully completed"
+            f" ({run.get('status')}/{run.get('conclusion')})")
+    return run["id"]
+
+
+def choose_candidate(repo, pulls, inventory):
+    pr = open_candidate(pulls)
+    return successful_run_id(exact_native_run(repo, pr, inventory)) if pr else None
 
 
 def reconcile(repo, event_name, ref, github_sha, pulls, inventory, fetch):
@@ -82,20 +92,33 @@ def reconcile(repo, event_name, ref, github_sha, pulls, inventory, fetch):
             and native.REPO.fullmatch(repo or "") is not None
             and native.SHA.fullmatch(github_sha or ""),
             "not genuine trusted main schedule")
-    run_id = choose_candidate(repo, pulls, inventory)
-    if run_id is None:
+    pr = open_candidate(pulls)
+    if pr is None:
         return None
+    context, _ = authenticate(pr, exact_native_run(repo, pr, inventory), fetch,
+                              repo=repo, expected_main=github_sha)
+    return context
+
+
+def authenticate(selected, indexed, fetch, *, repo, expected_main):
+    """Use one PR files GET for native verification and caller byte binding."""
+    run_id = successful_run_id(indexed)
     run = fetch("actions/runs/" + str(run_id))
-    require(run.get("id") == run_id, "re-fetched native run changed identity")
+    require(type(run) is dict and all(run.get(k) == indexed.get(k) for k in (
+        "id", "head_sha", "head_branch", "event", "path", "workflow_id",
+        "status", "conclusion", "run_attempt", "check_suite_id")),
+        "re-fetched native run changed identity or attempt")
     associations = fetch("commits/" + run["head_sha"] + "/pulls?per_page=100")
-    require(type(associations) is list and len(associations) == 1,
+    require(type(associations) is list and len(associations) == 1 and type(associations[0]) is dict,
             "missing or ambiguous independent HEAD->PR association")
-    pr_number = associations[0]["number"]
+    pr_number = associations[0].get("number")
+    require(native.required_check.positive(pr_number) and pr_number == selected.get("number"),
+            "independent HEAD association disagrees with selected candidate PR")
     pr = fetch("pulls/" + str(pr_number))
     files = fetch("pulls/" + str(pr_number) + "/files?per_page=100")
     merge = fetch("git/ref/pull/" + str(pr_number) + "/merge")
     main = fetch("branches/main")
-    require(main.get("commit", {}).get("sha") == github_sha,
+    require(main.get("commit", {}).get("sha") == expected_main,
             "schedule source is no longer exact protected main")
     checks = fetch("commits/" + run["head_sha"] + "/check-runs?per_page=100")
     verified = native.validate(repo, run, pr, files, merge, main, checks,
@@ -106,8 +129,8 @@ def reconcile(repo, event_name, ref, github_sha, pulls, inventory, fetch):
             and verified.get("signedArtifactsVerified") is False,
             "reconciliation produced unsafe downstream authority")
     verified["scheduleRecovery"] = True
-    verified["scheduleMainSha"] = github_sha
-    return verified
+    verified["scheduleMainSha"] = expected_main
+    return verified, files
 
 
 def main():
@@ -119,12 +142,8 @@ def main():
         require(bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")),
                 "authenticated read-only token unavailable")
         pulls = get_json(repo, "pulls?state=open&per_page=100")
-        owned = [p for p in pulls if type(p) is dict
-                 and p.get("state") == "open"
-                 and (p.get("user") or {}).get("login") == "github-actions[bot]"
-                 and CANDIDATE.fullmatch((p.get("head") or {}).get("ref", ""))]
-        require(len(owned) <= 1, "ambiguous bot candidates")
-        sha = (owned[0].get("head") or {}).get("sha") if owned else None
+        selected = open_candidate(pulls)
+        sha = (selected.get("head") or {}).get("sha") if selected else None
         require(sha is None or native.SHA.fullmatch(sha), "invalid candidate HEAD")
         inventory = (get_json(repo, "actions/runs?event=pull_request&head_sha=" + sha + "&per_page=100")
                      if sha else {"total_count":0,"workflow_runs":[]})

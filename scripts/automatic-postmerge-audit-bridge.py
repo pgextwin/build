@@ -143,6 +143,9 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
     require((origin=="workflow_run" and auditor==repository) or
             (origin=="schedule" and auditor=="pgextwin/build"),
             "untrusted original native auditor event/repository")
+    if origin == "schedule":
+        require(bound.get("candidateRequiredCheckRunId") == native_proof["checkRunId"],
+                "central audit refers to a different native required check")
     for denial in ("signedArtifactsVerified", "publishableReceipt", "publicationAuthorized"):
         require(bound.get(denial) is False, "read-only audit illegally claims release authority")
     try:
