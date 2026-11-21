@@ -1,0 +1,25 @@
+diff --git a/.github/workflows/update-watch.yml b/.github/workflows/update-watch.yml
+index 8318610e59d1280a18ba4ab8ef0c9950001df917..e6517dd94f9fe61ddf82cdee707eafb0ce2469b5 100644
+--- a/.github/workflows/update-watch.yml
++++ b/.github/workflows/update-watch.yml
+@@ -25,9 +25,9 @@
+     if: github.event_name == 'schedule'
+     permissions:
+       contents: read
+-    uses: pgextwin/build/.github/workflows/operator-update-auto.yml@73ab3248aa6e15fc150d86f1e118ca1cc036e020
++    uses: pgextwin/build/.github/workflows/operator-update-auto.yml@7788623fa49e56b1301090bea4f023ea86405657
+     with:
+-      detector_sha: 73ab3248aa6e15fc150d86f1e118ca1cc036e020
++      detector_sha: 7788623fa49e56b1301090bea4f023ea86405657
+
+   watch_candidate:
+     name: Explicit upstream check and Issue reconciliation
+@@ -88,7 +88,7 @@
+       actions: read
+       pull-requests: read
+       checks: read
+-    uses: pgextwin/build/.github/workflows/automatic-postmerge-audit-readonly.yml@9ec4dde0b6defabc10cf3527c06cb69c13e5a7ff
++    uses: pgextwin/build/.github/workflows/automatic-postmerge-audit-readonly.yml@7788623fa49e56b1301090bea4f023ea86405657
+
+   candidate_attested_build:
+     name: Attest original candidate after verified protected main merge (NO PUBLISH)

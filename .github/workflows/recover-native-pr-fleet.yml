@@ -2,7 +2,7 @@ name: Hourly central recovery of approved original native PR artifacts (NONPUBLI
 
 on:
   schedule:
-    # Separate from :00 fleet scan, :20 Catalog reconciliation and :30 local candidate watch.
+    # Separate from :07 fleet scan, :20 Catalog reconciliation and :30 local candidate watch.
     - cron: "47 * * * *"
 
 permissions:
@@ -34,17 +34,17 @@ jobs:
         with:
           python-version: "3.13"
       - name: Independently GET each pending registered native PR CI and rehash original artifacts
+        timeout-minutes: 40
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python scripts/recover-native-pr-fleet.py \
             --fleet metadata/automation-fleet.json \
-            --output-dir "$RUNNER_TEMP/original-native-audits"
-      - name: Retain distinct nonpublishing genuine-schedule audit receipt (not a Release)
-        if: always()
+            --output "$RUNNER_TEMP/registered-original-native-pr-audits.json"
+      - name: Upload complete nonpublishing candidate audit results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: registered-original-native-pr-audits
-          path: ${{ runner.temp }}/original-native-audits/*.json
-          if-no-files-found: ignore
+          path: ${{ runner.temp }}/registered-original-native-pr-audits.json
+          if-no-files-found: error
           retention-days: 30
