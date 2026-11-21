@@ -85,7 +85,6 @@ class ScheduledAdmission(unittest.TestCase):
     def test_pg19_opt_in_keeps_all_scheduled_evidence_requirements(self):
         legacy = guard.assess(**fixture())
         values = fixture()
-        extension = values["manifest"]["name"]
         values["manifest"]["postgresql"]["majors"].append(19)
         values["manifest"]["upstream"]["perPostgresql"]["19"] = {
             "ref": "19.1", "version": "19.1", "commit": "b" * 40}
@@ -94,26 +93,26 @@ class ScheduledAdmission(unittest.TestCase):
         source["maintainedMajors"].append(19)
         for asset in ("zip", "spdx", "grype"):
             source[asset + "Sha256ByMajor"]["19"] = "1" * 64
-        with self.assertRaisesRegex(guard.Denied, "invalid maintained signed PostgreSQL matrix"):
-            guard.assess(**values)
-        with patch.object(guard.identity, "PG19_ADMISSION_OPT_IN", frozenset({extension})):
-            self.assertEqual(json.dumps(guard.assess(**fixture())), json.dumps(legacy))
-            out = guard.assess(**values)
-            self.assertEqual(out["maintainedMajors"], list(range(14, 20)))
-            self.assertEqual(out["sourcePins"][-1]["major"], 19)
-            self.assertIs(out["publicationAuthorized"], False)
-            for alter, reason in (
-                (lambda x: x["source"].update(realSigstoreRechecked=False), "real-signed source"),
-                (lambda x: x["source"].update(blockingGrypeFindings=1), "real-signed source"),
-                (lambda x: x["source"]["zipSha256ByMajor"].pop("19"), "incomplete signed digest"),
-                (lambda x: x["source"]["maintainedMajors"].append(19), "invalid maintained signed"),
-                (lambda x: x["manifest"]["upstream"]["perPostgresql"].pop("19"), "pinned source"),
-                (lambda x: x["proposal"].update(releaseTagProposal="v18.1-windows.1"), "pinned source"),
-            ):
-                with self.subTest(reason=reason), self.assertRaisesRegex(guard.Denied, reason):
-                    invalid = deepcopy(values)
-                    alter(invalid)
-                    guard.assess(**invalid)
+        with patch.object(guard.identity, "PG19_ADMISSION_OPT_IN", frozenset()):
+            with self.assertRaisesRegex(guard.Denied, "invalid maintained signed PostgreSQL matrix"):
+                guard.assess(**values)
+        self.assertEqual(json.dumps(guard.assess(**fixture())), json.dumps(legacy))
+        out = guard.assess(**values)
+        self.assertEqual(out["maintainedMajors"], list(range(14, 20)))
+        self.assertEqual(out["sourcePins"][-1]["major"], 19)
+        self.assertIs(out["publicationAuthorized"], False)
+        for alter, reason in (
+            (lambda x: x["source"].update(realSigstoreRechecked=False), "real-signed source"),
+            (lambda x: x["source"].update(blockingGrypeFindings=1), "real-signed source"),
+            (lambda x: x["source"]["zipSha256ByMajor"].pop("19"), "incomplete signed digest"),
+            (lambda x: x["source"]["maintainedMajors"].append(19), "invalid maintained signed"),
+            (lambda x: x["manifest"]["upstream"]["perPostgresql"].pop("19"), "pinned source"),
+            (lambda x: x["proposal"].update(releaseTagProposal="v18.1-windows.1"), "pinned source"),
+        ):
+            with self.subTest(reason=reason), self.assertRaisesRegex(guard.Denied, reason):
+                invalid = deepcopy(values)
+                alter(invalid)
+                guard.assess(**invalid)
 
     def test_forged_schedule_run_and_cross_event_denied(self):
         changes=[

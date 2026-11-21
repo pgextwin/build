@@ -81,12 +81,12 @@ class FleetReleaseGapTests(TestCase):
 
     def test_per_major_pg19_stem_follows_reviewed_admission_scope(self):
         current = {"18": {"version": "18.1"}, "19": {"version": "19.0"}}
-        with self.assertRaises(gap.GapDenied):
-            gap.stem("pgextwin/pgaudit", current)
-        with patch.object(gap.identity, "PG19_ADMISSION_OPT_IN", frozenset({"pgaudit"})):
-            self.assertEqual(gap.stem("pgextwin/pgaudit", current), "v19.0")
+        self.assertEqual(gap.stem("pgextwin/pgaudit", current), "v19.0")
+        with patch.object(gap.identity, "PG19_ADMISSION_OPT_IN", frozenset()):
             with self.assertRaises(gap.GapDenied):
-                gap.stem("pgextwin/pg_hint_plan", current)
+                gap.stem("pgextwin/pgaudit", current)
+        with self.assertRaises(gap.GapDenied):
+            gap.stem("pgextwin/pg_hint_plan", current)
 
     def test_stale_or_untrusted_scan_is_rejected(self):
         for field, value in (
