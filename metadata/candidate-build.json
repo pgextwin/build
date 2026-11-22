@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "releasePolicy": "manual-only",
+  "workflow": "windows.yml"
+}
