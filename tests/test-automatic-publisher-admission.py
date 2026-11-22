@@ -3,7 +3,10 @@
 from copy import deepcopy
 import importlib.util
 import json
+import os
 from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -63,6 +66,27 @@ def fixture():
     }
 
 class ScheduledAdmission(unittest.TestCase):
+    def test_cli_needs_only_the_central_release_policy(self):
+        values = fixture()
+        env = {"GITHUB_REPOSITORY": "pgextwin/build", "GITHUB_EVENT_NAME": "schedule",
+               "GITHUB_REF": values["ref"], "GITHUB_SHA": CENTRAL_SHA,
+               "GITHUB_RUN_ID": str(SCHEDULE_RUN), "GITHUB_RUN_ATTEMPT": "1",
+               "TARGET_REPOSITORY": REPO, "TARGET_SOURCE_SHA": SHA, "TARGET_SOURCE_RUN": str(RUN)}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output.json"
+            argv = ["scheduled-admission", "--output", str(output)]
+            for arg, key in (("source", "source"), ("proposal", "proposal"), ("manifest", "manifest"),
+                             ("fleet", "fleet"), ("central-policy", "central"), ("unattended", "unattended"),
+                             ("publisher-boundary", "boundary"), ("schedule-run", "schedule_run"),
+                             ("central-branch", "central_branch")):
+                path = root / (arg + ".json")
+                path.write_text(json.dumps(values[key]), "utf-8")
+                argv.extend(["--" + arg, str(path)])
+            with patch.dict(os.environ, env), patch.object(sys, "argv", argv):
+                self.assertEqual(guard.main(), 0)
+            self.assertEqual(json.loads(output.read_text("utf-8")), guard.assess(**values))
+
     def test_signed_schedule_produces_denied_witness_not_auth(self):
         out=guard.assess(**fixture())
         self.assertEqual(out["status"],"SIGNED_SCHEDULE_PUBLISHER_ADMISSION_EVIDENCE_ONLY")

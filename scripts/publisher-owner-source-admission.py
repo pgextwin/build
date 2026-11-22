@@ -71,7 +71,7 @@ def get(repo, route):
                or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\?per_page=100", route)
                or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", route)
                or re.fullmatch(r"issues/comments/[1-9][0-9]*", route)
-               or re.fullmatch(r"contents/config/(?:extension|release-promotion|owner-source-publication)\.json\?ref=[0-9a-f]{40}", route))
+               or re.fullmatch(r"contents/config/extension\.json\?ref=[0-9a-f]{40}", route))
     need(bool(allowed), "non-allowlisted source GET")
     raw = command(["gh", "api", "--method", "GET",
                    "repos/" + repo + "/" + route])

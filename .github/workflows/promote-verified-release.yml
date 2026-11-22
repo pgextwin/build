@@ -80,7 +80,6 @@ jobs:
             --release-tag "$RELEASE_TAG" \
             --confirm-release "$CONFIRM_RELEASE" \
             --extension config/extension.json \
-            --local-policy config/release-promotion.json \
             --lifecycle .pgextwin-build/metadata/postgresql.json \
             --output "$RUNNER_TEMP/promotion-receipt.json"
       - name: Preserve immutable authorization receipt

@@ -12,12 +12,18 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+
+_spec = importlib.util.spec_from_file_location(
+    "publication_policy", Path(__file__).with_name("publication-policy.py"))
+publication_policy = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(publication_policy)
 
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -26,7 +32,6 @@ FILES = {
     "metadata/automation-fleet.json",
     "metadata/release-promotion.json",
     "metadata/unattended-publication.json",
-    "config/release-promotion.json",
 }
 
 
@@ -176,7 +181,7 @@ def github(repo, suffix, *, not_found=False):
     allowed = (
         suffix == "branches/main"
         or re.fullmatch(r"actions/runs/[1-9][0-9]*", suffix)
-        or re.fullmatch(r"contents/(?:config/release-promotion\.json|metadata/(?:automation-fleet|release-promotion|unattended-publication)\.json)\?ref=(?:main|[a-f0-9]{40})", suffix)
+        or re.fullmatch(r"contents/metadata/(?:automation-fleet|release-promotion|unattended-publication)\.json\?ref=(?:main|[a-f0-9]{40})", suffix)
         or re.fullmatch(r"releases/tags/v[A-Za-z0-9][A-Za-z0-9._-]{0,110}-windows\.[1-9][0-9]*", suffix)
         or re.fullmatch(r"git/ref/tags/v[A-Za-z0-9][A-Za-z0-9._-]{0,110}-windows\.[1-9][0-9]*", suffix)
     )
@@ -213,26 +218,20 @@ def main():
         run = github(repo, "actions/runs/" + str(rid))
         root = Path(__file__).resolve().parents[1]
         files = {}
-        for name, origin, ref in (
-            ("fleet", "pgextwin/build", "main"),
-            ("central", "pgextwin/build", "main"),
-            ("unattended", "pgextwin/build", "main"),
-            ("local", repo, sha),
+        for name, path in (
+            ("fleet", "metadata/automation-fleet.json"),
+            ("central", "metadata/release-promotion.json"),
+            ("unattended", "metadata/unattended-publication.json"),
         ):
-            path = {"fleet": "metadata/automation-fleet.json",
-                    "central": "metadata/release-promotion.json",
-                    "unattended": "metadata/unattended-publication.json",
-                    "local": "config/release-promotion.json"}[name]
-            local_path = (root / path if name != "local"
-                          else Path("config/release-promotion.json"))
             files[name] = verified_live_file(
-                github(origin, "contents/" + path + "?ref=" + ref),
-                path, local_path.read_bytes())
+                github("pgextwin/build", "contents/" + path + "?ref=main"),
+                path, (root / path).read_bytes())
+        local = publication_policy.release_promotion_from(files["central"], repo)
         tag = handoff.get("tagProposal")
         require(type(tag) is str and TAG.fullmatch(tag), "invalid tag proposal")
         result = assess(
             handoff, branch, run, files["fleet"], files["central"],
-            files["local"], files["unattended"],
+            local, files["unattended"],
             repository=repo, sha=sha, run_id=rid, attempt=attempt,
             event=os.environ.get("GITHUB_EVENT_NAME"),
             ref=os.environ.get("GITHUB_REF"),

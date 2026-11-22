@@ -2,12 +2,11 @@
 """Read-only selector for genuine owner-signed formal-source requests.
 
 Never enters Publisher Environment, mints credentials or issues publishable
-receipts. It requires the protected central+local source-kind publication
+receipts. It requires the protected central source-kind publication
 opt-in before the isolated Publisher downloads and verifies the original bytes.
 """
 from __future__ import annotations
 import argparse
-import base64
 import importlib.util
 import json
 import os
@@ -22,25 +21,13 @@ def load(name,script):
     return obj
 admission=load("owner_source_request_authenticated_original","publisher-owner-source-admission.py")
 policy=load("owner_source_request_protected_dual_policy","owner-source-publish-policy.py")
+publication_policy=load("publication_policy","publication-policy.py")
 issuer=policy.issuer
 
 class Denied(ValueError):pass
 
 def require(ok, reason):
     if not ok:raise Denied(reason)
-
-def protected_local(repo,sha,path):
-    require(path in ("release-promotion","owner-source-publication"),
-            "unexpected local policy type")
-    response=admission.get(repo,f"contents/config/{path}.json?ref={sha}")
-    require(type(response) is dict and response.get("encoding")=="base64"
-            and type(response.get("content")) is str
-            and response.get("type")=="file", "missing protected local opt-in")
-    raw=base64.b64decode(response["content"].replace("\n",""),validate=True)
-    require(0<len(raw)<65536,"bad local policy byte length")
-    data=json.loads(raw.decode("utf-8"),object_pairs_hook=admission.unique)
-    require(type(data) is dict,"local policy must be a JSON object")
-    return data
 
 def select(*,event,live,run,branch,env,fleet,central,owner_central,
            unattended,boundary):
@@ -52,9 +39,8 @@ def select(*,event,live,run,branch,env,fleet,central,owner_central,
             and type(source_sha) is str and admission.SHA.fullmatch(source_sha),
             "current signing source not protected")
     # No previous NONPUBLISHING proof is ever treated as a Release receipt.
-    # Every policy file is read from this protected SHA, not from the comment.
-    local=protected_local(repo,source_sha,"release-promotion")
-    owner_local=protected_local(repo,source_sha,"owner-source-publication")
+    local=publication_policy.release_promotion_from(central,repo)
+    owner_local=publication_policy.owner_source_from(owner_central,central,repo)
     policy.gate(fleet=fleet,central=central,local=local,unattended=unattended,
                 boundary=boundary,owner_central=owner_central,
                 owner_local=owner_local,repository=repo)

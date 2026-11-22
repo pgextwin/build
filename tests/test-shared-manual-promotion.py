@@ -62,7 +62,7 @@ class SharedPromotion(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", SHARED)
         self.assertIn("fleet-promotion-gate.py", SHARED)
         self.assertIn("--confirm-release", SHARED)
-        self.assertIn("--local-policy config/release-promotion.json", SHARED)
+        self.assertNotIn("--local-policy", SHARED)
         self.assertIn("--lifecycle .pgextwin-build/metadata/postgresql.json", SHARED)
         self.assertIn("needs: [authorize, release_build]", SHARED)
 
@@ -110,7 +110,6 @@ class SharedPromotion(unittest.TestCase):
         self.assertEqual(len(policy["allowedRepositories"]), 17)
         self.assertEqual(set(policy["allowedRepositories"]),
                          expected)
-        self.assertIn("--local-policy config/release-promotion.json", SHARED)
         self.assertIn("--confirm-release", SHARED)
         self.assertIn("needs: [authorize, release_build]", SHARED)
 
@@ -181,7 +180,6 @@ class SharedPromotion(unittest.TestCase):
                 "github.ref == 'refs/heads/main'",
                 "fleet-promotion-gate.py",
                 "--confirm-release",
-                "--local-policy config/release-promotion.json",
                 "needs: [authorize, release_build]",
                 "build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d",
                 "fleet-publish-release.py",

@@ -314,7 +314,6 @@ jobs:
             --manifest .pgextwin-candidate/config/extension.json \
             --fleet metadata/automation-fleet.json \
             --central-policy metadata/release-promotion.json \
-            --local-policy .pgextwin-candidate/config/release-promotion.json \
             --unattended metadata/unattended-publication.json \
             --publisher-boundary metadata/publisher-write-boundary.json \
             --schedule-run "$RUNNER_TEMP/schedule-run.json" \
@@ -463,7 +462,6 @@ jobs:
             --proposal "$RUNNER_TEMP/pgextwin-publisher-original/original/automatic-release-tag-proposal-nonpublishing.json" \
             --fleet metadata/automation-fleet.json \
             --central-policy metadata/release-promotion.json \
-            --local-policy .pgextwin-candidate/config/release-promotion.json \
             --owner-policy metadata/owner-dispatch-publication.json \
             --unattended metadata/unattended-publication.json \
             --publisher-boundary metadata/publisher-write-boundary.json \

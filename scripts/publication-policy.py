@@ -34,13 +34,12 @@ def _is_repository(repository):
     return type(repository) is str and fleet_policy.REPO.fullmatch(repository) is not None
 
 
-def _allowed_repositories(policy, filename):
+def _validate_allowed_repositories(policy, filename):
     allowed = policy["allowedRepositories"]
     _require(type(allowed) is list and bool(allowed)
              and all(_is_repository(repository) for repository in allowed)
              and len(set(allowed)) == len(allowed),
              f"invalid or duplicate repository in {filename}")
-    return allowed
 
 
 def load_candidate_policy(build_root):
@@ -58,14 +57,26 @@ def _release_promotion(build_root):
     policy = _read(build_root, filename, {"schemaVersion", "allowedRepositories", "releasePolicy"})
     _require(policy["releasePolicy"] in ("manual-dispatch", fleet_policy.AUTOMATIC),
              "unsupported release-promotion.json release policy")
-    return policy["releasePolicy"], _allowed_repositories(policy, filename)
+    _validate_allowed_repositories(policy, filename)
+    return policy
+
+
+def release_promotion_from(policy, repository):
+    """Project an already parsed central policy for an intake gate."""
+    return {"schemaVersion": 1, "enabled": repository in policy["allowedRepositories"],
+            "releasePolicy": policy["releasePolicy"]}
+
+
+def owner_source_from(owner_policy, release_policy, repository):
+    """Project already parsed central owner-source and release policies."""
+    return {"schemaVersion": 1, "enabled": repository in owner_policy["allowedRepositories"],
+            "sourceKind": owner_policy["sourceKind"], "releasePolicy": release_policy["releasePolicy"]}
 
 
 def release_promotion_policy(build_root, repository):
     """Derive the legacy local release-promotion policy for a repository."""
     _require(_is_repository(repository), "invalid repository")
-    release_policy, allowed = _release_promotion(build_root)
-    return {"schemaVersion": 1, "enabled": repository in allowed, "releasePolicy": release_policy}
+    return release_promotion_from(_release_promotion(build_root), repository)
 
 
 def owner_source_policy(build_root, repository):
@@ -78,7 +89,5 @@ def owner_source_policy(build_root, repository):
              and type(policy["ownerLogin"]) is str and bool(policy["ownerLogin"])
              and type(policy["ownerId"]) is int and policy["ownerId"] > 0,
              "invalid owner-source-publication.json policy")
-    allowed = _allowed_repositories(policy, filename)
-    release_policy, _ = _release_promotion(build_root)
-    return {"schemaVersion": 1, "enabled": repository in allowed,
-            "sourceKind": policy["sourceKind"], "releasePolicy": release_policy}
+    _validate_allowed_repositories(policy, filename)
+    return owner_source_from(policy, _release_promotion(build_root), repository)

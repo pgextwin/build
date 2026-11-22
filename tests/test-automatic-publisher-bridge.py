@@ -3,8 +3,12 @@
 from copy import deepcopy
 import importlib.util
 import json
+import os
 from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from publication_policy_fixtures import manual_policy
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +65,24 @@ def fixture():
 
 
 class NonpublishingPublisherBridgeTests(unittest.TestCase):
+    def test_cli_needs_only_the_central_release_policy(self):
+        values = fixture()
+        env = {"GITHUB_REPOSITORY": REPO, "GITHUB_SHA": SHA, "GITHUB_RUN_ID": str(RUN_ID),
+               "GITHUB_RUN_ATTEMPT": str(ATTEMPT), "GITHUB_EVENT_NAME": "push",
+               "GITHUB_REF": values["ref"]}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output.json"
+            argv = ["publisher-bridge", "--output", str(output)]
+            for arg, key in (("audit", "audit"), ("fleet", "fleet"), ("central-policy", "central"),
+                             ("unattended", "unattended")):
+                path = root / (arg + ".json")
+                path.write_text(json.dumps(values[key]), "utf-8")
+                argv.extend(["--" + arg, str(path)])
+            with patch.dict(os.environ, env), patch.object(sys, "argv", argv):
+                self.assertEqual(bridge.main(), 0)
+            self.assertEqual(json.loads(output.read_text("utf-8")), bridge.bridge(**values))
+
     def test_historical_manual_policies_only_deny_publish(self):
         result = bridge.bridge(**fixture())
         self.assertEqual(result["status"], "PUBLISH_DENY")

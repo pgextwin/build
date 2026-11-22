@@ -4,7 +4,7 @@
 This bridge runs immediately AFTER the actual gh/Sigstore/ZIP verifier in the
 same trusted, immutable reusable workflow job. It cannot mint a publishable
 receipt, request a token, dispatch a workflow, create a tag, or call GitHub.
-Current fleet + local/central + unattended policies independently block writes.
+The fleet, central release and unattended policies independently block writes.
 A future Publisher MUST reauthenticate real signature/PR/run/authorisation and
 must not treat this nonpublishing observation as permission. Issue #75.
 """
@@ -31,6 +31,7 @@ def module(name, filename):
 identity = module("bridge_release_identity", "fleet-release-identity.py")
 unattended_policy = module("bridge_unattended_policy", "unattended-policy.py")
 fleet_policy = module("bridge_fleet_contract", "fleet-policy.py")
+publication_policy = module("publication_policy", "publication-policy.py")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 HASH = re.compile(r"^[0-9a-f]{64}$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -181,22 +182,24 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
 
 def main():
     parser = argparse.ArgumentParser()
-    for name in ("audit", "fleet", "central-policy", "local-policy",
+    for name in ("audit", "fleet", "central-policy",
                  "unattended", "output"):
         parser.add_argument("--" + name, required=True)
     args = parser.parse_args()
     try:
+        repo = os.environ.get("GITHUB_REPOSITORY")
+        central = load_object(args.central_policy)
         info = bridge(
             load_object(args.audit),
-            repo=os.environ.get("GITHUB_REPOSITORY"),
+            repo=repo,
             sha=os.environ.get("GITHUB_SHA"),
             run_id=int(os.environ.get("GITHUB_RUN_ID", "0")),
             attempt=int(os.environ.get("GITHUB_RUN_ATTEMPT", "0")),
             event=os.environ.get("GITHUB_EVENT_NAME"),
             ref=os.environ.get("GITHUB_REF"),
             fleet=load_object(args.fleet),
-            central=load_object(args.central_policy),
-            local=load_object(args.local_policy),
+            central=central,
+            local=publication_policy.release_promotion_from(central, repo),
             unattended=load_object(args.unattended))
         Path(args.output).write_text(json.dumps(info, indent=2) + "\n", "utf-8")
         print("PUBLISH_DENY: signed-build audit observed; effective policy still blocks formal Release.")
