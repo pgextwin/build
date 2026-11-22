@@ -5,6 +5,7 @@ import copy
 import importlib.util
 import json
 import shutil
+from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from zipfile import ZipFile
@@ -63,24 +64,29 @@ def signed_run(repo=REPO):
              repository={"full_name": repo})
     return r
 
-def original_jobs(majors=(14,15,16,17,18)):
-    names = (["Original authenticated owner/main/comment source (DENY Publisher)",
-              "Resolve extension and PostgreSQL matrix",
-              "Independent original Sigstore/ZIP/SPDX/Grype audit (first)",
-              "Independent original Sigstore/ZIP/SPDX/Grype audit (second)",
-              "Require exact independent real-signature byte agreement (NO PUBLISH)"]
-             + [f"PostgreSQL {m} / Windows x64" for m in majors])
+def original_jobs(majors=(14,15,16,17,18), *, legacy=False):
+    audit_jobs = [
+        "Independent original Sigstore/ZIP/SPDX/Grype audit (first)",
+        "Independent original Sigstore/ZIP/SPDX/Grype audit (second)",
+        "Require exact independent real-signature byte agreement (NO PUBLISH)",
+    ] if legacy else [mod.audit.AUDIT_JOB]
+    names = ["Original authenticated owner/main/comment source (DENY Publisher)",
+             "Resolve extension and PostgreSQL matrix", *audit_jobs,
+             *(f"PostgreSQL {m} / Windows x64" for m in majors)]
     return {"total_count": len(names), "jobs": [
         {"name": n, "id": 100+i, "run_id": 41486380278, "run_attempt": 1,
          "head_sha": SHA, "status": "completed", "conclusion": "success"}
         for i, n in enumerate(names)]}
 
-def source_artifacts():
-    names = ["chat-main-source-intent-nonpublishing",
-             "chat-owner-sigstore-first-nonpublishing",
-             "chat-owner-sigstore-second-nonpublishing",
-             "chat-owner-dual-sigstore-nonpublishing"]
-    return {"total_count": 4, "artifacts": [
+def source_artifacts(*, legacy=False):
+    names = ["chat-main-source-intent-nonpublishing"]
+    if legacy:
+        names.extend(("chat-owner-sigstore-first-nonpublishing",
+                      "chat-owner-sigstore-second-nonpublishing",
+                      "chat-owner-dual-sigstore-nonpublishing"))
+    else:
+        names.append(mod.audit.AUDIT_ARTIFACT)
+    return {"total_count": len(names), "artifacts": [
         {"name": n, "id": i+1, "size_in_bytes": 40, "expired": False}
         for i, n in enumerate(names)]}
 
@@ -103,7 +109,9 @@ class AdmissionTests(TestCase):
         self.assertEqual(mod.authenticate_request(
             event(), event()["comment"], run(), branch(), env()),
             (REPO, 41486380278))
-        self.assertIsNone(source_check())
+        self.assertFalse(source_check())
+        self.assertTrue(source_check(jobs=original_jobs(legacy=True),
+                                     artifacts=source_artifacts(legacy=True)))
         self.assertEqual(mod.SOURCE_KIND, "OWNER_ISSUE_COMMENT_MAIN_SIGNING")
 
     def test_wrong_central_run_actor_replay_and_ref_denied(self):
@@ -155,20 +163,25 @@ class AdmissionTests(TestCase):
                 with self.assertRaises(mod.Denied):
                     source_check(intent=i)
 
-    def test_failed_second_dual_or_missing_artifact_denied(self):
-        jobs=original_jobs()
+    def test_failed_audit_or_missing_artifact_denied(self):
+        jobs=original_jobs(legacy=True)
+        artifacts=source_artifacts(legacy=True)
         for n in (2,3):
             altered=copy.deepcopy(jobs)
             altered["jobs"][n]["conclusion"]="failure"
             with self.assertRaises(mod.Denied):
-                source_check(jobs=altered)
+                source_check(jobs=altered, artifacts=artifacts)
         for name in ("chat-owner-sigstore-second-nonpublishing",
                      "chat-owner-dual-sigstore-nonpublishing"):
-            a=source_artifacts()
+            a=copy.deepcopy(artifacts)
             a["artifacts"]=[x for x in a["artifacts"] if x["name"]!=name]
             a["total_count"]=len(a["artifacts"])
             with self.assertRaises(mod.Denied):
-                source_check(artifacts=a)
+                source_check(jobs=jobs, artifacts=a)
+        for bad in ({"jobs": jobs}, {"artifacts": artifacts},
+                    {"artifacts": {"total_count": 1, "artifacts": source_artifacts()["artifacts"][:1]}}):
+            with self.assertRaises(mod.Denied):
+                source_check(**bad)
         x=live_signing();x["body"]="/pgextwin publish "+REPO
         with self.assertRaises(mod.Denied):
             source_check(live=x)
@@ -187,9 +200,9 @@ class AdmissionTests(TestCase):
             self.assertNotIn(denied,job)
         self.assertIn("PUBLISH_DENY",job)
 
-    def test_sql_passengers_use_same_admit_and_real_audit_code_offline(self):
-        # Only GitHub transport / cryptographic verification is mocked. Execute
-        # admit(), both audit() calls, proof_statement(), and join() unchanged.
+    def test_original_and_publisher_each_verify_two_predicates_per_major_offline(self):
+        # Stub GitHub transport and Sigstore responses at the command boundary.
+        # Exercise the real audit, proof_statement, and receipt comparison.
         # These synthetic fixtures grant no signing or publication authority.
         def load(label, name):
             spec = importlib.util.spec_from_file_location(label, ROOT / "tests" / name)
@@ -200,9 +213,11 @@ class AdmissionTests(TestCase):
         proofs = load("owner_passenger_proofs", "test-automatic-signed-candidate-audit.py")
         fleet = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
         lifecycle = assets.fixture()[1]
-        majors = [15,16,17,18]
-        for name, ref, version in (("pg_permissions", "REL_1_4_1", "1.4.1"),
-                                   ("pg_track_settings", "2.1.2", "2.1.2")):
+        lifecycle["postgresql"].append({"major": 19, "eol": "2031-12-31"})
+        for name, ref, version, legacy, majors in (
+                ("pg_hint_plan", "REL19_1_0", "1.0", False, [15, 16, 17, 18, 19]),
+                ("pg_permissions", "REL_1_4_1", "1.4.1", True, [15, 16, 17, 18]),
+                ("pg_track_settings", "2.1.2", "2.1.2", False, [15, 16, 17, 18])):
             repo = "pgextwin/" + name
             manifest = {"schemaVersion": 1, "name": name,
                         "upstream": {"repository": mod.ident.UPSTREAMS[name],
@@ -214,17 +229,23 @@ class AdmissionTests(TestCase):
             signer = ("https://github.com/pgextwin/build/" +
                       mod.audit.pin.offline.SIGNER_PATH + "@" + mod.audit.OWNER_SIGNER_SHA)
 
-            def verify(path, kind, repository, sha):
-                entry = proofs.signed_result(path, kind, repository, sha)[0]
+            def verify_command(args, **kwargs):
+                self.assertEqual(args[:3], ["gh", "attestation", "verify"])
+                path = Path(args[3])
+                kind = args[args.index("--predicate-type") + 1]
+                self.assertEqual(args[args.index("--repo") + 1], repo)
+                self.assertEqual(args[args.index("--source-digest") + 1], SHA)
+                self.assertEqual(args[args.index("--signer-digest") + 1], mod.audit.OWNER_SIGNER_SHA)
+                entry = proofs.signed_result(path, kind, repo, SHA)[0]
                 cert = entry["verificationResult"]["signature"]["certificate"]
                 cert.update(runInvocationURI=uri, buildSignerURI=signer,
                             subjectAlternativeName=signer,
                             buildSignerDigest=mod.audit.OWNER_SIGNER_SHA,
-                            buildConfigURI=f"https://github.com/{repository}/{mod.SOURCE_WORKFLOW}@refs/heads/main",
+                            buildConfigURI=f"https://github.com/{repo}/{mod.SOURCE_WORKFLOW}@refs/heads/main",
                             buildTrigger="issue_comment")
                 if kind == mod.audit.pin.SLSA:
                     entry["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"] = uri
-                return entry
+                return CompletedProcess(args, 0, stdout=json.dumps([entry]), stderr="")
 
             with self.subTest(repository=repo), TemporaryDirectory() as td:
                 root = Path(td)
@@ -241,14 +262,21 @@ class AdmissionTests(TestCase):
                     with ZipFile(path, "w") as z:
                         z.writestr("PACKAGE-INFO.json", json.dumps(package))
 
-                with patch.object(mod.audit, "verify", side_effect=verify):
-                    receipts = {label: mod.audit.audit(
-                        original, source_intent, manifest, lifecycle,
-                        repo=repo, sha=SHA, run_id=run_id, auditor=label)
-                        for label in ("first", "second")}
-                    dual = mod.audit.join(receipts["first"], receipts["second"])
+                with patch.object(mod.audit.subprocess, "run", side_effect=verify_command) as calls:
+                    receipt, blocking = mod.audit.audit(
+                        original, source_intent, manifest, lifecycle, repo=repo, sha=SHA, run_id=run_id)
+                    self.assertEqual(blocking, 0)
+                    self.assertEqual(calls.call_count, 2 * len(majors))
+                    calls.reset_mock()
+                    artifact = mod.audit.AUDIT_ARTIFACT
+                    filename = mod.audit.AUDIT_FILE
+                    if legacy:
+                        receipt.update(schemaVersion=1, auditors=["first", "second"],
+                                       status="DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING")
+                        artifact = "chat-owner-dual-sigstore-nonpublishing"
+                        filename = "chat-owner-dual-sigstore.json"
 
-                    def fetch(repository, source_run, artifact, folder, *, pattern=False):
+                    def fetch(repository, source_run, artifact_name, folder, *, pattern=False):
                         self.assertEqual((repository, source_run), (repo, run_id))
                         folder.mkdir()
                         if pattern:
@@ -257,10 +285,8 @@ class AdmissionTests(TestCase):
                         else:
                             label = {
                                 "chat-main-source-intent-nonpublishing": ("owner-main-intent.json", source_intent),
-                                "chat-owner-sigstore-first-nonpublishing": ("chat-owner-audit-first.json", receipts["first"]),
-                                "chat-owner-sigstore-second-nonpublishing": ("chat-owner-audit-second.json", receipts["second"]),
-                                "chat-owner-dual-sigstore-nonpublishing": ("chat-owner-dual-sigstore.json", dual),
-                            }[artifact]
+                                artifact: (filename, receipt),
+                            }[artifact_name]
                             (folder / label[0]).write_text(json.dumps(label[1]))
 
                     def get(repository, route):
@@ -270,25 +296,31 @@ class AdmissionTests(TestCase):
                             f"contents/config/extension.json?ref={SHA}": {
                                 "encoding": "base64", "content": base64.b64encode(json.dumps(manifest).encode()).decode()},
                             f"actions/runs/{run_id}": signed_run(repo),
-                            f"actions/runs/{run_id}/attempts/1/jobs?per_page=100": original_jobs(majors),
-                            f"actions/runs/{run_id}/artifacts?per_page=100": source_artifacts(),
+                            f"actions/runs/{run_id}/attempts/1/jobs?per_page=100": original_jobs(majors, legacy=legacy),
+                            f"actions/runs/{run_id}/artifacts?per_page=100": source_artifacts(legacy=legacy),
                             "issues/comments/4444": live_signing(repo, 1),
                         }[route]
 
-                    with patch.object(mod, "get", side_effect=get), patch.object(mod, "fetch_artifact", side_effect=fetch):
-                        result = mod.admit(repo, run_id, scratch=root, fleet=fleet, lifecycle=lifecycle)
+                    with patch.object(mod, "get", side_effect=get), patch.object(
+                                mod, "fetch_artifact", side_effect=fetch) as downloads:
+                        result, admitted_manifest, admitted_intent = mod.admit(
+                            repo, run_id, scratch=root, fleet=fleet, lifecycle=lifecycle)
+                        self.assertEqual(admitted_manifest, manifest)
+                        self.assertEqual(admitted_intent, source_intent)
+                        self.assertEqual(downloads.call_count, 3)
+                        self.assertEqual(calls.call_count, 2 * len(majors))
                         self.assertEqual(result["repository"], repo)
                         self.assertEqual(result["maintainedMajors"], majors)
-                        self.assertEqual(len(result["SHA256"]), 12)
-                        self.assertTrue(result["originalAndFreshDualSigstoreAgree"])
+                        self.assertEqual(len(result["SHA256"]), 3 * len(majors))
+                        self.assertTrue(result["originalAndFreshSigstoreAgree"])
                         self.assertEqual(result["PUBLISH"], "DENY")
                         for field in ("publisherEligible", "publicationAuthorized", "publishableReceipt", "publisherWriteAuthorized"):
                             self.assertIs(result[field], False)
                         # A stale original receipt cannot pass a fresh byte audit.
-                        receipts["second"]["SHA256"] = {"foreign.zip": "0"*64}
+                        receipt["SHA256"] = {"foreign.zip": "0"*64}
                         retry = root / "retry"
                         retry.mkdir()
-                        with self.assertRaisesRegex(mod.Denied, "independent real Sigstore/byte recheck differs"):
+                        with self.assertRaisesRegex(mod.Denied, "independent Publisher Sigstore/byte receipts differ"):
                             mod.admit(repo, run_id, scratch=retry, fleet=fleet, lifecycle=lifecycle)
 
 if __name__ == "__main__":

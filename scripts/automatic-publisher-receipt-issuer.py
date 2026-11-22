@@ -186,7 +186,7 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
               and proof["sourceRunAttempt"]==1
               and type(proof.get("sourceCommentId")) is int
               and proof["sourceCommentId"]==source_signing_comment_id
-              and proof.get("originalAndFreshDualSigstoreAgree") is True
+              and proof.get("originalAndFreshSigstoreAgree") is True
               and proof.get("publisherEligible") is False
               and proof.get("PUBLISH")=="DENY"
               and all(proof.get(k) is False for k in (
@@ -292,7 +292,7 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
         receipt["sourceKind"]=OWNER_KIND
         receipt["sourceEvent"]="issue_comment"
         receipt["sourceSigningCommentId"]=source_signing_comment_id
-        receipt["originalAndFreshDualSigstoreAgree"]=True
+        receipt["originalAndFreshSigstoreAgree"]=True
     typed.validate_receipt(receipt,repository=repository,commit=sha,
                            actor=actor,event=event)
     return receipt

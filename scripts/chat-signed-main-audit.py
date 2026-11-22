@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Independent real-byte/Sigstore audits for genuine owner-comment main source.
+"""Independent real-byte/Sigstore audit for genuine owner-comment main source.
 
 A distinct, NONPUBLISHING source type. No push/schedule impersonation, Release,
-Publisher App, or publication authorization. Two isolated audit jobs must agree.
+Publisher App, or publication authorization.
 """
 from __future__ import annotations
 
@@ -32,6 +32,9 @@ pin = module("owner_main_pin", "issue-75-attempt-pin-migration-offline.py")
 vuln = module("owner_main_grype", "automatic-grype-publisher-policy.py")
 SOURCE_KIND = "OWNER_ISSUE_COMMENT_MAIN_SIGNING"
 CALLER = ".github/workflows/chat-signed-main.yml"
+AUDIT_JOB = "Independent original Sigstore/ZIP/SPDX/Grype audit (NO PUBLISH)"
+AUDIT_ARTIFACT = "chat-owner-sigstore-nonpublishing"
+AUDIT_FILE = "chat-owner-audit.json"
 # Exact approved builder digest for this genuine owner source only.  Legacy
 # workflow_dispatch/manual provenance pins remain separate and unchanged.
 # Change only with protected source workflow pin, required CI, and original
@@ -69,8 +72,8 @@ def verify(z, kind, repo, sha):
     return {"verificationResult": result[0]["verificationResult"]}
 
 
-def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, auditor):
-    need(auditor in ("first", "second") and type(intent) is dict
+def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id):
+    need(type(intent) is dict
          and intent.get("sourceKind") == SOURCE_KIND
          and intent.get("repository") == repo
          and intent.get("mainSha") == sha and intent.get("runId") == run_id
@@ -88,6 +91,7 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, auditor):
     files = {f.name for f in folder.iterdir() if f.is_file()}
     need(files == expected, "missing/extra signed artifact bytes")
     digests = {}
+    blocking_findings = 0
     for major in majors:
         stem = ident.asset_stem(manifest, major)
         z, s, g = (folder / (stem + ext) for ext in
@@ -132,7 +136,7 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, auditor):
         need(type(sbom) is dict and sbom.get("spdxVersion") == "SPDX-2.3"
              and type(grype) is dict and type(grype.get("matches")) is list,
              "missing SPDX/Grype evidence")
-        vuln.review(grype, asset_stem=stem)
+        blocking_findings += vuln.review(grype, asset_stem=stem)["blockingFindingCount"]
         for kind in (pin.SLSA, pin.SPDX):
             proof = verify(z, kind, repo, sha)
             pin.proof_statement(proof, kind, repo=repo, sha=sha,
@@ -140,54 +144,33 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, auditor):
                                 attempt=1, event="issue_comment",
                                 config_path=CALLER, zip_name=z.name,
                                 zip_digest=digests[z.name], sbom=sbom)
-    return {"schemaVersion": 1, "status": "VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING",
+    return {"schemaVersion": 2, "status": "VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING",
             "sourceKind": SOURCE_KIND, "repository": repo, "mainSha": sha,
             "runId": run_id, "runAttempt": 1,
-            "commentId": intent["commentId"], "auditor": auditor,
+            "commentId": intent["commentId"],
             "majors": majors, "SHA256": digests,
             "publisherEligible": False, "publicationAuthorized": False,
-            "PUBLISH": "DENY"}
-
-
-def join(first, second):
-    need(type(first) is dict and type(second) is dict
-         and first.get("auditor") == "first" and second.get("auditor") == "second",
-         "two independently named receipts required")
-    expected = {k: v for k, v in first.items() if k != "auditor"}
-    observed = {k: v for k, v in second.items() if k != "auditor"}
-    need(expected == observed
-         and expected.get("status") == "VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING"
-         and expected.get("sourceKind") == SOURCE_KIND
-         and expected.get("publisherEligible") is False
-         and expected.get("publicationAuthorized") is False
-         and expected.get("PUBLISH") == "DENY"
-         and type(expected.get("SHA256")) is dict and bool(expected["SHA256"]),
-         "independent real-byte and identity receipts differ")
-    return {**expected, "status": "DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING",
-            "auditors": ["first", "second"]}
+            "PUBLISH": "DENY"}, blocking_findings
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("mode", choices=("audit", "join"))
-    for a in ("intent", "manifest", "lifecycle", "dist", "auditor", "first", "second", "output"):
-        p.add_argument("--" + a)
+    for a in ("intent", "manifest", "lifecycle", "dist", "output"):
+        p.add_argument("--" + a, required=True)
     args = p.parse_args()
     try:
-        if args.mode == "join":
-            outcome = join(read(args.first), read(args.second))
-        else:
-            env = os.environ
-            need(env.get("GITHUB_EVENT_NAME") == "issue_comment"
-                 and env.get("GITHUB_REF") == "refs/heads/main"
-                 and env.get("GITHUB_RUN_ATTEMPT") == "1"
-                 and re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*",
-                                  env.get("GITHUB_REPOSITORY", "")),
-                 "wrong authentic audit context")
-            outcome = audit(Path(args.dist), read(args.intent), read(args.manifest),
-                            read(args.lifecycle), repo=env["GITHUB_REPOSITORY"],
-                            sha=env["GITHUB_SHA"], run_id=int(env["GITHUB_RUN_ID"]),
-                            auditor=args.auditor)
+        env = os.environ
+        need(env.get("GITHUB_EVENT_NAME") == "issue_comment"
+             and env.get("GITHUB_REF") == "refs/heads/main"
+             and env.get("GITHUB_RUN_ATTEMPT") == "1"
+             and re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*",
+                              env.get("GITHUB_REPOSITORY", "")),
+             "wrong authentic audit context")
+        outcome, blocking_findings = audit(
+            Path(args.dist), read(args.intent), read(args.manifest),
+            read(args.lifecycle), repo=env["GITHUB_REPOSITORY"],
+            sha=env["GITHUB_SHA"], run_id=int(env["GITHUB_RUN_ID"]))
+        print(f"Grype blocking findings across audited majors: {blocking_findings}")
         Path(args.output).write_text(json.dumps(outcome, sort_keys=True) + "\n", "utf-8")
         print(outcome["status"] + "; PUBLISH_DENY")
         return 0

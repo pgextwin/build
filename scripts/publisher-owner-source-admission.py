@@ -3,7 +3,7 @@
 
 A different source kind from main/push. This is a Publisher-side cryptographic
 admission observation, NEVER a Release receipt. Fail closed and PUBLISH_DENY.
-The existing credentialed Publisher is deliberately NOT connected to this job.
+The isolated Publisher also uses this read-only admission before loading App credentials.
 """
 from __future__ import annotations
 
@@ -129,8 +129,7 @@ def authenticate_request(event, live, central, central_branch, env, *, request_p
          "central Publisher original event or run differs")
     return m.group(1), int(m.group(2))
 
-def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, majors):
-    """Strict original owner source chain, including two *successful* audits."""
+def source_run(repo, sha, run_id, run):
     need(REPO.fullmatch(repo) is not None and SHA.fullmatch(sha) is not None
          and type(run_id) is int and run_id > 0
          and type(run) is dict and run.get("id") == run_id
@@ -144,6 +143,9 @@ def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, major
          and (run.get("repository") or {}).get("full_name") == repo
          and owner(run.get("actor")) and owner(run.get("triggering_actor")),
          "not genuine completed attempt-1 signed main owner Run")
+
+
+def signing_request(repo, sha, run_id, intent, live):
     need(type(intent) is dict
          and intent.get("sourceKind") == SOURCE_KIND
          and intent.get("sourceEvent") == "issue_comment"
@@ -167,10 +169,22 @@ def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, major
          and live.get("created_at") == live.get("updated_at")
          and owner(live.get("user")),
          "original signing request is edited, deleted or forged")
+
+
+
+def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, majors):
+    """Require the successful original source chain and its matching receipt layout."""
+    source_run(repo, sha, run_id, run)
+    signing_request(repo, sha, run_id, intent, live)
+    legacy_audit_jobs = [
+        "Independent original Sigstore/ZIP/SPDX/Grype audit (first)",
+        "Independent original Sigstore/ZIP/SPDX/Grype audit (second)",
+        "Require exact independent real-signature byte agreement (NO PUBLISH)",
+    ]
     need(type(jobs) is dict and type(jobs.get("jobs")) is list
          and type(jobs.get("total_count")) is int
          and jobs["total_count"] == len(jobs["jobs"])
-         and len(jobs["jobs"]) == len(majors) + 5,
+         and len(jobs["jobs"]) - len(majors) in (3, 5),
          "incomplete/paginated or unexpected original signed jobs")
     names = [j.get("name") for j in jobs["jobs"]]
     need(len(set(names)) == len(names)
@@ -182,12 +196,15 @@ def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, major
                  and j.get("conclusion") == "success"
                  for j in jobs["jobs"]),
          "failed/replayed/foreign original Windows/signing/audit jobs")
-    for part in (["Original authenticated owner/main/comment source (DENY Publisher)",
-                  "Resolve extension and PostgreSQL matrix",
-                  "Independent original Sigstore/ZIP/SPDX/Grype audit (first)",
-                  "Independent original Sigstore/ZIP/SPDX/Grype audit (second)",
-                  "Require exact independent real-signature byte agreement (NO PUBLISH)"]
-                 + [f"PostgreSQL {major} / Windows x64" for major in majors]):
+    legacy = len(names) == len(majors) + 5
+    audit_jobs = legacy_audit_jobs if legacy else [audit.AUDIT_JOB]
+    required_jobs = [
+        "Original authenticated owner/main/comment source (DENY Publisher)",
+        "Resolve extension and PostgreSQL matrix",
+        *audit_jobs,
+        *(f"PostgreSQL {major} / Windows x64" for major in majors),
+    ]
+    for part in required_jobs:
         need(sum(part in name for name in names) == 1,
              "missing/duplicate original source, signed PG or audit job")
     need(type(artifacts) is dict and type(artifacts.get("artifacts")) is list
@@ -196,16 +213,20 @@ def source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, major
          and artifacts["total_count"] < 100,
          "missing or incomplete original signed artifacts")
     names = [a.get("name") for a in artifacts["artifacts"]]
-    required = {"chat-main-source-intent-nonpublishing",
-                "chat-owner-sigstore-first-nonpublishing",
-                "chat-owner-sigstore-second-nonpublishing",
-                "chat-owner-dual-sigstore-nonpublishing"}
+    required = {"chat-main-source-intent-nonpublishing"}
+    if legacy:
+        required.update(("chat-owner-sigstore-first-nonpublishing",
+                         "chat-owner-sigstore-second-nonpublishing",
+                         "chat-owner-dual-sigstore-nonpublishing"))
+    else:
+        required.add(audit.AUDIT_ARTIFACT)
     need(all(names.count(name) == 1 for name in required)
          and all(type(a) is dict and type(a.get("id")) is int and a["id"] > 0
                  and type(a.get("size_in_bytes")) is int and a["size_in_bytes"] > 0
                  and a.get("expired") is False
                  for a in artifacts["artifacts"] if a.get("name") in required),
          "missing/expired/duplicate independent original Sigstore artifacts")
+    return legacy
 
 def fetch_artifact(repo, run_id, name, folder, *, pattern=False):
     need(not folder.exists() and not folder.is_symlink(), "stale proof artifact path")
@@ -223,14 +244,16 @@ def read_file(folder, name):
          "missing or invalid source JSON")
     return json.loads(path.read_text("utf-8"), object_pairs_hook=unique)
 
-def admit(repo, run_id, *, scratch, fleet, lifecycle):
+def admit(repo, run_id, *, scratch, fleet, lifecycle, expected_sha=None):
     need(type(fleet) is dict and type(fleet.get("entries")) is list
          and repo in [e.get("repository") for e in fleet["entries"] if type(e) is dict],
          "non-fleet signed source")
     branch = get(repo, "branches/main")
     sha = (branch.get("commit") or {}).get("sha")
     need(branch.get("name") == "main" and branch.get("protected") is True
-         and type(sha) is str and SHA.fullmatch(sha), "source unprotected or advanced")
+         and type(sha) is str and SHA.fullmatch(sha)
+         and (expected_sha is None or sha == expected_sha),
+         "source unprotected or advanced")
     contents = get(repo, f"contents/config/extension.json?ref={sha}")
     need(contents.get("encoding") == "base64" and type(contents.get("content")) is str,
          "protected manifest unavailable")
@@ -244,15 +267,17 @@ def admit(repo, run_id, *, scratch, fleet, lifecycle):
     root = scratch / "original-owner-signed"
     need(not root.exists(), "duplicate scratch source")
     root.mkdir()
-    groups = {
-        "intent": "chat-main-source-intent-nonpublishing",
-        "first": "chat-owner-sigstore-first-nonpublishing",
-        "second": "chat-owner-sigstore-second-nonpublishing",
-        "dual": "chat-owner-dual-sigstore-nonpublishing",
-        "signed": repo.split("/")[1] + "-pg*-windows-x64",
-    }
-    for label, name in groups.items():
-        fetch_artifact(repo, run_id, name, root / label, pattern=(label == "signed"))
+    fetch_artifact(repo, run_id, "chat-main-source-intent-nonpublishing", root / "intent")
+    intent = read_file(root / "intent", "owner-main-intent.json")
+    live = get(repo, f"issues/comments/{intent['commentId']}")
+    legacy = source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, majors)
+    # Callers may still pin a workflow with the two-auditor layout. Its
+    # successful join already compared the two individual receipts.
+    artifact = "chat-owner-dual-sigstore-nonpublishing" if legacy else audit.AUDIT_ARTIFACT
+    filename = "chat-owner-dual-sigstore.json" if legacy else audit.AUDIT_FILE
+    fetch_artifact(repo, run_id, artifact, root / "audit")
+    fetch_artifact(repo, run_id, repo.split("/")[1] + "-pg*-windows-x64",
+                   root / "signed", pattern=True)
     # gh run download --pattern creates per-artifact subdirectories. Flatten
     # only disjoint, regular, expected signed ZIP/SPDX/Grype names.
     signed_folder = root / "signed"
@@ -268,35 +293,31 @@ def admit(repo, run_id, *, scratch, fleet, lifecycle):
     for folder in list(signed_folder.iterdir()):
         if folder.is_dir():
             shutil.rmtree(folder)
-    intent = read_file(root / "intent", "owner-main-intent.json")
-    live = get(repo, f"issues/comments/{intent['commentId']}")
-    source_metadata(repo, sha, run_id, run, jobs, artifacts, intent, live, majors)
-    def receipt(label):
-        return read_file(root / label, "chat-owner-audit-" + label + ".json")
-    first, second = receipt("first"), receipt("second")
-    original_dual = read_file(root / "dual", "chat-owner-dual-sigstore.json")
-    fresh_first = audit.audit(root / "signed", intent, manifest, lifecycle,
-                              repo=repo, sha=sha, run_id=run_id, auditor="first")
-    fresh_second = audit.audit(root / "signed", intent, manifest, lifecycle,
-                               repo=repo, sha=sha, run_id=run_id, auditor="second")
-    need(first == fresh_first and second == fresh_second,
-         "Publisher's independent real Sigstore/byte recheck differs")
-    dual = audit.join(fresh_first, fresh_second)
-    need(dual == original_dual, "original dual attestation and independent Publisher disagree")
+    original = read_file(root / "audit", filename)
+    fresh, blocking_findings = audit.audit(
+        signed_folder, intent, manifest, lifecycle, repo=repo, sha=sha, run_id=run_id)
+    comparable = fresh
+    if legacy:
+        comparable = {**fresh, "schemaVersion": 1, "auditors": ["first", "second"],
+                      "status": "DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING"}
+    need(original == comparable, "original and independent Publisher Sigstore/byte receipts differ")
     current = get(repo, "branches/main")
     need(current.get("protected") is True
          and (current.get("commit") or {}).get("sha") == sha,
          "signed main advanced during independent admission")
-    return {"schemaVersion": 1,
-            "status": "OWNER_MAIN_SIGNED_SOURCE_INDEPENDENTLY_VERIFIED_NONPUBLISHING",
-            "sourceKind": SOURCE_KIND, "sourceEvent": "issue_comment",
-            "repository": repo, "mainSha": sha, "sourceRunId": run_id,
-            "sourceRunAttempt": 1, "sourceCommentId": intent["commentId"],
-            "maintainedMajors": majors, "originalAndFreshDualSigstoreAgree": True,
-            "SHA256": dual["SHA256"],
-            "publisherEligible": False, "publicationAuthorized": False,
-            "publishableReceipt": False, "publisherWriteAuthorized": False,
-            "PUBLISH": "DENY"}
+    proof = {
+        "schemaVersion": 1,
+        "status": "OWNER_MAIN_SIGNED_SOURCE_INDEPENDENTLY_VERIFIED_NONPUBLISHING",
+        "sourceKind": SOURCE_KIND, "sourceEvent": "issue_comment",
+        "repository": repo, "mainSha": sha, "sourceRunId": run_id,
+        "sourceRunAttempt": 1, "sourceCommentId": intent["commentId"],
+        "maintainedMajors": majors, "originalAndFreshSigstoreAgree": True,
+        "SHA256": fresh["SHA256"], "blockingGrypeFindings": blocking_findings,
+        "publisherEligible": False, "publicationAuthorized": False,
+        "publishableReceipt": False, "publisherWriteAuthorized": False,
+        "PUBLISH": "DENY",
+    }
+    return proof, manifest, intent
 
 def main():
     p = argparse.ArgumentParser()
@@ -318,11 +339,11 @@ def main():
             get("pgextwin/build", "branches/main"), env)
         scratch = Path(env["RUNNER_TEMP"]).resolve()
         need(scratch.is_dir() and not scratch.is_symlink(), "untrusted scratch")
-        result = admit(repo, run_id, scratch=scratch,
+        result, _, _ = admit(repo, run_id, scratch=scratch,
                        fleet=json.loads(Path(a.fleet).read_text("utf-8"),
                                         object_pairs_hook=unique),
                        lifecycle=json.loads(Path(a.lifecycle).read_text("utf-8"),
-                                            object_pairs_hook=unique))
+                                 object_pairs_hook=unique))
         dest = Path(a.output).resolve()
         need(dest.parent == scratch and not dest.is_symlink(),
              "proof output outside dedicated scratch")

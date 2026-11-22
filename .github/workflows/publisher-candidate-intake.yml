@@ -176,10 +176,8 @@ jobs:
           retention-days: 30
 
   independent_owner_source_publish_request:
-    # Distinct genuine owner request and actual original signed owner source.
-    # NONPUBLISHING until an independently validated same-job formal issuer
-    # and explicit protected policies are implemented. No Publisher Environment.
-    name: Authenticate owner formal-source request and reverify original (DENY)
+    # Authenticate the request and protected opt-ins before entering the Publisher Environment.
+    name: Select protected owner formal-source request (DENY)
     if: >-
       ${{ github.repository == 'pgextwin/build' &&
           github.event_name == 'issue_comment' &&
@@ -192,7 +190,7 @@ jobs:
           github.run_attempt == 1 &&
           startsWith(github.event.comment.body, '/pgextwin publish-owner-source ') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     outputs:
       owner_source_selected: ${{ steps.select.outputs.owner_source_selected }}
       repository: ${{ steps.select.outputs.repository }}
@@ -201,7 +199,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      attestations: read
       issues: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -210,7 +207,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - name: Require immutable owner comment, protected dual opt-in and genuine fresh signed bytes
+      - name: Require immutable owner comment and protected publication opt-ins
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
@@ -222,11 +219,10 @@ jobs:
             --owner-central-policy metadata/owner-source-publication.json \
             --unattended metadata/unattended-publication.json \
             --publisher-boundary metadata/publisher-write-boundary.json \
-            --lifecycle metadata/postgresql.json \
             --output "$RUNNER_TEMP/owner-formal-source-selection.json" \
             --github-output "$GITHUB_OUTPUT"
           echo 'OWNER_SOURCE_READONLY; no App token or Release authority. PUBLISH_DENY.' >> "$GITHUB_STEP_SUMMARY"
-      - name: Preserve no-authority original/fresh source selection
+      - name: Preserve nonpublishing request selection
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -518,19 +514,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - name: Same-job original/fresh Sigstore and blocking Grype -> App -> formal create-only Release
+      - name: Read-only admission and independent verification of original signed bytes
+        id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
-          PUBLISHER_APP_ID: ${{ vars.PGEXTWIN_PUBLISHER_APP_ID }}
-          PUBLISHER_INSTALLATION_ID: ${{ vars.PGEXTWIN_PUBLISHER_INSTALLATION_ID }}
-          PUBLISHER_PRIVATE_KEY: ${{ secrets.PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY }}
           TARGET_REPOSITORY: ${{ needs.independent_owner_source_publish_request.outputs.repository }}
           ORIGINAL_SOURCE_RUN: ${{ needs.independent_owner_source_publish_request.outputs.source_run }}
           ORIGINAL_SOURCE_SHA: ${{ needs.independent_owner_source_publish_request.outputs.main_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/owner-source-formal-publisher.py \
+          python scripts/owner-source-formal-publisher.py prepare \
             --repository "$TARGET_REPOSITORY" \
             --source-run "$ORIGINAL_SOURCE_RUN" \
             --source-sha "$ORIGINAL_SOURCE_SHA" \
@@ -540,7 +534,18 @@ jobs:
             --owner-policy metadata/owner-dispatch-publication.json \
             --unattended metadata/unattended-publication.json \
             --publisher-boundary metadata/publisher-write-boundary.json \
-            --lifecycle metadata/postgresql.json \
+            --lifecycle metadata/postgresql.json
+      - name: Recheck live authorization and verified upload bytes and create the formal Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER_SOURCE_PREPARED_SHA256: ${{ steps.prepare.outputs.prepared_sha256 }}
+          PUBLISHER_APP_ID: ${{ vars.PGEXTWIN_PUBLISHER_APP_ID }}
+          PUBLISHER_INSTALLATION_ID: ${{ vars.PGEXTWIN_PUBLISHER_INSTALLATION_ID }}
+          PUBLISHER_PRIVATE_KEY: ${{ secrets.PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/owner-source-formal-publisher.py publish \
             --recovery "$RUNNER_TEMP/owner-formal-recovery.json" \
             --output "$RUNNER_TEMP/owner-formal-verified.json"
       - name: Record no-secret result and ambiguous write recovery state

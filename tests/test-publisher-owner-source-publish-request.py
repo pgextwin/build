@@ -76,17 +76,11 @@ class RequestTests(TestCase):
                     run=fixtures.run(),branch=fixtures.branch(),
                     env=fixtures.env(),fleet=x["fleet"],central=x["central"],
                     owner_central=x["owner_central"],unattended=x["unattended"],
-                    boundary=x["boundary"],lifecycle={},scratch=Path("/tmp"))
+                    boundary=x["boundary"])
             expensive.assert_not_called()
 
-    def test_selection_only_returns_nonpublishing_source_witness(self):
+    def test_selection_only_returns_nonpublishing_request(self):
         x=selected_inputs()
-        evidence={
-            "sourceKind":admission.SOURCE_KIND,"sourceEvent":"issue_comment",
-            "sourceRunId":41486380278,"mainSha":SHA,
-            "sourceCommentId":4444,"originalAndFreshDualSigstoreAgree":True,
-            "SHA256":{"test.zip":"a"*64},"publicationAuthorized":False,
-            "publishableReceipt":False,"PUBLISH":"DENY"}
         def get(repo,path):
             if path=="branches/main":
                 return fixtures.branch()
@@ -96,15 +90,15 @@ class RequestTests(TestCase):
                 return local_content(x["owner_local"])
             raise AssertionError(path)
         with patch.object(admission,"get",side_effect=get),patch.object(
-             admission,"admit",return_value=evidence) as verify:
+             admission,"admit") as verify:
             result=selector.select(event=event(),live=event()["comment"],
                 run=fixtures.run(),branch=fixtures.branch(),env=fixtures.env(),
                 fleet=x["fleet"],central=x["central"],
                 owner_central=x["owner_central"],unattended=x["unattended"],
-                boundary=x["boundary"],lifecycle={},scratch=Path("/tmp"))
-        verify.assert_called_once()
+                boundary=x["boundary"])
+        verify.assert_not_called()
         self.assertEqual(result["sourceRunId"],41486380278)
-        self.assertEqual(result["sourceSigningCommentId"],4444)
+        self.assertNotIn("SHA256", result)
         self.assertEqual(result["publisherRequestCommentId"],3333)
         for field in ("publicationAuthorized","publishableReceipt","publisherWriteAuthorized"):
             self.assertFalse(result[field])
