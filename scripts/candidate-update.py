@@ -13,7 +13,10 @@ import subprocess
 import sys
 from urllib.parse import quote
 
-from update_watch_lib import WatchError, detect_extension_update, github_get_json, natural_key, utc_now, validate_watch_semantics
+from update_watch_lib import (
+    WatchError, detect_extension_update, github_get_json, load_watch, natural_key,
+    resolve_watch, utc_now, validate_watch_semantics,
+)
 
 HEX_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 MARKER_PREFIX = "pgextwin-candidate:v1"
@@ -104,6 +107,7 @@ def peel_tag(repository, tag, fetch=api):
 
 def plan(extension, watch, policy, fetch=api, lifecycle=None):
     policy_valid(policy)
+    watch = resolve_watch(extension, watch)
     validate_watch_semantics(extension, watch)
     result = {"schemaVersion": 1, "extension": extension["name"], "repository": watch["repository"],
               "detectedAt": utc_now(), "releasePolicy": "manual-only",
@@ -598,7 +602,7 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
     fleet = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fleet)
     policy = publication_policy.load_candidate_policy(BUILD_ROOT) if policy_path is None else read(policy_path)
-    allowed, mode = fleet.decide(fleet.get_live(), repository, config, read(watch_path), "candidate", policy)
+    allowed, mode = fleet.decide(fleet.get_live(), repository, config, load_watch(config, watch_path), "candidate", policy)
     if not allowed:
         raise WatchError("candidate proposal denied by live central policy: " + mode)
     if config["upstream"]["repository"] != record["repository"]:
@@ -736,7 +740,8 @@ def main():
             print(json.dumps(record))
         elif args.action == "plan":
             policy = publication_policy.load_candidate_policy(BUILD_ROOT) if args.policy is None else read(args.policy)
-            record = plan(read(args.extension), read(args.watch), policy,
+            extension = read(args.extension)
+            record = plan(extension, load_watch(extension, args.watch), policy,
                           lifecycle=read(args.lifecycle) if args.lifecycle else None)
             Path(args.output).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             if os.environ.get("GITHUB_OUTPUT"):

@@ -342,6 +342,11 @@ jobs:
           python tests/test-fleet-promotion-policy.py
           python tests/test-publication-policy.py
 
+      - name: Verify embedded watch and fleet-derived allowlist equivalence
+        run: |
+          python tests/test-watch-section.py
+          python tests/test-fleet-derivation.py
+
       - name: Reject partial activation and verify transition unit controls without full-repo projection
         run: python tests/test-publication-policy-transition.py
 

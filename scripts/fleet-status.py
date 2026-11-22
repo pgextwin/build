@@ -163,10 +163,10 @@ def native_candidate_ci(page, pr, repo, event="pull_request"):
     return run, "FAILED_OR_UNVERIFIED"
 
 
-def one(entry,lifecycle):
+def one(entry,lifecycle,schedule_utc=None):
     repo=entry["repository"]
     row={"extension":repo.split("/")[-1],"repository":repo,"mode":entry["mode"],
-         "scheduleUtc":entry["scheduleUtc"],"lastWatch":None,"watchResult":"UNKNOWN",
+         "scheduleUtc":entry.get("scheduleUtc",schedule_utc),"lastWatch":None,"watchResult":"UNKNOWN",
          "currentMainScheduleStatus":"INDETERMINATE","currentProtectedMainSha":None,
          "detectedCandidate":None,"candidatePrUrl":None,"lastWindowsCi":None,"candidateCiMode":"NONE",
          "lastCandidateStatus":"NOT_RUN","perMajor":[],"lastSuccessfulCandidate":None,
@@ -319,7 +319,7 @@ def main():
     module=module_from_spec(spec);spec.loader.exec_module(module)
     module.validate(policy)
     lifecycle=json.loads(Path(args.lifecycle).read_text())
-    results=[one(entry,lifecycle) for entry in policy["entries"]]
+    results=[one(entry,lifecycle,policy["scheduleUtc"]) for entry in policy["entries"]]
     status={"schemaVersion":1,"generatedAt":datetime.now(timezone.utc).isoformat(),
             "policyRelease":policy["releasePolicy"],"extensions":results}
     task_spec=spec_from_file_location("hourly_chat_task", Path(__file__).with_name("chat-task-queue.py"))

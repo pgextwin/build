@@ -17,6 +17,9 @@ AUTOMATIC="automatic-signed-schedule"
 # This is not a publication allowlist and does not grant new repo rights.
 MAX_REGISTERED_FLEET = 128
 REPO=re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
+WATCH_STRATEGIES = ("github-releases", "github-tags", "github-releases-per-postgresql")
+ENTRY_FIELDS = {"repository", "mode", "candidateEnabled", "releasePolicy", "reason"}
+OPTIONAL_ENTRY_FIELDS = {"strategy", "scheduleUtc", "ownerSource"}
 
 class Denied(ValueError): pass
 
@@ -46,6 +49,30 @@ def members(fleet,*,require_build=True,audited=None):
     if audited is not None:
         require(set(rows)==set(audited),"incomplete audited source registry")
     return rows
+
+def validate_registry(registry):
+    require(isinstance(registry, dict)
+            and set(registry) == {"schemaVersion", "scheduleUtc", "releasePolicy", "entries"},
+            "unsupported fleet policy fields")
+    require(type(registry["schemaVersion"]) is int and registry["schemaVersion"] == 1,
+            "unsupported fleet schema version")
+    schedule = registry["scheduleUtc"]
+    require(schedule == "0 * * * *" and registry["releasePolicy"] in (MANUAL, AUTOMATIC),
+            "fleet must use hourly UTC minute 00 and a supported formal-release mode")
+    try:
+        entries = members(registry, require_build=False)
+    except Denied as exc:
+        raise Denied("invalid shared fleet contract") from exc
+    for item in entries.values():
+        require(ENTRY_FIELDS <= set(item) <= ENTRY_FIELDS | OPTIONAL_ENTRY_FIELDS,
+                "invalid fleet entry")
+        require("strategy" not in item or item["strategy"] in WATCH_STRATEGIES,
+                "invalid mode or watch strategy")
+        require(item.get("scheduleUtc", schedule) == schedule,
+                "fleet entry disagrees with schedule or release policy")
+        require(type(item["reason"]) is str, "invalid candidateEnabled or reason type")
+        require(type(item.get("ownerSource", False)) is bool, "invalid ownerSource type")
+    return entries
 
 def central_policy(fleet,central,*,audited=None):
     rows=members(fleet,audited=audited)

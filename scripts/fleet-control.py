@@ -7,15 +7,10 @@ import base64
 import json
 import os
 from pathlib import Path
-import re
 import sys
-from update_watch_lib import WatchError, github_get_json
+from update_watch_lib import WatchError, github_get_json, load_watch
 
 CONTROL_URL = "https://api.github.com/repos/pgextwin/build/contents/metadata/automation-fleet.json?ref=main"
-REPOSITORY = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
-STRATEGIES = {"github-releases", "github-tags", "github-releases-per-postgresql"}
-MODES = {"OFF", "WATCH", "BUILD"}
-EXPECTED_FIELDS = {"repository", "mode", "strategy", "scheduleUtc", "candidateEnabled", "releasePolicy", "reason"}
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 
 _policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",Path(__file__).with_name("fleet-policy.py"))
@@ -28,38 +23,10 @@ publication_policy = importlib.util.module_from_spec(_publication_spec)
 _publication_spec.loader.exec_module(publication_policy)
 
 def validate(registry):
-    if not isinstance(registry, dict) or set(registry) != {"schemaVersion", "scheduleUtc", "releasePolicy", "entries"}:
-        raise WatchError("unsupported fleet policy fields")
-    if type(registry["schemaVersion"]) is not int or registry["schemaVersion"] != 1:
-        raise WatchError("unsupported fleet schema version")
-    if registry["scheduleUtc"] != "0 * * * *" or registry["releasePolicy"] not in (fleet_policy.MANUAL,fleet_policy.AUTOMATIC):
-        raise WatchError("fleet must use hourly UTC minute 00 and a supported formal-release mode")
     try:
-        fleet_policy.members(registry,require_build=False)
+        return fleet_policy.validate_registry(registry)
     except fleet_policy.Denied as exc:
-        raise WatchError("invalid shared fleet contract") from exc
-    entries = registry["entries"]
-    if not isinstance(entries, list) or not entries:
-        raise WatchError("fleet registry must contain entries")
-    seen = set()
-    for item in entries:
-        if not isinstance(item, dict) or set(item) != EXPECTED_FIELDS:
-            raise WatchError("invalid fleet entry")
-        repo = item["repository"]
-        if not isinstance(repo, str) or not REPOSITORY.fullmatch(repo) or repo in seen:
-            raise WatchError("invalid or duplicate repository")
-        seen.add(repo)
-        if item["mode"] not in MODES or item["strategy"] not in STRATEGIES:
-            raise WatchError("invalid mode or watch strategy")
-        if item["scheduleUtc"] != registry["scheduleUtc"] or item["releasePolicy"] != registry["releasePolicy"]:
-            raise WatchError("fleet entry disagrees with schedule or release policy")
-        if type(item["candidateEnabled"]) is not bool or type(item["reason"]) is not str:
-            raise WatchError("invalid candidateEnabled or reason type")
-        if item["mode"] != "BUILD" and item["candidateEnabled"]:
-            raise WatchError("non-BUILD entry cannot enable candidates")
-        if item["mode"] == "BUILD" and not item["candidateEnabled"]:
-            raise WatchError("BUILD entry must explicitly enable candidate builds")
-    return {entry["repository"]: entry for entry in entries}
+        raise WatchError(str(exc)) from exc
 
 def get_live(fetch=github_get_json):
     payload = fetch(CONTROL_URL, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
@@ -80,7 +47,8 @@ def decide(policy, repository, extension, watch, action, candidate_policy=None):
     entry = entries[repository]
     if repository != "pgextwin/" + extension.get("name", ""):
         raise WatchError("extension name and repository differ")
-    if entry["strategy"] != watch.get("strategy") or extension.get("upstream", {}).get("repository") != watch.get("repository"):
+    if (("strategy" in entry and entry["strategy"] != watch.get("strategy"))
+            or extension.get("upstream", {}).get("repository") != watch.get("repository")):
         raise WatchError("fleet strategy or upstream identity mismatch")
     if action not in {"watch", "candidate"}:
         raise WatchError("invalid requested action")
@@ -104,7 +72,7 @@ def main():
     args = parser.parse_args()
     try:
         extension = json.loads(Path(args.extension).read_text(encoding="utf-8"))
-        watch = json.loads(Path(args.watch).read_text(encoding="utf-8"))
+        watch = load_watch(extension, args.watch)
         if args.candidate_policy is None:
             policy = publication_policy.load_candidate_policy(BUILD_ROOT)
         else:
