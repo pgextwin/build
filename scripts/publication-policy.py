@@ -43,6 +43,32 @@ def _allowed_repositories(policy, filename):
     return allowed
 
 
+def load_fleet_registry(build_root):
+    path = Path(build_root) / "metadata" / "automation-fleet.json"
+    try:
+        registry = fleet_policy.read(path)
+        fleet_policy.validate_registry(registry)
+    except (OSError, ValueError, TypeError, RecursionError) as exc:
+        raise Denied(f"cannot load {path.name}: {exc}") from exc
+    return registry
+
+
+def derive_release_promotion_repositories(build_root):
+    return [entry["repository"] for entry in load_fleet_registry(build_root)["entries"]]
+
+
+def derive_owner_source_repositories(build_root):
+    entries = load_fleet_registry(build_root)["entries"]
+    _require(all("ownerSource" in entry for entry in entries),
+             "missing ownerSource in automation-fleet.json")
+    return [entry["repository"] for entry in entries if entry["ownerSource"]]
+
+
+def derive_manual_release_extensions(build_root):
+    return sorted(repository.split("/", 1)[1]
+                  for repository in derive_release_promotion_repositories(build_root))
+
+
 def load_candidate_policy(build_root):
     """Load the established enabled, nonpublishing Windows candidate policy."""
     policy = _read(build_root, "candidate-build.json",

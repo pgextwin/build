@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -13,6 +14,7 @@ from urllib.error import HTTPError, URLError
 
 PRE_RELEASE_WORDS = re.compile(r"(?:^|[._-])(alpha|beta|rc|preview|pre)(?:[0-9._-]|$)", re.I)
 VERSION_BITS = re.compile(r"\d+")
+WATCH_SECTION_FIELDS = {"source", "strategy", "prereleases", "stableTagPattern", "perPostgresql"}
 
 
 class WatchError(RuntimeError):
@@ -52,6 +54,33 @@ def github_get_json(url: str, token: str | None = None, timeout: int = 30) -> An
         return json.loads(raw)
     except json.JSONDecodeError as exc:
         raise WatchError(f"upstream returned malformed JSON: {exc}") from exc
+
+
+def resolve_watch(extension: dict[str, Any], legacy_watch: dict[str, Any] | None = None) -> dict[str, Any]:
+    if legacy_watch is not None:
+        return legacy_watch
+    if "watch" not in extension:
+        raise WatchError("no legacy update-watch file or extension watch section")
+    section = extension["watch"]
+    if not isinstance(section, dict) or set(section) - WATCH_SECTION_FIELDS - {"repository"}:
+        raise WatchError("invalid extension watch section fields")
+    upstream = extension.get("upstream")
+    repository = upstream.get("repository") if isinstance(upstream, dict) else None
+    if not isinstance(repository, str) or not repository:
+        raise WatchError("extension watch requires upstream.repository")
+    if "repository" in section and section["repository"] != repository:
+        raise WatchError("extension watch repository must match upstream.repository")
+    return {"schemaVersion": 1, **section, "repository": repository}
+
+
+def load_watch(extension: dict[str, Any], path: str | Path) -> dict[str, Any]:
+    try:
+        legacy_watch = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return resolve_watch(extension)
+    if not isinstance(legacy_watch, dict):
+        raise WatchError("JSON root must be an object")
+    return resolve_watch(extension, legacy_watch)
 
 
 def validate_watch_semantics(extension: dict[str, Any], watch: dict[str, Any]) -> None:
