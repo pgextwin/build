@@ -335,7 +335,9 @@ jobs:
         run: python tests/test-release-authorization.py
 
       - name: Validate registered publication policy bundle and fail-closed controls
-        run: python tests/test-fleet-promotion-policy.py
+        run: |
+          python tests/test-fleet-promotion-policy.py
+          python tests/test-publication-policy.py
 
       - name: Reject partial activation and verify transition unit controls without full-repo projection
         run: python tests/test-publication-policy-transition.py

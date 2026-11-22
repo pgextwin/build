@@ -16,10 +16,16 @@ REPOSITORY = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 STRATEGIES = {"github-releases", "github-tags", "github-releases-per-postgresql"}
 MODES = {"OFF", "WATCH", "BUILD"}
 EXPECTED_FIELDS = {"repository", "mode", "strategy", "scheduleUtc", "candidateEnabled", "releasePolicy", "reason"}
+BUILD_ROOT = Path(__file__).resolve().parents[1]
 
 _policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",Path(__file__).with_name("fleet-policy.py"))
 fleet_policy=importlib.util.module_from_spec(_policy_spec)
 _policy_spec.loader.exec_module(fleet_policy)
+
+_publication_spec = importlib.util.spec_from_file_location(
+    "publication_policy", BUILD_ROOT / "scripts" / "publication-policy.py")
+publication_policy = importlib.util.module_from_spec(_publication_spec)
+_publication_spec.loader.exec_module(publication_policy)
 
 def validate(registry):
     if not isinstance(registry, dict) or set(registry) != {"schemaVersion", "scheduleUtc", "releasePolicy", "entries"}:
@@ -84,7 +90,7 @@ def decide(policy, repository, extension, watch, action, candidate_policy=None):
         return False, entry["mode"]
     if not isinstance(candidate_policy, dict):
         raise WatchError("BUILD mode requires local opt-in policy")
-    if candidate_policy != {"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow":"windows.yml"}:
+    if candidate_policy != publication_policy.load_candidate_policy(BUILD_ROOT):
         raise WatchError("local candidate opt-in is missing or inconsistent")
     return True, entry["mode"]
 

@@ -31,6 +31,7 @@ def encoded(path,value):
 
 def setup():
     base=fixture_mod.fixture()
+    base["candidate_policy"]=live.intent.publication_policy.load_candidate_policy(ROOT)
     repo="pgextwin/orafce"
     event={"ref":"refs/heads/main","repository":{"full_name":repo},
            "created":False,"deleted":False,"after":MAIN}
@@ -47,8 +48,6 @@ def setup():
         "pulls/8":pr,
         "contents/config/extension.json?ref="+MAIN:
             encoded("config/extension.json",base["manifest"]),
-        "contents/config/candidate-build.json?ref="+MAIN:
-            encoded("config/candidate-build.json",base["local_candidate_policy"]),
         "actions/runs?per_page=100":{"total_count":1,"workflow_runs":[run]},
         "actions/runs/615/artifacts?per_page=100":{
             "total_count":1,"artifacts":[artifact]},
@@ -71,6 +70,7 @@ class SignedIntentLiveTests(unittest.TestCase):
         return live.bind(repository="pgextwin/orafce",event=event,
             witness=base["witness"],fleet=base["fleet"],
             central_policy=base["central_policy"],lifecycle=base["lifecycle"],
+            candidate_policy=base["candidate_policy"],
             api=api,download=download,today=date(2026,10,22))
 
     def test_valid_schedule_original_is_still_nonpublishing(self):
@@ -105,7 +105,8 @@ class SignedIntentLiveTests(unittest.TestCase):
             lambda b,e,d:d["actions/runs/615/artifacts?per_page=100"]["artifacts"][0]["workflow_run"].update(head_sha="b"*40),
             lambda b,e,d:d["contents/config/extension.json?ref="+MAIN].update(content="%%%bad%%%"),
             lambda b,e,d:d["contents/config/extension.json?ref="+MAIN].update(sha="e"*40),
-            lambda b,e,d:d["contents/config/candidate-build.json?ref="+MAIN].update(path="config/evil.json"),
+            lambda b,e,d:d["contents/config/extension.json?ref="+MAIN].update(path="config/evil.json"),
+            lambda b,e,d:b["candidate_policy"].update(enabled=False),
             lambda b,e,d:b["witness"].update(candidateBranch="auto-candidate/forged"),
             lambda b,e,d:b["witness"].update(publicationAuthorized=True),
             lambda b,e,d:b["central_policy"].update(releasePolicy="automatic"),
@@ -128,6 +129,8 @@ class SignedIntentLiveTests(unittest.TestCase):
             live.parse_json('{"status":"candidate","status":"release"}')
         with self.assertRaises(live.Denied):
             live.github("pgextwin/orafce","releases")
+        with self.assertRaises(live.Denied):
+            live.github("pgextwin/orafce","contents/config/candidate-build.json?ref="+MAIN)
         with self.assertRaises(live.Denied):
             live.github("pgextwin/../../bad","actions/runs?per_page=100")
 

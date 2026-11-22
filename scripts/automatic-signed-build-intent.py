@@ -26,6 +26,11 @@ _policy_spec=importlib.util.spec_from_file_location("shared_fleet_policy",ROOT/"
 fleet_policy=importlib.util.module_from_spec(_policy_spec)
 _policy_spec.loader.exec_module(fleet_policy)
 
+_publication_spec = importlib.util.spec_from_file_location(
+    "publication_policy", ROOT / "publication-policy.py")
+publication_policy = importlib.util.module_from_spec(_publication_spec)
+_publication_spec.loader.exec_module(publication_policy)
+
 class Denied(ValueError):
     pass
 
@@ -56,13 +61,12 @@ def plan(*, witness, decision, pr, manifest, lifecycle, fleet, central_policy, l
         require(repository in roster,"unknown signing target")
     except fleet_policy.Denied as exc:
         raise Denied("candidate fleet/central policy mismatch") from exc
+    expected_candidate_policy = publication_policy.load_candidate_policy(ROOT.parent)
     require(type(local_candidate_policy) is dict
             and type(local_candidate_policy.get("schemaVersion")) is int
             and type(local_candidate_policy.get("enabled")) is bool
-            and local_candidate_policy == {"schemaVersion": 1, "enabled": True,
-                                           "releasePolicy": "manual-only",
-                                           "workflow": "windows.yml"},
-            "local candidate policy not the established manual-only contract")
+            and local_candidate_policy == expected_candidate_policy,
+            "candidate policy differs from the canonical manual-only contract")
     require(type(witness.get("schemaVersion")) is int
             and witness["schemaVersion"] == 1
             and witness.get("status") == "MERGED_NATIVE_CANDIDATE_NONPUBLISHING"
