@@ -25,7 +25,7 @@ REPO = "pgextwin/pg_hint_plan"
 BASE = f"/repos/{REPO}"
 PUSH, HEAD, CHECKOUT, TREE, BUILD, UPSTREAM = (char * 40 for char in "abcdef")
 PULLS = f"{BASE}/commits/{PUSH}/pulls?per_page=100"
-RUNS = f"{BASE}/actions/workflows/windows.yml/runs?event=pull_request&per_page=100"
+RUNS = f"{BASE}/actions/workflows/windows.yml/runs?event=pull_request&head_sha={HEAD}&per_page=100"
 CHECKS = f"{BASE}/check-suites/98/check-runs?per_page=100"
 JOBS = f"{BASE}/actions/runs/65/attempts/2/jobs?per_page=100"
 LOGS = f"{BASE}/actions/jobs/77/logs"
@@ -138,10 +138,10 @@ class MainReuseTests(unittest.TestCase):
         self.responses[f"{BASE}/git/commits/{CHECKOUT}"]["tree"]["sha"] = "1" * 40
         self.assert_fallback("tree_mismatch")
 
-    def test_a_distinct_rest_run_head_must_also_match_the_tree(self):
-        head = "2" * 40
-        self.run["head_sha"] = head
-        self.responses[f"{BASE}/git/commits/{head}"] = {"tree": {"sha": "3" * 40}}
+    def test_a_distinct_source_checkout_commit_must_also_match_the_tree(self):
+        checkout = "2" * 40
+        self.source["checkout_commit"] = checkout
+        self.responses[f"{BASE}/git/commits/{checkout}"] = {"tree": {"sha": "3" * 40}}
         self.assert_fallback("tree_mismatch")
 
     def test_two_merged_pull_requests_fall_back(self):
@@ -156,12 +156,12 @@ class MainReuseTests(unittest.TestCase):
         self.run["conclusion"] = "failure"
         self.assert_fallback("pr_run_not_successful")
 
-    def test_missing_run_pr_association_falls_back(self):
-        self.run["pull_requests"] = []
+    def test_run_with_a_different_head_falls_back(self):
+        self.run["head_sha"] = "2" * 40
         self.assert_fallback("pr_run_not_unique")
 
     def test_ambiguous_runs_on_separate_pages_fall_back(self):
-        unrelated = [dict(self.run, id=i, pull_requests=[]) for i in range(100, 199)]
+        unrelated = [dict(self.run, id=i) for i in range(100, 199)]
         self.responses[RUNS] = collection("workflow_runs", [self.run, *unrelated], total=101)
         self.responses[RUNS + "&page=2"] = collection("workflow_runs", [dict(self.run, id=66)], total=101)
         self.assert_fallback("pr_run_not_unique")

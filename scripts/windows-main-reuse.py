@@ -145,10 +145,12 @@ def find_source(*, repository, push_sha, current, current_tree, current_build_sh
     pr_number = positive_id(pr["number"])
     pr_head = github_sha(pr["head"]["sha"])
 
-    runs = collection(get, f"{repo}/actions/workflows/windows.yml/runs?event=pull_request",
-                      "workflow_runs")
+    # Bind the PR Run by its head SHA (the design's key). The REST run's
+    # pull_requests array is often empty, so it cannot carry the binding.
+    runs = collection(get, f"{repo}/actions/workflows/windows.yml/runs?event=pull_request"
+                           f"&head_sha={pr_head}", "workflow_runs")
     matching = [run for run in runs
-                if any(item["number"] == pr_number for item in run["pull_requests"])
+                if run["head_sha"] == pr_head
                 and (run["head_repository"] or {}).get("full_name") == repository]
     if len(matching) != 1:
         raise NoReuse("pr_run_not_unique")
