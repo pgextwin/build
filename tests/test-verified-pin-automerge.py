@@ -172,7 +172,56 @@ class AutoMergeGuards(unittest.TestCase):
         self.assertEqual(receipt["decision"],"ORIGINAL_POSTMERGE_WINDOWS_ACCEPTED")
         self.assertEqual(receipt["mainSha"],NEW)
         self.assertEqual(receipt["requiredChecksPassed"],7)
+        self.assertNotIn("reuseSourceRunId", receipt)
         self.assertFalse(receipt["releaseAuthorized"])
+
+    def postmerge_with_reuse(self, repository=REPO):
+        postmerge = self.postmerge(repository)
+        checks = postmerge["checks"]
+        postmerge["checks"] = [c for c in checks if c["name"] in lib.POSTMERGE_LOCAL_CHECKS]
+        postmerge["reuse_source"] = {
+            "runId": 456,
+            "checks": [c for c in checks if c["name"] not in lib.POSTMERGE_LOCAL_CHECKS],
+        }
+        return postmerge
+
+    def test_postmerge_reuse_accepts_pg_checks_from_pr_run(self):
+        receipt = lib.verify_postmerge(**self.postmerge_with_reuse())
+        self.assertEqual(receipt["runId"], 123)
+        self.assertEqual(receipt["reuseSourceRunId"], 456)
+        self.assertEqual(receipt["requiredChecksPassed"], 7)
+        self.assertFalse(receipt["releaseAuthorized"])
+
+    def test_postmerge_reuse_requires_successful_native_pg_checks(self):
+        for changes in (None, {"app": {"id": 1}}, {"status": "in_progress"},
+                        {"conclusion": "skipped"}):
+            with self.subTest(changes=changes), self.assertRaises(lib.Denied):
+                postmerge = self.postmerge_with_reuse()
+                checks = postmerge["reuse_source"]["checks"]
+                if changes is None:
+                    checks.pop()
+                else:
+                    checks[0].update(changes)
+                lib.verify_postmerge(**postmerge)
+
+    def test_postmerge_reuse_requires_local_summary_and_matrix_resolution(self):
+        for name in lib.POSTMERGE_LOCAL_CHECKS:
+            with self.subTest(name=name), self.assertRaises(lib.Denied):
+                postmerge = self.postmerge_with_reuse()
+                check = next(c for c in postmerge["checks"] if c["name"] == name)
+                postmerge["checks"].remove(check)
+                postmerge["reuse_source"]["checks"].append(check)
+                lib.verify_postmerge(**postmerge)
+
+    def test_plpgsql_postmerge_reuse_applies_check_substitution_across_both_runs(self):
+        postmerge = self.postmerge_with_reuse("pgextwin/plpgsql_check")
+        checks = postmerge["reuse_source"]["checks"]
+        checks[:] = [c for c in checks if c["name"] != "windows / PostgreSQL 14 / Windows x64"]
+        for name, target in (("syntax", postmerge["checks"]),
+                             ("Regression-test immutable Release preflight", checks)):
+            target.append({"name": name, "status": "completed", "conclusion": "success",
+                           "app": {"id": 15368}})
+        self.assertEqual(lib.verify_postmerge(**postmerge)["requiredChecksPassed"], 8)
 
     def test_reject_actions_token_merge_without_original_push_ci(self):
         p=self.postmerge()

@@ -23,6 +23,21 @@ on:
       build_sha:
         description: The resolved pgextwin/build commit SHA that is running this workflow
         value: ${{ jobs.matrix.outputs.build_sha }}
+      reuse_applied:
+        description: Whether a successful PR Run supplied the Windows CI result
+        value: ${{ jobs.matrix.outputs.reuse_applied }}
+      reuse_source_pr:
+        description: PR number of the reused Windows CI result
+        value: ${{ jobs.matrix.outputs.reuse_source_pr }}
+      reuse_source_run_id:
+        description: Run ID of the reused Windows CI result
+        value: ${{ jobs.matrix.outputs.reuse_source_run_id }}
+      reuse_source_attempt:
+        description: Attempt of the reused Windows CI result
+        value: ${{ jobs.matrix.outputs.reuse_source_attempt }}
+      reuse_source_build_sha:
+        description: Build infrastructure SHA of the reused Windows CI result
+        value: ${{ jobs.matrix.outputs.reuse_source_build_sha }}
 
 jobs:
   matrix:
@@ -30,6 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
+      actions: read
+      checks: read
     outputs:
       matrix: ${{ steps.meta.outputs.matrix }}
       extension_name: ${{ steps.meta.outputs.extension_name }}
@@ -40,6 +58,11 @@ jobs:
       verify_upstream_license: ${{ steps.meta.outputs.verify_upstream_license }}
       license_files: ${{ steps.meta.outputs.license_files }}
       build_sha: ${{ steps.build_sha.outputs.build_sha }}
+      reuse_applied: ${{ steps.reuse.outputs.reuse_applied }}
+      reuse_source_pr: ${{ steps.reuse.outputs.reuse_source_pr }}
+      reuse_source_run_id: ${{ steps.reuse.outputs.reuse_source_run_id }}
+      reuse_source_attempt: ${{ steps.reuse.outputs.reuse_source_attempt }}
+      reuse_source_build_sha: ${{ steps.reuse.outputs.reuse_source_build_sha }}
 
     steps:
       - name: Record resolved build workflow SHA
@@ -80,9 +103,53 @@ jobs:
             -ExtensionConfigPath "${{ inputs.extension_config_path }}" `
             -PostgreSqlConfigPath ".pgextwin-build/metadata/postgresql.json"
 
+      - name: Record resolved Windows CI inputs
+        id: record
+        continue-on-error: true
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BUILD_SHA: ${{ job.workflow_sha }}
+          EXTENSION_NAME: ${{ steps.meta.outputs.extension_name }}
+          UPSTREAM_REPOSITORY: ${{ steps.meta.outputs.upstream_repository }}
+          UPSTREAM_MODE: ${{ steps.meta.outputs.upstream_mode }}
+          UPSTREAM_REF: ${{ steps.meta.outputs.upstream_ref }}
+          UPSTREAM_VERSION: ${{ steps.meta.outputs.upstream_version }}
+          VERIFY_UPSTREAM_LICENSE: ${{ steps.meta.outputs.verify_upstream_license }}
+          LICENSE_FILES: ${{ steps.meta.outputs.license_files }}
+          MATRIX: ${{ steps.meta.outputs.matrix }}
+        run: |
+          checkout_commit="$(git rev-parse HEAD)"
+          checkout_tree="$(git rev-parse 'HEAD^{tree}')"
+          line="$(CHECKOUT_COMMIT="$checkout_commit" CHECKOUT_TREE="$checkout_tree" \
+            python .pgextwin-build/scripts/windows-main-reuse.py record)"
+          printf '%s\n' "$line"
+          printf 'record=%s\ntree=%s\n' "${line#PGEXTWIN_INPUT_RECORD=}" "$checkout_tree" >> "$GITHUB_OUTPUT"
+
+      - name: Determine whether main can reuse Windows CI
+        id: reuse
+        continue-on-error: true
+        shell: bash
+        env:
+          MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CURRENT_RECORD: ${{ steps.record.outputs.record }}
+          CURRENT_TREE: ${{ steps.record.outputs.tree }}
+          CURRENT_BUILD_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [[ "$MAIN_PUSH" != true ]]; then
+            printf 'reuse_applied=false\nreuse_reason=not_main_push\n' >> "$GITHUB_OUTPUT"
+          elif ! python .pgextwin-build/scripts/windows-main-reuse.py determine \
+            --enabled-list .pgextwin-build/metadata/main-reuse.json \
+            --current-record "$CURRENT_RECORD" --current-tree "$CURRENT_TREE" \
+            --current-build-sha "$CURRENT_BUILD_SHA"; then
+            printf 'reuse_applied=false\nreuse_reason=determine_failed\n' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: PostgreSQL ${{ matrix.major }} / Windows x64
     needs: matrix
+    if: ${{ needs.matrix.outputs.reuse_applied != 'true' }}
     runs-on: windows-latest
     permissions:
       contents: read

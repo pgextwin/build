@@ -17,6 +17,11 @@ permissions:
 
 jobs:
   windows:
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
     uses: pgextwin/build/.github/workflows/build-extension.yml@main
     with:
       extension_config_path: config/extension.json
