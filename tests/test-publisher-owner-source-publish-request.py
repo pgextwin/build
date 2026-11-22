@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """#524: owner formal-source command is distinct, live, protected and READ-ONLY."""
 from __future__ import annotations
-import base64
-from copy import deepcopy
 import importlib.util
-import json
 from pathlib import Path
 from unittest import TestCase,main
 from unittest.mock import patch
@@ -28,14 +25,14 @@ def event():
     x["comment"]["body"]=COMMAND
     return x
 
-def local_content(obj):
-    return {"type":"file","encoding":"base64",
-            "content":base64.b64encode(json.dumps(obj).encode()).decode()}
+def get_branch(repo,path):
+    if path=="branches/main" and repo in (REPO,"pgextwin/build"):
+        return fixtures.branch()
+    raise AssertionError("unexpected GitHub resource "+path)
 
 def selected_inputs():
     a=policies.synthetic()
     a["owner_central"]["allowedRepositories"]=[REPO]
-    a["owner_local"]["sourceKind"]=selector.admission.SOURCE_KIND
     # The registered 17-member synthetic fleet already includes plpgsql_check.
     # Keep the complete roster intact: central policy cannot shrink to a pilot.
     a["repository"]=REPO
@@ -57,19 +54,10 @@ class RequestTests(TestCase):
     def test_source_selection_requires_optin_before_expensive_signer_check(self):
         # Even a genuine event and original signed Run cannot bypass the
         # protected default DENY policy, so no real Sigstore is invoked.
-        from unittest.mock import patch
         x=selected_inputs()
         x["owner_central"]["mode"]="DENY"
         x["owner_central"]["allowedRepositories"]=[]
-        def get(repo,path):
-            if path=="branches/main":
-                return fixtures.branch()
-            if path.startswith("contents/config/release-promotion.json"):
-                return local_content(x["local"])
-            if path.startswith("contents/config/owner-source-publication.json"):
-                return local_content(x["owner_local"])
-            raise AssertionError("unexpected GitHub resource "+path)
-        with patch.object(admission,"get",side_effect=get),patch.object(
+        with patch.object(admission,"get",side_effect=get_branch),patch.object(
              admission,"admit") as expensive:
             with self.assertRaises(selector.policy.Denied):
                 selector.select(event=event(),live=event()["comment"],
@@ -81,15 +69,7 @@ class RequestTests(TestCase):
 
     def test_selection_only_returns_nonpublishing_request(self):
         x=selected_inputs()
-        def get(repo,path):
-            if path=="branches/main":
-                return fixtures.branch()
-            if path.startswith("contents/config/release-promotion.json"):
-                return local_content(x["local"])
-            if path.startswith("contents/config/owner-source-publication.json"):
-                return local_content(x["owner_local"])
-            raise AssertionError(path)
-        with patch.object(admission,"get",side_effect=get),patch.object(
+        with patch.object(admission,"get",side_effect=get_branch),patch.object(
              admission,"admit") as verify:
             result=selector.select(event=event(),live=event()["comment"],
                 run=fixtures.run(),branch=fixtures.branch(),env=fixtures.env(),

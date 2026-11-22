@@ -5,8 +5,11 @@ import base64
 from copy import deepcopy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest
 
@@ -142,11 +145,51 @@ class IndependentLivePublisherTests(unittest.TestCase):
             with self.assertRaises(live.Denied):
                 live.verified_live_file(corrupt,path,content)
 
+    def test_cli_checks_only_central_policy_blobs(self):
+        values = fixture()
+        tag = values["handoff"]["tagProposal"]
+        responses = {
+            (REPO, "branches/main"): values["branch"],
+            (REPO, f"actions/runs/{RUN}"): values["run"],
+            (REPO, f"git/ref/tags/{tag}"): None,
+            (REPO, f"releases/tags/{tag}"): None,
+        }
+        env = {"GITHUB_REPOSITORY": REPO, "GITHUB_SHA": SHA, "GITHUB_RUN_ID": str(RUN),
+               "GITHUB_RUN_ATTEMPT": "1", "GITHUB_EVENT_NAME": "push",
+               "GITHUB_REF": "refs/heads/main", "GH_TOKEN": "synthetic"}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "metadata").mkdir()
+            for policy, name in (("fleet", "automation-fleet"), ("central", "release-promotion"),
+                                 ("unattended", "unattended-publication")):
+                path = f"metadata/{name}.json"
+                raw = json.dumps(values[policy]).encode()
+                (root / path).write_bytes(raw)
+                responses[("pgextwin/build", f"contents/{path}?ref=main")] = {
+                    "path": path, "encoding": "base64", "sha": live.blob_sha(raw),
+                    "content": base64.b64encode(raw).decode(),
+                }
+            handoff, output = root / "handoff.json", root / "output.json"
+            handoff.write_text(json.dumps(values["handoff"]), "utf-8")
+            argv = ["live-preflight", "--handoff", str(handoff), "--output", str(output)]
+            with patch.dict(os.environ, env), patch.object(sys, "argv", argv), patch.object(
+                live, "__file__", str(root / "scripts" / "preflight.py")), patch.object(
+                live, "github", side_effect=lambda repo, path, **_: responses[(repo, path)]
+            ) as github:
+                self.assertEqual(live.main(), 0)
+                self.assertEqual(json.loads(output.read_text("utf-8")), live.assess(**values))
+                self.assertCountEqual([call.args for call in github.call_args_list], responses)
+                (root / "metadata/release-promotion.json").write_bytes(b"{}")
+                output.unlink()
+                self.assertEqual(live.main(), 2)
+                self.assertFalse(output.exists())
+
     def test_read_only_get_url_is_strict_and_404_cannot_hide_access_denial(self):
         with patch.object(live.subprocess, "run",
                           side_effect=AssertionError("no network")):
             for suffix in ("actions/runs/3;curl evil", "releases",
-                           "git/ref/heads/main", "git/ref/tags/../evil"):
+                           "git/ref/heads/main", "git/ref/tags/../evil",
+                           f"contents/config/release-promotion.json?ref={SHA}"):
                 with self.assertRaises(live.Denied):
                     live.github(REPO,suffix)
         not_found = subprocess.CompletedProcess(

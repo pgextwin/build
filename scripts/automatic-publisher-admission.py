@@ -23,6 +23,7 @@ def load(name, path):
     return obj
 scope=load("scheduled_admission_scope","publisher-scoped-token.py")
 identity=load("scheduled_admission_identity","fleet-release-identity.py")
+publication_policy=load("publication_policy","publication-policy.py")
 SHA=re.compile(r"^[a-f0-9]{40}$")
 HASH=re.compile(r"^[a-f0-9]{64}$")
 SCHEDULE_WORKFLOW=".github/workflows/publisher-candidate-intake.yml"
@@ -196,7 +197,7 @@ def assess(source,proposal,manifest,fleet,central,local,unattended,boundary,
 def main():
     parser=argparse.ArgumentParser()
     for name in ("source","proposal","manifest","fleet","central-policy",
-                 "local-policy","unattended","publisher-boundary",
+                 "unattended","publisher-boundary",
                  "schedule-run","central-branch","output"):
         parser.add_argument("--"+name,required=True)
     p=parser.parse_args()
@@ -205,12 +206,15 @@ def main():
                 os.environ.get("GITHUB_EVENT_NAME")=="schedule" and
                 os.environ.get("GITHUB_REF")=="refs/heads/main",
                 "not the trusted central schedule job")
+        repository=os.environ.get("TARGET_REPOSITORY")
+        central=read(p.central_policy)
+        local=publication_policy.release_promotion_from(central,repository)
         result=assess(
             read(p.source),read(p.proposal),read(p.manifest),read(p.fleet),
-            read(p.central_policy),read(p.local_policy),
+            central,local,
             read(p.unattended),read(p.publisher_boundary),
             read(p.schedule_run),
-            repository=os.environ.get("TARGET_REPOSITORY"),
+            repository=repository,
             sha=os.environ.get("TARGET_SOURCE_SHA"),
             source_run_id=int(os.environ.get("TARGET_SOURCE_RUN","0")),
             central_sha=os.environ.get("GITHUB_SHA"),

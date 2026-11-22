@@ -49,7 +49,6 @@ def setup(root,ready,owner=False):
             "requiresIndependentLiveRecheckAndAtomicTagReservation":True},
         "fleet":item["fleet"],
         "central-policy":item["central"],
-        "local-policy":item["local"],
         "unattended":item["unattended"],
         "publisher-boundary":item["boundary"],
         "owner-policy":fixture.owner_dispatch()["owner_policy"],

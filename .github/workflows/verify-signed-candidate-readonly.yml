@@ -67,7 +67,6 @@ jobs:
             --audit "$RUNNER_TEMP/automatic-signed-candidate-audit.json" \
             --fleet .pgextwin-build/metadata/automation-fleet.json \
             --central-policy .pgextwin-build/metadata/release-promotion.json \
-            --local-policy config/release-promotion.json \
             --unattended .pgextwin-build/metadata/unattended-publication.json \
             --output "$RUNNER_TEMP/automatic-publisher-policy-deny.json"
           echo 'Effective Publisher admission: PUBLISH_DENY / GO B,G4,G5 NO_GO.' >> "$GITHUB_STEP_SUMMARY"

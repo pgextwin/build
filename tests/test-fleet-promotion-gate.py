@@ -3,8 +3,12 @@
 from copy import deepcopy
 import importlib.util
 import json
+import os
 from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("gate",ROOT/"scripts"/"fleet-promotion-gate.py")
@@ -67,6 +71,39 @@ def fixture(name="plpgsql_check"):
 class GateTests(unittest.TestCase):
     def check(self,case):
         return gate.verify(**case)
+
+    def test_cli_derives_local_from_the_live_central_policy(self):
+        values = fixture()
+        repo = values["repo"]
+        env = {"GITHUB_REPOSITORY": repo, "GITHUB_SHA": SHA, "GITHUB_REF": "refs/heads/main",
+               "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_ACTOR": values["actor"]}
+        responses = {
+            f"repos/{repo}/branches/main": {"commit": {"sha": SHA}},
+            f"repos/{repo}/pulls/12": values["pr"],
+            f"repos/{repo}/pulls/12/files?per_page=100": values["pr_files"],
+            f"repos/{repo}/actions/runs/900": values["run"],
+            f"repos/{repo}/actions/runs/901": values["watch_run"],
+        }
+        policies = {"metadata/release-promotion.json": values["policy"],
+                    "metadata/automation-fleet.json": values["fleet"]}
+        artifacts = {"candidate-decision": values["decision"], "candidate-audit": values["audit"]}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ext, lifecycle, output = root / "ext.json", root / "lifecycle.json", root / "receipt.json"
+            ext.write_text(json.dumps(values["ext"]), "utf-8")
+            lifecycle.write_text(json.dumps(values["lifecycle"]), "utf-8")
+            argv = ["fleet-promotion-gate", "--candidate-pr", "12", "--candidate-run-id", "900",
+                    "--decision-run-id", "901", "--release-tag", values["tag"],
+                    "--confirm-release", "PUBLISH", "--extension", str(ext),
+                    "--lifecycle", str(lifecycle), "--output", str(output)]
+            with patch.dict(os.environ, env), patch.object(sys, "argv", argv), patch.object(
+                gate, "api", side_effect=responses.__getitem__), patch.object(
+                gate, "live_json", side_effect=policies.__getitem__), patch.object(
+                gate, "exec_checked"), patch.object(
+                gate, "artifact", side_effect=lambda repo, run, name, location: artifacts[name]
+            ):
+                self.assertEqual(gate.main(), 0)
+            self.assertEqual(json.loads(output.read_text("utf-8")), gate.verify(**values))
 
     def test_uniform_dated_and_per_pg_receipts(self):
         for name in ("plpgsql_check","pg_bigm","pgaudit"):

@@ -164,19 +164,26 @@ class OwnerFormalRuntimeTests(TestCase):
             review.assert_not_called()
 
     def test_prepare_retains_existing_blocking_grype_policy(self):
+        central = {"allowedRepositories": [REPO], "releasePolicy": mod.issuer.MODE}
+        owner_central = {"allowedRepositories": [REPO], "sourceKind": mod.issuer.OWNER_KIND}
+        policies = {"central_policy": central, "owner_central_policy": owner_central}
         a = SimpleNamespace(repository=REPO, source_run=str(SOURCE_RUN), source_sha=SHA,
-                            **dict.fromkeys(mod.POLICY_ARGS, "fixture"))
+                            **{name: name for name in mod.POLICY_ARGS})
         with TemporaryDirectory() as d, patch.object(
                 mod, "authenticate", return_value=(None, None, None, None, 3333)), patch.object(
-                mod.issuer.fleet_policy, "read", return_value={}), patch.object(
-                mod.selector, "protected_local", return_value={}), patch.object(
-                mod.policy, "gate"), patch.object(mod.issuer, "owner_policy_gate"), patch.object(
+                mod.issuer.fleet_policy, "read", side_effect=lambda name: policies.get(name, {})), patch.object(
+                mod.policy, "gate") as gate, patch.object(mod.issuer, "owner_policy_gate"), patch.object(
                 mod.owner, "admit", return_value=({"blockingGrypeFindings": 1}, {}, {})) as admit:
             scratch = Path(d)
             with self.assertRaisesRegex(mod.Denied, "blocking .* Grype"):
                 mod.prepare(a, scratch, fixture.env())
             self.assertFalse((scratch / mod.STATE_FILE).exists())
             admit.assert_called_once()
+            local = {"schemaVersion": 1, "enabled": True, "releasePolicy": mod.issuer.MODE}
+            gate.assert_called_once_with(fleet={}, central=central, local=local, unattended={},
+                                         boundary={}, owner_central=owner_central,
+                                         owner_local={**local, "sourceKind": mod.issuer.OWNER_KIND},
+                                         repository=REPO)
 
     def test_changed_preparation_is_denied_before_app_access(self):
         with TemporaryDirectory() as d, patch.object(mod.probe, "jwt") as jwt:

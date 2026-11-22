@@ -25,8 +25,8 @@ def load(name,path):
     return obj
 
 owner=load("owner_formal_original","publisher-owner-source-admission.py")
-selector=load("owner_formal_selector","publisher-owner-source-publish-request.py")
 policy=load("owner_formal_policy","owner-source-publish-policy.py")
+publication_policy=load("publication_policy","publication-policy.py")
 issuer=load("owner_formal_issuer","automatic-publisher-receipt-issuer.py")
 formal=load("owner_formal_writer","fleet-publish-release.py")
 scope=load("owner_formal_scoped_token","publisher-scoped-token.py")
@@ -178,12 +178,13 @@ def prepare(a, scratch, env):
     repo, run_id, sha = a.repository, int(a.source_run), a.source_sha
     _, _, _, _, cid = authenticate(repo, run_id, sha, env)
     policies = {name: issuer.fleet_policy.read(getattr(a, name)) for name in POLICY_ARGS}
-    local = selector.protected_local(repo, sha, "release-promotion")
-    owner_local = selector.protected_local(repo, sha, "owner-source-publication")
-    policy.gate(fleet=policies["fleet"], central=policies["central_policy"],
+    central, owner_central = policies["central_policy"], policies["owner_central_policy"]
+    local = publication_policy.release_promotion_from(central, repo)
+    owner_local = publication_policy.owner_source_from(owner_central, central, repo)
+    policy.gate(fleet=policies["fleet"], central=central,
                 local=local, unattended=policies["unattended"],
                 boundary=policies["publisher_boundary"],
-                owner_central=policies["owner_central_policy"],
+                owner_central=owner_central,
                 owner_local=owner_local, repository=repo)
     issuer.owner_policy_gate(policies["owner_policy"])
     proof, manifest, intent = owner.admit(

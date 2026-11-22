@@ -26,6 +26,7 @@ source=load("auto_runtime_real_signed_source","verify-completed-signed-source.py
 scope=load("auto_runtime_token_lifecycle","publisher-scoped-token.py")
 probe=load("auto_runtime_jwt","probe-publisher-app.py")
 formal=load("auto_runtime_frozen_formal_writer","fleet-publish-release.py")
+publication_policy=load("publication_policy","publication-policy.py")
 TAG=re.compile(r"^v[A-Za-z0-9][A-Za-z0-9._-]{0,110}-windows\.[1-9][0-9]*$")
 
 class Denied(ValueError):pass
@@ -37,7 +38,7 @@ def main():
     parser=argparse.ArgumentParser()
     for name in ("repository","sha","source-run","dist","manifest","lifecycle",
                  "original","second","proposal","fleet","central-policy",
-                 "local-policy","owner-policy","unattended","publisher-boundary","recovery","output"):
+                 "owner-policy","unattended","publisher-boundary","recovery","output"):
         parser.add_argument("--"+name,required=True)
     a=parser.parse_args()
     try:
@@ -60,7 +61,7 @@ def main():
         central_sha=os.environ["GITHUB_SHA"]
         fleet=source.read(a.fleet)
         central=source.read(a.central_policy)
-        local=source.read(a.local_policy)
+        local=publication_policy.release_promotion_from(central,repository)
         unattended=source.read(a.unattended)
         boundary=source.read(a.publisher_boundary)
         owner_policy=source.read(a.owner_policy)

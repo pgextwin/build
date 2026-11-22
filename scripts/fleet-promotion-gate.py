@@ -21,6 +21,8 @@ import tempfile
 ROOT=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location("fleet_identity",ROOT/"fleet-release-identity.py")
 ident=importlib.util.module_from_spec(spec);spec.loader.exec_module(ident)
+spec=importlib.util.spec_from_file_location("publication_policy",ROOT/"publication-policy.py")
+publication_policy=importlib.util.module_from_spec(spec);spec.loader.exec_module(publication_policy)
 SHA=re.compile(r"^[0-9a-f]{40}$")
 HASH=re.compile(r"^[0-9a-f]{64}$")
 CANDIDATE=re.compile(r"^auto-candidate/([a-f0-9]{20})$")
@@ -210,7 +212,7 @@ def main():
     p=argparse.ArgumentParser()
     for name in ("candidate-pr","candidate-run-id","decision-run-id"):
         p.add_argument("--"+name,required=True,type=int)
-    for name in ("release-tag","confirm-release","extension","local-policy","lifecycle","output"):
+    for name in ("release-tag","confirm-release","extension","lifecycle","output"):
         p.add_argument("--"+name,required=True)
     a=p.parse_args()
     try:
@@ -226,7 +228,7 @@ def main():
                 "main advanced; operator must re-review")
         policy=live_json("metadata/release-promotion.json")
         fleet=live_json("metadata/automation-fleet.json")
-        local=json.loads(Path(a.local_policy).read_text(encoding="utf-8"))
+        local=publication_policy.release_promotion_from(policy,repo)
         ext=json.loads(Path(a.extension).read_text(encoding="utf-8"))
         lifecycle=json.loads(Path(a.lifecycle).read_text(encoding="utf-8"))
         pr=api("repos/"+repo+"/pulls/"+str(a.candidate_pr))

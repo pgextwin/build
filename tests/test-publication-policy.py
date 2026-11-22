@@ -31,6 +31,8 @@ class PublicationPolicyTests(unittest.TestCase):
 
     def test_current_projections_match_legacy_local_values(self):
         fleet = json.loads((ROOT / "metadata" / "automation-fleet.json").read_text("utf-8"))
+        central_release = json.loads((ROOT / "metadata" / RELEASE).read_text("utf-8"))
+        central_owner = json.loads((ROOT / "metadata" / OWNER).read_text("utf-8"))
         repositories = {entry["repository"] for entry in fleet["entries"]}
         self.assertEqual(len(repositories), 26)
         self.assertTrue(NO_OWNER_SOURCE <= repositories)
@@ -41,10 +43,12 @@ class PublicationPolicyTests(unittest.TestCase):
             with self.subTest(repository=repo):
                 actual_release = policy.release_promotion_policy(ROOT, repo)
                 self.assertEqual(actual_release, release)
+                self.assertEqual(policy.release_promotion_from(central_release, repo), actual_release)
                 self.assertIs(actual_release["enabled"], True)
                 enabled = repo not in NO_OWNER_SOURCE
                 actual_owner = policy.owner_source_policy(ROOT, repo)
                 self.assertEqual(actual_owner, {**owner, "enabled": enabled})
+                self.assertEqual(policy.owner_source_from(central_owner, central_release, repo), actual_owner)
                 self.assertIs(actual_owner["enabled"], enabled)
         self.assertEqual(policy.release_promotion_policy(ROOT, "pgextwin/unregistered"), {
             **release, "enabled": False,
