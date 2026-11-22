@@ -53,24 +53,32 @@ jobs:
 
 ## Pin chain
 
-The caller pin shown is the verified build main at preparation time:
-`834f9ce912f2e5ce12834b77a9bd0ad7064554f9`. Its shared source workflow uses the
-approved inner builder `cdb253b5167031264e1baea634b55934c5f91d59`, which exactly
-matches `chat-signed-main-audit.py:OWNER_SIGNER_SHA`. Both commits have fleet blob
-`0ae80c704a51c3d72fdea2864df4f6cc6d589df4` (19 members, including both SQL-only
-extensions). No inner pin change is needed for this passenger. An outer caller
-pin upgrade does not require changing the signer digest when that builder and
-its fleet remain correct. Do not conflate the separate scheduled/push signer
-with this owner-source signer, or broaden the accepted signer to a wildcard.
+The example caller pin records the build main used at preparation time.
+The shared source workflow's `jobs.signed_windows.uses` declares the exact
+owner-source builder digest. The signing audit reads that entry at its
+immutable `job.workflow_sha`. The independent admission and isolated Publisher
+read the same entry at their authenticated build main commit. An existing run
+with the declared digest remains eligible under the existing verification
+and policy conditions. A run signed with a different digest requires a fresh
+run using the currently declared signer.
+
+For a repository already in the fixed builder's fleet, owner-source
+publication opt-in is managed in `metadata/owner-source-publication.json`.
+PostgreSQL 19 opt-in for an existing extension is managed in
+`metadata/postgresql-admission.json`. A caller using this shared workflow
+revision resolves PostgreSQL admission from a protected build main snapshot
+even when its caller pin stays fixed. The Publisher uses the policy from its
+authenticated build main commit. Existing release policy, local opt-in,
+maintained-version, source identity and per-version license checks still apply.
+Extending the builder's fleet or adding a globally unsupported PostgreSQL
+version requires a builder revision.
 
 ## Shared proof and admission
 
 The shared workflow produces the intent, signed ZIP/SPDX/Grype files for each
-maintained major, independent first/second audit receipts and the dual join.
-Job names, artifact names and caller path stay unchanged so existing
-`publisher-owner-source-admission.py:admit()` can re-fetch and audit the original
-source twice. For PG15–18 this is nine successful jobs, four signed file triples
-and four proof artifacts. No per-extension source admission adapter is needed.
+maintained major and an independent audit receipt. Publisher admission
+re-fetches and audits the original bytes. It also accepts the legacy dual-audit
+receipt layout under the same signer and byte-verification conditions.
 
 `publisher-owner-source-publish-request.py` selects the owner source by calling
 that same `admit()` after authenticating a distinct publication request and
@@ -114,8 +122,6 @@ python tests/test-owner-source-publisher-inprocess.py
 python tests/test-owner-source-formal-publisher.py
 ```
 
-The passenger regression in the admission suite executes the same `admit()`,
-`audit()`, proof-statement checks and `join()` for both SQL-only identities with
-PG15–18. Only transport/cryptographic verification is mocked; synthetic fixtures
-are never evidence of real signatures or runtime admission. It also rejects a
-stale original receipt when it differs from the fresh audit.
+The admission suite exercises the shared `admit()`, `audit()` and proof
+statement checks with synthetic PG15–19 artifacts. It rejects a stale original
+receipt when it differs from the freshly audited bytes.

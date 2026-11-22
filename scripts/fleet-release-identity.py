@@ -7,6 +7,8 @@ candidate decisions/audits, attested build and operator PUBLISH confirmation.
 """
 from __future__ import annotations
 from datetime import date
+import json
+from pathlib import Path
 import re
 
 UPSTREAMS = {
@@ -41,9 +43,7 @@ TAG_NAME = re.compile(r"^v[0-9]+(?:\.[0-9]+){1,3}(?:-[0-9]{8})?-windows\.[1-9][0
 VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}$")
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SHA = re.compile(r"^[a-f0-9]{40}$")
-ALLOWED_MAJORS = frozenset({14, 15, 16, 17, 18})
-# Extension names approved by review in Build. Candidate inputs cannot opt in.
-PG19_ADMISSION_OPT_IN: frozenset[str] = frozenset({"wal2json", "pg_permissions", "pg_ivm", "pg_profile", "pg_cron", "orafce", "plpgsql_check", "hypopg", "pg_qualstats", "pg_show_plans", "pg_squeeze", "pg_wait_sampling", "set_user", "pg_bigm", "pg_stat_monitor", "pgaudit", "pg_hint_plan"})
+ADMISSION_PATH = "metadata/postgresql-admission.json"
 
 class Denied(ValueError):
     pass
@@ -52,10 +52,37 @@ def require(condition: bool, detail: str) -> None:
     if not condition:
         raise Denied(detail)
 
-def admission_majors(extension: object) -> frozenset[int]:
-    if isinstance(extension, str) and extension in PG19_ADMISSION_OPT_IN:
-        return ALLOWED_MAJORS | {19}
-    return ALLOWED_MAJORS
+def parse_admission(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "duplicate PostgreSQL admission key")
+            result[key] = value
+        return result
+
+    data = json.loads(raw, object_pairs_hook=unique)
+    require(type(data) is dict and set(data) == {"schemaVersion", "defaultMajors", "pg19OptIn"}
+            and type(data["schemaVersion"]) is int and data["schemaVersion"] == 1,
+            "invalid PostgreSQL admission data")
+    defaults, opt_ins = data["defaultMajors"], data["pg19OptIn"]
+    require(type(defaults) is list and bool(defaults)
+            and all(type(m) is int and 14 <= m < 19 for m in defaults)
+            and len(defaults) == len(set(defaults))
+            and type(opt_ins) is list
+            and all(type(name) is str and name in UPSTREAMS for name in opt_ins)
+            and len(opt_ins) == len(set(opt_ins)), "invalid PostgreSQL admission entries")
+    return frozenset(defaults), frozenset(opt_ins)
+
+
+ALLOWED_MAJORS, PG19_ADMISSION_OPT_IN = parse_admission(
+    (Path(__file__).resolve().parents[1] / ADMISSION_PATH).read_bytes())
+
+
+def admission_majors(extension: object, *, admission=None) -> frozenset[int]:
+    defaults, opt_ins = admission if admission is not None else (ALLOWED_MAJORS, PG19_ADMISSION_OPT_IN)
+    if isinstance(extension, str) and extension in opt_ins:
+        return defaults | {19}
+    return defaults
 
 def valid_admission_matrix(majors: object, extension: str) -> bool:
     allowed = admission_majors(extension)
@@ -63,7 +90,7 @@ def valid_admission_matrix(majors: object, extension: str) -> bool:
             and all(type(major) is int and major in allowed for major in majors)
             and majors == sorted(set(majors)))
 
-def configured_majors(ext: dict) -> list[int]:
+def configured_majors(ext: dict, *, admission=None) -> list[int]:
     p = ext.get("postgresql", {})
     if isinstance(p.get("majors"), list):
         raw = p["majors"]
@@ -74,15 +101,15 @@ def configured_majors(ext: dict) -> list[int]:
         require(type(lo) is int and type(hi) is int and lo <= hi, "invalid PG range")
         majors = list(range(lo, hi + 1))
     require(bool(majors) and len(set(majors)) == len(majors)
-            and set(majors).issubset(admission_majors(ext.get("name"))),
+            and set(majors).issubset(admission_majors(ext.get("name"), admission=admission)),
             "untrusted or duplicate PG majors")
     return majors
 
-def maintained_majors(ext: dict, lifecycle: dict, today: date | None = None) -> list[int]:
+def maintained_majors(ext: dict, lifecycle: dict, today: date | None = None, *, admission=None) -> list[int]:
     require(lifecycle.get("schemaVersion") == 1
             and isinstance(lifecycle.get("postgresql"), list), "invalid lifecycle")
     today = today or date.today()
-    configured = set(configured_majors(ext))
+    configured = set(configured_majors(ext, admission=admission))
     found: set[int] = set()
     maintained = []
     for item in lifecycle["postgresql"]:
@@ -95,7 +122,7 @@ def maintained_majors(ext: dict, lifecycle: dict, today: date | None = None) -> 
             "configured PG major absent from lifecycle")
     return sorted(maintained)
 
-def sources(ext: dict, require_pins: bool = True) -> dict[int, dict]:
+def sources(ext: dict, require_pins: bool = True, *, admission=None) -> dict[int, dict]:
     name = ext.get("name")
     require(isinstance(name, str) and name in UPSTREAMS,
             "extension not in allowlisted fleet")
@@ -103,7 +130,7 @@ def sources(ext: dict, require_pins: bool = True) -> dict[int, dict]:
     require(isinstance(upstream, dict)
             and upstream.get("repository") == UPSTREAMS[name],
             "upstream repository changed from audited allowlist")
-    majors = configured_majors(ext)
+    majors = configured_majors(ext, admission=admission)
     series = upstream.get("perPostgresql")
     require(series is None or isinstance(series, dict), "bad per-major configuration")
     if series is not None:
@@ -146,17 +173,17 @@ def validate_release_tag(ext: dict, tag: str, require_pins: bool = True) -> None
             and re.fullmatch(r"[1-9][0-9]*", tag[len(prefix):]),
             "release tag does not match exact pinned current source identity")
 
-def asset_stem(ext: dict, major: int, require_pins: bool = True) -> str:
-    src = sources(ext, require_pins=require_pins)
+def asset_stem(ext: dict, major: int, require_pins: bool = True, *, admission=None) -> str:
+    src = sources(ext, require_pins=require_pins, admission=admission)
     require(major in src, "PG major not configured")
     return f"{ext['name']}-{src[major]['ref']}-pg{major}-windows-x64"
 
-def expected_assets(ext: dict, majors: list[int], require_pins: bool = True) -> set[str]:
-    configured = sources(ext, require_pins=require_pins)
+def expected_assets(ext: dict, majors: list[int], require_pins: bool = True, *, admission=None) -> set[str]:
+    configured = sources(ext, require_pins=require_pins, admission=admission)
     require(majors == sorted(set(majors)) and bool(majors)
             and set(majors).issubset(configured), "missing/extra release major")
     assets = {"SHA256SUMS.txt"}
     for n in majors:
-        stem = asset_stem(ext, n, require_pins=require_pins)
+        stem = asset_stem(ext, n, require_pins=require_pins, admission=admission)
         assets.update({stem+".zip", stem+".spdx.json", stem+".vulnerabilities.json"})
     return assets

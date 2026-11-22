@@ -393,8 +393,12 @@ class FleetPublisherTests(TestCase):
         blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
         self.assertEqual(blob,"85cbe8e6893477210831c6a813fe796f23d7eb08")
         with TemporaryDirectory() as tmp:
-            local=Path(tmp)/"legacy"
+            layout = Path(tmp)
+            local = layout / "scripts"
             local.mkdir()
+            (layout / "metadata").mkdir()
+            admission = p.ident.ADMISSION_PATH
+            shutil.copyfile(ROOT / admission, layout / admission)
             shutil.copyfile(frozen,local/"fleet-publish-release.py")
             shutil.copyfile(ROOT/"scripts"/"fleet-release-identity.py",
                             local/"fleet-release-identity.py")
@@ -474,8 +478,12 @@ class FleetPublisherTests(TestCase):
         """Frozen old pin remains unchanged; current main rejects missing attempt."""
         import shutil
         with TemporaryDirectory() as tmp:
-            local=Path(tmp)/"legacy"
+            layout = Path(tmp)
+            local = layout / "scripts"
             local.mkdir()
+            (layout / "metadata").mkdir()
+            admission = p.ident.ADMISSION_PATH
+            shutil.copyfile(ROOT / admission, layout / admission)
             shutil.copyfile(ROOT/"tests"/"fixtures"/"issue-75-pre-g4"/"fleet-publish-release.py",
                             local/"fleet-publish-release.py")
             shutil.copyfile(ROOT/"scripts"/"fleet-release-identity.py",

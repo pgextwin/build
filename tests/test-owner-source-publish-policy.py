@@ -51,13 +51,18 @@ class OwnerSourcePolicyTests(unittest.TestCase):
         self.assertFalse(result["publicationAuthorized"])
         self.assertFalse(result["publishableReceipt"])
 
-    def test_protected_owner_pilot_does_not_admit_unlisted_fleet_member(self):
+    def test_protected_owner_policy_denies_a_repository_without_its_opt_in(self):
         data=synthetic()
+        data["fleet"]=json.loads((ROOT/"metadata/automation-fleet.json").read_text("utf-8"))
+        data["central"]=json.loads((ROOT/"metadata/release-promotion.json").read_text("utf-8"))
         data["owner_central"]=json.loads(
             (ROOT/"metadata/owner-source-publication.json").read_text("utf-8"))
-        self.assertEqual(data["owner_central"]["mode"],"ENFORCE")
-        self.assertEqual(data["owner_central"]["allowedRepositories"],["pgextwin/plpgsql_check", "pgextwin/pg_ivm", "pgextwin/set_user", "pgextwin/orafce", "pgextwin/pg_hint_plan", "pgextwin/pg_permissions", "pgextwin/pg_track_settings", "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots", "pgextwin/pg_squeeze", "pgextwin/odbc_fdw", "pgextwin/wal2json", "pgextwin/pg_cron", "pgextwin/hypopg", "pgextwin/pg_qualstats", "pgextwin/pg_bigm", "pgextwin/pg_stat_monitor", "pgextwin/pgaudit", "pgextwin/pg_partman"])
-        with self.assertRaises(policy.Denied):
+        allowed=data["owner_central"]["allowedRepositories"]
+        data["repository"]=allowed[0]
+        self.assertEqual(policy.gate(**data)["repository"], data["repository"])
+        # Removing a single central opt-in must deny an otherwise eligible repository.
+        allowed.remove(data["repository"])
+        with self.assertRaisesRegex(policy.Denied, "central allowlist"):
             policy.gate(**data)
 
     def test_central_local_fleet_and_existing_policy_fail_closed(self):

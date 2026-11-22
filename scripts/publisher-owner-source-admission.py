@@ -244,10 +244,11 @@ def read_file(folder, name):
          "missing or invalid source JSON")
     return json.loads(path.read_text("utf-8"), object_pairs_hook=unique)
 
-def admit(repo, run_id, *, scratch, fleet, lifecycle, expected_sha=None):
+def admit(repo, run_id, *, scratch, fleet, lifecycle, central_sha, expected_sha=None):
     need(type(fleet) is dict and type(fleet.get("entries")) is list
          and repo in [e.get("repository") for e in fleet["entries"] if type(e) is dict],
          "non-fleet signed source")
+    signer_sha = audit.signer_sha_at(central_sha)
     branch = get(repo, "branches/main")
     sha = (branch.get("commit") or {}).get("sha")
     need(branch.get("name") == "main" and branch.get("protected") is True
@@ -295,7 +296,8 @@ def admit(repo, run_id, *, scratch, fleet, lifecycle, expected_sha=None):
             shutil.rmtree(folder)
     original = read_file(root / "audit", filename)
     fresh, blocking_findings = audit.audit(
-        signed_folder, intent, manifest, lifecycle, repo=repo, sha=sha, run_id=run_id)
+        signed_folder, intent, manifest, lifecycle, repo=repo, sha=sha, run_id=run_id,
+        signer_sha=signer_sha)
     comparable = fresh
     if legacy:
         comparable = {**fresh, "schemaVersion": 1, "auditors": ["first", "second"],
@@ -343,7 +345,7 @@ def main():
                        fleet=json.loads(Path(a.fleet).read_text("utf-8"),
                                         object_pairs_hook=unique),
                        lifecycle=json.loads(Path(a.lifecycle).read_text("utf-8"),
-                                 object_pairs_hook=unique))
+                                 object_pairs_hook=unique), central_sha=env["GITHUB_SHA"])
         dest = Path(a.output).resolve()
         need(dest.parent == scratch and not dest.is_symlink(),
              "proof output outside dedicated scratch")

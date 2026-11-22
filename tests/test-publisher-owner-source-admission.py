@@ -214,6 +214,9 @@ class AdmissionTests(TestCase):
         fleet = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
         lifecycle = assets.fixture()[1]
         lifecycle["postgresql"].append({"major": 19, "eol": "2031-12-31"})
+        workflow = (ROOT / mod.audit.SOURCE_WORKFLOW).read_text("utf-8")
+        signer_sha = mod.audit.signer_sha_from_workflow(workflow)
+        central_sha = "c" * 40
         for name, ref, version, legacy, majors in (
                 ("pg_hint_plan", "REL19_1_0", "1.0", False, [15, 16, 17, 18, 19]),
                 ("pg_permissions", "REL_1_4_1", "1.4.1", True, [15, 16, 17, 18]),
@@ -227,7 +230,7 @@ class AdmissionTests(TestCase):
             run_id = source_intent["runId"]
             uri = f"https://github.com/{repo}/actions/runs/{run_id}/attempts/1"
             signer = ("https://github.com/pgextwin/build/" +
-                      mod.audit.pin.offline.SIGNER_PATH + "@" + mod.audit.OWNER_SIGNER_SHA)
+                      mod.audit.pin.offline.SIGNER_PATH + "@" + signer_sha)
 
             def verify_command(args, **kwargs):
                 self.assertEqual(args[:3], ["gh", "attestation", "verify"])
@@ -235,12 +238,12 @@ class AdmissionTests(TestCase):
                 kind = args[args.index("--predicate-type") + 1]
                 self.assertEqual(args[args.index("--repo") + 1], repo)
                 self.assertEqual(args[args.index("--source-digest") + 1], SHA)
-                self.assertEqual(args[args.index("--signer-digest") + 1], mod.audit.OWNER_SIGNER_SHA)
+                self.assertEqual(args[args.index("--signer-digest") + 1], signer_sha)
                 entry = proofs.signed_result(path, kind, repo, SHA)[0]
                 cert = entry["verificationResult"]["signature"]["certificate"]
                 cert.update(runInvocationURI=uri, buildSignerURI=signer,
                             subjectAlternativeName=signer,
-                            buildSignerDigest=mod.audit.OWNER_SIGNER_SHA,
+                            buildSignerDigest=signer_sha,
                             buildConfigURI=f"https://github.com/{repo}/{mod.SOURCE_WORKFLOW}@refs/heads/main",
                             buildTrigger="issue_comment")
                 if kind == mod.audit.pin.SLSA:
@@ -258,16 +261,21 @@ class AdmissionTests(TestCase):
                     package["package"].update(name=name, platform="windows", architecture="x64")
                     package["source"]["packagingRepository"] = repo
                     package["workflowRun"]["url"] = uri.removesuffix("/attempts/1")
-                    package["buildInfrastructure"]["commit"] = mod.audit.OWNER_SIGNER_SHA
+                    package["buildInfrastructure"]["commit"] = signer_sha
                     with ZipFile(path, "w") as z:
                         z.writestr("PACKAGE-INFO.json", json.dumps(package))
 
                 with patch.object(mod.audit.subprocess, "run", side_effect=verify_command) as calls:
                     receipt, blocking = mod.audit.audit(
-                        original, source_intent, manifest, lifecycle, repo=repo, sha=SHA, run_id=run_id)
+                        original, source_intent, manifest, lifecycle, repo=repo, sha=SHA,
+                        run_id=run_id, signer_sha=signer_sha)
                     self.assertEqual(blocking, 0)
                     self.assertEqual(calls.call_count, 2 * len(majors))
                     calls.reset_mock()
+                    with self.assertRaisesRegex(mod.audit.Denied, "signer mismatch"):
+                        mod.audit.audit(original, source_intent, manifest, lifecycle, repo=repo,
+                                        sha=SHA, run_id=run_id, signer_sha=mod.audit.pin.SIGNER_SHA)
+                    calls.assert_not_called()
                     artifact = mod.audit.AUDIT_ARTIFACT
                     filename = mod.audit.AUDIT_FILE
                     if legacy:
@@ -301,10 +309,13 @@ class AdmissionTests(TestCase):
                             "issues/comments/4444": live_signing(repo, 1),
                         }[route]
 
-                    with patch.object(mod, "get", side_effect=get), patch.object(
+                    with patch.object(mod.audit, "signer_sha_at", return_value=signer_sha) as resolve, \
+                            patch.object(mod, "get", side_effect=get), patch.object(
                                 mod, "fetch_artifact", side_effect=fetch) as downloads:
                         result, admitted_manifest, admitted_intent = mod.admit(
-                            repo, run_id, scratch=root, fleet=fleet, lifecycle=lifecycle)
+                            repo, run_id, scratch=root, fleet=fleet, lifecycle=lifecycle,
+                            central_sha=central_sha)
+                        resolve.assert_called_once_with(central_sha)
                         self.assertEqual(admitted_manifest, manifest)
                         self.assertEqual(admitted_intent, source_intent)
                         self.assertEqual(downloads.call_count, 3)
@@ -321,7 +332,8 @@ class AdmissionTests(TestCase):
                         retry = root / "retry"
                         retry.mkdir()
                         with self.assertRaisesRegex(mod.Denied, "independent Publisher Sigstore/byte receipts differ"):
-                            mod.admit(repo, run_id, scratch=retry, fleet=fleet, lifecycle=lifecycle)
+                            mod.admit(repo, run_id, scratch=retry, fleet=fleet, lifecycle=lifecycle,
+                                      central_sha=central_sha)
 
 if __name__ == "__main__":
     main()

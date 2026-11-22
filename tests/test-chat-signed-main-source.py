@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Adversarial local checks for distinct genuine owner main-signing source."""
+import base64
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+from tempfile import TemporaryDirectory
 from unittest import TestCase, main
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -255,43 +259,94 @@ class FinalizerAdmissionTests(TestCase):
 class OwnerSignerPinTests(TestCase):
     """Keep the genuine owner's exact reviewed builder separate from old manual pins."""
 
-    def test_approved_owner_builder_matches_shared_signed_source(self):
-        import re
+    def setUp(self):
         spec = importlib.util.spec_from_file_location(
             "owner_signer_audit_pin", ROOT / "scripts/chat-signed-main-audit.py")
-        audit = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(audit)
-        source = (ROOT / ".github/workflows/chat-signed-main-source.yml").read_text("utf-8")
-        pins = re.findall(r"build-extension-attested\.yml@([0-9a-f]{40})", source)
-        self.assertEqual(pins, [audit.OWNER_SIGNER_SHA])
-        self.assertEqual(audit.OWNER_SIGNER_SHA,
-                         "4558c82c28b0814e60f35c6e5e5f8ee1025a5754")
-        self.assertNotEqual(audit.OWNER_SIGNER_SHA, audit.pin.SIGNER_SHA)
-        self.assertEqual(audit.pin.SIGNER_SHA,
+        self.audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.audit)
+        self.workflow = (ROOT / self.audit.SOURCE_WORKFLOW).read_text("utf-8")
+        self.signer_sha = self.audit.signer_sha_from_workflow(self.workflow)
+
+    def test_approved_owner_builder_stays_separate_from_legacy_pin(self):
+        self.assertNotEqual(self.signer_sha, self.audit.pin.SIGNER_SHA)
+        self.assertEqual(self.audit.pin.SIGNER_SHA,
                          "5756b3c5136a8bf4db710016cfe97555f0a71c6d")
-        text = (ROOT / "scripts/chat-signed-main-audit.py").read_text("utf-8")
-        self.assertNotIn("pin.SIGNER_SHA", text)
-        self.assertNotIn("or pin.SIGNER_SHA", text)
+
+    def test_only_reads_exact_builder_uses_in_signed_windows_job(self):
+        builder = f"pgextwin/build/{self.audit.pin.offline.SIGNER_PATH}@{SHA}"
+        workflow = (
+            "jobs:\n  decoy:\n"
+            f"    uses: {builder.replace(SHA, 'b' * 40)}\n"
+            "  signed_windows:\n"
+            f"    uses: {builder}\n"
+        )
+        self.assertEqual(self.audit.signer_sha_from_workflow(workflow), SHA)
+        for invalid in (
+                workflow.replace("signed_windows:", "other:"),
+                workflow.replace(builder, builder.replace(SHA, "main")),
+                workflow.replace(builder, builder.replace("pgextwin/build", "fork/build")),
+                workflow + f"    uses: {builder}\n",
+                workflow + f"  signed_windows:\n    uses: {builder}\n"):
+            with self.subTest(workflow=invalid), self.assertRaises(self.audit.Denied):
+                self.audit.signer_sha_from_workflow(invalid)
+
+    def test_signer_is_read_from_the_trusted_commit(self):
+        with TemporaryDirectory() as tmp, patch.object(self.audit, "ROOT", Path(tmp) / "scripts"):
+            def git(*args):
+                return subprocess.check_output(["git", "-C", tmp, *args], text=True).strip()
+
+            workflow = Path(tmp) / self.audit.SOURCE_WORKFLOW
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(self.workflow, "utf-8")
+            git("init", "--quiet")
+            git("add", self.audit.SOURCE_WORKFLOW)
+            git("-c", "user.name=Test", "-c", "user.email=test@example.org",
+                "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Test pin")
+            commit = git("rev-parse", "HEAD")
+            workflow.write_text(self.workflow.replace(self.signer_sha, SHA), "utf-8")
+            self.assertEqual(self.audit.signer_sha_at(commit), self.signer_sha)
+            for invalid in ("main", "0" * 40):
+                with self.subTest(commit=invalid), self.assertRaises(self.audit.Denied):
+                    self.audit.signer_sha_at(invalid)
+
+    def test_pg19_opt_in_follows_protected_policy_for_a_fixed_signer(self):
+        policy = json.loads((ROOT / self.audit.ident.ADMISSION_PATH).read_text("utf-8"))
+        extension = next(name for name in self.audit.ident.UPSTREAMS
+                         if name not in policy["pg19OptIn"])
+        central_sha = SHA
+
+        def get(route):
+            if route == "branches/main":
+                return dict(branch(), commit={"sha": central_sha})
+            self.assertEqual(route, f"contents/{self.audit.ident.ADMISSION_PATH}?ref={central_sha}")
+            return {"type": "file", "encoding": "base64",
+                    "content": base64.b64encode(json.dumps(policy).encode()).decode()}
+
+        manifest = {"name": extension, "postgresql": {"majors": [19]}}
+        with self.assertRaises(self.audit.ident.Denied):
+            self.audit.ident.configured_majors(manifest, admission=self.audit.protected_admission(get))
+        policy["pg19OptIn"].append(extension)
+        central_sha = "c" * 40
+        self.assertEqual(
+            self.audit.ident.configured_majors(manifest, admission=self.audit.protected_admission(get)),
+            [19])
+        self.assertEqual(self.audit.signer_sha_from_workflow(self.workflow), self.signer_sha)
+        with self.assertRaisesRegex(self.audit.Denied, "not from protected main"):
+            self.audit.protected_admission(lambda route: dict(branch(), protected=False))
 
     def test_sigstore_requires_exact_new_owner_signer_digest(self):
-        import subprocess
-        from unittest.mock import patch
-        spec = importlib.util.spec_from_file_location(
-            "owner_signer_verify_pin", ROOT / "scripts/chat-signed-main-audit.py")
-        audit = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(audit)
         fake = subprocess.CompletedProcess(
             args=[], returncode=0,
             stdout='[{"verificationResult":{"signed":"test"}}]', stderr="")
-        with patch.object(audit.subprocess, "run", return_value=fake) as fake_run:
-            result = audit.verify(ROOT / "fake-owner.zip",
-                                  audit.pin.SLSA, REPO, SHA)
+        with patch.object(self.audit.subprocess, "run", return_value=fake) as fake_run:
+            result = self.audit.verify(ROOT / "fake-owner.zip",
+                                       self.audit.pin.SLSA, REPO, SHA, self.signer_sha)
             args = fake_run.call_args.args[0]
         self.assertEqual(result["verificationResult"]["signed"], "test")
         self.assertEqual(args[args.index("--signer-digest") + 1],
-                         audit.OWNER_SIGNER_SHA)
+                         self.signer_sha)
         self.assertNotEqual(args[args.index("--signer-digest") + 1],
-                            audit.pin.SIGNER_SHA)
+                            self.audit.pin.SIGNER_SHA)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ Publisher App, or publication authorization.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
@@ -32,14 +33,11 @@ pin = module("owner_main_pin", "issue-75-attempt-pin-migration-offline.py")
 vuln = module("owner_main_grype", "automatic-grype-publisher-policy.py")
 SOURCE_KIND = "OWNER_ISSUE_COMMENT_MAIN_SIGNING"
 CALLER = ".github/workflows/chat-signed-main.yml"
+CENTRAL_REPOSITORY = "pgextwin/build"
+SOURCE_WORKFLOW = ".github/workflows/chat-signed-main-source.yml"
 AUDIT_JOB = "Independent original Sigstore/ZIP/SPDX/Grype audit (NO PUBLISH)"
 AUDIT_ARTIFACT = "chat-owner-sigstore-nonpublishing"
 AUDIT_FILE = "chat-owner-audit.json"
-# Exact approved builder digest for this genuine owner source only.  Legacy
-# workflow_dispatch/manual provenance pins remain separate and unchanged.
-# Change only with protected source workflow pin, required CI, and original
-# postmerge proof. No wildcard or fallback signer is authorized.
-OWNER_SIGNER_SHA = "4558c82c28b0814e60f35c6e5e5f8ee1025a5754"
 
 
 class Denied(ValueError):
@@ -55,10 +53,67 @@ def read(path):
     return json.loads(Path(path).read_text("utf-8"))
 
 
-def verify(z, kind, repo, sha):
+def signer_sha_from_workflow(raw):
+    import yaml
+
+    class WorkflowLoader(yaml.BaseLoader):
+        def construct_mapping(self, node, deep=False):
+            mapping = {}
+            for key_node, value_node in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                need(type(key) is str and key != "<<" and key not in mapping,
+                     "ambiguous key in central owner-source workflow")
+                mapping[key] = self.construct_object(value_node, deep=deep)
+            return mapping
+
+    try:
+        workflow = yaml.load(raw, Loader=WorkflowLoader)
+        uses = workflow["jobs"]["signed_windows"]["uses"]
+    except (yaml.YAMLError, TypeError, KeyError) as exc:
+        raise Denied("invalid central owner-source workflow") from exc
+    signer = f"{CENTRAL_REPOSITORY}/{pin.offline.SIGNER_PATH}"
+    match = re.fullmatch(re.escape(signer) + r"@([0-9a-f]{40})", uses) if type(uses) is str else None
+    need(match is not None, "central owner-source workflow must pin the exact builder digest")
+    return match.group(1)
+
+
+def signer_sha_at(central_sha):
+    """Read the inner uses from the authenticated central commit, ignoring working-tree edits."""
+    need(type(central_sha) is str and ident.SHA.fullmatch(central_sha),
+         "missing immutable central workflow commit")
+    result = subprocess.run(
+        ["git", "-C", str(ROOT.parent), "--no-replace-objects",
+         "show", f"{central_sha}:{SOURCE_WORKFLOW}"],
+        capture_output=True, timeout=15, check=False)
+    need(result.returncode == 0, "central owner-source workflow blob unavailable")
+    return signer_sha_from_workflow(result.stdout)
+
+
+def protected_admission(get):
+    """Fetch mutable policy at a protected main snapshot independently of the signer pin."""
+    branch = get("branches/main")
+    sha = (branch.get("commit") or {}).get("sha")
+    need(branch.get("name") == "main" and branch.get("protected") is True
+         and type(sha) is str and ident.SHA.fullmatch(sha),
+         "central PostgreSQL admission is not from protected main")
+    data = get(f"contents/{ident.ADMISSION_PATH}?ref={sha}")
+    need(data.get("type") == "file" and data.get("encoding") == "base64"
+         and type(data.get("content")) is str, "central PostgreSQL admission data unavailable")
+    return ident.parse_admission(base64.b64decode(data["content"].replace("\n", ""), validate=True))
+
+
+def central_get(route):
+    result = subprocess.run(
+        ["gh", "api", "--method", "GET", f"repos/{CENTRAL_REPOSITORY}/{route}"],
+        capture_output=True, timeout=30, check=False)
+    need(result.returncode == 0, "central PostgreSQL admission lookup failed")
+    return json.loads(result.stdout)
+
+
+def verify(z, kind, repo, sha, signer_sha):
     cmd = ["gh", "attestation", "verify", str(z), "--repo", repo,
-           "--signer-workflow", "pgextwin/build/" + pin.offline.SIGNER_PATH,
-           "--signer-digest", OWNER_SIGNER_SHA, "--source-digest", sha,
+           "--signer-workflow", f"{CENTRAL_REPOSITORY}/{pin.offline.SIGNER_PATH}",
+           "--signer-digest", signer_sha, "--source-digest", sha,
            "--source-ref", "refs/heads/main", "--predicate-type", kind,
            "--format", "json"]
     cp = subprocess.run(cmd, text=True, capture_output=True, timeout=180, check=False)
@@ -72,7 +127,7 @@ def verify(z, kind, repo, sha):
     return {"verificationResult": result[0]["verificationResult"]}
 
 
-def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id):
+def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, signer_sha, admission=None):
     need(type(intent) is dict
          and intent.get("sourceKind") == SOURCE_KIND
          and intent.get("repository") == repo
@@ -85,15 +140,15 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id):
          "untrusted nonpublishing source intent")
     need(type(manifest) is dict and manifest.get("name") == repo.split("/")[-1],
          "wrong manifest")
-    majors = ident.maintained_majors(manifest, lifecycle)
-    sources = ident.sources(manifest)
-    expected = ident.expected_assets(manifest, majors) - {"SHA256SUMS.txt"}
+    majors = ident.maintained_majors(manifest, lifecycle, admission=admission)
+    sources = ident.sources(manifest, admission=admission)
+    expected = ident.expected_assets(manifest, majors, admission=admission) - {"SHA256SUMS.txt"}
     files = {f.name for f in folder.iterdir() if f.is_file()}
     need(files == expected, "missing/extra signed artifact bytes")
     digests = {}
     blocking_findings = 0
     for major in majors:
-        stem = ident.asset_stem(manifest, major)
+        stem = ident.asset_stem(manifest, major, admission=admission)
         z, s, g = (folder / (stem + ext) for ext in
                    (".zip", ".spdx.json", ".vulnerabilities.json"))
         for f in (z, s, g):
@@ -124,9 +179,9 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id):
                               "commit": sources[major]["commit"]}
              and origin.get("packagingRepository") == repo
              and origin.get("packagingCommit") == sha
-             and build.get("repository") == "pgextwin/build"
+             and build.get("repository") == CENTRAL_REPOSITORY
              and build.get("workflow") == pin.offline.SIGNER_PATH
-             and build.get("commit") == OWNER_SIGNER_SHA
+             and build.get("commit") == signer_sha
              and wf.get("id") == run_id and wf.get("attempt") == 1
              and wf.get("event") == "issue_comment"
              and wf.get("ref") == "refs/heads/main"
@@ -138,9 +193,9 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id):
              "missing SPDX/Grype evidence")
         blocking_findings += vuln.review(grype, asset_stem=stem)["blockingFindingCount"]
         for kind in (pin.SLSA, pin.SPDX):
-            proof = verify(z, kind, repo, sha)
+            proof = verify(z, kind, repo, sha, signer_sha)
             pin.proof_statement(proof, kind, repo=repo, sha=sha,
-                                signer_sha=OWNER_SIGNER_SHA, run_id=run_id,
+                                signer_sha=signer_sha, run_id=run_id,
                                 attempt=1, event="issue_comment",
                                 config_path=CALLER, zip_name=z.name,
                                 zip_digest=digests[z.name], sbom=sbom)
@@ -155,7 +210,7 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id):
 
 def main():
     p = argparse.ArgumentParser()
-    for a in ("intent", "manifest", "lifecycle", "dist", "output"):
+    for a in ("intent", "manifest", "lifecycle", "dist", "output", "workflow-sha"):
         p.add_argument("--" + a, required=True)
     args = p.parse_args()
     try:
@@ -169,7 +224,8 @@ def main():
         outcome, blocking_findings = audit(
             Path(args.dist), read(args.intent), read(args.manifest),
             read(args.lifecycle), repo=env["GITHUB_REPOSITORY"],
-            sha=env["GITHUB_SHA"], run_id=int(env["GITHUB_RUN_ID"]))
+            sha=env["GITHUB_SHA"], run_id=int(env["GITHUB_RUN_ID"]),
+            signer_sha=signer_sha_at(args.workflow_sha), admission=protected_admission(central_get))
         print(f"Grype blocking findings across audited majors: {blocking_findings}")
         Path(args.output).write_text(json.dumps(outcome, sort_keys=True) + "\n", "utf-8")
         print(outcome["status"] + "; PUBLISH_DENY")
