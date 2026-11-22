@@ -105,7 +105,10 @@ def main():
     try:
         extension = json.loads(Path(args.extension).read_text(encoding="utf-8"))
         watch = json.loads(Path(args.watch).read_text(encoding="utf-8"))
-        policy = json.loads(Path(args.candidate_policy).read_text(encoding="utf-8")) if args.candidate_policy else None
+        if args.candidate_policy is None:
+            policy = publication_policy.load_candidate_policy(BUILD_ROOT)
+        else:
+            policy = json.loads(Path(args.candidate_policy).read_text(encoding="utf-8"))
         allowed, mode = decide(get_live(), args.repository, extension, watch, args.action, policy)
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
