@@ -11,10 +11,6 @@ on:
         type: string
         required: false
         default: config/update-watch.json
-      candidate_policy_path:
-        type: string
-        required: false
-        default: config/candidate-build.json
       dry_run:
         type: boolean
         required: false
@@ -51,7 +47,6 @@ jobs:
           --watch "${{ inputs.update_watch_path }}"
           --repository "$GITHUB_REPOSITORY"
           --action candidate
-          --candidate-policy "${{ inputs.candidate_policy_path }}"
       - name: Detect and resolve immutable stable upstream commit
         if: steps.fleet.outputs.allowed == 'true'
         id: detect
@@ -61,7 +56,6 @@ jobs:
           python .pgextwin-build/scripts/candidate-update.py plan
           --extension "${{ inputs.extension_config_path }}"
           --watch "${{ inputs.update_watch_path }}"
-          --policy "${{ inputs.candidate_policy_path }}"
           --lifecycle .pgextwin-build/metadata/postgresql.json
           --output "$RUNNER_TEMP/candidate-plan.json"
       - name: Record centrally suppressed candidate decision
@@ -114,5 +108,4 @@ jobs:
           --record "$RUNNER_TEMP/candidate-plan.json"
           --extension "${{ inputs.extension_config_path }}"
           --watch "${{ inputs.update_watch_path }}"
-          --policy "${{ inputs.candidate_policy_path }}"
           --repository "$GITHUB_REPOSITORY"
