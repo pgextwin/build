@@ -154,6 +154,9 @@ jobs:
       - name: Test required Windows summary
         run: python tests/test-required-windows-summary.py
 
+      - name: Test main Windows CI reuse
+        run: python tests/test-windows-main-reuse.py
+
       - name: Test exact upstream license verification
         run: python tests/test-verify-license-bytes.py
 

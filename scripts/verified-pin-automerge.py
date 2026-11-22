@@ -18,9 +18,9 @@ from pathlib import Path
 SHA = re.compile(r"^[0-9a-f]{40}$")
 PATH = ".github/workflows/update-watch.yml"
 SHARED = "pgextwin/build/.github/workflows/operator-update-auto.yml"
-REQUIRED = {"windows / Resolve extension and PostgreSQL matrix",
-            "Windows required summary"}
-REQUIRED |= {f"windows / PostgreSQL {x} / Windows x64" for x in range(14, 19)}
+POSTMERGE_LOCAL_CHECKS = {"windows / Resolve extension and PostgreSQL matrix",
+                          "Windows required summary"}
+REQUIRED = POSTMERGE_LOCAL_CHECKS | {f"windows / PostgreSQL {x} / Windows x64" for x in range(14, 19)}
 # Existing external safety denials are not cleared by repository Auto-merge.
 HELD = {"pgextwin/pg_bigm", "pgextwin/orafce"}
 
@@ -134,11 +134,19 @@ def admit(*, repository, expected_head, expected_central, pr, files, ci_run,
 
 
 
-def verify_postmerge(*, repository, expected_main, branch, run, checks, pr=None):
+def successful_postmerge_checks(checks):
+    return {c.get("name") for c in checks
+            if type(c) is dict and c.get("status") == "completed"
+            and c.get("conclusion") == "success"
+            and (c.get("app") or {}).get("id") == 15368}
+
+
+def verify_postmerge(*, repository, expected_main, branch, run, checks, pr=None,
+                     reuse_source=None):
     """Inert proof of the ORIGINAL native main/push CI, never a Release admission.
 
-    This must not be substituted with workflow_dispatch, reruns or the successful
-    pull_request CI. GitHub Actions GITHUB_TOKEN merges can suppress this event.
+    The original push Run is required even when its matrix used a proven PR
+    result. GitHub Actions GITHUB_TOKEN merges can suppress the push event.
     """
     require(type(repository) is str and repository.startswith("pgextwin/")
             and type(expected_main) is str and SHA.fullmatch(expected_main),
@@ -163,21 +171,29 @@ def verify_postmerge(*, repository, expected_main, branch, run, checks, pr=None)
                 "postmerge commit is not the exact protected PR merge")
     require(type(checks) is list and len(checks) < 100,
             "postmerge check list missing or truncated")
-    successes = {c.get("name") for c in checks
-                 if type(c) is dict and c.get("status") == "completed"
-                 and c.get("conclusion") == "success"
-                 and (c.get("app") or {}).get("id") == 15368}
+    successes = successful_postmerge_checks(checks)
+    if reuse_source is not None:
+        require(POSTMERGE_LOCAL_CHECKS <= successes,
+                "postmerge App15368 matrix resolution or summary check absent")
+        require(type(reuse_source) is dict and type(reuse_source.get("runId")) is int
+                and reuse_source["runId"] > 0 and type(reuse_source.get("checks")) is list
+                and len(reuse_source["checks"]) < 100,
+                "reuse source run ID or check list missing or truncated")
+        successes |= successful_postmerge_checks(reuse_source["checks"])
     required = REQUIRED if repository != "pgextwin/plpgsql_check" else (
         (REQUIRED - {"windows / PostgreSQL 14 / Windows x64"})
         | {"syntax", "Regression-test immutable Release preflight"})
     require(required <= successes,
             "real postmerge original App15368 required checks absent")
-    return {
+    receipt = {
         "schemaVersion": 1, "decision": "ORIGINAL_POSTMERGE_WINDOWS_ACCEPTED",
         "repository": repository, "mainSha": expected_main,
         "runId": run.get("id"), "requiredChecksPassed": len(required),
         "releaseAuthorized": False,
     }
+    if reuse_source is not None:
+        receipt["reuseSourceRunId"] = reuse_source["runId"]
+    return receipt
 
 
 def gh_api(path):

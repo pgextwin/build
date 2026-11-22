@@ -1,0 +1,4 @@
+{
+  "schemaVersion": 1,
+  "enabledRepositories": ["pgextwin/pg_hint_plan"]
+}
