@@ -77,6 +77,8 @@ Required parameters:
 
 Expected result: exactly one distributable ZIP is written under `dist/`.
 
+When upstream license verification is enabled, both workflows compare the exact Git blob bytes for the license files resolved for that PostgreSQL major. They stage matching files under `.pgextwin-verified-licenses/` using their configured `repositoryPath` and make the same bytes available at the configured checkout paths used by existing package hooks.
+
 The ZIP should use PostgreSQL's installation layout where practical:
 
 ```text
