@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Exercise license verification against real Git blobs."""
+
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+import unittest
+
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "verify-license-bytes.py"
+LICENSE = b"Copyright Example\nRedistribution permitted.\n"
+
+
+def git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def commit_files(repo, files):
+    repo.mkdir()
+    git(repo, "init", "--quiet")
+    git(repo, "config", "core.autocrlf", "false")
+    for name, content in files.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    git(repo, "add", "--all")
+    git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.com",
+        "commit", "--quiet", "--no-gpg-sign", "--allow-empty", "-m", "Add licenses")
+
+
+class LicenseBytesTests(unittest.TestCase):
+    def setUp(self):
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.upstream = root / "upstream"
+        self.packaging = root / "packaging"
+        self.stage = root / "verified licenses"
+        self.config = root / "license-files.json"
+
+    def verify(self, *pairs, restore=False):
+        self.config.write_text(json.dumps([
+            {"repositoryPath": repository, "upstreamPath": upstream}
+            for repository, upstream in pairs
+        ]), encoding="utf-8")
+        command = [
+            sys.executable, str(SCRIPT),
+            "--license-files", str(self.config),
+            "--upstream-dir", str(self.upstream),
+            "--packaging-dir", str(self.packaging),
+            "--stage-dir", str(self.stage),
+        ]
+        if restore:
+            command.append("--restore-worktrees")
+        return subprocess.run(command, capture_output=True, text=True)
+
+    def assert_failed(self, result, message):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(message, result.stderr)
+        self.assertFalse(self.stage.exists())
+
+    def test_identical_lf_bytes_pass(self):
+        commit_files(self.upstream, {"LICENSE": LICENSE})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        result = self.verify(("LICENSE", "LICENSE"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.stage / "LICENSE").read_bytes(), LICENSE)
+        self.assertEqual(result.stdout.splitlines(), [f"{hashlib.sha256(LICENSE).hexdigest()}  LICENSE"])
+
+    def test_packaging_crlf_fails_against_upstream_lf(self):
+        commit_files(self.upstream, {"LICENSE": LICENSE})
+        commit_files(self.packaging, {"LICENSE": LICENSE.replace(b"\n", b"\r\n")})
+        self.assert_failed(self.verify(("LICENSE", "LICENSE")), "License file 'LICENSE' differs from upstream 'LICENSE'.")
+
+    def test_upstream_crlf_fails_against_packaging_lf(self):
+        commit_files(self.upstream, {"LICENSE": LICENSE.replace(b"\n", b"\r\n")})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        self.assert_failed(self.verify(("LICENSE", "LICENSE")), "License file 'LICENSE' differs from upstream 'LICENSE'.")
+
+    def test_missing_upstream_blob_fails(self):
+        commit_files(self.upstream, {})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        (self.upstream / "COPYRIGHT").write_bytes(LICENSE)
+        self.assert_failed(self.verify(("LICENSE", "COPYRIGHT")), "Configured upstream license file was not found: COPYRIGHT")
+
+    def test_missing_packaging_blob_fails(self):
+        commit_files(self.upstream, {"LICENSE": LICENSE})
+        commit_files(self.packaging, {})
+        (self.packaging / "COPYRIGHT").write_bytes(LICENSE)
+        self.assert_failed(self.verify(("COPYRIGHT", "LICENSE")), "Configured packaging-repository license file was not found: COPYRIGHT")
+
+    def test_multiple_files_preserve_non_utf8_and_mixed_line_endings(self):
+        notice = b"\xef\xbb\xbfCopyright \xff\r\nExample\nEnd"
+        commit_files(self.upstream, {"COPYRIGHT": LICENSE, "NOTICE": notice})
+        commit_files(self.packaging, {"licenses/pg16/LICENSE": LICENSE, "licenses/pg16/NOTICE": notice})
+        result = self.verify(("licenses/pg16/LICENSE", "COPYRIGHT"), ("licenses/pg16/NOTICE", "NOTICE"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.stage / "licenses/pg16/LICENSE").read_bytes(), LICENSE)
+        self.assertEqual((self.stage / "licenses/pg16/NOTICE").read_bytes(), notice)
+        self.assertEqual(len(result.stdout.splitlines()), 2)
+
+    def test_duplicate_repository_path_with_equal_bytes_is_staged_once(self):
+        commit_files(self.upstream, {"LICENSE": LICENSE, "COPYRIGHT": LICENSE})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        result = self.verify(("LICENSE", "LICENSE"), ("LICENSE", "COPYRIGHT"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.stage / "LICENSE").read_bytes(), LICENSE)
+        self.assertEqual(len(result.stdout.splitlines()), 1)
+
+    def test_duplicate_repository_path_with_different_bytes_fails(self):
+        commit_files(self.upstream, {"LICENSE": LICENSE, "COPYRIGHT": b"Different"})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        self.assert_failed(
+            self.verify(("LICENSE", "LICENSE"), ("LICENSE", "COPYRIGHT")),
+            "License file 'LICENSE' differs from upstream 'COPYRIGHT'.",
+        )
+
+    def test_restore_worktrees_preserves_bytes_for_existing_hooks(self):
+        commit_files(self.upstream, {"NOTICE": LICENSE})
+        commit_files(self.packaging, {"licenses/LICENSE": LICENSE})
+        upstream = self.upstream / "NOTICE"
+        packaging = self.packaging / "licenses/LICENSE"
+        crlf = LICENSE.replace(b"\n", b"\r\n")
+        upstream.write_bytes(crlf)
+        packaging.write_bytes(crlf)
+        git(self.packaging, "add", "licenses/LICENSE")
+
+        result = self.verify(("licenses/LICENSE", "NOTICE"), restore=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(upstream.read_bytes(), LICENSE)
+        self.assertEqual(packaging.read_bytes(), LICENSE)
+        self.assertEqual((self.stage / "licenses/LICENSE").read_bytes(), LICENSE)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -118,45 +118,19 @@ jobs:
         env:
           PGEXTWIN_LICENSE_FILES: ${{ toJSON(matrix.licenseFiles) }}
         run: |
-          $licenseFiles = $env:PGEXTWIN_LICENSE_FILES | ConvertFrom-Json
-
-          # Compare license contents after normalizing CRLF to LF. On Windows
-          # runners the upstream checkout applies autocrlf, so an upstream
-          # license committed with LF reads back as CRLF while the packaging
-          # repository copy (kept LF by .gitattributes) does not. Raw byte
-          # comparison would then report a difference where the licensed
-          # content is identical. A genuine content difference (for example
-          # a changed copyright year) still differs after normalization.
-          function Get-NormalizedLicenseHash([string]$path) {
-            $bytes = [System.IO.File]::ReadAllBytes($path)
-            $text = [System.Text.Encoding]::UTF8.GetString($bytes) -replace "`r`n", "`n"
-            $normalizedBytes = [System.Text.Encoding]::UTF8.GetBytes($text)
-            $sha256 = [System.Security.Cryptography.SHA256]::Create()
-            try {
-              return ([BitConverter]::ToString($sha256.ComputeHash($normalizedBytes)) -replace "-", "")
-            } finally {
-              $sha256.Dispose()
-            }
-          }
-
-          foreach ($licenseFile in @($licenseFiles)) {
-            $repositoryPath = [string]$licenseFile.repositoryPath
-            $upstreamPath = Join-Path "upstream" ([string]$licenseFile.upstreamPath)
-
-            if (-not (Test-Path $repositoryPath)) {
-              throw "Configured packaging-repository license file was not found: $repositoryPath"
-            }
-
-            if (-not (Test-Path $upstreamPath)) {
-              throw "Configured upstream license file was not found: $upstreamPath"
-            }
-
-            $repositoryHash = Get-NormalizedLicenseHash $repositoryPath
-            $upstreamHash = Get-NormalizedLicenseHash $upstreamPath
-
-            if ($repositoryHash -ne $upstreamHash) {
-              throw "License file '$repositoryPath' differs from upstream '$($licenseFile.upstreamPath)'."
-            }
+          $licenseConfig = New-TemporaryFile
+          try {
+            Set-Content -LiteralPath $licenseConfig.FullName -Value $env:PGEXTWIN_LICENSE_FILES -Encoding utf8NoBOM -NoNewline
+            # Existing package hooks copy licenses from the checkouts.
+            python ".pgextwin-build/scripts/verify-license-bytes.py" `
+              --license-files $licenseConfig.FullName `
+              --upstream-dir "upstream" `
+              --packaging-dir "." `
+              --stage-dir ".pgextwin-verified-licenses" `
+              --restore-worktrees
+            if ($LASTEXITCODE -ne 0) { throw "Upstream license byte verification failed." }
+          } finally {
+            Remove-Item -LiteralPath $licenseConfig.FullName
           }
 
       - name: Install PostgreSQL ${{ matrix.major }}

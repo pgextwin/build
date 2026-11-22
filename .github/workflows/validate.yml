@@ -151,6 +151,12 @@ jobs:
       - name: Validate GitHub Actions trust policy
         run: python tests/test-github-actions-security.py
 
+      - name: Test required Windows summary
+        run: python tests/test-required-windows-summary.py
+
+      - name: Test exact upstream license verification
+        run: python tests/test-verify-license-bytes.py
+
       - name: Validate PG14-18 minimal EDB install arguments and fail-closed retry
         run: python tests/test-postgresql-minimal-install.py
 

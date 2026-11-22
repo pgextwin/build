@@ -115,33 +115,19 @@ jobs:
         env:
           PGEXTWIN_LICENSE_FILES: ${{ toJSON(matrix.licenseFiles) }}
         run: |
-          $licenseFiles = $env:PGEXTWIN_LICENSE_FILES | ConvertFrom-Json
-
-          foreach ($licenseFile in @($licenseFiles)) {
-            $repositoryPath = [string]$licenseFile.repositoryPath
-            $upstreamLicensePath = [string]$licenseFile.upstreamPath
-            $upstreamPath = Join-Path "upstream" $upstreamLicensePath
-
-            if (-not (Test-Path $repositoryPath)) {
-              throw "Configured packaging-repository license file was not found: $repositoryPath"
-            }
-
-            if (-not (Test-Path $upstreamPath)) {
-              throw "Configured upstream license file was not found: $upstreamPath"
-            }
-
-            # Disable automatic line-ending conversion when restoring the licenses from Git.
-            git -C upstream -c core.autocrlf=false checkout-index --force -- $upstreamLicensePath
-            if ($LASTEXITCODE -ne 0) { throw "Could not restore upstream license file: $upstreamPath" }
-            git -c core.autocrlf=false checkout-index --force -- $repositoryPath
-            if ($LASTEXITCODE -ne 0) { throw "Could not restore packaging-repository license file: $repositoryPath" }
-
-            $repositoryHash = (Get-FileHash $repositoryPath -Algorithm SHA256).Hash
-            $upstreamHash = (Get-FileHash $upstreamPath -Algorithm SHA256).Hash
-
-            if ($repositoryHash -ne $upstreamHash) {
-              throw "License file '$repositoryPath' differs from upstream '$($licenseFile.upstreamPath)'."
-            }
+          $licenseConfig = New-TemporaryFile
+          try {
+            Set-Content -LiteralPath $licenseConfig.FullName -Value $env:PGEXTWIN_LICENSE_FILES -Encoding utf8NoBOM -NoNewline
+            # Existing package hooks copy licenses from the checkouts.
+            python ".pgextwin-build/scripts/verify-license-bytes.py" `
+              --license-files $licenseConfig.FullName `
+              --upstream-dir "upstream" `
+              --packaging-dir "." `
+              --stage-dir ".pgextwin-verified-licenses" `
+              --restore-worktrees
+            if ($LASTEXITCODE -ne 0) { throw "Upstream license byte verification failed." }
+          } finally {
+            Remove-Item -LiteralPath $licenseConfig.FullName
           }
 
       - name: Install PostgreSQL ${{ matrix.major }}
