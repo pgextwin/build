@@ -585,7 +585,7 @@ def recover_failed_first_release(record, repository, proposal_file, proposal, ma
     execute("gh", "workflow", "run", "windows.yml", "--repo", repository, "--ref", branch)
 
 
-def propose(record, manifest_path, repository, watch_path, policy_path):
+def propose(record, manifest_path, repository, watch_path, policy_path=None):
     if record.get("status") != "candidate" or repository != os.environ.get("GITHUB_REPOSITORY"):
         raise WatchError("untrusted candidate caller")
     if os.environ.get("GITHUB_REF") != "refs/heads/main" or not os.environ.get("GH_TOKEN"):
@@ -597,7 +597,8 @@ def propose(record, manifest_path, repository, watch_path, policy_path):
     spec = importlib.util.spec_from_file_location("fleet_control", fleet_path)
     fleet = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fleet)
-    allowed, mode = fleet.decide(fleet.get_live(), repository, config, read(watch_path), "candidate", read(policy_path))
+    policy = publication_policy.load_candidate_policy(BUILD_ROOT) if policy_path is None else read(policy_path)
+    allowed, mode = fleet.decide(fleet.get_live(), repository, config, read(watch_path), "candidate", policy)
     if not allowed:
         raise WatchError("candidate proposal denied by live central policy: " + mode)
     if config["upstream"]["repository"] != record["repository"]:
@@ -716,10 +717,12 @@ def main():
     sub = p.add_subparsers(dest="action", required=True)
     a = sub.add_parser("plan")
     a.add_argument("--lifecycle")
-    for key in ("extension", "watch", "policy", "output"):
+    a.add_argument("--policy")
+    for key in ("extension", "watch", "output"):
         a.add_argument("--" + key, required=True)
     b = sub.add_parser("propose")
-    for key in ("record", "extension", "repository", "watch", "policy"):
+    b.add_argument("--policy")
+    for key in ("record", "extension", "repository", "watch"):
         b.add_argument("--" + key, required=True)
     d = sub.add_parser("record-suppressed")
     d.add_argument("--extension", required=True)
@@ -732,7 +735,8 @@ def main():
             Path(args.output).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             print(json.dumps(record))
         elif args.action == "plan":
-            record = plan(read(args.extension), read(args.watch), read(args.policy),
+            policy = publication_policy.load_candidate_policy(BUILD_ROOT) if args.policy is None else read(args.policy)
+            record = plan(read(args.extension), read(args.watch), policy,
                           lifecycle=read(args.lifecycle) if args.lifecycle else None)
             Path(args.output).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             if os.environ.get("GITHUB_OUTPUT"):
