@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "source": "github",
+  "repository": "ossc-db/pg_hint_plan",
+  "strategy": "github-releases-per-postgresql",
+  "prereleases": false,
+  "perPostgresql": {
+    "15": {
+      "tagPattern": "^REL15_(?P<version>[0-9]+_[0-9]+_[0-9]+)$"
+    },
+    "16": {
+      "tagPattern": "^REL16_(?P<version>[0-9]+_[0-9]+_[0-9]+)$"
+    },
+    "17": {
+      "tagPattern": "^REL17_(?P<version>[0-9]+_[0-9]+_[0-9]+)$"
+    },
+    "18": {
+      "tagPattern": "^REL18_(?P<version>[0-9]+_[0-9]+_[0-9]+)$"
+    },
+    "19": {
+      "tagPattern": "^REL19_(?P<version>[0-9]+_[0-9]+_[0-9]+)$"
+    }
+  }
+}

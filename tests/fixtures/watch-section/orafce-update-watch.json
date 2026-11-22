@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "source": "github",
+  "repository": "orafce/orafce",
+  "strategy": "github-releases",
+  "prereleases": false,
+  "stableTagPattern": "^VERSION_(?P<version>[0-9]+_[0-9]+_[0-9]+)$"
+}

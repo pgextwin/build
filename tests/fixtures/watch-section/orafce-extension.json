@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "name": "orafce",
+  "upstream": {
+    "repository": "orafce/orafce",
+    "ref": "VERSION_4_17_2",
+    "version": "4.17.2",
+    "commit": "0fc291384f2520d6084f59832827626682be5318"
+  },
+  "postgresql": {
+    "majors": [
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "files": [
+      {
+        "repositoryPath": "LICENSE",
+        "upstreamPath": "LICENSE"
+      },
+      {
+        "repositoryPath": "COPYRIGHT.orafce",
+        "upstreamPath": "COPYRIGHT.orafce"
+      }
+    ]
+  }
+}
