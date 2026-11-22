@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Independent read-only selector for genuine owner-signed formal-source requests.
+"""Read-only selector for genuine owner-signed formal-source requests.
 
 Never enters Publisher Environment, mints credentials or issues publishable
-receipts. It requires the *separate* protected central+local source-kind
-publication opt-in before re-downloading all original source bytes.
+receipts. It requires the protected central+local source-kind publication
+opt-in before the isolated Publisher downloads and verifies the original bytes.
 """
 from __future__ import annotations
 import argparse
@@ -43,7 +43,7 @@ def protected_local(repo,sha,path):
     return data
 
 def select(*,event,live,run,branch,env,fleet,central,owner_central,
-           unattended,boundary,lifecycle,scratch):
+           unattended,boundary):
     repo,source_run=admission.authenticate_request(
         event,live,run,branch,env,request_pattern=admission.PUBLISH_REQUEST)
     source_branch=admission.get(repo,"branches/main")
@@ -58,17 +58,6 @@ def select(*,event,live,run,branch,env,fleet,central,owner_central,
     policy.gate(fleet=fleet,central=central,local=local,unattended=unattended,
                 boundary=boundary,owner_central=owner_central,
                 owner_local=owner_local,repository=repo)
-    evidence=admission.admit(repo,source_run,scratch=scratch,fleet=fleet,
-                             lifecycle=lifecycle)
-    require(evidence.get("sourceKind")==admission.SOURCE_KIND
-            and evidence.get("sourceEvent")=="issue_comment"
-            and evidence.get("sourceRunId")==source_run
-            and evidence.get("mainSha")==source_sha
-            and evidence.get("originalAndFreshDualSigstoreAgree") is True
-            and evidence.get("publicationAuthorized") is False
-            and evidence.get("publishableReceipt") is False
-            and evidence.get("PUBLISH")=="DENY",
-            "fresh original/fresh independent evidence mismatch")
     require(admission.get(repo,"branches/main")==source_branch
             and admission.get("pgextwin/build","branches/main")==branch,
             "protected main changed during owner source selection")
@@ -76,18 +65,15 @@ def select(*,event,live,run,branch,env,fleet,central,owner_central,
             "status":"OWNER_SOURCE_KIND_READONLY_SELECTED_NOT_PUBLISHABLE",
             "sourceKind":admission.SOURCE_KIND,
             "repository":repo,"mainSha":source_sha,
-            "sourceRunId":source_run,"sourceRunAttempt":1,
-            "sourceSigningCommentId":evidence["sourceCommentId"],
+            "sourceRunId":source_run,
             "publisherRequestCommentId":event["comment"]["id"],
-            "realOriginalAndFreshDualSigstoreAgree":True,
-            "SHA256":evidence["SHA256"],
             "publicationAuthorized":False,"publishableReceipt":False,
             "publisherWriteAuthorized":False,"PUBLISH":"DENY"}
 
 def main():
     p=argparse.ArgumentParser()
     for key in ("fleet","central-policy","owner-central-policy","unattended",
-                "publisher-boundary","lifecycle","output"):
+                "publisher-boundary","output"):
         p.add_argument("--"+key,required=True)
     p.add_argument("--github-output")
     a=p.parse_args()
@@ -110,8 +96,7 @@ def main():
             central=issuer.fleet_policy.read(a.central_policy),
             owner_central=issuer.fleet_policy.read(a.owner_central_policy),
             unattended=issuer.fleet_policy.read(a.unattended),
-            boundary=issuer.fleet_policy.read(a.publisher_boundary),
-            lifecycle=issuer.fleet_policy.read(a.lifecycle),scratch=scratch)
+            boundary=issuer.fleet_policy.read(a.publisher_boundary))
         output=Path(a.output).resolve()
         require(output.parent==scratch and not output.is_symlink(),
                 "untrusted selector output path")
@@ -122,7 +107,7 @@ def main():
                 out.write("repository="+evidence["repository"]+"\n")
                 out.write("source_run="+str(evidence["sourceRunId"])+"\n")
                 out.write("main_sha="+evidence["mainSha"]+"\n")
-        print("OWNER_SOURCE_VERIFIED_READONLY; PUBLISH_DENY; NO RELEASE RECEIPT")
+        print("OWNER_SOURCE_REQUEST_SELECTED_READONLY; PUBLISH_DENY; NO RELEASE RECEIPT")
         return 0
     except Exception as exc:
         # Keep unauthenticated API response and token material out of logs.

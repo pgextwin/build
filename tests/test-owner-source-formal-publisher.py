@@ -9,6 +9,7 @@ import importlib.util
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase,main
 from unittest.mock import patch
 
@@ -28,13 +29,13 @@ CENTRAL_RUN=5555
 
 class OwnerFormalRuntimeTests(TestCase):
     def test_original_same_run_source_admission_requires_success_not_any_job(self):
-        title="Authenticate owner formal-source request and reverify original (DENY)"
+        title="Select protected owner formal-source request (DENY)"
         jobs={"total_count":2,"jobs":[
             {"id":100,"run_attempt":1,"run_id":CENTRAL_RUN,"head_sha":SHA,
              "status":"completed","conclusion":"success","name":title},
             {"id":101,"status":"in_progress","name":"Other job"}]}
         with patch.object(mod.owner,"get",return_value=jobs):
-            self.assertEqual(mod.original_job(REPO,CENTRAL_RUN,SHA),100)
+            self.assertEqual(mod.original_job(CENTRAL_RUN,SHA),100)
         for field,value in (("run_attempt",2),("run_id",123),
                             ("head_sha","b"*40),("conclusion","failure"),
                             ("status","in_progress"),("id",True),
@@ -43,11 +44,11 @@ class OwnerFormalRuntimeTests(TestCase):
             failed["jobs"][0][field]=value
             with self.subTest(field=field),patch.object(
                 mod.owner,"get",return_value=failed),self.assertRaises(mod.Denied):
-                mod.original_job(REPO,CENTRAL_RUN,SHA)
+                mod.original_job(CENTRAL_RUN,SHA)
         broken=json.loads(json.dumps(jobs))
         broken["total_count"]=3
         with patch.object(mod.owner,"get",return_value=broken),self.assertRaises(mod.Denied):
-            mod.original_job(REPO,CENTRAL_RUN,SHA)
+            mod.original_job(CENTRAL_RUN,SHA)
 
     def test_owner_request_authentication_requires_fresh_original(self):
         with TemporaryDirectory() as d:
@@ -112,28 +113,79 @@ class OwnerFormalRuntimeTests(TestCase):
                           side_effect=[values,refs]),self.assertRaises(mod.Denied):
             mod.tag_from_live("pgextwin/pgaudit",ext,100)
 
-    def test_grype_denies_missing_broken_or_blocking_original_bytes(self):
-        ext,lifecycle,_=old.old.fixture()
-        majors=mod.ident.maintained_majors(ext,lifecycle)
-        assets=mod.ident.expected_assets(ext,majors)-{"SHA256SUMS.txt"}
-        with TemporaryDirectory() as d:
-            folder=Path(d)
+    def test_live_recheck_only_reads_metadata_and_denies_source_drift(self):
+        proof = {"repository": REPO, "sourceRunId": SOURCE_RUN, "mainSha": SHA,
+                 "maintainedMajors": [14, 15, 16, 17, 18]}
+        state = {"proof": proof, "intent": fixture.intent(), "requestCommentId": 3333,
+                 "selectorJobId": 100}
+        responses = {
+            (REPO, "issues/comments/4444"): fixture.live_signing(),
+            (REPO, "branches/main"): fixture.branch(),
+            ("pgextwin/build", "branches/main"): fixture.branch(),
+        }
+        env = fixture.env()
+        with patch.object(mod, "authenticate", return_value=(
+                fixture.event(), fixture.branch(), fixture.run(), fixture.signed_run(), 3333)), patch.object(
+                mod, "original_job", return_value=100), patch.object(
+                mod.owner, "get", side_effect=lambda r, p: responses[(r, p)]), patch.object(
+                mod.owner.audit, "audit") as verifier, patch.object(mod.owner, "fetch_artifact") as fetch:
+            self.assertEqual(mod.recheck(state, env),
+                             (fixture.branch(), fixture.run(), fixture.branch()))
+            for route, altered in (
+                    ("branches/main", dict(fixture.branch(), protected=False)),
+                    ("branches/main", dict(fixture.branch(), commit={"sha": "b"*40})),
+                    ("issues/comments/4444", dict(fixture.live_signing(), body="edited"))):
+                before = responses[(REPO, route)]
+                responses[(REPO, route)] = altered
+                with self.subTest(route=route), self.assertRaises((mod.Denied, mod.owner.Denied)):
+                    mod.recheck(state, env)
+                responses[(REPO, route)] = before
+            verifier.assert_not_called()
+            fetch.assert_not_called()
+
+    def test_upload_rechecks_exact_bytes_without_reclassifying_grype(self):
+        ext, lifecycle, _ = old.old.fixture()
+        majors = mod.ident.maintained_majors(ext, lifecycle)
+        assets = mod.ident.expected_assets(ext, majors) - {"SHA256SUMS.txt"}
+        with TemporaryDirectory() as d, patch.object(mod.owner.audit.vuln, "review") as review:
+            folder = Path(d)
             for name in assets:
-                (folder/name).write_bytes(b"test-bytes")
-            hashes={name:hashlib.sha256(b"test-bytes").hexdigest() for name in assets}
-            proof={"SHA256":hashes,"maintainedMajors":majors}
-            with patch.object(mod.owner,"read_file",return_value={"matches":[]}),patch.object(
-                mod.owner.audit.vuln,"review",
-                return_value={"status":"NO_BLOCKING_FINDINGS","blockingFindingCount":0}):
-                self.assertEqual(mod.package_and_grype(folder,ext,lifecycle,proof),hashes)
-            with patch.object(mod.owner,"read_file",return_value={"matches":[{}]}),patch.object(
-                mod.owner.audit.vuln,"review",
-                return_value={"status":"BLOCKING_FINDINGS","blockingFindingCount":1}):
-                with self.assertRaises(mod.Denied):
-                    mod.package_and_grype(folder,ext,lifecycle,proof)
-            proof["SHA256"][next(iter(proof["SHA256"]))]="0"*64
+                (folder / name).write_bytes(b"test-bytes")
+            hashes = {name: hashlib.sha256(b"test-bytes").hexdigest() for name in assets}
+            proof = {"SHA256": hashes, "maintainedMajors": majors}
+            self.assertEqual(mod.verify_upload_bytes(folder, ext, lifecycle, proof), hashes)
+            path = folder / next(iter(assets))
+            path.write_bytes(b"tampered")
+            with self.assertRaisesRegex(mod.Denied, "SHA256"):
+                mod.verify_upload_bytes(folder, ext, lifecycle, proof)
+            path.unlink()
             with self.assertRaises(mod.Denied):
-                mod.package_and_grype(folder,ext,lifecycle,proof)
+                mod.verify_upload_bytes(folder, ext, lifecycle, proof)
+            review.assert_not_called()
+
+    def test_prepare_retains_existing_blocking_grype_policy(self):
+        a = SimpleNamespace(repository=REPO, source_run=str(SOURCE_RUN), source_sha=SHA,
+                            **dict.fromkeys(mod.POLICY_ARGS, "fixture"))
+        with TemporaryDirectory() as d, patch.object(
+                mod, "authenticate", return_value=(None, None, None, None, 3333)), patch.object(
+                mod.issuer.fleet_policy, "read", return_value={}), patch.object(
+                mod.selector, "protected_local", return_value={}), patch.object(
+                mod.policy, "gate"), patch.object(mod.issuer, "owner_policy_gate"), patch.object(
+                mod.owner, "admit", return_value=({"blockingGrypeFindings": 1}, {}, {})) as admit:
+            scratch = Path(d)
+            with self.assertRaisesRegex(mod.Denied, "blocking .* Grype"):
+                mod.prepare(a, scratch, fixture.env())
+            self.assertFalse((scratch / mod.STATE_FILE).exists())
+            admit.assert_called_once()
+
+    def test_changed_preparation_is_denied_before_app_access(self):
+        with TemporaryDirectory() as d, patch.object(mod.probe, "jwt") as jwt:
+            scratch = Path(d)
+            (scratch / mod.STATE_FILE).write_bytes(b'{"proof":{}}')
+            env = {"OWNER_SOURCE_PREPARED_SHA256": hashlib.sha256(b"original").hexdigest()}
+            with self.assertRaisesRegex(mod.Denied, "preparation changed"):
+                mod.publish(SimpleNamespace(), scratch, env)
+            jwt.assert_not_called()
 
     def test_workflow_requires_separate_completed_evidence_and_environment(self):
         workflow=(ROOT/".github/workflows/publisher-candidate-intake.yml").read_text("utf-8")
@@ -142,7 +194,12 @@ class OwnerFormalRuntimeTests(TestCase):
         self.assertIn("environment: publisher",job)
         self.assertIn("outputs.owner_source_selected == 'true'",job)
         self.assertIn("owner-source-formal-publisher.py",job)
-        self.assertIn("PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY",job)
+        prepare, publish = job.split("      - name: Recheck live authorization", 1)
+        self.assertIn("owner-source-formal-publisher.py prepare", prepare)
+        self.assertNotIn("PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY", prepare)
+        self.assertIn("owner-source-formal-publisher.py publish", publish)
+        self.assertIn("PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY", publish)
+        self.assertIn("steps.prepare.outputs.prepared_sha256", publish)
         self.assertIn("github.run_attempt == 1",job)
         self.assertNotIn("event_name == 'push'",job)
         self.assertNotIn("event_name == 'schedule'",job)

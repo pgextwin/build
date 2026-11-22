@@ -40,7 +40,7 @@ def owner_receipt():
              signedSourceWorkflow=".github/workflows/chat-signed-main.yml",
              sourceKind=KIND,sourceEvent="issue_comment",
              sourceSigningCommentId=34343,requestCommentId=56565,
-             originalAndFreshDualSigstoreAgree=True,
+             originalAndFreshSigstoreAgree=True,
              approvalProvenance="INDEPENDENT_LIVE_OWNER_MAIN_SIGNING_AND_PUBLISH_REQUEST")
     return x
 
@@ -102,8 +102,8 @@ class OwnerSourcePolicyTests(unittest.TestCase):
             ("sourceKind","PUSH"),("sourceEvent","push"),
             ("sourceSigningCommentId",0),("sourceSigningCommentId",True),
             ("requestCommentId",0),("requestCommentId",34343),
-            ("originalAndFreshDualSigstoreAgree","true"),
-            ("originalAndFreshDualSigstoreAgree",False),
+            ("originalAndFreshSigstoreAgree","true"),
+            ("originalAndFreshSigstoreAgree",False),
             ("sourceRunAttempt",2),("sourceRunId",89753),
             ("approvalProvenance","INDEPENDENT_LIVE_OWNER_COMMENT_AND_SIGNED_SOURCE"),
         ):
@@ -116,6 +116,13 @@ class OwnerSourcePolicyTests(unittest.TestCase):
                 typed.auth.validate_receipt(owner_receipt(),
                     repository=typed.REPO,commit=typed.SHA,
                     actor="ShutenOishi",event=event)
+
+    def test_existing_owner_receipt_can_still_be_read(self):
+        receipt = owner_receipt()
+        receipt["originalAndFreshDualSigstoreAgree"] = receipt.pop("originalAndFreshSigstoreAgree")
+        self.assertEqual(typed.auth.validate_receipt(
+            receipt, repository=typed.REPO, commit=typed.SHA,
+            actor="ShutenOishi", event="issue_comment"), "issue_comment")
 
     def test_existing_push_receipt_unmodified(self):
         receipt=typed.automatic_fixture()

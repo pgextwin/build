@@ -105,7 +105,8 @@ def validate_receipt(receipt, *, repository, commit, actor, event):
                 and type(receipt.get("requestCommentId")) is int
                 and receipt["requestCommentId"] > 0
                 and receipt["sourceSigningCommentId"] != receipt["requestCommentId"]
-                and receipt.get("originalAndFreshDualSigstoreAgree") is True,
+                and receipt.get("originalAndFreshSigstoreAgree",
+                                receipt.get("originalAndFreshDualSigstoreAgree")) is True,
                 "owner signed source kind, original signer or publisher request unbound")
     if mode=="owner-issue-comment":
         require(type(receipt.get("requestCommentId")) is int
