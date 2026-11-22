@@ -63,7 +63,7 @@ def github(repo, suffix):
         or bool(re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", suffix))
         or bool(re.fullmatch(r"pulls/[1-9][0-9]*", suffix))
         or suffix == "branches/main"
-        or bool(re.fullmatch(r"contents/config/(extension|candidate-build)\.json\?ref=[a-f0-9]{40}", suffix))
+        or bool(re.fullmatch(r"contents/config/extension\.json\?ref=[a-f0-9]{40}", suffix))
     )
     require(allowed, "non-allowlisted read-only GitHub resource")
     result = subprocess.run(["gh", "api", "--method", "GET", "repos/" + repo + "/" + suffix],
@@ -100,7 +100,7 @@ def only_manifest(source, path):
         raise Denied("current protected-main config bytes malformed") from e
 
 
-def bind(*, repository, event, witness, fleet, central_policy, lifecycle,
+def bind(*, repository, event, witness, fleet, central_policy, lifecycle, candidate_policy,
          api=github, download=original_file, today=None):
     """Join protected main witness -> scheduled origin -> original decision.
 
@@ -128,8 +128,6 @@ def bind(*, repository, event, witness, fleet, central_policy, lifecycle,
     pr = api(repository, "pulls/" + str(witness["candidatePr"]))
     manifest = only_manifest(api(repository, "contents/config/extension.json?ref=" + after),
                              "config/extension.json")
-    local = only_manifest(api(repository, "contents/config/candidate-build.json?ref=" + after),
-                          "config/candidate-build.json")
     inventory = api(repository, "actions/runs?per_page=100")
     require(type(inventory) is dict and type(inventory.get("total_count")) is int
             and inventory["total_count"] >= 0
@@ -183,7 +181,7 @@ def bind(*, repository, event, witness, fleet, central_policy, lifecycle,
             approved = intent.plan(
                 witness=witness, decision=decision, pr=pr, manifest=manifest,
                 lifecycle=lifecycle, fleet=fleet, central_policy=central_policy,
-                local_candidate_policy=local, today=today or date.today())
+                local_candidate_policy=candidate_policy, today=today or date.today())
         except (intent.Denied, ValueError, KeyError, TypeError) as exc:
             raise Denied("original candidate decision does not match protected main: " + str(exc)) from exc
         matches.append((run["created_at"], run["id"], artifact["id"], approved))
@@ -224,7 +222,8 @@ def main():
                       event=event, witness=witness,
                       fleet=config("automation-fleet.json"),
                       central_policy=config("release-promotion.json"),
-                      lifecycle=config("postgresql.json"))
+                      lifecycle=config("postgresql.json"),
+                      candidate_policy=intent.publication_policy.load_candidate_policy(root))
         Path(args.out).write_text(json.dumps(result, indent=2) + "\n", "utf-8")
         print(result["status"] + ": decision " + str(result["originalDecisionRunId"]))
         return 0

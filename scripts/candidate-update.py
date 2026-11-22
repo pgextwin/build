@@ -19,6 +19,12 @@ HEX_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 MARKER_PREFIX = "pgextwin-candidate:v1"
 FIRST_RELEASE = frozenset({"pgextwin/pgtap", "pgextwin/pg_variables", "pgextwin/pg_store_plans"})
 FIRST_FILE = "config/initial-release-candidate.json"
+BUILD_ROOT = Path(__file__).resolve().parents[1]
+
+_publication_spec = importlib.util.spec_from_file_location(
+    "publication_policy", BUILD_ROOT / "scripts" / "publication-policy.py")
+publication_policy = importlib.util.module_from_spec(_publication_spec)
+_publication_spec.loader.exec_module(publication_policy)
 
 
 def no_formal_release(repo, fetch):
@@ -55,9 +61,13 @@ def read(path):
 
 
 def policy_valid(policy):
-    if set(policy) != {"schemaVersion", "enabled", "releasePolicy", "workflow"} or policy["schemaVersion"] != 1:
+    expected = publication_policy.load_candidate_policy(BUILD_ROOT)
+    if set(policy) != set(expected) or policy["schemaVersion"] != expected["schemaVersion"]:
         raise WatchError("unsupported candidate policy")
-    if type(policy["enabled"]) is not bool or policy["releasePolicy"] != "manual-only" or policy["workflow"] != "windows.yml":
+    # An explicit opt-out still yields the existing disabled plan.
+    if policy["enabled"] is False:
+        expected["enabled"] = False
+    if type(policy["enabled"]) is not bool or policy != expected:
         raise WatchError("Step 19 allows only explicit opt-in with manual-only Release policy")
 
 
