@@ -20,6 +20,9 @@ on:
       upstream_repository:
         description: Upstream repository resolved from the caller manifest
         value: ${{ jobs.matrix.outputs.upstream_repository }}
+      build_sha:
+        description: The resolved pgextwin/build commit SHA that is running this workflow
+        value: ${{ jobs.matrix.outputs.build_sha }}
 
 jobs:
   matrix:
@@ -36,8 +39,14 @@ jobs:
       upstream_version: ${{ steps.meta.outputs.upstream_version }}
       verify_upstream_license: ${{ steps.meta.outputs.verify_upstream_license }}
       license_files: ${{ steps.meta.outputs.license_files }}
+      build_sha: ${{ steps.build_sha.outputs.build_sha }}
 
     steps:
+      - name: Record resolved build workflow SHA
+        id: build_sha
+        shell: bash
+        run: echo "build_sha=${{ job.workflow_sha }}" >> "$GITHUB_OUTPUT"
+
       - name: Check out extension packaging repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
