@@ -91,6 +91,7 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
+    # Canonical owner-source signer digest. Admission policy is maintained separately.
     uses: pgextwin/build/.github/workflows/build-extension-attested.yml@4558c82c28b0814e60f35c6e5e5f8ee1025a5754
     with:
       extension_config_path: ${{ inputs.extension_config_path }}
@@ -132,10 +133,13 @@ jobs:
       - name: Verify real original signed bytes, exact PKG metadata and two Sigstore predicates
         env:
           GH_TOKEN: ${{ github.token }}
+          CENTRAL_WORKFLOW_SHA: ${{ job.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
           python .pgextwin-build/scripts/chat-signed-main-audit.py \
+            --workflow-sha "$CENTRAL_WORKFLOW_SHA" \
             --intent "$RUNNER_TEMP/owner-intent/owner-main-intent.json" \
             --manifest "${{ inputs.extension_config_path }}" \
             --lifecycle .pgextwin-build/metadata/postgresql.json \

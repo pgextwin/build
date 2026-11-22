@@ -188,7 +188,7 @@ def prepare(a, scratch, env):
     issuer.owner_policy_gate(policies["owner_policy"])
     proof, manifest, intent = owner.admit(
         repo, run_id, scratch=scratch, fleet=policies["fleet"],
-        lifecycle=policies["lifecycle"], expected_sha=sha)
+        lifecycle=policies["lifecycle"], central_sha=env["GITHUB_SHA"], expected_sha=sha)
     blocking = proof["blockingGrypeFindings"]
     print(f"Grype blocking findings across verified majors: {blocking}")
     need(blocking == 0, "blocking Critical/High/Unknown Grype vulnerability")

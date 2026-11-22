@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "defaultMajors": [14, 15, 16, 17, 18],
+  "pg19OptIn": [
+    "wal2json",
+    "pg_permissions",
+    "pg_ivm",
+    "pg_profile",
+    "pg_cron",
+    "orafce",
+    "plpgsql_check",
+    "hypopg",
+    "pg_qualstats",
+    "pg_show_plans",
+    "pg_squeeze",
+    "pg_wait_sampling",
+    "set_user",
+    "pg_bigm",
+    "pg_stat_monitor",
+    "pgaudit",
+    "pg_hint_plan"
+  ]
+}

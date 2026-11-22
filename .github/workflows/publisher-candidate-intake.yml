@@ -161,6 +161,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
           python scripts/publisher-owner-source-admission.py \
             --fleet metadata/automation-fleet.json \
             --lifecycle metadata/postgresql.json \
@@ -524,6 +525,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
           python scripts/owner-source-formal-publisher.py prepare \
             --repository "$TARGET_REPOSITORY" \
             --source-run "$ORIGINAL_SOURCE_RUN" \
