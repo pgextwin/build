@@ -2,6 +2,9 @@ name: Execute the protected candidate proposal
 
 on:
   workflow_call:
+    secrets:
+      fleet_candidate_app_private_key:
+        required: true
     inputs:
       repository:
         type: string

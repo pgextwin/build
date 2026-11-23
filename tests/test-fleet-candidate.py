@@ -12,6 +12,8 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import patch
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location("fleet_candidate", ROOT / "scripts/fleet-candidate.py")
@@ -188,6 +190,37 @@ class FleetCandidate(TestCase):
         self.assertIn(("git", "push", "--set-upstream", "origin", plan["branch"]), commands)
         self.assertTrue(any(call[:3] == ("gh", "pr", "create") and "--draft" in call for call in commands))
         self.assertIn(("gh", "workflow", "run", "windows.yml", "--repo", REPO, "--ref", plan["branch"]), commands)
+
+    def test_workflow_passes_environment_app_key_through_both_calls(self):
+        workflow_dir = ROOT / ".github/workflows"
+        watch, candidate, writer = (
+            yaml.load((workflow_dir / filename).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+            for filename in ("fleet-upstream-watch.yml", "fleet-candidate.yml",
+                             "local-authorized-candidate.yml")
+        )
+        key = "fleet_candidate_app_private_key"
+        key_expression = "${{ secrets.fleet_candidate_app_private_key }}"
+        for caller, job_id, callee, filename in (
+            (watch, "candidate-preparation", candidate, "fleet-candidate.yml"),
+            (candidate, "propose", writer, "local-authorized-candidate.yml"),
+        ):
+            job = caller["jobs"][job_id]
+            with self.subTest(call=job_id):
+                self.assertEqual(job["uses"], f"./.github/workflows/{filename}")
+                self.assertNotIn("environment", job)
+                self.assertEqual(job.get("secrets"), {key: key_expression})
+            with self.subTest(declaration=filename):
+                declared = callee["on"]["workflow_call"].get("secrets", {})
+                self.assertEqual(declared.get(key, {}).get("required"), "true")
+
+        self.assertNotIn("environment", candidate["jobs"]["plan"])
+        execute = writer["jobs"]["execute"]
+        self.assertEqual(execute["environment"], "fleet-candidate-writer")
+        token_keys = {
+            step["id"]: step["with"].get("private-key") for step in execute["steps"]
+            if step.get("uses", "").startswith("actions/create-github-app-token@")
+        }
+        self.assertEqual(token_keys, {"writer": key_expression, "issuer": key_expression})
 
     def test_workflow_restricts_selection_and_proposal(self):
         workflow = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
