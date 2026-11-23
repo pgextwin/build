@@ -184,11 +184,11 @@ for workflow_name, workflow_text in (
     ("build-extension.yml", normal_text),
     ("build-extension-attested.yml", attested_text),
 ):
-    if workflow_text and workflow_name == "build-extension-attested.yml":
+    if workflow_text:
         license_step = license_step_pattern.search(workflow_text)
         license_step_text = license_step.group(1) if license_step else ""
         license_commands = (
-            "if: needs.matrix.outputs.verify_upstream_license == 'true'",
+            "needs.matrix.outputs.verify_upstream_license == 'true'",
             "PGEXTWIN_LICENSE_FILES: ${{ toJSON(matrix.licenseFiles) }}",
             "Set-Content -LiteralPath $licenseConfig.FullName -Value $env:PGEXTWIN_LICENSE_FILES",
             'python ".pgextwin-build/scripts/verify-license-bytes.py"',
@@ -224,6 +224,8 @@ package_entry = Path("scripts/invoke-windows-package.ps1").read_text(encoding="u
 package_lib = Path("scripts/windows-package.ps1").read_text(encoding="utf-8")
 for required in (
     "scripts/invoke-windows-package.ps1",
+    "-Action Prepare",
+    "-Action Finalize",
     "VERIFY_LICENSE: ${{ needs.matrix.outputs.verify_upstream_license }}",
     "-VerifyLicense:($env:VERIFY_LICENSE -eq 'true')",
 ):
@@ -233,11 +235,11 @@ package_order = [
     package_entry.find(name)
     for name in (
         "Invoke-PackageLicenseVerification", "& $buildHook", "Copy-PackageFiles",
-        "smoke-test.ps1", "Write-WindowsPackageStage", "finalize-package.ps1",
+        "smoke-test.ps1", "Write-WindowsPackageStage",
     )
 ]
 if -1 in package_order or package_order != sorted(package_order):
-    errors.append("invoke-windows-package.ps1: enforce license verification, build, install, smoke and finalization in order")
+    errors.append("invoke-windows-package.ps1: enforce license verification, build, install, smoke and staging in order")
 for required in (
     "verify-license-bytes.py", "--verified-list $manifest", "--restore-worktrees",
     "if ($LASTEXITCODE -ne 0) { throw 'Upstream license byte verification failed.' }",
