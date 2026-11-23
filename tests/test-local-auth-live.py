@@ -194,14 +194,14 @@ class LiveBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(authority.verifier.TicketRejected, "VERSIONED_LICENSE_MISMATCH"):
                 authority.versioned_sources(*args)
 
-    def test_current_authority_policy_stays_deny(self):
+    def test_policy_can_revoke_authority_without_issuer_changes(self):
         policy = json.loads((ROOT / "metadata/local-candidate-authority.json").read_text())
-        self.assertEqual(policy["mode"], "DENY")
+        deny = dict(policy, mode="DENY", delegationStartsAt=None, delegationEndsAt=None)
         self.assertIs(policy["publication"], False)
         with self.assertRaises(live.verifier.TicketRejected) as caught:
-            live.verifier.authorize(self.ticket, self.inputs, policy, self.fleet, self.now)
+            live.verifier.authorize(self.ticket, self.inputs, deny, self.fleet, self.now)
         self.assertEqual(caught.exception.code, "DENY_MODE")
-        self.rejected("DELEGATION_UNSET", policy=policy)
+        self.rejected("DELEGATION_UNSET", policy=deny)
 
     def test_even_successful_binding_cannot_authorize_under_deny(self):
         self.policy["mode"] = "DENY"  # Test key/window only; not the real DENY policy.

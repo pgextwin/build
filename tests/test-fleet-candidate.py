@@ -79,6 +79,13 @@ class FleetCandidate(TestCase):
 
         self.enterContext(patch.dict(os.environ, {"PGEXTWIN_SCAN_READ_TOKEN": "reader"}))
         self.enterContext(patch.object(direct.receipt, "api", branches))
+        self.enterContext(patch.object(direct, "execution_mode", return_value="DENY"))
+
+    def test_enforce_selects_the_full_fleet_with_one_policy(self):
+        _, context = fixture()
+        with patch.object(direct, "execution_mode", return_value="ENFORCE"):
+            self.assertEqual(direct.repositories(context),
+                             sorted(row["repository"] for row in REGISTRY["entries"]))
 
     def test_no_update_runs_selection_only(self):
         report, context = fixture(updated=False)
