@@ -61,15 +61,17 @@ is false. The requalify operation needs its own signed-run integration.
 
 ## Deployment and rollback
 
-Prepare the issuer and Build code under DENY. Build's protected
-`fleet-candidate-writer` Environment needs an issuer-only credential
-`LOCAL_AUTH_ISSUER_TOKEN` with Actions write and Contents read. The candidate
-writer App needs an installation covering the full fleet and its identity
-must work with the native candidate audit. Confirm coverage before switching
-the single policy for all fleet entries. Set a
-finite UTC delegation window in that PR and allow the first real candidate
-to reach the issuer through the existing scan. Switching policy does not
-dispatch a candidate or release.
+Prepare the issuer and Build code under DENY. The candidate job runs in the
+protected `fleet-candidate-writer` environment and uses the
+`pgextwin-fleet-candidate` App to mint a short-lived installation token at
+runtime, scoped to `pgextwin/local-auth-issuer` with Actions write and Contents
+read. The propose step receives the minted token as `LOCAL_AUTH_ISSUER_TOKEN`.
+No static issuer token secret exists. The App installation needs to cover the
+issuer repository and the full fleet, and its identity must work with the native
+candidate audit. Confirm coverage before switching the single policy for all
+fleet entries. Set a finite UTC delegation window in that PR and allow the
+first real candidate to reach the issuer through the existing scan. Switching
+policy does not dispatch a candidate or release.
 
 For rollback, submit a Build PR changing only `mode` to `DENY`. Once
 merged, the issuer and Build's local authority reject the live policy
