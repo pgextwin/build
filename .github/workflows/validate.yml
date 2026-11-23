@@ -443,6 +443,9 @@ jobs:
       - name: Validate Test Contract v2 schema and semantics
         run: python tests/test-test-contract.py
 
+      - name: Test Windows ZIP parity comparison
+        run: python tests/test-compare-windows-packages.py
+
       - name: Validate package metadata schema
         run: python tests/test-package-metadata-schema.py
 
@@ -466,3 +469,23 @@ jobs:
         shell: pwsh
         run: ./tests/test-resolve-matrix.ps1
 
+  windows-package-contract:
+    name: Windows package contract
+    runs-on: windows-latest
+    steps:
+      - name: Check out build infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify Windows placement and package contract
+        shell: pwsh
+        run: ./tests/test-windows-package.ps1
+
+      - name: Upload placement contract results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-package-contract
+          path: windows-package-contract.json
+          if-no-files-found: error
