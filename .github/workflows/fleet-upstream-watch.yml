@@ -112,6 +112,8 @@ jobs:
       contents: read
       actions: read
     uses: ./.github/workflows/fleet-candidate.yml
+    secrets:
+      fleet_candidate_app_private_key: ${{ secrets.fleet_candidate_app_private_key }}
     with:
       repository: ${{ matrix.repository }}
       extension: ${{ matrix.extension }}

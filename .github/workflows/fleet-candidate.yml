@@ -2,6 +2,9 @@ name: Prepare candidates from the same protected fleet schedule
 
 on:
   workflow_call:
+    secrets:
+      fleet_candidate_app_private_key:
+        required: true
     inputs:
       repository:
         type: string
@@ -85,6 +88,8 @@ jobs:
            (needs.plan.outputs.authorization_mode == 'DENY' && vars.PGEXTWIN_FLEET_CANDIDATE_WRITES == 'enabled')) &&
           vars.PGEXTWIN_FLEET_CANDIDATE_APP_CLIENT_ID != '' }}
     uses: ./.github/workflows/local-authorized-candidate.yml
+    secrets:
+      fleet_candidate_app_private_key: ${{ secrets.fleet_candidate_app_private_key }}
     with:
       repository: ${{ inputs.repository }}
       extension: ${{ inputs.extension }}

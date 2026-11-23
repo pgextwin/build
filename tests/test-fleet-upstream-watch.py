@@ -225,8 +225,12 @@ class ReadonlyFleet(TestCase):
         self.assertIn('cron: "7 * * * *"',y)
         self.assertIn("permissions:\n  contents: read",y)
         for forbidden in ("issues: write","contents: write","pull-requests: write",
-                          "secrets.","gh pr create","gh release","pull_request_target:"):
+                          "gh pr create","gh release","pull_request_target:"):
             self.assertNotIn(forbidden,y)
+        # The only secret reference is the named mapping on the reusable call.
+        # test-fleet-candidate.py checks its location in candidate-preparation.
+        allowed_secret = "      fleet_candidate_app_private_key: ${{ secrets.fleet_candidate_app_private_key }}\n"
+        self.assertNotIn("secrets.", y.replace(allowed_secret, "", 1))
         self.assertIn("if: always()",y)
         self.assertIn("GH_TOKEN: ${{ github.token }}",y)
         self.assertIn("candidatePrCreated", (ROOT/"scripts/fleet-upstream-watch.py").read_text())
