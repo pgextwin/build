@@ -49,10 +49,12 @@ jobs:
       - name: Authenticate real source, attempt, 2 signed attestations and all ZIPs
         env:
           GH_TOKEN: ${{ github.token }}
+          VERIFIER_SHA: ${{ job.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
           python .pgextwin-build/scripts/automatic-signed-candidate-audit.py \
+            --package-verifier-sha "$VERIFIER_SHA" \
             --dist "$RUNNER_TEMP/signed-candidate-dist" \
             --manifest config/extension.json \
             --lifecycle .pgextwin-build/metadata/postgresql.json \
@@ -144,10 +146,12 @@ jobs:
       - name: Verify fresh ZIP/SPDX/Grype Sigstore in separate job
         env:
           GH_TOKEN: ${{ github.token }}
+          VERIFIER_SHA: ${{ job.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
           python .pgextwin-build/scripts/automatic-signed-candidate-audit.py \
+            --package-verifier-sha "$VERIFIER_SHA" \
             --dist "$RUNNER_TEMP/independent-signed-dist" \
             --manifest config/extension.json \
             --lifecycle .pgextwin-build/metadata/postgresql.json \

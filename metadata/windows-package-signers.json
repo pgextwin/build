@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "candidateSigner": "3e235c7a403bf32a86b1013db6c302ab23e445df",
+  "candidateAudit": null,
+  "ownerWrappers": {
+    "pgextwin/pg_profile": "b311498a3b7a78662b579333f48b58a05789e5f3",
+    "pgextwin/pg_track_settings": "b311498a3b7a78662b579333f48b58a05789e5f3"
+  }
+}
