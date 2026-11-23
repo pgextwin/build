@@ -65,8 +65,13 @@ def identity(repo, pr, run, audit_run, artifact_id, fleet, *, current_repo, ref,
     return True
 
 
+
+_origin_spec = importlib.util.spec_from_file_location("fleet_candidate_origin", Path(__file__).resolve().parent / "fleet_candidate_origin.py")
+origin = importlib.util.module_from_spec(_origin_spec)
+_origin_spec.loader.exec_module(origin)
+
 def validate_live(*, repo, pr_number, ci_id, audit_id, artifact_id,
-                  pr, files, ci_run, audit_run, artifact_list, main, manifest):
+                  pr, files, ci_run, audit_run, artifact_list, main, manifest, verify_origin=None):
     """Safely join separately fetched authentic GitHub REST snapshots.
 
     A passing result is exclusively a candidate audit observation and never
@@ -77,7 +82,6 @@ def validate_live(*, repo, pr_number, ci_id, audit_id, artifact_id,
             and (pr.get("head") or {}).get("repo", {}).get("full_name") == repo
             and (pr.get("base") or {}).get("repo", {}).get("full_name") == repo
             and (pr.get("base") or {}).get("ref") == "main"
-            and (pr.get("user") or {}).get("login") == "github-actions[bot]"
             and type(files) is list and len(files) == 1
             and files[0].get("filename") == "config/extension.json"
             and files[0].get("status") == "modified",
@@ -123,6 +127,7 @@ def validate_live(*, repo, pr_number, ci_id, audit_id, artifact_id,
         raise Denied("invalid actual candidate source manifest") from e
     require(type(candidate_manifest) is dict and candidate_manifest.get("name") == repo.split("/")[1],
             "wrong candidate extension manifest")
+    origin.author(repo, pr, verify_origin=verify_origin, denied=Denied)
     return main_sha, candidate_manifest, eligible[0]
 
 
@@ -178,7 +183,7 @@ def run(repo, pr_number, ci_id, audit_id, artifact_id, *, root):
     }
     main_sha, ext, artifact = validate_live(
         repo=repo, pr_number=pr_number, ci_id=ci_id, audit_id=audit_id,
-        artifact_id=artifact_id, **snapshots)
+        artifact_id=artifact_id, verify_origin=origin.verify, **snapshots)
     # Exact one artifact with this name and ID was independently fetched.
     with tempfile.TemporaryDirectory() as temp:
         target = Path(temp)

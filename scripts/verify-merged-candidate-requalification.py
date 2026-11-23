@@ -32,6 +32,7 @@ def module(name, file):
 
 check_gate = module("merged_requalification_native_check", "native-required-check.py")
 contents = module("merged_requalification_contents", "github_contents.py")
+candidate_origin = module("fleet_candidate_origin", "fleet_candidate_origin.py")
 
 class Denied(ValueError):
     pass
@@ -117,7 +118,7 @@ def validate_schedule(run, central, snapshot, fleet, run_id, now):
     return {e["repository"]:e for e in entries}
 
 def validate_merged(entry, *, current, pr, changed, associated, compare,
-                    candidate_contents, main_contents, native_run, checks):
+                    candidate_contents, main_contents, native_run, checks, verify_origin=None):
     """No CI, source, or merge-state shortcut converts a historical PR to signing."""
     repo = entry.get("repository")
     head = entry.get("candidateHead")
@@ -143,7 +144,6 @@ def validate_merged(entry, *, current, pr, changed, associated, compare,
     require(pr.get("number") == n and pr.get("state") == "closed"
         and pr.get("merged") is True and pr.get("draft") is False
         and pr.get("merge_commit_sha") == merge and pr.get("merged_at")
-        and (pr.get("user") or {}).get("login") == "github-actions[bot]"
         and (pr.get("base") or {}).get("ref") == "main"
         and (pr.get("base") or {}).get("repo",{}).get("full_name") == repo
         and (pr.get("head") or {}).get("repo",{}).get("full_name") == repo
@@ -194,6 +194,7 @@ def validate_merged(entry, *, current, pr, changed, associated, compare,
         proof = check_gate.verify(native_run, checks, repository=repo, head=head)
     except check_gate.Denied as exc:
         raise Denied("original App15368 native Windows CI denied: " + str(exc)) from exc
+    candidate_origin.author(repo, pr, verify_origin=verify_origin or candidate_origin.verify, denied=Denied)
     return {"repository":repo, "originalPr":n, "originalHead":head,
         "mergedAncestor":merge, "currentProtectedMain":main_sha,
         "manifestBlob":blob, "originalNativeWindowsRun":run_id,

@@ -22,6 +22,11 @@ OWNED=re.compile(r"^auto-candidate/([0-9a-f]{20})$")
 _spec=importlib.util.spec_from_file_location("native_required_check",
     Path(__file__).resolve().parent/"native-required-check.py")
 required_check=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(required_check)
+
+_origin_spec = importlib.util.spec_from_file_location("fleet_candidate_origin", Path(__file__).resolve().parent / "fleet_candidate_origin.py")
+origin = importlib.util.module_from_spec(_origin_spec)
+_origin_spec.loader.exec_module(origin)
+
 class Denied(ValueError): pass
 
 class Unavailable(Denied): pass
@@ -29,7 +34,7 @@ class Unavailable(Denied): pass
 def require(x,msg):
     if not x: raise Denied(msg)
 
-def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=None):
+def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=None, *, verify_origin=None):
     require(type(repo) is str and REPO.fullmatch(repo), "unsafe target repository")
     require(type(run) is dict and run.get("event")=="pull_request"
             and run.get("name")=="Windows CI/CD"
@@ -51,7 +56,6 @@ def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=
             and (pr.get("head") or {}).get("repo",{}).get("full_name")==repo
             and (pr.get("base") or {}).get("ref")=="main"
             and (pr.get("base") or {}).get("repo",{}).get("full_name")==repo
-            and (pr.get("user") or {}).get("login")=="github-actions[bot]"
             and type(pr.get("number")) is int and pr["number"]>0
             and "<!-- pgextwin-candidate:v1:"+owned.group(1)+" -->" in (pr.get("body") or ""),
             "candidate not owned or exact head/target moved")
@@ -105,6 +109,7 @@ def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=
         proof=required_check.verify(run,checks,repository=repo,head=head)
     except required_check.Denied as exc:
         raise Denied("original native required Windows check denied: "+str(exc)) from exc
+    evidence = origin.author(repo, pr, verify_origin=verify_origin, denied=Denied)
     return {"schemaVersion":1,"status":"NATIVE_PR_CI_AUTHENTICATED_NOT_PUBLISHABLE",
             "repository":repo,"candidatePr":pr["number"],"branch":branch,
             "candidateHeadSha":head,"packagingMergeSha":merge_ref["object"]["sha"],
@@ -112,7 +117,7 @@ def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=
             "candidateCheckSuiteId":proof["checkSuiteId"],
             "candidateRequiredCheckRunId":proof["checkRunId"],"matrixResult":"success",
             "candidateAuditVerified":False,"signedArtifactsVerified":False,
-            "publishableReceipt":False,"publicationAuthorized":False}
+            "publishableReceipt":False,"publicationAuthorized":False, **origin.summary(evidence)}
 
 def gh_get(repo, endpoint):
     require(type(repo) is str and REPO.fullmatch(repo),"invalid GitHub owner/repository")
@@ -162,7 +167,7 @@ def live(repo, run_id, event):
     main=gh_get(repo,"branches/main")
     checks=gh_get(repo,"commits/"+run["head_sha"]+"/check-runs?per_page=100")
     return validate(repo,run,pr,files,merge,main,checks,
-                    associated_pulls=associated)
+                    associated_pulls=associated, verify_origin=origin.verify)
 
 def main():
     p=argparse.ArgumentParser()

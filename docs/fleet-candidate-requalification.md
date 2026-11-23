@@ -8,6 +8,16 @@
 
 既存の native PR 検証、マージ観測、原本監査には `github-actions[bot]` で作者を固定する箇所がある。専用 App が作った PR は App の bot が作者になる。稼働前に、対象リポジトリ・App の数値 ID と bot の数値 ID、中央 Run/attempt と候補決定、PR の正確な head と出所を既存の利用側で照合する切替をレビューする。既存の作者と証拠に対する検査も維持する。PR の作者名やマーカーだけで新経路を認可できるようにはしない。
 
+writer は新規 PR に候補決定のコピーを含め、作成直後に GitHub API から PR を読み直す。対象リポジトリの数値 ID、App と bot の数値 ID、中央 Run/attempt と候補決定 artifact ID、対象の保護 main SHA、正確な head と manifest blob を記録する。PR 番号を加えた正規化 JSON を `candidate-origin-<extension>-<sha256>` として同じ Run に保存する。既存 PR の再利用時は出所を新しい Run に付け替えない。
+
+| 合格条件 | 証拠成果物 | 評価経路 |
+| --- | --- | --- |
+| 登録された対象と App/bot の数値 ID が一致し、中央の保護 main 由来の初回 schedule でスキャンと対象 writer が成功している | GitHub の App、PR、Run/attempt、ジョブとステップのメタデータ | native PR 監査、中央 native 回復、マージ観測、原本決定の照合、fleet 状況表示で同一の verifier を実行する |
+| 同一 Run の候補決定と出所 artifact が一意かつ有効で、writer の実行中に作られた PR と一致する | `candidate-decision-<extension>`、`candidate-origin-<extension>-<sha256>`、PR 本文の証拠コピーと GitHub の PR 番号 | verifier は PR から計算した SHA-256 を中央の artifact 名と照合し、Run・SHA・時刻も確認する。拡張の読み取りジョブは公開 REST メタデータを使う |
+| 候補 head は保護 main を唯一の親とし、変更した manifest blob のタグ・版・コミットが決定と一致する。マージ済みの場合はマージコミットの親と manifest blob も一致する | GitHub の保護ブランチ、対象 PR、コミット、head の `config/extension.json` | verifier の合格後も各監査は従来の Windows 必須チェックと原本照合を行う。native とマージ観測の成果物は App の出所識別子も記録する |
+
+pg_ivm の `update-watch.yml` は `verify-native-pr-candidate.yml` と `automatic-postmerge-audit-readonly.yml` をそれぞれ固定 SHA で呼ぶ。Build のレビュー済み変更を取り込んだ SHA にこの 2 参照を移し、真正な schedule の後段を観測してから切り替える。既存の中央 native 回復スケジュールは Build の保護 main から直接動く。
+
 以上の設定と監査側の準備を確認してから `PGEXTWIN_FLEET_CANDIDATE_WRITES=enabled` を設定する。設定待ちの検出は候補決定を保存し、書き込み延期を要約に記録する。中央で管理する対象は `scripts/fleet-candidate.py` の `PILOTS`。中央 writer は元の保護 main を親とする候補ブランチを使う。既存の拡張ローカル bot 候補や、ベース同期で変化したブランチがある場合は旧経路で解決してから切り替える。
 
 旧ローカルの `operator-update-auto.yml` はスキャンのコード blob を固定 SHA と照合する。旧経路を維持するリポジトリでは、Build のスキャン更新を含む互換 pin への移行が必要になる。B2 着地後にも旧 pin での blob 不一致が発生している。

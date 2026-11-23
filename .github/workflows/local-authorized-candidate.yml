@@ -25,6 +25,7 @@ permissions:
 
 jobs:
   execute:
+    name: Bind fleet candidate ${{ inputs.extension }}
     if: >-
       ${{ github.repository == 'pgextwin/build' &&
           github.workflow_ref == 'pgextwin/build/.github/workflows/fleet-upstream-watch.yml@refs/heads/main' &&
@@ -74,6 +75,7 @@ jobs:
           permission-actions: write
           permission-contents: read
       - name: Recheck plan, create or reuse draft PR and dispatch Windows CI
+        id: proposal
         working-directory: target-extension
         env:
           GH_TOKEN: ${{ steps.writer.outputs.token }}
@@ -81,8 +83,18 @@ jobs:
           PGEXTWIN_SCAN_READ_TOKEN: ${{ github.token }}
           LOCAL_AUTH_ISSUER_TOKEN: ${{ steps.issuer.outputs.token }}
           TARGET_REPOSITORY: ${{ inputs.repository }}
+          DECISION_ARTIFACT: ${{ inputs.decision }}
         run: >-
           python3 ../scripts/fleet-candidate.py propose
           --snapshot "$RUNNER_TEMP/fleet-snapshot/fleet-upstream-watch.json"
           --repository "$TARGET_REPOSITORY"
           --record "$RUNNER_TEMP/fleet-decision/candidate-plan.json"
+          --decision-id "$DECISION_ARTIFACT"
+          --origin "$RUNNER_TEMP/candidate-origin.json"
+      - name: Preserve exact App candidate origin
+        if: steps.proposal.outputs.origin_artifact != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.proposal.outputs.origin_artifact }}
+          path: ${{ runner.temp }}/candidate-origin.json
+          if-no-files-found: error

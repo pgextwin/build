@@ -101,7 +101,7 @@ def only_manifest(source, path):
 
 
 def bind(*, repository, event, witness, fleet, central_policy, lifecycle, candidate_policy,
-         api=github, download=original_file, today=None):
+         api=github, download=original_file, today=None, verify_origin=None):
     """Join protected main witness -> scheduled origin -> original decision.
 
     Scan the most recent 100 runs; older unrelated runs are not an additional
@@ -126,8 +126,24 @@ def bind(*, repository, event, witness, fleet, central_policy, lifecycle, candid
     require((branch.get("commit") or {}).get("sha") == after,
             "main advanced since original protected candidate push")
     pr = api(repository, "pulls/" + str(witness["candidatePr"]))
-    manifest = only_manifest(api(repository, "contents/config/extension.json?ref=" + after),
-                             "config/extension.json")
+    manifest_source = api(repository, "contents/config/extension.json?ref=" + after)
+    manifest = only_manifest(manifest_source, "config/extension.json")
+    if intent.origin.is_app(pr):
+        evidence = intent.origin.author(repository, pr, verify_origin=verify_origin or intent.origin.verify,
+                                        denied=Denied)
+        record = evidence["record"]
+        require(record["baseSha"] == event.get("before") and record["manifestBlob"] == manifest_source.get("sha"),
+                "App decision disagrees with the merged manifest or protected parent")
+        result = intent.plan(
+            witness=witness, decision=record["decision"], pr=pr, manifest=manifest,
+            lifecycle=lifecycle, fleet=fleet, central_policy=central_policy,
+            local_candidate_policy=candidate_policy, today=today or date.today(),
+            verify_origin=lambda _repo, _pr: evidence)
+        result["originalDecisionRunId"] = record["runId"]
+        result["originalDecisionArtifactId"] = record["decisionArtifactId"]
+        result["originalDecisionRepository"] = intent.origin.BUILD
+        result["candidateOriginArtifactId"] = evidence["artifactId"]
+        return result
     inventory = api(repository, "actions/runs?per_page=100")
     require(type(inventory) is dict and type(inventory.get("total_count")) is int
             and inventory["total_count"] >= 0
