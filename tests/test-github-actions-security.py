@@ -144,7 +144,7 @@ else:
 
     order = [
         attested_text.find("- name: Package Windows binary"),
-        attested_text.find("- name: Finalize and validate package metadata"),
+        attested_text.find("- name: Validate final package metadata"),
         attested_text.find("- name: Install checksum-pinned Syft"),
         attested_text.find("- name: Generate SPDX 2.3 SBOM"),
         attested_text.find("- name: Validate SPDX 2.3 SBOM"),
@@ -231,6 +231,8 @@ for required in (
 ):
     if required not in normal_text:
         errors.append(f"build-extension.yml: missing normal packaging binding: {required}")
+    if required not in attested_text:
+        errors.append(f"build-extension-attested.yml: missing signer packaging binding: {required}")
 package_order = [
     package_entry.find(name)
     for name in (
