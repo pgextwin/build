@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check candidate planning parity and fleet decisions during watch migration."""
 import base64
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
 import json
@@ -28,6 +28,8 @@ def load_script(name):
 
 candidate = load_script("candidate-update")
 fleet = load_script("fleet-control")
+validator = load_script("validate-update-watch")
+detector = load_script("check-upstream-update")
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 
@@ -106,6 +108,36 @@ class WatchSectionTests(unittest.TestCase):
             path.write_text("null", "utf-8")
             with self.assertRaises(WatchError):
                 load_watch(embedded, path)
+
+    def test_validator_and_detector_watch_resolution(self):
+        _, legacy, embedded = watch_fixtures("orafce")
+        fetch = stub_fetch(legacy["repository"], legacy["strategy"], "VERSION_4_17_3")
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest, watch, output = (root / name for name in
+                                       ("extension.json", "legacy-watch.json", "result.json"))
+            inputs = ["--extension-config", str(manifest), "--watch-config", str(watch)]
+            validate = [*inputs, "--schema", str(ROOT / "schema/update-watch.schema.json")]
+            detect = [*inputs, "--output", str(output),
+                      "--watcher-repository", "pgextwin/build", "--watcher-sha", COMMIT]
+            for legacy_payload, extension, valid in (
+                (None, embedded, True),
+                (json.dumps(legacy), {**embedded, "watch": {"unexpected": True}}, True),
+                ("null", embedded, False),
+            ):
+                with self.subTest(legacy=legacy_payload):
+                    manifest.write_text(json.dumps(extension), "utf-8")
+                    if legacy_payload is not None:
+                        watch.write_text(legacy_payload, "utf-8")
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        with patch.object(sys, "argv", ["validate-update-watch.py", *validate]):
+                            self.assertEqual(validator.main(), 0 if valid else 1)
+                        with patch.object(detector, "github_get_json", side_effect=lambda url, token: fetch(url)):
+                            with patch.object(sys, "argv", ["check-upstream-update.py", *detect]):
+                                self.assertEqual(detector.main(), 0 if valid else 2)
+                    result = read(output)
+                    self.assertEqual(result["status"], "update-available" if valid else "indeterminate")
+                    self.assertEqual(result["watcher"], {"repository": "pgextwin/build", "sha": COMMIT})
 
     def test_fleet_validation_and_decisions(self):
         _, legacy, embedded = watch_fixtures("orafce")

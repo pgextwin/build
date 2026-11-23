@@ -9,7 +9,7 @@ on:
         type: string
         default: config/extension.json
       update_watch_path:
-        description: Path to config/update-watch.json in the caller repository
+        description: Legacy watch path in the caller repository. If absent, use the extension watch section.
         required: false
         type: string
         default: config/update-watch.json

@@ -3,17 +3,18 @@ from __future__ import annotations
 import argparse, json, re, sys
 from jsonschema import Draft202012Validator
 from pathlib import Path
-from update_watch_lib import WatchError, validate_watch_semantics
+from update_watch_lib import WatchError, load_watch, validate_watch_semantics
 
 def main() -> int:
     p=argparse.ArgumentParser()
     p.add_argument("--extension-config", required=True)
-    p.add_argument("--watch-config", required=True)
+    p.add_argument("--watch-config", required=True,
+                   help="Legacy watch path; use the extension watch section if absent")
     p.add_argument("--schema", required=True)
     args=p.parse_args()
     try:
         extension=json.loads(Path(args.extension_config).read_text(encoding="utf-8"))
-        watch=json.loads(Path(args.watch_config).read_text(encoding="utf-8"))
+        watch=load_watch(extension, args.watch_config)
         schema=json.loads(Path(args.schema).read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(watch)

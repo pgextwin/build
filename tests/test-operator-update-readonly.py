@@ -101,7 +101,9 @@ class SharedUpdateTests(unittest.TestCase):
                       "permissions:\n  contents: read",
                       "value: ${{ jobs.authorize.outputs.mode }}",
                       "needs: authorize", "persist-credentials: false",
-                      "ref: ${{ inputs.detector_sha }}",
+                      "DETECTOR_SHA: ${{ inputs.detector_sha }}",
+                      "repository: pgextwin/build\n          ref: ${{ inputs.detector_sha }}",
+                      "--watcher-repository pgextwin/build",
                       '--watcher-sha "${{ inputs.detector_sha }}"',
                       "mode=candidate", "mode=read-only"):
             self.assertIn(value, WORKFLOW)

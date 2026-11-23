@@ -2,12 +2,13 @@
 from __future__ import annotations
 import argparse, json, os, sys
 from pathlib import Path
-from update_watch_lib import WatchError, detect_extension_update, github_get_json, utc_now
+from update_watch_lib import WatchError, detect_extension_update, github_get_json, load_watch, utc_now
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--extension-config", required=True)
-    p.add_argument("--watch-config", required=True)
+    p.add_argument("--watch-config", required=True,
+                   help="Legacy watch path; use the extension watch section if absent")
     p.add_argument("--output", required=True)
     p.add_argument("--watcher-repository", required=True)
     p.add_argument("--watcher-sha", required=True)
@@ -15,7 +16,7 @@ def main() -> int:
     output = Path(args.output)
     try:
         extension = json.loads(Path(args.extension_config).read_text(encoding="utf-8"))
-        watch = json.loads(Path(args.watch_config).read_text(encoding="utf-8"))
+        watch = load_watch(extension, args.watch_config)
         token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
         result = detect_extension_update(
             extension, watch, lambda url: github_get_json(url, token), utc_now(),
