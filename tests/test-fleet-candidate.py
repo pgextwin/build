@@ -23,7 +23,7 @@ BUILD_SHA = "a" * 40
 TARGET_SHA = "b" * 40
 UPDATE_SHA = "c" * 40
 UPSTREAM = "sraoss/pg_ivm"
-WRITER = (direct.APP_SLUG + "[bot]", 123)
+WRITER = (direct.origin.BOT, direct.origin.APP["botUserId"])
 REGISTRY = json.loads((ROOT / "metadata/automation-fleet.json").read_text(encoding="utf-8"))
 MANIFEST = {"name": "pg_ivm", "postgresql": {"majors": [17, 18]},
             "upstream": {"repository": UPSTREAM, "ref": "v1.17", "version": "1.17", "commit": "e" * 40},
@@ -118,16 +118,35 @@ class FleetCandidate(TestCase):
     def test_update_plan_to_proposal_uses_real_engine_with_stubbed_git_and_gh(self):
         report, context = fixture()
         commands = []
+        repo_id = 1406488805
+        branch_head = "f" * 40
+        blob = "a" * 40
+        body = ""
+
+        def fetch_with_pr(url):
+            if url == direct.receipt.HOST + REPO:
+                return {"full_name": REPO, "id": repo_id}
+            if url.endswith("/pulls/123"):
+                repo = {"full_name": REPO, "id": repo_id}
+                return {"number": 123, "state": "open", "merged": False,
+                        "user": {"login": WRITER[0], "id": WRITER[1], "type": "Bot"},
+                        "body": body, "head": {"ref": plan["branch"], "sha": branch_head, "repo": repo},
+                        "base": {"ref": "main", "sha": TARGET_SHA, "repo": repo}}
+            return fetch(url)
 
         def execute(*args):
+            nonlocal body
             commands.append(args)
+            if args == ("git", "rev-parse", "HEAD:" + direct.MANIFEST):
+                return blob
             if args[:2] == ("git", "rev-parse"):
-                return TARGET_SHA
+                return branch_head if ("git", "commit") in [call[:2] for call in commands] else TARGET_SHA
             if args[:3] == ("git", "remote", "get-url"):
                 return "https://github.com/" + REPO
             if args[:3] in (("gh", "pr", "list"), ("gh", "run", "list")):
                 return "[]"
             if args[:3] == ("gh", "pr", "create"):
+                body = Path(args[args.index("--body-file") + 1]).read_text("utf-8")
                 return "https://github.com/" + REPO + "/pull/123"
             return ""
 
@@ -147,9 +166,22 @@ class FleetCandidate(TestCase):
                 altered = deepcopy(plan)
                 altered["updates"][0]["commit"] = "0" * 40
                 with self.assertRaises(direct.receipt.Denied):
-                    direct.propose(report, context, REPO, altered, WRITER, fetch=fetch)
+                    direct.propose(report, context, REPO, altered, WRITER, fetch=fetch,
+                                   origin_path=Path(tmp) / "origin.json", decision_id=45)
                 self.assertFalse(any(call[:2] == ("git", "push") for call in commands))
-                direct.propose(report, context, REPO, plan, WRITER, fetch=fetch)
+                origin = Path(tmp) / "origin.json"
+                output = Path(tmp) / "output"
+                with patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
+                    direct.propose(report, context, REPO, plan, WRITER, fetch=fetch_with_pr,
+                                   origin_path=origin, decision_id=45)
+                expected = direct.origin.parse_marker(body)
+                self.assertEqual(json.loads(origin.read_bytes()), {"origin": expected, "pullRequest": 123})
+                self.assertEqual(expected["decision"], plan)
+                self.assertEqual(expected["headSha"], branch_head)
+                self.assertEqual(expected["manifestBlob"], blob)
+                self.assertEqual(expected["decisionArtifactId"], 45)
+                self.assertEqual(output.read_text(), "origin_artifact=" +
+                                 direct.origin.artifact_name(REPO, expected, 123) + "\n")
                 self.assertEqual(json.loads(manifest.read_text())["upstream"]["commit"], UPDATE_SHA)
             finally:
                 os.chdir(previous)

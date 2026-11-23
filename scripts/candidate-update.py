@@ -598,7 +598,7 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
 
 
 def propose_candidate(record, manifest_path, repository, watch_path, policy_path=None, *,
-                      writer=None, fetch=api):
+                      writer=None, fetch=api, origin_body=None, on_created=None):
     """Apply a proposal after the local or central caller authenticates its context."""
     config = read(manifest_path)
     # Enforce the live central authority again immediately before any mutation.
@@ -688,11 +688,16 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
                         " | " + str(u["notes"]) + " |")
         body += ["", "Manual review: source diff, license, export audit, Test Contract, Windows compatibility.",
                  "A separate attested Release build and publication gate remain mandatory."]
+        if origin_body is not None:
+            ref = "refs/remotes/origin/" + branch if remote else "HEAD"
+            body.append(origin_body(ref))
         body_path = Path(os.environ.get("RUNNER_TEMP", ".")) / "pgextwin-candidate-pr.md"
         body_path.write_text("\n".join(body) + "\n", encoding="utf-8")
         url = execute("gh", "pr", "create", "--repo", repository, "--head", branch, "--base", "main",
                       "--title", "chore: candidate " + record["extension"] + " " +
                       record["updates"][0]["version"], "--body-file", str(body_path), "--draft")
+        if on_created is not None:
+            on_created(url)
     print("Candidate PR: " + url)
     runs = json.loads(execute("gh", "run", "list", "--repo", repository, "--workflow", "windows.yml",
                               "--branch", branch, "--event", "workflow_dispatch", "--limit", "100",

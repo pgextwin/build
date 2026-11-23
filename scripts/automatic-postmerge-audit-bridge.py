@@ -37,6 +37,11 @@ _check_spec=importlib.util.spec_from_file_location("postmerge_native_required_ch
 required_check=importlib.util.module_from_spec(_check_spec)
 _check_spec.loader.exec_module(required_check)
 
+
+_origin_spec = importlib.util.spec_from_file_location("fleet_candidate_origin", HERE / "fleet_candidate_origin.py")
+candidate_origin = importlib.util.module_from_spec(_origin_spec)
+_origin_spec.loader.exec_module(candidate_origin)
+
 class Denied(ValueError):
     pass
 
@@ -51,7 +56,7 @@ def full_sha(v):
 
 
 def verify(*, repository, event, commit, pr, pr_files, branch, checks,
-           ci_run, bound, manifest, lifecycle, fleet, today=None):
+           ci_run, bound, manifest, lifecycle, fleet, today=None, verify_origin=None):
     """Return a strictly NONPUBLISHING merge witness, not a typed receipt.
 
     A prior native-audit binder must have downloaded exactly the original
@@ -93,7 +98,6 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
             and (pr.get("head") or {}).get("repo", {}).get("full_name") == repository
             and (pr.get("base") or {}).get("repo", {}).get("full_name") == repository
             and (pr.get("base") or {}).get("ref") == "main"
-            and (pr.get("user") or {}).get("login") == "github-actions[bot]"
             and (pr.get("merged_by") or {}).get("login") == actor
             and full_sha((pr.get("head") or {}).get("sha")),
             "merged PR identity not a genuine protected bot candidate")
@@ -165,6 +169,7 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
                 and type(item.get("zipSha256")) is str
                 and HASH.fullmatch(item["zipSha256"]) is not None,
                 "merged upstream source SHA differs from independently audited ZIP")
+    evidence = candidate_origin.author(repository, pr, verify_origin=verify_origin, denied=Denied)
     return {
         "schemaVersion": 1,
         "status": "MERGED_NATIVE_CANDIDATE_NONPUBLISHING",
@@ -182,6 +187,7 @@ def verify(*, repository, event, commit, pr, pr_files, branch, checks,
         "sourcesAndZipDigests": digests,
         "signedArtifactsVerified": False, "publishableReceipt": False,
         "publicationAuthorized": False, "automaticReleaseEnabled": False,
+        **candidate_origin.summary(evidence),
     }
 
 

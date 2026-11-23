@@ -9,6 +9,7 @@ A passing observation is not an authorization receipt or a Release request.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,11 @@ BRANCH = re.compile(r"^auto-candidate/([0-9a-f]{20})$")
 LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 REPOSITORY = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 
+
+
+_origin_spec = importlib.util.spec_from_file_location("fleet_candidate_origin", Path(__file__).resolve().parent / "fleet_candidate_origin.py")
+origin = importlib.util.module_from_spec(_origin_spec)
+_origin_spec.loader.exec_module(origin)
 
 class Denied(ValueError):
     pass
@@ -43,7 +49,7 @@ def one_file(items):
 
 
 def verify_snapshot(*, event, commit, prs, files, branch, checks, runs,
-                    repository, actor, expected_sha, roster):
+                    repository, actor, expected_sha, roster, verify_origin=None):
     """Validate separately fetched GitHub REST data, without granting PUBLISH."""
     require(type(roster) is list and len(roster) == 26
             and len(set(roster)) == 26
@@ -78,7 +84,6 @@ def verify_snapshot(*, event, commit, prs, files, branch, checks, runs,
             and (pr.get("base") or {}).get("ref") == "main"
             and (pr.get("base") or {}).get("repo", {}).get("full_name") == repository
             and (pr.get("head") or {}).get("repo", {}).get("full_name") == repository
-            and (pr.get("user") or {}).get("login") == "github-actions[bot]"
             and (pr.get("merged_by") or {}).get("login") == actor
             and type(pr.get("number")) is int and pr["number"] > 0
             and is_sha((pr.get("head") or {}).get("sha"))
@@ -118,6 +123,7 @@ def verify_snapshot(*, event, commit, prs, files, branch, checks, runs,
                 and r.get("conclusion") == "success"
                 and type(r.get("id")) is int and r["id"] > 0]
     require(len(eligible) == 1, "unique successful exact-head native PR Windows run missing")
+    evidence = origin.author(repository, pr, verify_origin=verify_origin, denied=Denied)
     # Explicitly do not promote this to a signed candidate-audit or trusted
     # independent branch rule/attestation proof.
     return {"schemaVersion": 1, "status": "AUTHENTICATED_PR_CI_ONLY",
@@ -128,7 +134,7 @@ def verify_snapshot(*, event, commit, prs, files, branch, checks, runs,
             "candidateArtifactAuditVerified": False,
             "effectiveBranchRulesAudited": False,
             "signatureAndProvenanceVerified": False,
-            "publicationAuthorized": False, "publishableReceipt": False}
+            "publicationAuthorized": False, "publishableReceipt": False, **origin.summary(evidence)}
 
 
 def api(repo, suffix):
@@ -136,6 +142,7 @@ def api(repo, suffix):
     allowed = (
         re.fullmatch(r"commits/[a-f0-9]{40}", suffix)
         or re.fullmatch(r"commits/[a-f0-9]{40}/pulls\?per_page=100", suffix)
+        or re.fullmatch(r"pulls/[1-9][0-9]*", suffix)
         or re.fullmatch(r"pulls/[1-9][0-9]*/files\?per_page=100", suffix)
         or suffix == "branches/main"
         or re.fullmatch(r"commits/[a-f0-9]{40}/check-runs\?per_page=100", suffix)
@@ -162,6 +169,13 @@ def live(event, repository, actor, sha, roster):
     require(type(prs) is list and len(prs) == 1, "ambiguous associated PR")
     number = prs[0].get("number")
     require(type(number) is int and number > 0, "invalid candidate PR number")
+    # The commit association endpoint does not return the full PR fields.
+    if origin.is_app(prs[0]):
+        pr = api(repository, "pulls/" + str(number))
+        require(pr.get("number") == number
+                and (pr.get("head") or {}).get("sha") == (prs[0].get("head") or {}).get("sha"),
+                "associated candidate PR changed")
+        prs = [pr]
     files = api(repository, "pulls/" + str(number) + "/files?per_page=100")
     branch = api(repository, "branches/main")
     head_sha = (prs[0].get("head") or {}).get("sha")
@@ -179,7 +193,7 @@ def live(event, repository, actor, sha, roster):
     return verify_snapshot(event=event, commit=commit, prs=prs, files=files,
                            branch=branch, checks=checks["check_runs"],
                            runs=runs_data["workflow_runs"], repository=repository,
-                           actor=actor, expected_sha=sha, roster=roster)
+                           actor=actor, expected_sha=sha, roster=roster, verify_origin=origin.verify)
 
 
 def main():
