@@ -24,7 +24,8 @@
     "pgextwin/pg_bigm",
     "pgextwin/pg_stat_monitor",
     "pgextwin/pgaudit",
-    "pgextwin/pg_partman"
+    "pgextwin/pg_partman",
+    "pgextwin/pg_repack"
   ],
   "ownerLogin": "ShutenOishi",
   "ownerId": 27071164
