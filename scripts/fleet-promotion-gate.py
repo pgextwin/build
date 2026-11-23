@@ -57,6 +57,121 @@ def artifact(repo,run_id,name,location):
     require(len(found)==1,"ambiguous/missing "+name+" evidence")
     return json.loads(found[0].read_text(encoding="utf-8-sig"))
 
+def verify_candidate_pr(pr):
+    require(type(pr) is dict and pr.get("merged") is True and pr.get("state")=="closed"
+            and (pr.get("base") or {}).get("ref")=="main"
+            and (pr.get("user") or {}).get("login")=="github-actions[bot]"
+            and SHA.fullmatch((pr.get("head") or {}).get("sha",""))
+            and SHA.fullmatch(pr.get("merge_commit_sha") or ""),
+            "candidate must be bot-authored, merged to trusted main")
+    branch=(pr.get("head") or {}).get("ref","")
+    bm=CANDIDATE.fullmatch(branch)
+    require(bm is not None and
+            "<!-- pgextwin-candidate:v1:"+bm.group(1)+" -->" in (pr.get("body") or ""),
+            "candidate branch or ownership marker invalid")
+    return branch, bm.group(1)
+
+def verify_candidate_files(repo, ext, pr_files, candidate_id, first_release, first_release_document):
+    if first_release:
+        allowed = {"pgextwin/pgtap", "pgextwin/pg_variables", "pgextwin/pg_store_plans"}
+        require(repo in allowed and type(pr_files) is list and len(pr_files)==1
+                and pr_files[0].get("filename")=="config/initial-release-candidate.json"
+                and pr_files[0].get("status")=="added",
+                "first Release candidate must add exactly the original intent file")
+        src=ext["upstream"]
+        require("perPostgresql" not in src and type(first_release_document) is dict
+                and first_release_document == {
+                    "schemaVersion":1,"kind":"FIRST_RELEASE_PINNED_SOURCE",
+                    "extension":ext["name"],"repository":repo,
+                    "candidateId":candidate_id,"releasePolicy":"manual-only",
+                    "source":{k:src[k] for k in ("repository","ref","version","commit")}},
+                "first Release intent does not match merged pinned source")
+    else:
+        require(type(pr_files) is list and len(pr_files)==1
+                and pr_files[0].get("filename")=="config/extension.json",
+                "candidate PR changed files other than extension manifest")
+
+def verify_candidate_run(run, branch, head_sha):
+    require(run.get("event")=="workflow_dispatch" and run.get("status")=="completed"
+            and run.get("conclusion")=="success" and run.get("head_branch")==branch
+            and run.get("head_sha")==head_sha
+            and type(run.get("id")) is int,
+            "candidate Windows run not verified on exact PR head")
+
+def verify_decision_run(watch_run):
+    require(watch_run.get("head_branch")=="main" and
+            watch_run.get("conclusion")=="success" and watch_run.get("status")=="completed"
+            and type(watch_run.get("id")) is int,
+            "upstream decision workflow did not succeed on main")
+
+def verify_decision(decision, branch, candidate_id, ext, majors, sources):
+    require(decision.get("schemaVersion")==1 and decision.get("status")=="candidate"
+            and decision.get("extension")==ext["name"]
+            and decision.get("repository")==ext["upstream"]["repository"]
+            and decision.get("releasePolicy")=="manual-only"
+            and decision.get("branch")==branch
+            and decision.get("candidateId")==candidate_id,
+            "candidate decision branch/upstream identity mismatch")
+    updates=decision.get("updates")
+    require(type(updates) is list and len(updates)>0, "empty or malformed decision")
+    series=ext["upstream"].get("perPostgresql")
+    updated=set()
+    for u in updates:
+        require(type(u) is dict, "invalid candidate update record")
+        if decision.get("firstRelease") is True:
+            require(u.get("initialOnly") is True and u.get("pinOnly") is not True
+                    and u.get("ref")==u.get("oldRef")
+                    and str(u.get("version"))==str(u.get("oldVersion")),
+                    "initial candidate must keep original version/ref")
+        else:
+            require(u.get("initialOnly") is not True,
+                    "initial candidate flag without first Release authorization")
+        require(type(u) is dict and isinstance(u.get("commit"),str)
+                and SHA.fullmatch(u["commit"]), "candidate update not SHA-pinned")
+        major=u.get("major")
+        if series is None:
+            require(major is None and len(updates)==1, "uniform extension must have one update")
+            key="all"
+            source=sources[majors[-1]]
+        else:
+            require(type(major) is int and major in sources,
+                    "unexpected per-PG candidate update")
+            key=major
+            source=sources[major]
+        require(key not in updated and
+                u["ref"]==source["ref"] and u["version"]==source["version"]
+                and u["commit"]==source["commit"],
+                "updated source differs from merged SHA-pinned manifest")
+        updated.add(key)
+
+def verify_candidate_audit(audit, run_id, branch, head_sha, ext, majors, sources):
+    require(audit.get("schemaVersion")==1 and audit.get("status")=="VERIFIED"
+            and audit.get("extension")==ext["name"]
+            and audit.get("matrixResult")=="success"
+            and audit.get("runId")==run_id
+            and audit.get("branch")==branch and audit.get("branchSha")==head_sha,
+            "candidate-audit identity/signature mismatch")
+    items=audit.get("majors")
+    require(type(items) is list and len(items)==len(majors)
+            and sorted(x.get("major") for x in items)==majors,
+            "incomplete/duplicated candidate major audit")
+    for item in items:
+        major=item["major"]; stem=ident.asset_stem(ext,major)
+        # Normal candidate builders use the source version in filenames;
+        # attested Release builders use the full source ref. Both bind to the
+        # same SHA-pinned source above. Require one consistent exact triplet.
+        candidate_stem=f"{ext['name']}-{sources[major]['version']}-pg{major}-windows-x64"
+        filenames=(item.get("zip"),item.get("sbom"),item.get("grype"))
+        expected_names={tuple(s+suffix for suffix in
+                             (".zip",".spdx.json",".vulnerabilities.json"))
+                        for s in (stem,candidate_stem)}
+        require(item.get("status")=="SUCCESS"
+                and item.get("sourceSha")==sources[major]["commit"]
+                and isinstance(item.get("zipSha256"),str)
+                and HASH.fullmatch(item["zipSha256"])
+                and filenames in expected_names,
+                "candidate ZIP, SPDX, Grype or source SHA mismatch")
+
 def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle,
            pr,pr_files,run,watch_run,decision,audit,authorization_mode="manual-dispatch",
            first_release_document=None):
@@ -92,108 +207,14 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
         sources=ident.sources(ext)
     except (ident.Denied,ValueError,KeyError,TypeError) as e:
         raise Denied("source and release identity failed: "+str(e)) from e
-    require(type(pr) is dict and pr.get("merged") is True and pr.get("state")=="closed"
-            and (pr.get("base") or {}).get("ref")=="main"
-            and (pr.get("user") or {}).get("login")=="github-actions[bot]"
-            and SHA.fullmatch((pr.get("head") or {}).get("sha",""))
-            and SHA.fullmatch(pr.get("merge_commit_sha") or ""),
-            "candidate must be bot-authored, merged to trusted main")
-    branch=(pr.get("head") or {}).get("ref","")
-    bm=CANDIDATE.fullmatch(branch)
-    require(bm is not None and
-            "<!-- pgextwin-candidate:v1:"+bm.group(1)+" -->" in (pr.get("body") or ""),
-            "candidate branch or ownership marker invalid")
-    if decision.get("firstRelease") is True:
-        allowed = {"pgextwin/pgtap", "pgextwin/pg_variables", "pgextwin/pg_store_plans"}
-        require(repo in allowed and type(pr_files) is list and len(pr_files)==1
-                and pr_files[0].get("filename")=="config/initial-release-candidate.json"
-                and pr_files[0].get("status")=="added",
-                "first Release candidate must add exactly the original intent file")
-        src=ext["upstream"]
-        require("perPostgresql" not in src and type(first_release_document) is dict
-                and first_release_document == {
-                    "schemaVersion":1,"kind":"FIRST_RELEASE_PINNED_SOURCE",
-                    "extension":ext["name"],"repository":repo,
-                    "candidateId":bm.group(1),"releasePolicy":"manual-only",
-                    "source":{k:src[k] for k in ("repository","ref","version","commit")}},
-                "first Release intent does not match merged pinned source")
-    else:
-        require(type(pr_files) is list and len(pr_files)==1
-                and pr_files[0].get("filename")=="config/extension.json",
-                "candidate PR changed files other than extension manifest")
-    require(run.get("event")=="workflow_dispatch" and run.get("status")=="completed"
-            and run.get("conclusion")=="success" and run.get("head_branch")==branch
-            and run.get("head_sha")==pr["head"]["sha"]
-            and type(run.get("id")) is int,
-            "candidate Windows run not verified on exact PR head")
-    require(watch_run.get("head_branch")=="main" and
-            watch_run.get("conclusion")=="success" and watch_run.get("status")=="completed"
-            and type(watch_run.get("id")) is int,
-            "upstream decision workflow did not succeed on main")
-    require(decision.get("schemaVersion")==1 and decision.get("status")=="candidate"
-            and decision.get("extension")==ext["name"]
-            and decision.get("repository")==ext["upstream"]["repository"]
-            and decision.get("releasePolicy")=="manual-only"
-            and decision.get("branch")==branch
-            and decision.get("candidateId")==bm.group(1),
-            "candidate decision branch/upstream identity mismatch")
-    updates=decision.get("updates")
-    require(type(updates) is list and len(updates)>0, "empty or malformed decision")
-    series=ext["upstream"].get("perPostgresql")
-    updated=set()
-    for u in updates:
-        require(type(u) is dict, "invalid candidate update record")
-        if decision.get("firstRelease") is True:
-            require(u.get("initialOnly") is True and u.get("pinOnly") is not True
-                    and u.get("ref")==u.get("oldRef")
-                    and str(u.get("version"))==str(u.get("oldVersion")),
-                    "initial candidate must keep original version/ref")
-        else:
-            require(u.get("initialOnly") is not True,
-                    "initial candidate flag without first Release authorization")
-        require(type(u) is dict and isinstance(u.get("commit"),str)
-                and SHA.fullmatch(u["commit"]), "candidate update not SHA-pinned")
-        major=u.get("major")
-        if series is None:
-            require(major is None and len(updates)==1, "uniform extension must have one update")
-            key="all"
-            source=sources[majors[-1]]
-        else:
-            require(type(major) is int and major in sources,
-                    "unexpected per-PG candidate update")
-            key=major
-            source=sources[major]
-        require(key not in updated and
-                u["ref"]==source["ref"] and u["version"]==source["version"]
-                and u["commit"]==source["commit"],
-                "updated source differs from merged SHA-pinned manifest")
-        updated.add(key)
-    require(audit.get("schemaVersion")==1 and audit.get("status")=="VERIFIED"
-            and audit.get("extension")==ext["name"]
-            and audit.get("matrixResult")=="success"
-            and audit.get("runId")==run["id"]
-            and audit.get("branch")==branch and audit.get("branchSha")==pr["head"]["sha"],
-            "candidate-audit identity/signature mismatch")
-    items=audit.get("majors")
-    require(type(items) is list and len(items)==len(majors)
-            and sorted(x.get("major") for x in items)==majors,
-            "incomplete/duplicated candidate major audit")
-    for item in items:
-        major=item["major"]; stem=ident.asset_stem(ext,major)
-        # Normal candidate builders use the source version in filenames;
-        # attested Release builders use the full source ref. Both bind to the
-        # same SHA-pinned source above. Require one consistent exact triplet.
-        candidate_stem=f"{ext['name']}-{sources[major]['version']}-pg{major}-windows-x64"
-        filenames=(item.get("zip"),item.get("sbom"),item.get("grype"))
-        expected_names={tuple(s+suffix for suffix in
-                             (".zip",".spdx.json",".vulnerabilities.json"))
-                        for s in (stem,candidate_stem)}
-        require(item.get("status")=="SUCCESS"
-                and item.get("sourceSha")==sources[major]["commit"]
-                and isinstance(item.get("zipSha256"),str)
-                and HASH.fullmatch(item["zipSha256"])
-                and filenames in expected_names,
-                "candidate ZIP, SPDX, Grype or source SHA mismatch")
+    branch,candidate_id=verify_candidate_pr(pr)
+    head_sha=pr["head"]["sha"]
+    verify_candidate_files(repo,ext,pr_files,candidate_id,decision.get("firstRelease") is True,
+                           first_release_document)
+    verify_candidate_run(run,branch,head_sha)
+    verify_decision_run(watch_run)
+    verify_decision(decision,branch,candidate_id,ext,majors,sources)
+    verify_candidate_audit(audit,run["id"],branch,head_sha,ext,majors,sources)
     receipt = {
         "schemaVersion":1,"status":("VERIFIED_MANUAL_DISPATCH" if authorization_mode=="manual-dispatch"
                                 else "VERIFIED_CHAT_PR_AUTHORIZATION"),
@@ -202,7 +223,7 @@ def verify(repo,main_sha,tag,confirmation,actor,policy,fleet,local,ext,lifecycle
         "releaseTag":tag,"majors":majors,
         "sources":[sources[m] for m in majors],
         "candidatePr":pr["number"],"candidateRunId":run["id"],
-        "decisionRunId":watch_run["id"],"candidateId":bm.group(1)
+        "decisionRunId":watch_run["id"],"candidateId":candidate_id
     }
     if authorization_mode == "chat-pr-authorization":
         receipt["candidateHeadSha"] = pr["head"]["sha"]

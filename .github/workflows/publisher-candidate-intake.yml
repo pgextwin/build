@@ -127,6 +127,63 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  resolve_owner_promotion:
+    name: Resolve candidate Runs and record owner promotion confirmation (DENY)
+    if: >-
+      ${{ github.repository == 'pgextwin/build' &&
+          github.event_name == 'issue_comment' &&
+          github.ref == 'refs/heads/main' &&
+          github.event.action == 'created' &&
+          github.event.issue.number == 311 &&
+          !github.event.issue.pull_request &&
+          github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' &&
+          github.run_attempt == 1 &&
+          startsWith(github.event.comment.body, '/pgextwin promote ') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Resolve and bind exact evidence to the immutable owner request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/publisher-promote-request.py \
+            --output "$RUNNER_TEMP/owner-promotion-request.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Preserve the owner confirmation and resolved evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owner-promotion-request-nonpublishing
+          path: ${{ runner.temp }}/owner-promotion-request.json
+          if-no-files-found: error
+          retention-days: 30
+
+  execute_owner_promotion:
+    name: Manual promotion execution readiness (DENY)
+    needs: resolve_owner_promotion
+    if: ${{ vars.PGEXTWIN_MANUAL_PROMOTION_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      # Activation requires a compatible executor that rechecks the complete
+      # promotion gate and has an independently configured write boundary.
+      - name: Deny execution until a compatible executor is configured
+        run: |
+          echo 'PUBLISH_DENY: manual promotion executor is unavailable.'
+          exit 1
+
   independent_owner_source_admission:
     # Distinct on-demand source type. Never enters the Publisher Environment.
     # Not part of select_verified_sources / isolated_formal_publisher needs.
