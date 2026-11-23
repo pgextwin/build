@@ -23,7 +23,6 @@ jobs:
     if: >-
       ${{ github.event_name == 'issue_comment' &&
           github.ref == 'refs/heads/main' &&
-          contains(fromJSON('["pgextwin/pg_permissions", "pgextwin/pgtap"]'), github.repository) &&
           github.event.action == 'created' &&
           github.event.issue.number == inputs.request_issue &&
           !github.event.issue.pull_request &&
@@ -92,8 +91,8 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    # Wave 2 owner-source signer digest.
-    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@0edaa7b3c08f1aa17d89cf8625dc537df21c1b58
+    # Canonical owner-source signer digest. Admission policy is maintained separately.
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@4558c82c28b0814e60f35c6e5e5f8ee1025a5754
     with:
       extension_config_path: ${{ inputs.extension_config_path }}
       test_contract_path: ${{ inputs.test_contract_path }}
@@ -140,7 +139,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
           python .pgextwin-build/scripts/chat-signed-main-audit.py \
-            --workflow-sha "$CENTRAL_WORKFLOW_SHA" --pilot-wrapper \
+            --workflow-sha "$CENTRAL_WORKFLOW_SHA" \
             --intent "$RUNNER_TEMP/owner-intent/owner-main-intent.json" \
             --manifest "${{ inputs.extension_config_path }}" \
             --lifecycle .pgextwin-build/metadata/postgresql.json \

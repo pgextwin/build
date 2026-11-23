@@ -26,6 +26,7 @@ function Invoke-ContractCase {
     $caseDir = Join-Path $work $Name
     $upstream = Join-Path $caseDir 'upstream'
     $verifiedStage = Join-Path $caseDir 'verified'
+    $sourceStage = Join-Path $caseDir 'verified-sources'
     $pgRoot = Join-Path $caseDir 'pg-new'
     [void][IO.Directory]::CreateDirectory($upstream)
     [void][IO.Directory]::CreateDirectory($verifiedStage)
@@ -45,11 +46,23 @@ function Invoke-ContractCase {
     try {
         & $Setup
         $map | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $mapPath
-        $plan = Resolve-WindowsPackage $mapPath $caseDir $upstream (Join-Path $caseDir 'build') $verifiedStage $verified $tokens
+        $verified = $verified | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+        $plan = Resolve-WindowsPackage $mapPath $caseDir $upstream (Join-Path $caseDir 'build') $verifiedStage $verified $tokens -LicenseSourceStage $sourceStage
         Copy-PackageFiles $plan $pgRoot install
         $stage = Join-Path $caseDir 'package'
         $list = Join-Path $caseDir 'verified-license-list.json'
         Write-WindowsPackageStage $plan $stage $list
+        if ($Name -eq 'license-readme-range') {
+            $readme = Join-Path $stage 'UPSTREAM-README.md'
+            $source = Join-Path $sourceStage 'README.md'
+            if ((Get-FileHash $readme).Hash -cne (Get-FileHash $source).Hash) {
+                throw 'The staged documentation differs from the verified source blob.'
+            }
+            $record = Get-Content -LiteralPath $list -Raw | ConvertFrom-Json
+            if ($record.licenses[0].upstreamOffset -ne 2) { throw 'The license offset is absent from the evidence.' }
+            $info = [IO.File]::ReadAllText((Join-Path $stage 'PACKAGE-INFO.txt'))
+            if ($info -match '[\r\n]$') { throw 'Unexpected terminal newline in PACKAGE-INFO.txt.' }
+        }
 
         $oldShare = Join-Path $caseDir 'pg-old/share/extension'
         [void][IO.Directory]::CreateDirectory($oldShare)
@@ -101,6 +114,18 @@ $tokens = @{
     upstreamRef = '2.0'; version = '2.0'; pgMajor = '17'; pgTested = '17.11'; architecture = 'Windows x64'
 }
 $work = [IO.Directory]::CreateTempSubdirectory('pgextwin-contract-').FullName
+$setLicenseRange = {
+    [void][IO.Directory]::CreateDirectory($sourceStage)
+    $readme = Join-Path $sourceStage 'README.md'
+    $original = [byte[]]@(88, 10, 65, 10, 66)
+    [IO.File]::WriteAllBytes($readme, $original)
+    $verified.licenses[0].upstreamPath = 'README.md'
+    $verified.licenses[0].upstreamOffset = 2
+    $verified.licenses[0].upstreamSize = $original.Length
+    $verified.licenses[0].upstreamSha256 = (Get-FileHash -LiteralPath $readme).Hash.ToLowerInvariant()
+    $map.files[2] = @{ source = 'licenseDocument'; path = 'README.md'; destination = 'UPSTREAM-README.md'; targets = @('zip') }
+    $map.packageInfoFinalNewline = $false
+}
 try {
     $cases = @(
         Invoke-ContractCase valid {}
@@ -150,6 +175,11 @@ try {
             New-Item -ItemType File -Path (Join-Path $upstream 'example.dll') | Out-Null
             $map.files += @{ source = 'upstream'; path = 'example.dll'; destination = 'lib/example.dll'; targets = @('zip') }
         } 'SQL-only package cannot contain a DLL'
+        Invoke-ContractCase license-readme-range { & $setLicenseRange }
+        Invoke-ContractCase license-readme-tampered {
+            & $setLicenseRange
+            [IO.File]::WriteAllBytes((Join-Path $sourceStage 'README.md'), [byte[]]@(89, 10, 65, 10, 66))
+        } 'Verified license bytes changed'
         Invoke-ContractCase license-missing { Remove-Item -LiteralPath (Join-Path $verifiedStage 'LICENSE') } 'Required package file missing'
         Invoke-ContractCase license-modified { [IO.File]::WriteAllBytes((Join-Path $verifiedStage 'LICENSE'), [byte[]]@(70, 10, 66)) } 'Verified license bytes changed'
         Invoke-ContractCase license-bypass {

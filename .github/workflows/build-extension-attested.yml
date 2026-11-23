@@ -38,12 +38,12 @@ jobs:
       license_files: ${{ steps.meta.outputs.license_files }}
 
     steps:
-      - name: Require a Wave 2 signing repository
+      - name: Require a pilot signing repository
         shell: bash
         run: |
           case "$GITHUB_REPOSITORY" in
-            pgextwin/pg_permissions|pgextwin/pgtap) ;;
-            *) echo "Repository is outside Wave 2 shared packaging." >&2; exit 1 ;;
+            pgextwin/pg_profile|pgextwin/pg_track_settings) ;;
+            *) echo "Repository is outside the shared packaging signer pilot." >&2; exit 1 ;;
           esac
 
       - name: Check out extension packaging repository

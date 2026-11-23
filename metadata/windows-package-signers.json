@@ -8,10 +8,10 @@
   },
   "wave2": {
     "candidateSigner": "0edaa7b3c08f1aa17d89cf8625dc537df21c1b58",
-    "candidateAudit": null,
+    "candidateAudit": "4e02e4c7ba0f3748ab19d54409ffc443a0809c14",
     "ownerWrappers": {
-      "pgextwin/pg_permissions": "ff3b0f441a9744008312dbc05918b73613ae7469",
-      "pgextwin/pgtap": "6b6dbab7128394a666fdb97e3bcccb29cf67c090"
+      "pgextwin/pg_permissions": "4e02e4c7ba0f3748ab19d54409ffc443a0809c14",
+      "pgextwin/pgtap": "4e02e4c7ba0f3748ab19d54409ffc443a0809c14"
     }
   }
 }
