@@ -17,7 +17,7 @@ CANDIDATE = "candidate-build.json"
 RELEASE = "release-promotion.json"
 OWNER = "owner-source-publication.json"
 REPO = "pgextwin/orafce"
-NO_OWNER_SOURCE = {"pgextwin/pg_repack", "pgextwin/pg_store_plans", "pgextwin/pg_variables", "pgextwin/pgtap"}
+NO_OWNER_SOURCE = {"pgextwin/pg_store_plans", "pgextwin/pg_variables", "pgextwin/pgtap"}
 
 
 class PublicationPolicyTests(unittest.TestCase):
@@ -29,14 +29,14 @@ class PublicationPolicyTests(unittest.TestCase):
             "schemaVersion": 1, "enabled": True, "releasePolicy": "manual-only", "workflow": "windows.yml",
         })
 
-    def test_current_projections_match_legacy_local_values(self):
+    def test_current_projections_match_expected_fleet_policy(self):
         fleet = json.loads((ROOT / "metadata" / "automation-fleet.json").read_text("utf-8"))
         central_release = json.loads((ROOT / "metadata" / RELEASE).read_text("utf-8"))
         central_owner = json.loads((ROOT / "metadata" / OWNER).read_text("utf-8"))
         repositories = {entry["repository"] for entry in fleet["entries"]}
         self.assertEqual(len(repositories), 26)
         self.assertTrue(NO_OWNER_SOURCE <= repositories)
-        self.assertEqual(len(repositories - NO_OWNER_SOURCE), 22)
+        self.assertEqual(len(repositories - NO_OWNER_SOURCE), 23)
         release = {"schemaVersion": 1, "enabled": True, "releasePolicy": "automatic-signed-schedule"}
         owner = {**release, "sourceKind": "OWNER_ISSUE_COMMENT_MAIN_SIGNING"}
         for repo in sorted(repositories):
