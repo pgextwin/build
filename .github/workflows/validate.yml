@@ -399,8 +399,11 @@ jobs:
       - name: Validate Step 20 aggregated fleet status fixtures
         run: python tests/test-fleet-status.py
 
-      - name: Validate daily 17-extension stable upstream audit (GET only)
+      - name: Validate hourly 26-extension stable upstream audit (GET only)
         run: python tests/test-fleet-upstream-watch.py
+
+      - name: Validate direct scheduled fleet candidate handoff
+        run: python tests/test-fleet-candidate.py
 
       - name: Reject spoofed Chat owner fleet-scan requests (READ ONLY)
         run: python tests/test-chat-fleet-scan.py
