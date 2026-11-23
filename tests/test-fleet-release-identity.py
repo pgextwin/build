@@ -96,6 +96,10 @@ class IdentityTests(unittest.TestCase):
         wal2json["postgresql"]["majors"].append(19)
         self.assertEqual(lib.maintained_majors(wal2json, data, today), [15, 16, 17, 18, 19])
 
+        pldebugger = manifest("pldebugger")
+        pldebugger["postgresql"]["majors"] = [15, 16, 17, 18, 19]
+        self.assertEqual(lib.maintained_majors(pldebugger, data, today), [15, 16, 17, 18, 19])
+
         ext = manifest("hypopg")
         ext["postgresql"] = {"minMajor": 14, "maxMajor": 19}
         with patch.object(lib, "PG19_ADMISSION_OPT_IN", frozenset()):
