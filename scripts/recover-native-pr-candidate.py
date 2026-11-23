@@ -46,7 +46,8 @@ def open_candidate(pulls):
         raise native.Unavailable("candidate PR list truncated")
     owned = [p for p in pulls if type(p) is dict
              and p.get("state") == "open"
-             and (p.get("user") or {}).get("login") == "github-actions[bot]"
+             and ((p.get("user") or {}).get("login") == native.origin.LEGACY
+                  or native.origin.is_app(p))
              and native.OWNED.fullmatch((p.get("head") or {}).get("ref", ""))]
     require(len(owned) <= 1, "ambiguous bot candidates; no automatic selection")
     return owned[0] if owned else None
@@ -82,9 +83,12 @@ def successful_run_id(run):
     return run["id"]
 
 
-def choose_candidate(repo, pulls, inventory):
+def choose_candidate(repo, pulls, inventory, *, verify_origin=None):
     pr = open_candidate(pulls)
-    return successful_run_id(exact_native_run(repo, pr, inventory)) if pr else None
+    if pr is None:
+        return None
+    native.origin.author(repo, pr, verify_origin=verify_origin, denied=Denied)
+    return successful_run_id(exact_native_run(repo, pr, inventory))
 
 
 def reconcile(repo, event_name, ref, github_sha, pulls, inventory, fetch):
@@ -122,7 +126,7 @@ def authenticate(selected, indexed, fetch, *, repo, expected_main):
             "schedule source is no longer exact protected main")
     checks = fetch("commits/" + run["head_sha"] + "/check-runs?per_page=100")
     verified = native.validate(repo, run, pr, files, merge, main, checks,
-                               associated_pulls=associations)
+                               associated_pulls=associations, verify_origin=native.origin.verify)
     # No authorization or signed-release proof comes from reconciliation.
     require(verified.get("candidateRunId") == run_id
             and verified.get("publicationAuthorized") is False

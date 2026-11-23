@@ -407,6 +407,8 @@ jobs:
 
       - name: Validate direct scheduled fleet candidate handoff
         run: python tests/test-fleet-candidate.py
+      - name: Authenticate App proposals against the original protected schedule and exact PR
+        run: python tests/test-fleet-candidate-origin.py
 
       - name: Reject spoofed Chat owner fleet-scan requests (READ ONLY)
         run: python tests/test-chat-fleet-scan.py

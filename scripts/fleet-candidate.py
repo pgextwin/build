@@ -11,9 +11,11 @@ from pathlib import Path
 import sys
 from urllib.parse import quote
 
+import fleet_candidate_origin as origin
+
 ROOT = Path(__file__).resolve().parents[1]
 PILOTS = ("pgextwin/pg_ivm",)
-APP_SLUG = "pgextwin-fleet-candidate"
+APP_SLUG = origin.APP["slug"]
 MANIFEST = "config/extension.json"
 WATCH = "config/update-watch.json"
 
@@ -132,7 +134,8 @@ def checked_plan(report, context, repository, fetch=candidate.api):
     return record
 
 
-def propose(report, context, repository, record, writer, fetch=candidate.api):
+def propose(report, context, repository, record, writer, fetch=candidate.api, *,
+            origin_path, decision_id):
     receipt.need(record.get("status") == "candidate", "a candidate decision is required")
     fresh = checked_plan(report, context, repository, fetch=fetch)
     receipt.need({k: v for k, v in fresh.items() if k != "detectedAt"} ==
@@ -158,7 +161,38 @@ def propose(report, context, repository, record, writer, fetch=candidate.api):
     token = os.environ["PGEXTWIN_SCAN_READ_TOKEN"]
     receipt.need(receipt.api(receipt.HOST + receipt.BUILD + "/branches/main", token) == branch,
                  "central protected main changed before proposal")
-    candidate.propose_candidate(record, MANIFEST, repository, WATCH, writer=writer, fetch=fetch)
+    repo = fetch(receipt.HOST + repository)
+    receipt.need(repo.get("full_name") == repository and origin.positive(repo.get("id"))
+                 and origin.positive(decision_id), "target repository or decision artifact ID missing")
+    origin_record = {
+        "schemaVersion": 1, "repository": repository, "repositoryId": repo["id"],
+        "appId": origin.APP["appId"], "botUserId": origin.APP["botUserId"],
+        "runId": context[0]["id"], "runAttempt": context[0]["run_attempt"],
+        "runSha": context[0]["head_sha"], "decisionArtifactId": decision_id,
+        "baseSha": row["mainSha"], "decision": record,
+    }
+
+    def origin_body(ref):
+        origin_record["headSha"] = candidate.execute("git", "rev-parse", ref)
+        origin_record["manifestBlob"] = candidate.execute("git", "rev-parse", ref + ":" + MANIFEST)
+        return origin.marker(origin_record)
+
+    def on_created(url):
+        prefix = "https://github.com/" + repository + "/pull/"
+        number = url.removeprefix(prefix)
+        receipt.need(url.startswith(prefix) and number.isascii() and number.isdecimal()
+                     and int(number) > 0, "created candidate PR URL is invalid")
+        pr = fetch(receipt.HOST + repository + "/pulls/" + number)
+        origin.validate_pr(repository, pr, origin_record)
+        receipt.need(pr["number"] == int(number) and pr.get("state") == "open"
+                     and pr.get("merged") is False and pr["base"].get("sha") == row["mainSha"]
+                     and origin.parse_marker(pr["body"]) == origin_record,
+                     "created candidate PR differs from the exact protected proposal")
+        origin_path.write_bytes(origin.proof_bytes(origin_record, pr["number"]))
+        emit("GITHUB_OUTPUT", "origin_artifact=" + origin.artifact_name(repository, origin_record, pr["number"]))
+
+    candidate.propose_candidate(record, MANIFEST, repository, WATCH, writer=writer, fetch=fetch,
+                                origin_body=origin_body, on_created=on_created)
 
 
 def app_writer():
@@ -169,8 +203,8 @@ def app_writer():
     login = APP_SLUG + "[bot]"
     account = candidate.github_get_json("https://api.github.com/users/" + quote(login, safe=""),
                                         env["PGEXTWIN_SCAN_READ_TOKEN"])
-    receipt.need(account.get("login") == login and account.get("type") == "Bot"
-                 and type(account.get("id")) is int and account["id"] > 0,
+    origin.check_app(origin.github)
+    receipt.need(origin.app_identity(account),
                  "dedicated candidate App bot identity unavailable")
     return login, account["id"]
 
@@ -190,9 +224,13 @@ def main():
     parser.add_argument("--snapshot", required=True, type=Path)
     parser.add_argument("--repository")
     parser.add_argument("--record", type=Path)
+    parser.add_argument("--decision-id", type=int)
+    parser.add_argument("--origin", type=Path)
     args = parser.parse_args()
     if args.action != "select" and (not args.repository or args.record is None):
         parser.error("plan and propose require an enabled repository and decision file")
+    if args.action == "propose" and (args.origin is None or not origin.positive(args.decision_id)):
+        parser.error("propose requires the exact decision artifact ID and an origin output file")
     try:
         receipt.need(args.snapshot.is_file() and not args.snapshot.is_symlink()
                      and 0 < args.snapshot.stat().st_size <= 262144,
@@ -213,9 +251,10 @@ def main():
             emit("GITHUB_OUTPUT", "authorization_mode=" + execution_mode())
             emit("GITHUB_STEP_SUMMARY", f"`{args.repository}` candidate decision: {record['status']}")
         else:
-            propose(report, context, args.repository, candidate.read(args.record), app_writer(), fetch=read_api)
+            propose(report, context, args.repository, candidate.read(args.record), app_writer(), fetch=read_api,
+                    origin_path=args.origin, decision_id=args.decision_id)
         return 0
-    except (receipt.Denied, candidate.WatchError, OSError, ValueError, KeyError, TypeError,
+    except (candidate.WatchError, OSError, ValueError, KeyError, TypeError,
             local_auth.subprocess.SubprocessError) as exc:
         print("Central candidate failed closed: " + str(exc), file=sys.stderr)
         emit("GITHUB_STEP_SUMMARY", "Central candidate deferred. See the failed step for details.")
