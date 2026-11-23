@@ -46,6 +46,12 @@ def verify_and_stage(args):
     stage_dir = args.stage_dir.resolve()
     staged_files = {}
     worktree_files = {}
+    verified = []
+    upstream_commit = None
+    if args.verified_list:
+        upstream_commit = subprocess.check_output(
+            ["git", "-C", str(upstream_dir), "rev-parse", "HEAD"], text=True,
+        ).strip()
 
     for entry in license_files:
         repository_path = entry["repositoryPath"]
@@ -60,6 +66,12 @@ def verify_and_stage(args):
         if staged_path in staged_files and staged_files[staged_path][0] != upstream:
             raise ValueError(f"Conflicting upstream bytes for license file '{repository_path}'.")
         staged_files.setdefault(staged_path, (upstream, digest, repository_path))
+        verified.append({
+            "upstreamPath": upstream_path,
+            "repositoryPath": repository_path,
+            "size": len(upstream),
+            "sha256": digest,
+        })
 
         if args.restore_worktrees:
             worktree_files[output_path(upstream_dir, upstream_path)] = upstream
@@ -71,6 +83,9 @@ def verify_and_stage(args):
         print(f"{digest}  {repository_path}")
     for path, content in worktree_files.items():
         write_bytes(path, content)
+    if args.verified_list:
+        document = {"schemaVersion": 1, "upstreamCommit": upstream_commit, "licenses": verified}
+        write_bytes(args.verified_list, (json.dumps(document, indent=2) + "\n").encode("utf-8"))
 
 
 def main():
@@ -79,6 +94,7 @@ def main():
     parser.add_argument("--upstream-dir", type=Path, required=True)
     parser.add_argument("--packaging-dir", type=Path, required=True)
     parser.add_argument("--stage-dir", type=Path, required=True)
+    parser.add_argument("--verified-list", type=Path, help="record the verified upstream blob identities")
     parser.add_argument(
         "--restore-worktrees", action="store_true",
         help="write verified bytes to the configured paths used by existing hooks",
@@ -86,7 +102,7 @@ def main():
     args = parser.parse_args()
     try:
         verify_and_stage(args)
-    except (KeyError, OSError, TypeError, ValueError) as error:
+    except (KeyError, OSError, TypeError, ValueError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         return 1
     return 0

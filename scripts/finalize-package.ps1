@@ -59,6 +59,9 @@ param(
     [string]$WorkflowRef,
 
     [string]$DistDir = "dist",
+    [string]$StageDir,
+    [string]$AssetName,
+    [string]$VerifiedLicenseList,
     [string]$PackagingDir = ".",
     [string]$BuildInfrastructureDir = ".pgextwin-build",
     [string]$RequestedRunnerLabel = "windows-latest",
@@ -214,22 +217,26 @@ function Assert-PackageInfoField {
     }
 }
 
-if (-not (Test-Path $DistDir)) {
-    throw "Package dist directory was not found: $DistDir"
+if ($StageDir) {
+    if ($AssetName -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*\.zip$' -or !$VerifiedLicenseList) {
+        throw "Explicit package stage requires a ZIP asset name and verified license list."
+    }
+    $stage = Get-Item -LiteralPath $StageDir
+    if (!$stage.PSIsContainer -or ($stage.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "Invalid package stage: '$StageDir'."
+    }
+    $dist = [IO.Directory]::CreateDirectory([IO.Path]::GetFullPath($DistDir, $PWD.Path))
+    $zipPath = Join-Path $dist.FullName $AssetName
+} else {
+    if (!(Test-Path $DistDir) -or $AssetName) { throw "Invalid legacy package dist directory: '$DistDir'." }
+    $stageDirectories = @(Get-ChildItem -Path $DistDir -Directory)
+    $zipFiles = @(Get-ChildItem -Path $DistDir -Filter "*.zip" -File)
+    if ($stageDirectories.Count -ne 1 -or $zipFiles.Count -ne 1) {
+        throw "Expected exactly one package staging directory and ZIP under '$DistDir'."
+    }
+    $stage = $stageDirectories[0]
+    $zipPath = $zipFiles[0].FullName
 }
-
-$stageDirectories = @(Get-ChildItem -Path $DistDir -Directory)
-$zipFiles = @(Get-ChildItem -Path $DistDir -Filter "*.zip" -File)
-
-if ($stageDirectories.Count -ne 1) {
-    throw "Expected exactly one package staging directory under '$DistDir', found $($stageDirectories.Count)."
-}
-if ($zipFiles.Count -ne 1) {
-    throw "Expected exactly one package ZIP under '$DistDir', found $($zipFiles.Count)."
-}
-
-$stage = $stageDirectories[0]
-$zipPath = $zipFiles[0].FullName
 $packageInfoTextPath = Join-Path $stage.FullName "PACKAGE-INFO.txt"
 if (-not (Test-Path $packageInfoTextPath)) {
     throw "Existing human-readable PACKAGE-INFO.txt was not found in staging directory."
@@ -336,36 +343,58 @@ $jsonPath = Join-Path $stage.FullName "PACKAGE-INFO.json"
 $json = $metadata | ConvertTo-Json -Depth 8
 Set-Content -Path $jsonPath -Value $json -Encoding utf8
 
-Remove-Item -Path $zipPath -Force
-Compress-Archive -Path (Join-Path $stage.FullName "*") -DestinationPath $zipPath -CompressionLevel Optimal
-
-if (-not (Test-Path $zipPath)) {
-    throw "Final package ZIP was not produced: $zipPath"
-}
-
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+$workingZip = Join-Path (Split-Path -Parent $zipPath) ('.package-' + [Guid]::NewGuid().ToString('N') + '.zip')
 try {
-    $entry = $archive.GetEntry("PACKAGE-INFO.json")
-    if ($null -eq $entry) {
-        throw "Final package ZIP does not contain root PACKAGE-INFO.json."
+    if ($StageDir) {
+        [IO.Compression.ZipFile]::CreateFromDirectory($stage.FullName, $workingZip, [IO.Compression.CompressionLevel]::Optimal, $false)
+    } else {
+        Compress-Archive -Path (Join-Path $stage.FullName "*") -DestinationPath $workingZip -CompressionLevel Optimal
     }
 
-    $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8, $true)
+    $archive = [IO.Compression.ZipFile]::OpenRead($workingZip)
     try {
-        $embeddedJson = $reader.ReadToEnd()
+        $entry = $archive.GetEntry("PACKAGE-INFO.json")
+        if ($null -eq $entry) {
+            throw "Final package ZIP does not contain root PACKAGE-INFO.json."
+        }
+
+        $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8, $true)
+        try {
+            $embedded = $reader.ReadToEnd() | ConvertFrom-Json
+        }
+        finally {
+            $reader.Dispose()
+        }
+        if ($embedded.schemaVersion -ne 1 -or $embedded.package.name -ne $ExtensionName) {
+            throw "Embedded PACKAGE-INFO.json did not survive final ZIP generation intact."
+        }
+        if ($VerifiedLicenseList) {
+            $verified = Get-Content -LiteralPath $VerifiedLicenseList -Raw | ConvertFrom-Json
+            if ($verified.schemaVersion -ne 1 -or $verified.upstreamCommit -cne $UpstreamCommit -or !$verified.licenses.Count) {
+                throw "Invalid verified license list for upstream '$UpstreamCommit'."
+            }
+            foreach ($license in $verified.licenses) {
+                $entries = @($archive.Entries | Where-Object { $_.FullName -ieq $license.zipPath })
+                if ($entries.Count -ne 1 -or $entries[0].FullName -cne $license.zipPath -or $entries[0].Length -ne $license.size) {
+                    throw "Final package ZIP license missing, duplicated or wrong size: '$($license.zipPath)'."
+                }
+                $stream = $entries[0].Open()
+                try {
+                    if ((Get-FileHash -InputStream $stream).Hash -ine $license.sha256) {
+                        throw "Final package ZIP license bytes differ from verified upstream: '$($license.zipPath)'."
+                    }
+                } finally { $stream.Dispose() }
+            }
+        }
     }
     finally {
-        $reader.Dispose()
+        $archive.Dispose()
     }
-
-    $embedded = $embeddedJson | ConvertFrom-Json
-    if ($embedded.schemaVersion -ne 1 -or $embedded.package.name -ne $ExtensionName) {
-        throw "Embedded PACKAGE-INFO.json did not survive final ZIP generation intact."
-    }
+    [IO.File]::Move($workingZip, $zipPath, $true)
 }
 finally {
-    $archive.Dispose()
+    if (Test-Path -LiteralPath $workingZip) { Remove-Item -LiteralPath $workingZip -Force }
 }
 
-Write-Host "Finalized package metadata and rebuilt: $zipPath"
+Write-Host "Finalized package metadata and verified: $zipPath"

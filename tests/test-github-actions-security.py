@@ -166,7 +166,7 @@ else:
 
 normal_order = [
     normal_text.find("- name: Package Windows binary"),
-    normal_text.find("- name: Finalize and validate package metadata"),
+    normal_text.find("- name: Validate final package metadata"),
     normal_text.find("- name: Install checksum-pinned Syft"),
     normal_text.find("- name: Generate SPDX 2.3 SBOM"),
     normal_text.find("- name: Validate SPDX 2.3 SBOM"),
@@ -184,7 +184,7 @@ for workflow_name, workflow_text in (
     ("build-extension.yml", normal_text),
     ("build-extension-attested.yml", attested_text),
 ):
-    if workflow_text:
+    if workflow_text and workflow_name == "build-extension-attested.yml":
         license_step = license_step_pattern.search(workflow_text)
         license_step_text = license_step.group(1) if license_step else ""
         license_commands = (
@@ -203,8 +203,8 @@ for workflow_name, workflow_text in (
         if -1 in license_order or license_order != sorted(license_order):
             errors.append(f"{workflow_name}: license step must enforce the shared verifier's result")
 
+    if workflow_text:
         for required in (
-            "scripts/finalize-package.ps1",
             "scripts/validate-package-metadata.py",
             "scripts/install-syft.ps1",
             "scripts/generate-sbom.ps1",
@@ -220,18 +220,38 @@ for workflow_name, workflow_text in (
             if required not in workflow_text:
                 errors.append(f"{workflow_name}: missing required Step 8 contract: {required}")
 
-for step in (
-    "Install PostgreSQL ${{ matrix.major }}",
-    "Build extension",
-    "Install extension into test PostgreSQL",
-    "Functional smoke test",
-    "Package Windows binary",
-    "Upload package artifact",
+package_entry = Path("scripts/invoke-windows-package.ps1").read_text(encoding="utf-8")
+package_lib = Path("scripts/windows-package.ps1").read_text(encoding="utf-8")
+for required in (
+    "scripts/invoke-windows-package.ps1",
+    "VERIFY_LICENSE: ${{ needs.matrix.outputs.verify_upstream_license }}",
+    "-VerifyLicense:($env:VERIFY_LICENSE -eq 'true')",
 ):
-    if step not in normal_text:
-        errors.append(f"build-extension.yml: missing shared build step {step}")
-    if attested_text and step not in attested_text:
-        errors.append(f"build-extension-attested.yml: missing shared build step {step}")
+    if required not in normal_text:
+        errors.append(f"build-extension.yml: missing normal packaging binding: {required}")
+package_order = [
+    package_entry.find(name)
+    for name in (
+        "Invoke-PackageLicenseVerification", "& $buildHook", "Copy-PackageFiles",
+        "smoke-test.ps1", "Write-WindowsPackageStage", "finalize-package.ps1",
+    )
+]
+if -1 in package_order or package_order != sorted(package_order):
+    errors.append("invoke-windows-package.ps1: enforce license verification, build, install, smoke and finalization in order")
+for required in (
+    "verify-license-bytes.py", "--verified-list $manifest", "--restore-worktrees",
+    "if ($LASTEXITCODE -ne 0) { throw 'Upstream license byte verification failed.' }",
+):
+    if required not in package_lib:
+        errors.append(f"windows-package.ps1: missing verified license staging binding: {required}")
+for step in ("Install PostgreSQL ${{ matrix.major }}", "Package Windows binary", "Upload package artifact"):
+    if step not in normal_text or (attested_text and step not in attested_text):
+        errors.append(f"Build workflows: missing shared build step {step}")
+
+parity = (WORKFLOW_DIR / "windows-package-parity.yml").read_text(encoding="utf-8")
+for forbidden in ("contents: write", "id-token: write", "attestations: write", "artifact-metadata: write", "actions/attest@"):
+    if forbidden in parity:
+        errors.append(f"windows-package-parity.yml: parity must remain read-only: {forbidden}")
 
 installer = Path("scripts/install-syft.ps1").read_text(encoding="utf-8")
 for required in (

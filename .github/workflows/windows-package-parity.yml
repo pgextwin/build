@@ -1,0 +1,143 @@
+name: Windows package parity
+
+on:
+  workflow_dispatch:
+    inputs:
+      extension:
+        type: choice
+        required: true
+        options:
+          - pg_profile
+          - pg_track_settings
+      candidate_sha:
+        description: Full packaging commit SHA containing the proposed placement map
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      extension_name: ${{ steps.resolve.outputs.extension_name }}
+      upstream_repository: ${{ steps.resolve.outputs.upstream_repository }}
+      repository: ${{ steps.inputs.outputs.repository }}
+      legacy_sha: ${{ steps.inputs.outputs.legacy_sha }}
+      candidate_sha: ${{ steps.inputs.outputs.candidate_sha }}
+    steps:
+      - name: Validate fixed comparison inputs
+        id: inputs
+        shell: bash
+        env:
+          EXTENSION: ${{ inputs.extension }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          case "$EXTENSION" in
+            pg_profile) legacy=f793432ba9d5f34d57f9c9b28b5cbb5a2c7cd11d ;;
+            pg_track_settings) legacy=3a0f55dfffb6d8657949cb98a74bd3f16e3633a0 ;;
+            *) exit 1 ;;
+          esac
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          printf 'repository=pgextwin/%s\nlegacy_sha=%s\ncandidate_sha=%s\n' "$EXTENSION" "$legacy" "$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out fixed build revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check out fixed candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.inputs.outputs.repository }}
+          ref: ${{ steps.inputs.outputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Check that only the placement map differs
+        shell: bash
+        env:
+          LEGACY_SHA: ${{ steps.inputs.outputs.legacy_sha }}
+          CANDIDATE_SHA: ${{ steps.inputs.outputs.candidate_sha }}
+        run: |
+          git -C candidate fetch --no-tags --depth=1 origin "$LEGACY_SHA"
+          [[ "$(git -C candidate rev-parse HEAD)" == "$CANDIDATE_SHA" ]]
+          [[ "$(git -C candidate diff --name-only "$LEGACY_SHA" "$CANDIDATE_SHA")" == windows/ci/package.json ]]
+          git -C candidate cat-file -e "$CANDIDATE_SHA:windows/ci/package.json"
+
+      - name: Resolve maintained PostgreSQL versions
+        id: resolve
+        shell: pwsh
+        run: |
+          & ./scripts/resolve-matrix.ps1 -ExtensionConfigPath candidate/config/extension.json -PostgreSqlConfigPath metadata/postgresql.json
+
+  compare:
+    name: PostgreSQL ${{ matrix.major }} / Windows package parity
+    needs: matrix
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    steps:
+      - name: Check out fixed build revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check out fixed legacy revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.matrix.outputs.repository }}
+          ref: ${{ needs.matrix.outputs.legacy_sha }}
+          path: legacy
+          persist-credentials: false
+
+      - name: Check out fixed candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.matrix.outputs.repository }}
+          ref: ${{ needs.matrix.outputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Check out fixed upstream revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.matrix.outputs.upstream_repository }}
+          ref: ${{ matrix.upstreamCommit }}
+          path: upstream
+          persist-credentials: false
+
+      - name: Install PostgreSQL ${{ matrix.major }}
+        shell: pwsh
+        env:
+          MATRIX_ROW: ${{ toJSON(matrix) }}
+        run: |
+          $row = $env:MATRIX_ROW | ConvertFrom-Json
+          & ./scripts/install-postgresql.ps1 -Major $row.major -ChocolateyPackage $row.chocolateyPackage `
+            -ChocolateyVersion $row.chocolateyVersion -TestPort $row.testPort
+
+      - name: Compare legacy and common placement and packages
+        shell: pwsh
+        env:
+          MATRIX_ROW: ${{ toJSON(matrix) }}
+          EXTENSION_NAME: ${{ needs.matrix.outputs.extension_name }}
+          UPSTREAM_REPOSITORY: ${{ needs.matrix.outputs.upstream_repository }}
+          PACKAGING_REPOSITORY: ${{ needs.matrix.outputs.repository }}
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          & ./scripts/windows-package-parity.ps1 -MatrixJson $env:MATRIX_ROW -ExtensionName $env:EXTENSION_NAME `
+            -UpstreamRepository $env:UPSTREAM_REPOSITORY -PackagingRepository $env:PACKAGING_REPOSITORY `
+            -BuildCommit $env:BUILD_SHA
+
+      - name: Upload comparison evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: parity-${{ needs.matrix.outputs.extension_name }}-pg${{ matrix.major }}
+          path: parity/
+          if-no-files-found: warn
