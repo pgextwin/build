@@ -28,6 +28,21 @@ def load_script(name):
 receipt = load_script("verify-scheduled-fleet-candidate")
 candidate = load_script("candidate-update")
 fleet = load_script("fleet-control")
+local_auth = load_script("local-auth-candidate")
+issuance = load_script("local-auth-issuance")
+
+
+def execution_mode():
+    mode = candidate.read(ROOT / local_auth.AUTHORITY)["mode"]
+    receipt.need(mode in ("DENY", "ENFORCE"), "unsupported local authorization mode")
+    return mode
+
+
+def repositories(context):
+    if execution_mode() == "DENY":
+        return PILOTS
+    return sorted(repository for repository, entry in fleet.validate(context[3]).items()
+                  if entry["candidateEnabled"] is True)
 
 
 def same_run():
@@ -63,7 +78,7 @@ def same_run():
 
 
 def target(report, context, repository):
-    receipt.need(repository in PILOTS, "repository is outside the direct candidate rollout")
+    receipt.need(repository in repositories(context), "repository is outside the direct candidate rollout")
     run, branch, scan, registry = context
     rows = [row for row in report["extensions"] if row.get("repository") == repository]
     receipt.need(len(rows) == 1, "unique target scan row required")
@@ -80,7 +95,7 @@ def target(report, context, repository):
 def select(report, context):
     matrix = []
     lines = []
-    for repository in PILOTS:
+    for repository in repositories(context):
         row, mode = target(report, context, repository)
         decision = "update detected" if mode == "candidate" else "no update"
         lines.append(f"- `{repository}` at `{row['mainSha']}` — {decision}")
@@ -124,7 +139,22 @@ def propose(report, context, repository, record, writer, fetch=candidate.api):
                  {k: v for k, v in record.items() if k != "detectedAt"},
                  "candidate plan changed before proposal")
     _, branch, _, _ = context
-    target(report, context, repository)
+    row, _ = target(report, context, repository)
+    if execution_mode() == "ENFORCE":
+        repository_sha = row["mainSha"]
+        run_id = int(os.environ["GITHUB_RUN_ID"])
+        # Refuse stale policy and unsupported sources before any issuer dispatch.
+        prepared = local_auth.prepare(repository, repository_sha, run_id, fetch=fetch)
+        receipt.need(local_auth.verifier._parse_json(
+            prepared[3].decode("utf-8"), local_auth.verifier.MAX_INPUTS_BYTES)["plan"] ==
+            {k: v for k, v in fresh.items() if k != "detectedAt"},
+            "candidate plan differs from the independently verified sources")
+        ticket, inputs, receipt_policy = issuance.receive(
+            repository, repository_sha, run_id, local_auth.verifier)
+        current = local_auth.prepare(repository, repository_sha, run_id, fetch=fetch)
+        receipt.need(current == prepared, "candidate authority or source inputs changed during issuance")
+        local_auth.authorize(ticket, inputs, receipt_policy, current,
+                             now=datetime.now(timezone.utc), api=issuance.get)
     token = os.environ["PGEXTWIN_SCAN_READ_TOKEN"]
     receipt.need(receipt.api(receipt.HOST + receipt.BUILD + "/branches/main", token) == branch,
                  "central protected main changed before proposal")
@@ -161,7 +191,7 @@ def main():
     parser.add_argument("--repository")
     parser.add_argument("--record", type=Path)
     args = parser.parse_args()
-    if args.action != "select" and (args.repository not in PILOTS or args.record is None):
+    if args.action != "select" and (not args.repository or args.record is None):
         parser.error("plan and propose require an enabled repository and decision file")
     try:
         receipt.need(args.snapshot.is_file() and not args.snapshot.is_symlink()
@@ -180,11 +210,13 @@ def main():
             record = checked_plan(report, context, args.repository, fetch=read_api)
             args.record.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             emit("GITHUB_OUTPUT", "candidate=" + str(record["status"] == "candidate").lower())
+            emit("GITHUB_OUTPUT", "authorization_mode=" + execution_mode())
             emit("GITHUB_STEP_SUMMARY", f"`{args.repository}` candidate decision: {record['status']}")
         else:
             propose(report, context, args.repository, candidate.read(args.record), app_writer(), fetch=read_api)
         return 0
-    except (receipt.Denied, candidate.WatchError, OSError, ValueError, KeyError, TypeError) as exc:
+    except (receipt.Denied, candidate.WatchError, OSError, ValueError, KeyError, TypeError,
+            local_auth.subprocess.SubprocessError) as exc:
         print("Central candidate failed closed: " + str(exc), file=sys.stderr)
         emit("GITHUB_STEP_SUMMARY", "Central candidate deferred. See the failed step for details.")
         return 2

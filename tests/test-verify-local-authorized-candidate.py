@@ -446,9 +446,13 @@ class PolicySchemaTests(unittest.TestCase):
             self.assertFalse(validator.is_valid(invalid), field)
         for field, value in (("mode", "ENFORCE"), ("issuerKeyId", "invented"),
                              ("issuerPublicKey", "00" * 32), ("publication", True),
-                             ("delegationStartsAt", "2026-11-17T00:00:00Z"),
+                             ("delegationStartsAt", "invalid"),
                              ("allowedOperations", ["candidate", "publish"]), ("extra", True)):
             self.assertFalse(validator.is_valid(dict(self.policy, **{field: value})), field)
+        delegated = dict(self.policy, mode="ENFORCE", delegationStartsAt="2026-11-17T00:00:00Z",
+                         delegationEndsAt="2026-11-18T00:00:00Z")
+        validator.validate(delegated)
+        validator.validate(dict(delegated, mode="DENY"))
 
 
 if __name__ == "__main__":

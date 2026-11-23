@@ -153,14 +153,18 @@ class FleetCandidate(TestCase):
     def test_workflow_restricts_selection_and_proposal(self):
         workflow = (ROOT / ".github/workflows/fleet-upstream-watch.yml").read_text()
         candidate = (ROOT / ".github/workflows/fleet-candidate.yml").read_text()
+        writer = (ROOT / ".github/workflows/local-authorized-candidate.yml").read_text()
         for text in (workflow, candidate):
             self.assertEqual(text.count("github.event_name == 'schedule'"), 2)
         self.assertIn("needs: readonly-fleet", workflow)
         self.assertIn("needs.candidate-selection.outputs.has_updates == 'true'", workflow)
         self.assertIn("needs.plan.outputs.decision != ''", candidate)
         self.assertIn("vars.PGEXTWIN_FLEET_CANDIDATE_WRITES == 'enabled'", candidate)
-        self.assertIn("secrets.fleet_candidate_app_private_key", candidate)
-        self.assertNotIn("PUBLISHER_APP", candidate)
+        self.assertIn("uses: ./.github/workflows/local-authorized-candidate.yml", candidate)
+        self.assertIn("github.event_name == 'schedule'", writer)
+        self.assertIn("secrets.fleet_candidate_app_private_key", writer)
+        self.assertIn("secrets.LOCAL_AUTH_ISSUER_TOKEN", writer)
+        self.assertNotIn("PUBLISHER_APP", writer)
 
 
 if __name__ == "__main__":
