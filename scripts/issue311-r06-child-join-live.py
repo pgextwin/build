@@ -47,10 +47,8 @@ SHARED_VERIFY_STEP = "Authenticate protected request / central original Run-job-
 TIMEOUT_STEP = "R06 original one-shot timed-out step (real Actions timeout)"
 FAIL_STEP = "R06 one-shot failure witness (nonpublishing, exact request-only push)"
 MISSING_REPO = "pgextwin/orafce"
-WINDOWS_PATH = ".github/workflows/windows.yml"
 WINDOWS_REQUIRED = [f"windows / PostgreSQL {n} / Windows x64" for n in range(14, 19)] + [
     "Windows required summary"]
-ORIGINAL_WINDOWS_PUSH = {("pgextwin/pg_hint_plan", 60)}
 ANOMALIES = {"pgextwin/pg_bigm": "FAILED", "pgextwin/pg_cron": "SKIPPED",
              "pgextwin/pg_hint_plan": "TIMEOUT", MISSING_REPO: "MISSING_EVENT"}
 SHA40 = re.compile(r"[0-9a-f]{40}$")
@@ -70,6 +68,7 @@ life = store.lifecycle
 writer = load("r06_live_writer", "scripts/issue311-writer-runtime.py")
 policy = load("r06_live_policy", "scripts/issue311-r06-local-child-join.py")
 reuse = load("r06_windows_main_reuse", "scripts/windows-main-reuse.py")
+WINDOWS_PATH = reuse.CALLER_PATH
 
 
 def need(ok, reason):
@@ -428,19 +427,7 @@ def windows_input_record(repo, items, *, pr_number=None):
     need(job["conclusion"] == "success", "Windows input resolver failed")
     step(job, "Record resolved Windows CI inputs", "success")
     raw = get_bytes(repo, f"actions/jobs/{reuse.positive_id(job['id'])}/logs")
-    log = raw.decode("utf-8")
-    if pr_number is not None:
-        checkout_ref = f"refs/remotes/pull/{pr_number}/merge"
-        need(any(line.endswith(f"[command]/usr/bin/git checkout --progress --force {checkout_ref}")
-                 for line in log.splitlines()), "Windows checkout was not this PR's merge ref")
-    return reuse.record_from_log(log)
-
-
-def windows_build_sha(run):
-    shas = [ref["sha"] for ref in run["referenced_workflows"]
-            if ref["path"].partition("@")[0] == reuse.WORKFLOW_PATH]
-    need(len(shas) == 1, "missing/ambiguous shared Windows Build SHA")
-    return reuse.github_sha(shas[0])
+    return reuse.record_from_log(raw.decode("utf-8"), pr_number=pr_number)
 
 
 def pr_windows_evidence(repo, head, protected, push, push_jobs):
@@ -464,8 +451,8 @@ def pr_windows_evidence(repo, head, protected, push, push_jobs):
          "not genuine successful first-attempt Windows PR run")
     pr_jobs = jobs(repo, run_id)
     required = windows_jobs(pr_jobs)
-    build_sha = windows_build_sha(run)
-    need(build_sha == windows_build_sha(push), "Windows shared Build SHA mismatch")
+    build_sha = reuse.referenced_build_sha(run)
+    need(build_sha == reuse.referenced_build_sha(push), "Windows shared Build SHA mismatch")
     source = windows_input_record(repo, pr_jobs, pr_number=number)
     current = windows_input_record(repo, push_jobs)
     checkout_sha = reuse.github_sha(source["checkout_commit"])
@@ -498,10 +485,12 @@ def windows_evidence(repo, head, protected, *, require_push=False):
     push = original_run(repo, candidates[0]["id"], WINDOWS_PATH, head)
     need(push["conclusion"] == "success", "Windows postmerge not successful")
     push_jobs = jobs(repo, push["id"])
-    if not require_push and (repo, protected["number"]) not in ORIGINAL_WINDOWS_PUSH:
+    if not require_push:
         try:
-            proof = pr_windows_evidence(repo, head, protected, push, push_jobs)
-            return {"windowsPrRunId": proof["runId"], "windowsEvidence": proof}
+            config = strict((ROOT / "metadata/main-reuse.json").read_bytes())
+            if protected["number"] not in reuse.original_push_prs(config, repo):
+                proof = pr_windows_evidence(repo, head, protected, push, push_jobs)
+                return {"windowsPrRunId": proof["runId"], "windowsEvidence": proof}
         except (OSError, ValueError, KeyError, TypeError, AttributeError, reuse.NoReuse):
             # Missing or inconsistent PR evidence leaves the original push
             # gate in force, including successful execution of every job.

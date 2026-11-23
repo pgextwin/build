@@ -20,5 +20,8 @@
     "pgextwin/wal2json",
     "pgextwin/hypopg",
     "pgextwin/plpgsql_check"
-  ]
+  ],
+  "requireOriginalPush": {
+    "pgextwin/pg_hint_plan": [60]
+  }
 }
