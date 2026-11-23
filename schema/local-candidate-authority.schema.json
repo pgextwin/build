@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/pgextwin/build/blob/main/schema/local-candidate-authority.schema.json",
-  "title": "pgextwin local candidate authority, stage-2 DENY foundation",
-  "description": "Owner-reviewable delegation skeleton only. DENY, the pinned production issuer public key and an unset delegation window are mandatory in this foundation. OBSERVE/ENFORCE and rate-limit enforcement require separate implementation and review.",
+  "title": "pgextwin local candidate authority",
+  "description": "Central candidate authority with a finite ENFORCE delegation and a mode-only DENY switch.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,7 +27,7 @@
       "const": 1
     },
     "mode": {
-      "const": "DENY"
+      "enum": ["DENY", "ENFORCE"]
     },
     "policyEpoch": {
       "type": "integer",
@@ -55,10 +55,12 @@
       }
     },
     "delegationStartsAt": {
-      "const": null
+      "type": ["null", "string"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
     },
     "delegationEndsAt": {
-      "const": null
+      "type": ["null", "string"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
     },
     "targetSet": {
       "type": "object",
@@ -138,6 +140,13 @@
           "const": 4
         }
       }
+    }
+  },
+  "if": {"properties": {"mode": {"const": "ENFORCE"}}},
+  "then": {
+    "properties": {
+      "delegationStartsAt": {"type": "string"},
+      "delegationEndsAt": {"type": "string"}
     }
   }
 }

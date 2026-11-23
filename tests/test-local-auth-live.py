@@ -5,14 +5,18 @@ import base64
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
+import sys
+from zipfile import ZipFile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location("local_auth_live", ROOT / "scripts/local-auth-live.py")
 live = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(live)
@@ -20,6 +24,11 @@ spec = importlib.util.spec_from_file_location(
     "foundation_fixtures", ROOT / "tests/test-verify-local-authorized-candidate.py")
 fixtures = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixtures)
+spec = importlib.util.spec_from_file_location(
+    "local_auth_candidate", ROOT / "scripts/local-auth-candidate.py")
+authority = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(authority)
+issuance_transport = authority.load_script("local-auth-issuance")
 
 
 def claim_file(claim):
@@ -95,14 +104,104 @@ class LiveBindingTests(unittest.TestCase):
         self.assertEqual(result["claimCommitSha"], self.issuance["claimCommitSha"])
         self.assertEqual(before, (self.ticket, self.policy, self.issuance, self.facts))
 
-    def test_current_authority_policy_stays_deny(self):
+    def test_candidate_gate_matches_fresh_plan_and_live_issuance(self):
+        self.policy["mode"] = "ENFORCE"
+        with patch.object(authority.live, "fetch_live_facts", return_value=self.facts) as fetch:
+            prepared = (self.policy, self.fleet, {"targetMainSha": self.ticket["targetMainSha"]},
+                        self.inputs)
+            authorize = lambda current: authority.authorize(
+                self.ticket, self.inputs, self.issuance, current, now=self.now)
+            self.assertEqual(authorize(prepared)["status"], "AUTHORIZED_CANDIDATE")
+            self.assertFalse(authorize(prepared)["publication"])
+            self.assertEqual(fetch.call_count, 2)
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "CANDIDATE_BINDING_MISMATCH"):
+                authorize((*prepared[:3], b"{}"))
+            self.facts["run"]["conclusion"] = "failure"
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "ISSUER_RUN_NOT_SUCCESSFUL"):
+                authorize(prepared)
+            self.policy["mode"] = "DENY"
+            fetch.reset_mock()
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "DENY_MODE"):
+                authorize(prepared)
+            fetch.assert_not_called()
+
+    def test_dispatch_uses_exact_run_and_checks_private_zip_bytes(self):
+        ticket_raw = live.verifier.canonical_json(self.ticket)
+        claim = {"status": "CLAIM_CREATED", "requestId": self.ticket["requestId"],
+                 "ticketSha256": self.issuance["ticketSha256"],
+                 "commit": self.issuance["claimCommitSha"]}
+        stream = io.BytesIO()
+        with ZipFile(stream, "w") as artifact_zip:
+            artifact_zip.writestr("ticket.json", ticket_raw)
+            artifact_zip.writestr("inputs.json", self.inputs)
+            artifact_zip.writestr("claim-result.json", json.dumps(claim))
+        artifact = stream.getvalue()
+        prefix = issuance_transport.PREFIX
+        workflow = prefix + "/actions/workflows/" + str(issuance_transport.WORKFLOW_ID)
+        run = prefix + "/actions/runs/" + str(self.issuance["runId"])
+        metadata = {"id": 1234, "size_in_bytes": len(artifact), "expired": False,
+                    "workflow_run": {"id": self.issuance["runId"]},
+                    "digest": "sha256:" + hashlib.sha256(artifact).hexdigest(),
+                    "name": issuance_transport.ARTIFACT}
+        responses = {
+            workflow: {"path": live.ISSUER_WORKFLOW, "state": "active"},
+            prefix + "/git/ref/heads/main": self.facts["main"],
+            workflow + "/dispatches": {"workflow_run_id": self.issuance["runId"]},
+            run: {"status": "completed", "conclusion": "success"},
+            run + "/artifacts?per_page=100": {"total_count": 1, "artifacts": [metadata]},
+            prefix + "/actions/artifacts/1234/zip": artifact,
+        }
+
+        def request(endpoint, *, payload=None):
+            if payload is not None:
+                self.assertEqual(endpoint, workflow + "/dispatches")
+                self.assertEqual(payload["inputs"]["consumer_run_id"], "17")
+            value = responses[endpoint]
+            return value if type(value) is bytes else json.dumps(value).encode()
+
+        with patch.dict("os.environ", {"LOCAL_AUTH_ISSUER_TOKEN": "offline"}), patch.object(
+                issuance_transport, "request", side_effect=request):
+            args = (self.ticket["repository"], self.ticket["targetMainSha"], 17, live.verifier)
+            self.assertEqual(issuance_transport.receive(*args), (self.ticket, self.inputs, self.issuance))
+            metadata["digest"] = "sha256:" + "0" * 64
+            with self.assertRaisesRegex(ValueError, "artifact bytes differ"):
+                issuance_transport.receive(*args)
+
+    def test_pgtap_license_is_compared_at_the_signed_source_commit(self):
+        repository = "pgextwin/pgtap"
+        upstream = "theory/pgtap"
+        target_sha, upstream_sha = "1" * 40, "2" * 40
+        entry = {"major": 17, "upstreamCommit": upstream_sha, "upstreamRef": "v1.3.4",
+                 "upstreamVersion": "1.3.4", "licenseFiles": [
+                     {"repositoryPath": "LICENSE", "upstreamPath": "README.md"}]}
+        heading = b"Copyright and License\n---------------------\n\n"
+        license_bytes = b"fixture license\n"
+        files = {(upstream, "README.md", upstream_sha): b"About\n\n" + heading + license_bytes,
+                 (repository, "LICENSE", target_sha): license_bytes}
+
+        def read_file(fetch, repo, path, sha):
+            raw = files[(repo, path, sha)]
+            return {"path": path, "encoding": "base64", "size": len(raw),
+                    "sha": hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest(),
+                    "content": base64.b64encode(raw).decode()}
+
+        with patch.object(authority, "build_matrix", return_value=("false", [entry])), patch.object(
+                authority, "file_at", side_effect=read_file):
+            args = ({"upstream": {"repository": upstream}}, repository, target_sha, None, self.now)
+            sources = authority.versioned_sources(*args)
+            self.assertEqual(sources[0]["licenses"][0]["sha256"], hashlib.sha256(license_bytes).hexdigest())
+            files[(upstream, "README.md", upstream_sha)] += b"unexpected suffix\n"
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "VERSIONED_LICENSE_MISMATCH"):
+                authority.versioned_sources(*args)
+
+    def test_policy_can_revoke_authority_without_issuer_changes(self):
         policy = json.loads((ROOT / "metadata/local-candidate-authority.json").read_text())
-        self.assertEqual(policy["mode"], "DENY")
+        deny = dict(policy, mode="DENY", delegationStartsAt=None, delegationEndsAt=None)
         self.assertIs(policy["publication"], False)
         with self.assertRaises(live.verifier.TicketRejected) as caught:
-            live.verifier.authorize(self.ticket, self.inputs, policy, self.fleet, self.now)
+            live.verifier.authorize(self.ticket, self.inputs, deny, self.fleet, self.now)
         self.assertEqual(caught.exception.code, "DENY_MODE")
-        self.rejected("DELEGATION_UNSET", policy=policy)
+        self.rejected("DELEGATION_UNSET", policy=deny)
 
     def test_even_successful_binding_cannot_authorize_under_deny(self):
         self.policy["mode"] = "DENY"  # Test key/window only; not the real DENY policy.

@@ -359,14 +359,14 @@ class TicketTests(unittest.TestCase):
         self.assert_rejected("TOO_LARGE", lambda: self.verify(inputs_bytes=b"x" * (verifier.MAX_INPUTS_BYTES + 1)))
         self.assert_rejected("JSON_TOO_DEEP", lambda: verifier.parse_ticket("[" * 34 + "0" + "]" * 34))
 
-    def test_real_production_policy_always_denies(self):
+    def test_production_policy_key_and_deny_precedence(self):
         real = json.loads((ROOT / "metadata/local-candidate-authority.json").read_text())
-        self.assertEqual(real["mode"], "DENY")
         self.assertEqual(real["issuerKeyId"], "local-auth-prod-1")
         self.assertEqual(real["issuerPublicKey"], "d8aaf19ea48e7ef9ca82dea860a04b5eafad92ff82378b5cd73d2f137b3a727c")
-        self.assert_rejected("DENY_MODE", lambda: verifier.authorize(self.ticket, self.inputs, real, self.fleet, self.now))
+        deny = dict(real, mode="DENY")
+        self.assert_rejected("DENY_MODE", lambda: verifier.authorize(self.ticket, self.inputs, deny, self.fleet, self.now))
         # DENY also precedes every other failure, even with malformed evidence.
-        self.assert_rejected("DENY_MODE", lambda: verifier.authorize({}, b"", real, set(), None))
+        self.assert_rejected("DENY_MODE", lambda: verifier.authorize({}, b"", deny, set(), None))
         self.assert_rejected("ISSUER_MISMATCH", lambda: self.verify(policy=real))
 
     def test_deny_even_when_ticket_could_verify(self):
@@ -393,7 +393,9 @@ class TicketTests(unittest.TestCase):
             command = [sys.executable, str(SCRIPT), "--ticket", str(ticket_path), "--inputs", str(inputs_path)]
             result = subprocess.run(command, capture_output=True, text=True, cwd=temp, check=False)
             self.assertEqual(result.returncode, 1)
-            self.assertEqual(json.loads(result.stderr), {"status": "REJECTED", "code": "DENY_MODE"})
+            policy = json.loads((ROOT / "metadata/local-candidate-authority.json").read_text())
+            code = "DENY_MODE" if policy["mode"] == "DENY" else "MODE_NOT_IMPLEMENTED"
+            self.assertEqual(json.loads(result.stderr), {"status": "REJECTED", "code": code})
             self.assertEqual(result.stdout, "")
             self.assertEqual(before, {p.name: p.read_bytes() for p in Path(temp).iterdir()})
             inputs_path.unlink()
@@ -418,9 +420,10 @@ class PolicySchemaTests(unittest.TestCase):
         self.assertIs(self.policy["publication"], False)
         self.assertEqual(self.policy["issuerKeyId"], "local-auth-prod-1")
         self.assertEqual(self.policy["issuerPublicKey"], "d8aaf19ea48e7ef9ca82dea860a04b5eafad92ff82378b5cd73d2f137b3a727c")
-        for key in ("delegationStartsAt", "delegationEndsAt"):
-            self.assertIsNone(self.policy[key])
-        self.assertIn("every ticket must be rejected", self.policy["note"])
+        self.assertIn(self.policy["mode"], ("DENY", "ENFORCE"))
+        if self.policy["mode"] == "ENFORCE":
+            self.assertLess(verifier._timestamp(self.policy["delegationStartsAt"]),
+                            verifier._timestamp(self.policy["delegationEndsAt"]))
         manifest = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
         self.assertEqual(self.policy["targetSet"], {"path": "metadata/automation-fleet.json", "schemaVersion": manifest["schemaVersion"]})
         self.assertNotIn("repositories", self.policy)
@@ -444,11 +447,16 @@ class PolicySchemaTests(unittest.TestCase):
             invalid = copy.deepcopy(self.policy)
             del invalid[field]
             self.assertFalse(validator.is_valid(invalid), field)
-        for field, value in (("mode", "ENFORCE"), ("issuerKeyId", "invented"),
+        for field, value in (("mode", "OBSERVE"), ("issuerKeyId", "invented"),
                              ("issuerPublicKey", "00" * 32), ("publication", True),
-                             ("delegationStartsAt", "2026-11-17T00:00:00Z"),
+                             ("delegationStartsAt", "invalid"),
                              ("allowedOperations", ["candidate", "publish"]), ("extra", True)):
             self.assertFalse(validator.is_valid(dict(self.policy, **{field: value})), field)
+        delegated = dict(self.policy, mode="ENFORCE", delegationStartsAt="2026-11-17T00:00:00Z",
+                         delegationEndsAt="2026-11-18T00:00:00Z")
+        validator.validate(delegated)
+        validator.validate(dict(delegated, mode="DENY"))
+        self.assertFalse(validator.is_valid(dict(delegated, delegationEndsAt=None)))
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ def _constant(value):
     raise ValueError("nonfinite GitHub file JSON value")
 
 
-def decode_json_file(source, expected_path):
+def decode_file(source, expected_path):
     if (type(source) is not dict or type(expected_path) is not str
             or not expected_path or source.get("path") != expected_path
             or source.get("encoding") != "base64"
@@ -45,6 +45,11 @@ def decode_json_file(source, expected_path):
     blob = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
     if blob != source["sha"]:
         raise ValueError("GitHub Contents Git blob digest mismatch")
+    return raw
+
+
+def decode_json_file(source, expected_path):
+    raw = decode_file(source, expected_path)
     value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique,
                        parse_constant=_constant)
     if type(value) is not dict:
