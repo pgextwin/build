@@ -272,7 +272,8 @@ function Invoke-PackageLicenseVerification {
     $manifest = Join-Path $WorkDir 'verified-blobs.json'
     ConvertTo-Json -InputObject @($Matrix.licenseFiles) -Depth 5 |
         Set-Content -LiteralPath $config -Encoding utf8
-    $restoreArgs = if ($RestoreWorktrees) { @('--restore-worktrees') } else { @() }
+    [string[]]$restoreArgs = @()
+    if ($RestoreWorktrees) { $restoreArgs += '--restore-worktrees' }
     & python (Join-Path $PSScriptRoot 'verify-license-bytes.py') --license-files $config --upstream-dir $UpstreamDir `
         --packaging-dir $PackagingDir --stage-dir $stage --verified-list $manifest @restoreArgs | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Upstream license byte verification failed.' }

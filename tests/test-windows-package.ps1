@@ -40,11 +40,11 @@ function Invoke-ContractCase {
             sha256 = (Get-FileHash -LiteralPath (Join-Path $verifiedStage 'LICENSE')).Hash.ToLowerInvariant() })
     }
     $map = New-TestMap
-    & $Setup
     $mapPath = Join-Path $caseDir 'package.json'
-    $map | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $mapPath
     $case = @{ name = $Name; exitCode = 0; expectedExitCode = [int][bool]$ExpectedError }
     try {
+        & $Setup
+        $map | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $mapPath
         $plan = Resolve-WindowsPackage $mapPath $caseDir $upstream (Join-Path $caseDir 'build') $verifiedStage $verified $tokens
         Copy-PackageFiles $plan $pgRoot install
         $stage = Join-Path $caseDir 'package'
@@ -104,6 +104,28 @@ $work = [IO.Directory]::CreateTempSubdirectory('pgextwin-contract-').FullName
 try {
     $cases = @(
         Invoke-ContractCase valid {}
+        Invoke-ContractCase restore-worktrees {
+            $original = [byte[]]@(65, 10, 66)
+            foreach ($repo in @($upstream, $caseDir)) {
+                $license = Join-Path $repo 'LICENSE'
+                [IO.File]::WriteAllBytes($license, $original)
+                git -C $repo init -q
+                if ($LASTEXITCODE -ne 0) { throw "Could not initialize test Git repository." }
+                git -C $repo -c core.autocrlf=false add LICENSE
+                if ($LASTEXITCODE -ne 0) { throw "Could not stage test license." }
+                git -C $repo -c user.name='test' -c user.email='test@example.invalid' commit -qm 'Pin test license'
+                if ($LASTEXITCODE -ne 0) { throw "Could not commit test license." }
+                [IO.File]::WriteAllBytes($license, [byte[]]@(65, 13, 10, 66))
+            }
+            $matrix = @{ licenseFiles = @(@{ repositoryPath = 'LICENSE'; upstreamPath = 'LICENSE' }) }
+            $verification = Invoke-PackageLicenseVerification $matrix $caseDir $upstream $caseDir -RestoreWorktrees
+            foreach ($folder in @($upstream, $caseDir, $verification.stage)) {
+                $actual = [IO.File]::ReadAllBytes((Join-Path $folder 'LICENSE'))
+                if ([Convert]::ToBase64String($actual) -cne [Convert]::ToBase64String($original)) {
+                    throw "License restoration changed the original bytes."
+                }
+            }
+        }
         Invoke-ContractCase missing { Remove-Item -LiteralPath (Join-Path $upstream 'example.control') } 'Required package file missing'
         Invoke-ContractCase extra-glob { New-Item -ItemType File -Path (Join-Path $upstream 'example--unexpected.sql') | Out-Null } 'Expected 2 matches'
         Invoke-ContractCase wrong-glob { Rename-Item -LiteralPath (Join-Path $upstream 'example--2.0.sql') 'example--unexpected.sql' } 'Required glob match'
