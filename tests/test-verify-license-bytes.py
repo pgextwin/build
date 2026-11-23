@@ -38,10 +38,13 @@ class LicenseBytesTests(unittest.TestCase):
         self.packaging = root / "packaging"
         self.stage = root / "verified licenses"
         self.config = root / "license-files.json"
+        self.source_stage = root / "verified sources"
+        self.verified = root / "verified.json"
 
-    def verify(self, *pairs, restore=False):
+    def verify(self, *pairs, restore=False, marker=None):
         self.config.write_text(json.dumps([
-            {"repositoryPath": repository, "upstreamPath": upstream}
+            {"repositoryPath": repository, "upstreamPath": upstream,
+             **({"upstreamStartMarker": marker} if marker is not None else {})}
             for repository, upstream in pairs
         ]), encoding="utf-8")
         command = [
@@ -50,6 +53,8 @@ class LicenseBytesTests(unittest.TestCase):
             "--upstream-dir", str(self.upstream),
             "--packaging-dir", str(self.packaging),
             "--stage-dir", str(self.stage),
+            "--source-stage-dir", str(self.source_stage),
+            "--verified-list", str(self.verified),
         ]
         if restore:
             command.append("--restore-worktrees")
@@ -59,6 +64,8 @@ class LicenseBytesTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(message, result.stderr)
         self.assertFalse(self.stage.exists())
+        self.assertFalse(self.source_stage.exists())
+        self.assertFalse(self.verified.exists())
 
     def test_identical_lf_bytes_pass(self):
         commit_files(self.upstream, {"LICENSE": LICENSE})
@@ -131,6 +138,39 @@ class LicenseBytesTests(unittest.TestCase):
         self.assertEqual(upstream.read_bytes(), LICENSE)
         self.assertEqual(packaging.read_bytes(), LICENSE)
         self.assertEqual((self.stage / "licenses/LICENSE").read_bytes(), LICENSE)
+
+    def test_readme_suffix_stages_license_and_full_source_separately(self):
+        readme = b"Upstream README.\n\n" + LICENSE
+        commit_files(self.upstream, {"README.md": readme})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        path = self.upstream / "README.md"
+        checkout = readme.replace(b"\n", b"\r\n")
+        path.write_bytes(checkout)
+
+        result = self.verify(("LICENSE", "README.md"), marker="Copyright")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(path.read_bytes(), checkout)
+        self.assertEqual((self.source_stage / "README.md").read_bytes(), readme)
+        self.assertEqual((self.stage / "LICENSE").read_bytes(), LICENSE)
+        verified, = json.loads(self.verified.read_bytes())["licenses"]
+        self.assertEqual(verified["upstreamOffset"], readme.index(b"Copyright"))
+        self.assertEqual(verified["upstreamSize"], len(readme))
+        self.assertEqual(verified["upstreamSha256"], hashlib.sha256(readme).hexdigest())
+        self.assertEqual(verified["sha256"], hashlib.sha256(LICENSE).hexdigest())
+
+        result = self.verify(("LICENSE", "README.md"), marker="Copyright", restore=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(path.read_bytes(), readme)
+
+    def test_readme_suffix_rejects_missing_start(self):
+        commit_files(self.upstream, {"README.md": b"README without a license"})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        self.assert_failed(self.verify(("LICENSE", "README.md"), marker="Copyright"), "range start not found")
+
+    def test_readme_suffix_rejects_altered_packaging_license(self):
+        commit_files(self.upstream, {"README.md": b"README\n" + LICENSE})
+        commit_files(self.packaging, {"LICENSE": LICENSE.replace(b"\n", b"\r\n")})
+        self.assert_failed(self.verify(("LICENSE", "README.md"), marker="Copyright"), "differs from upstream")
 
 
 if __name__ == "__main__":

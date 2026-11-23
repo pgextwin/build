@@ -217,6 +217,15 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
     }
 }
 
+# The existing pgTAP manifest opts out of whole-file comparison because the
+# license is a suffix of README.md. Verify that suffix against the LICENSE blob.
+if ($extension.name -ceq 'pgtap' -and $extension.upstream.repository -ceq 'theory/pgtap' -and
+    $licenseMode -eq 'uniform' -and $licenseFiles.Count -eq 1 -and
+    $licenseFiles[0].repositoryPath -ceq 'LICENSE' -and $licenseFiles[0].upstreamPath -ceq 'README.md') {
+    $licenseFiles[0].upstreamStartMarker = 'Copyright (c)'
+    $verifyLicense = $true
+}
+
 foreach ($entry in $matrixEntries) {
     if ($licenseMode -eq "perPostgresql") {
         $majorKey = [string][int]$entry.major

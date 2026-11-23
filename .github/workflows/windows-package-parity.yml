@@ -9,6 +9,8 @@ on:
         options:
           - pg_profile
           - pg_track_settings
+          - pg_permissions
+          - pgtap
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
@@ -42,6 +44,8 @@ jobs:
           case "$EXTENSION" in
             pg_profile) legacy=f793432ba9d5f34d57f9c9b28b5cbb5a2c7cd11d ;;
             pg_track_settings) legacy=3a0f55dfffb6d8657949cb98a74bd3f16e3633a0 ;;
+            pg_permissions) legacy=03e06c7b92d330de453deec1f06cc3cd114c0fb9 ;;
+            pgtap) legacy=749dd7c4631bdfd79472adc2fa73fc5c0c99842d ;;
             *) exit 1 ;;
           esac
           if [[ -n "$LEGACY_SHA" ]]; then
