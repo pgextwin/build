@@ -19,6 +19,8 @@
     "pg_stat_monitor",
     "pgaudit",
     "pg_hint_plan",
-    "pg_repack"
+    "pg_repack",
+    "pg_track_settings",
+    "pgtap"
   ]
 }

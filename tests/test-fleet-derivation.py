@@ -42,7 +42,7 @@ class FleetDerivationTests(unittest.TestCase):
                 entry["ownerSource"] = entry["repository"] in expected
             path.write_text(json.dumps(registry), "utf-8")
             actual = policy.derive_owner_source_repositories(root)
-            self.assertEqual(len(actual), 23)
+            self.assertEqual(len(actual), 24)
             self.assertEqual(set(actual), set(expected))
             fleet_order = [entry["repository"] for entry in registry["entries"]
                            if entry["ownerSource"]]
