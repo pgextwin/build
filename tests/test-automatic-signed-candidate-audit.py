@@ -166,7 +166,7 @@ class SignedCandidateReadOnly(unittest.TestCase):
     def test_new_candidate_signer_denied_outside_pilot(self):
         extension, lifecycle, intent, run = example()
         policy = audit.routes.read_policy()
-        with self.assertRaisesRegex(audit.Denied, "outside the new candidate signer"):
+        with self.assertRaisesRegex(audit.Denied, "outside the shared candidate signing route"):
             audit.audit(None, extension, lifecycle, intent, run, deepcopy(run),
                         repo=REPO, sha=SHA, run_id=RUN, attempt=1, verify=None,
                         signer_sha=policy["candidateSigner"], verifier_sha=policy["candidateAudit"])

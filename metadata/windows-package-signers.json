@@ -5,5 +5,13 @@
   "ownerWrappers": {
     "pgextwin/pg_profile": "b311498a3b7a78662b579333f48b58a05789e5f3",
     "pgextwin/pg_track_settings": "b311498a3b7a78662b579333f48b58a05789e5f3"
+  },
+  "wave2": {
+    "candidateSigner": "0edaa7b3c08f1aa17d89cf8625dc537df21c1b58",
+    "candidateAudit": "4e02e4c7ba0f3748ab19d54409ffc443a0809c14",
+    "ownerWrappers": {
+      "pgextwin/pg_permissions": "4e02e4c7ba0f3748ab19d54409ffc443a0809c14",
+      "pgextwin/pgtap": "4e02e4c7ba0f3748ab19d54409ffc443a0809c14"
+    }
   }
 }

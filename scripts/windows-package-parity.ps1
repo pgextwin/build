@@ -60,7 +60,7 @@ try {
     } finally { Pop-Location }
 
     $plan = Resolve-WindowsPackage (Join-Path $candidateDir 'windows/ci/package.json') $candidateDir $upstreamDir `
-        (Join-Path $candidateDir 'build') $licenses.stage $licenses.verified $tokens
+        (Join-Path $candidateDir 'build') $licenses.stage $licenses.verified $tokens -LicenseSourceStage $licenses.sourceStage
     $afterPg = Join-Path $work 'postgresql'
     [void][IO.Directory]::CreateDirectory($afterPg)
     foreach ($directory in @('share', 'lib', 'bin')) {
@@ -82,7 +82,10 @@ try {
     if (!$installEquivalent) { $failures.Add('Installed file paths or bytes differ.') }
     $asset = Get-WindowsPackageAssetName $tokens
     foreach ($mode in @('normal', 'release-attested')) {
-        $beforeDist = Join-Path $work "$mode-before"
+        # Use a relative DistDir for legacy hooks that resolve it under their repository.
+        $beforeDistName = "parity-dist-$mode"
+        $beforeDist = Join-Path $legacyDir $beforeDistName
+        if (Test-Path -LiteralPath $beforeDist) { throw "Legacy parity output already exists: '$beforeDist'." }
         $stage = Join-Path $work "$mode-stage"
         $afterDist = Join-Path $evidence "$mode/after"
         $beforeOut = Join-Path $evidence "$mode/before"
@@ -95,7 +98,7 @@ try {
         $legacy = Get-LegacyPackageInputs $tokens $upstreamDir
         Push-Location $legacyDir
         try {
-            & (Join-Path $oldHooks 'package.ps1') @legacy -DistDir $beforeDist
+            & (Join-Path $oldHooks 'package.ps1') @legacy -DistDir $beforeDistName
         } finally { Pop-Location }
         & (Join-Path $PSScriptRoot 'finalize-package.ps1') @finalizer -DistDir $beforeDist `
             -VerifiedLicenseList $licenseList

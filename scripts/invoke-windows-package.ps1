@@ -41,7 +41,7 @@ if (Test-Path -LiteralPath $buildHook) {
     & $buildHook -PgRoot $env:PGROOT -UpstreamDir $upstreamDir
 }
 $plan = Resolve-WindowsPackage $map $packagingDir $upstreamDir (Join-Path $packagingDir 'build') `
-    $licenses.stage $licenses.verified $tokens
+    $licenses.stage $licenses.verified $tokens -LicenseSourceStage $licenses.sourceStage
 Copy-PackageFiles $plan $env:PGROOT install
 & (Join-Path $hooks 'smoke-test.ps1') -PgRoot $env:PGROOT -PgPort ([int]$env:PGPORT) -PostgreSqlMajor $matrix.major
 Write-WindowsPackageStage $plan $stage $licenseList

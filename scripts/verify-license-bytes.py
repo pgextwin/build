@@ -46,6 +46,7 @@ def verify_and_stage(args):
     stage_dir = args.stage_dir.resolve()
     staged_files = {}
     worktree_files = {}
+    source_files = {}
     verified = []
     upstream_commit = None
     if args.verified_list:
@@ -56,7 +57,25 @@ def verify_and_stage(args):
     for entry in license_files:
         repository_path = entry["repositoryPath"]
         upstream_path = entry["upstreamPath"]
-        upstream = read_blob(upstream_dir, upstream_path, "upstream")
+        upstream_blob = read_blob(upstream_dir, upstream_path, "upstream")
+        upstream = upstream_blob
+        provenance = {}
+        if "upstreamStartMarker" in entry:
+            marker = entry["upstreamStartMarker"]
+            if not isinstance(marker, str) or not marker:
+                raise ValueError("Expected a nonempty upstream license start marker.")
+            offset = upstream_blob.find(marker.encode("utf-8"))
+            if offset < 0:
+                raise ValueError(f"License range start not found in upstream '{upstream_path}'.")
+            upstream = upstream_blob[offset:]
+            provenance = {
+                "upstreamOffset": offset,
+                "upstreamSize": len(upstream_blob),
+                "upstreamSha256": hashlib.sha256(upstream_blob).hexdigest(),
+            }
+            if args.source_stage_dir:
+                source_path = output_path(args.source_stage_dir.resolve(), upstream_path)
+                source_files[source_path] = upstream_blob
         packaging = read_blob(packaging_dir, repository_path, "packaging-repository")
         digest = hashlib.sha256(upstream).hexdigest()
         if digest != hashlib.sha256(packaging).hexdigest() or upstream != packaging:
@@ -71,16 +90,19 @@ def verify_and_stage(args):
             "repositoryPath": repository_path,
             "size": len(upstream),
             "sha256": digest,
+            **provenance,
         })
 
         if args.restore_worktrees:
-            worktree_files[output_path(upstream_dir, upstream_path)] = upstream
+            worktree_files[output_path(upstream_dir, upstream_path)] = upstream_blob
             worktree_files[output_path(packaging_dir, repository_path)] = packaging
 
     # Check every pair before writing bytes for the packaging hooks.
     for path, (content, digest, repository_path) in staged_files.items():
         write_bytes(path, content)
         print(f"{digest}  {repository_path}")
+    for path, content in source_files.items():
+        write_bytes(path, content)
     for path, content in worktree_files.items():
         write_bytes(path, content)
     if args.verified_list:
@@ -94,6 +116,7 @@ def main():
     parser.add_argument("--upstream-dir", type=Path, required=True)
     parser.add_argument("--packaging-dir", type=Path, required=True)
     parser.add_argument("--stage-dir", type=Path, required=True)
+    parser.add_argument("--source-stage-dir", type=Path, help="stage whole source blobs for verified license ranges")
     parser.add_argument("--verified-list", type=Path, help="record the verified upstream blob identities")
     parser.add_argument(
         "--restore-worktrees", action="store_true",

@@ -64,10 +64,14 @@ function Assert-PackageLicenseBytes {
 function Resolve-WindowsPackage {
     param(
         [string]$MapPath, [string]$PackagingDir, [string]$UpstreamDir, [string]$BuildOutputDir,
-        [string]$LicenseStage, $VerifiedLicenses, [System.Collections.IDictionary]$Tokens
+        [string]$LicenseStage, $VerifiedLicenses, [System.Collections.IDictionary]$Tokens,
+        [string]$LicenseSourceStage
     )
     $map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Json -AsHashtable
-    Assert-PackageObject $map -Required @('schemaVersion', 'distribution', 'files', 'packageInfo')
+    Assert-PackageObject $map -Required @('schemaVersion', 'distribution', 'files', 'packageInfo') -Optional @('packageInfoFinalNewline')
+    if ($map.Contains('packageInfoFinalNewline') -and $map.packageInfoFinalNewline -isnot [bool]) {
+        throw 'packageInfoFinalNewline must be a boolean.'
+    }
     if ($map.schemaVersion -isnot [long] -or $map.schemaVersion -ne 1 -or
         $map.distribution -cnotin @('sql-only', 'dll-sql', 'dll-only') -or
         $map.files -isnot [array] -or !$map.files.Count -or $map.packageInfo -isnot [array] -or !$map.packageInfo.Count) {
@@ -77,13 +81,22 @@ function Resolve-WindowsPackage {
         $VerifiedLicenses.upstreamCommit -cne $Tokens.upstreamCommit -or !$VerifiedLicenses.licenses.Count) {
         throw 'Package map requires licenses verified against this upstream commit.'
     }
-    $roots = @{ upstream = $UpstreamDir; packaging = $PackagingDir; buildOutput = $BuildOutputDir; license = $LicenseStage }
+    $roots = @{ upstream = $UpstreamDir; packaging = $PackagingDir; buildOutput = $BuildOutputDir; license = $LicenseStage
+        licenseDocument = $LicenseSourceStage }
     $licenses = @{}
     foreach ($license in $VerifiedLicenses.licenses) {
         Assert-PackagePath $license.repositoryPath
         Assert-PackagePath $license.upstreamPath
         if ($licenses.ContainsKey($license.repositoryPath)) { throw "Duplicate verified license '$($license.repositoryPath)'." }
         $licenses.Add($license.repositoryPath, $license)
+    }
+    $sourceDocuments = @{}
+    foreach ($license in $VerifiedLicenses.licenses) {
+        if ($license.PSObject.Properties['upstreamOffset']) {
+            $sourceDocuments[$license.upstreamPath] = @{
+                size = $license.upstreamSize; sha256 = $license.upstreamSha256; repositoryPath = $license.upstreamPath
+            }
+        }
     }
     $matchedLicenses = @{}
     $files = [Collections.Generic.List[object]]::new()
@@ -99,6 +112,11 @@ function Resolve-WindowsPackage {
         }
         $path = Expand-PackageTokens $row.path $Tokens
         $glob = $row.Contains('expectedCount')
+        if ($row.source -eq 'licenseDocument' -and
+            (!$LicenseSourceStage -or !$sourceDocuments.ContainsKey($path) -or $glob -or $row['optional'] -or
+                $row.targets.Count -ne 1 -or $row.targets[0] -cne 'zip' -or $row.destination -cne 'UPSTREAM-README.md')) {
+            throw "License document '$path' must use the verified source blob as UPSTREAM-README.md."
+        }
         Assert-PackagePath $path -Glob:$glob
         if ($glob) {
             if ($row.source -eq 'license' -or $row['optional'] -or $row.expectedCount -isnot [long] -or
@@ -163,12 +181,20 @@ function Resolve-WindowsPackage {
             if ($destination -match '\.(?:sql|control)$' -and $destination -notmatch '^share/extension/[^/]+$') {
                 throw "SQL/control destination must be under share/extension/: '$destination'."
             }
-            $licenseEntry = $null
+            $verifiedFile = $null
+            if ($row.source -eq 'licenseDocument') {
+                $verifiedFile = $sourceDocuments[$path]
+                Assert-PackageLicenseBytes $file $verifiedFile
+            }
             if ($row.source -eq 'license') {
                 $license = $licenses[$path]
                 Assert-PackageLicenseBytes $file $license
-                $licenseEntry = @{ source = $file.FullName; repositoryPath = $license.repositoryPath; upstreamPath = $license.upstreamPath
+                $verifiedFile = $license
+                $licenseEntry = @{ repositoryPath = $license.repositoryPath; upstreamPath = $license.upstreamPath
                     zipPath = $destination; size = $license.size; sha256 = $license.sha256 }
+                foreach ($field in @('upstreamOffset', 'upstreamSize', 'upstreamSha256')) {
+                    if ($license.PSObject.Properties[$field]) { $licenseEntry[$field] = $license.$field }
+                }
                 $matchedLicenses.Add($path, $licenseEntry)
             }
             foreach ($target in $row.targets) {
@@ -184,7 +210,7 @@ function Resolve-WindowsPackage {
                 }
                 $selected.Add($destination, $file.FullName)
             }
-            $files.Add(@{ source = $file.FullName; destination = $destination; targets = $row.targets; license = $licenseEntry })
+            $files.Add(@{ source = $file.FullName; destination = $destination; targets = $row.targets; verified = $verifiedFile })
         }
     }
     if ($matchedLicenses.Count -ne $licenses.Count) { throw 'Package map must place every verified license.' }
@@ -209,11 +235,10 @@ function Resolve-WindowsPackage {
     return @{
         files = $files.ToArray()
         packageInfo = @($lines)
+        packageInfoFinalNewline = !$map.Contains('packageInfoFinalNewline') -or $map.packageInfoFinalNewline
         verifiedLicenses = @{
             schemaVersion = 1; upstreamCommit = $VerifiedLicenses.upstreamCommit
-            licenses = @($matchedLicenses.Values | Sort-Object zipPath | ForEach-Object {
-                @{ repositoryPath = $_.repositoryPath; upstreamPath = $_.upstreamPath; zipPath = $_.zipPath; size = $_.size; sha256 = $_.sha256 }
-            })
+            licenses = @($matchedLicenses.Values | Sort-Object { $_.zipPath })
         }
     }
 }
@@ -224,7 +249,7 @@ function Copy-PackageFiles {
     foreach ($file in $selected) {
         $existing = Get-PackageItem $Root $file.destination
         if ($existing -and $existing.PSIsContainer) { throw "File destination is a directory: '$($file.destination)'." }
-        if ($file.license) { Assert-PackageLicenseBytes (Get-Item -LiteralPath $file.source -Force) $file.license }
+        if ($file.verified) { Assert-PackageLicenseBytes (Get-Item -LiteralPath $file.source -Force) $file.verified }
     }
     foreach ($file in $selected) {
         $destination = Join-Path $Root $file.destination
@@ -238,7 +263,9 @@ function Write-WindowsPackageStage {
     if (Test-Path -LiteralPath $Stage) { throw "Package stage must be new: '$Stage'." }
     [void][IO.Directory]::CreateDirectory($Stage)
     Copy-PackageFiles $Plan $Stage zip
-    Set-Content -LiteralPath (Join-Path $Stage 'PACKAGE-INFO.txt') -Value $Plan.packageInfo -Encoding utf8
+    $info = $Plan.packageInfo -join [Environment]::NewLine
+    if ($Plan.packageInfoFinalNewline) { $info += [Environment]::NewLine }
+    Set-Content -LiteralPath (Join-Path $Stage 'PACKAGE-INFO.txt') -Value $info -Encoding utf8 -NoNewline
     $Plan.verifiedLicenses | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $LicenseList -Encoding utf8
 }
 
@@ -270,15 +297,17 @@ function Invoke-PackageLicenseVerification {
     $config = Join-Path $WorkDir 'license-pins.json'
     $stage = Join-Path $WorkDir 'verified-licenses'
     $manifest = Join-Path $WorkDir 'verified-blobs.json'
+    $sourceStage = Join-Path $WorkDir 'verified-license-sources'
     ConvertTo-Json -InputObject @($Matrix.licenseFiles) -Depth 5 |
         Set-Content -LiteralPath $config -Encoding utf8
     [string[]]$restoreArgs = @()
     if ($RestoreWorktrees) { $restoreArgs += '--restore-worktrees' }
     & python (Join-Path $PSScriptRoot 'verify-license-bytes.py') --license-files $config --upstream-dir $UpstreamDir `
-        --packaging-dir $PackagingDir --stage-dir $stage --verified-list $manifest @restoreArgs | Out-Host
+        --packaging-dir $PackagingDir --stage-dir $stage --source-stage-dir $sourceStage --verified-list $manifest @restoreArgs | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Upstream license byte verification failed.' }
     return @{
         stage = $stage
+        sourceStage = $sourceStage
         verified = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json)
     }
 }
