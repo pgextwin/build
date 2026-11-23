@@ -13,6 +13,9 @@ on:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
         required: true
+      legacy_sha:
+        description: Optional additional approved baseline for PostgreSQL 19 on pg_track_settings
+        type: string
 
 permissions:
   contents: read
@@ -34,12 +37,17 @@ jobs:
         env:
           EXTENSION: ${{ inputs.extension }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          LEGACY_SHA: ${{ inputs.legacy_sha }}
         run: |
           case "$EXTENSION" in
             pg_profile) legacy=f793432ba9d5f34d57f9c9b28b5cbb5a2c7cd11d ;;
             pg_track_settings) legacy=3a0f55dfffb6d8657949cb98a74bd3f16e3633a0 ;;
             *) exit 1 ;;
           esac
+          if [[ -n "$LEGACY_SHA" ]]; then
+            [[ "$EXTENSION" == pg_track_settings && "$LEGACY_SHA" == 5e1958a76b2257d764be8d6d08d9adaad071b1c0 ]]
+            legacy="$LEGACY_SHA"
+          fi
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
           printf 'repository=pgextwin/%s\nlegacy_sha=%s\ncandidate_sha=%s\n' "$EXTENSION" "$legacy" "$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
 

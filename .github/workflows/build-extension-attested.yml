@@ -38,6 +38,14 @@ jobs:
       license_files: ${{ steps.meta.outputs.license_files }}
 
     steps:
+      - name: Require a pilot signing repository
+        shell: bash
+        run: |
+          case "$GITHUB_REPOSITORY" in
+            pgextwin/pg_profile|pgextwin/pg_track_settings) ;;
+            *) echo "Repository is outside the shared packaging signer pilot." >&2; exit 1 ;;
+          esac
+
       - name: Check out extension packaging repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -112,8 +120,19 @@ jobs:
           ref: ${{ matrix.upstreamCommit || matrix.upstreamRef }}
           path: upstream
 
+      - name: Select Windows package route
+        id: package_route
+        shell: pwsh
+        run: |
+          $common = Test-Path -LiteralPath "windows/ci/package.json"
+          "common=$($common.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($common) {
+            $work = [IO.Directory]::CreateTempSubdirectory('pgextwin-package-').FullName
+            "work=$work" >> $env:GITHUB_OUTPUT
+          }
+
       - name: Verify upstream license files match packaging repository
-        if: needs.matrix.outputs.verify_upstream_license == 'true'
+        if: steps.package_route.outputs.common == 'false' && needs.matrix.outputs.verify_upstream_license == 'true'
         shell: pwsh
         env:
           PGEXTWIN_LICENSE_FILES: ${{ toJSON(matrix.licenseFiles) }}
@@ -143,6 +162,7 @@ jobs:
             -TestPort ([int]"${{ matrix.testPort }}")
 
       - name: Build extension
+        if: steps.package_route.outputs.common == 'false'
         shell: pwsh
         run: |
           & ".\\windows\\ci\\build.ps1" `
@@ -150,6 +170,7 @@ jobs:
             -UpstreamDir (Join-Path $PWD "upstream")
 
       - name: Install extension into test PostgreSQL
+        if: steps.package_route.outputs.common == 'false'
         shell: pwsh
         run: |
           & ".\\windows\\ci\\install.ps1" `
@@ -157,6 +178,7 @@ jobs:
             -UpstreamDir (Join-Path $PWD "upstream")
 
       - name: Functional smoke test
+        if: steps.package_route.outputs.common == 'false'
         shell: pwsh
         run: |
           & ".\\windows\\ci\\smoke-test.ps1" `
@@ -165,6 +187,7 @@ jobs:
             -PostgreSqlMajor ([int]"${{ matrix.major }}")
 
       - name: Package Windows binary
+        if: steps.package_route.outputs.common == 'false'
         shell: pwsh
         run: |
           & ".\\windows\\ci\\package.ps1" `
@@ -175,13 +198,54 @@ jobs:
             -PostgreSqlMajor ([int]"${{ matrix.major }}") `
             -PostgreSqlMinor "${{ matrix.minor }}"
 
-      - name: Finalize and validate package metadata
+      - name: Finalize legacy package metadata
+        if: steps.package_route.outputs.common == 'false'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           & ".pgextwin-build/scripts/finalize-package.ps1" -ExtensionName "${{ needs.matrix.outputs.extension_name }}" -UpstreamDir (Join-Path $PWD "upstream") -UpstreamRepository "${{ needs.matrix.outputs.upstream_repository }}" -UpstreamRef "${{ matrix.upstreamRef }}" -UpstreamVersion "${{ matrix.upstreamVersion }}" -PostgreSqlMajor ([int]"${{ matrix.major }}") -PostgreSqlTestedVersion "${{ matrix.minor }}" -ChocolateyPackage "${{ matrix.chocolateyPackage }}" -ChocolateyPackageVersion "${{ matrix.chocolateyVersion }}" -PackagingRepository "${{ github.repository }}" -BuildRepository "${{ job.workflow_repository }}" -BuildCommit "${{ job.workflow_sha }}" -ReusableWorkflow ".github/workflows/build-extension-attested.yml" -BuildMode "release-attested" -WorkflowRunId ([long]"${{ github.run_id }}") -WorkflowRunAttempt ([int]"${{ github.run_attempt }}") -WorkflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" -WorkflowEvent "${{ github.event_name }}" -WorkflowRef "${{ github.ref }}"
 
+      - name: Prepare placement map package and run smoke test
+        if: steps.package_route.outputs.common == 'true'
+        shell: pwsh
+        env:
+          MATRIX_ROW: ${{ toJSON(matrix) }}
+          EXTENSION_NAME: ${{ needs.matrix.outputs.extension_name }}
+          UPSTREAM_REPOSITORY: ${{ needs.matrix.outputs.upstream_repository }}
+          VERIFY_LICENSE: ${{ needs.matrix.outputs.verify_upstream_license }}
+          BUILD_REPOSITORY: ${{ job.workflow_repository }}
+          BUILD_SHA: ${{ job.workflow_sha }}
+          PACKAGE_WORK: ${{ steps.package_route.outputs.work }}
+        run: |
+          & ".pgextwin-build/scripts/invoke-windows-package.ps1" `
+            -Action Prepare -WorkDir $env:PACKAGE_WORK -MatrixJson $env:MATRIX_ROW `
+            -ExtensionName $env:EXTENSION_NAME -UpstreamRepository $env:UPSTREAM_REPOSITORY `
+            -BuildRepository $env:BUILD_REPOSITORY -BuildCommit $env:BUILD_SHA -BuildMode release-attested `
+            -VerifyLicense:($env:VERIFY_LICENSE -eq 'true')
+
+      - name: Finalize placement map package
+        if: steps.package_route.outputs.common == 'true'
+        shell: pwsh
+        env:
+          MATRIX_ROW: ${{ toJSON(matrix) }}
+          EXTENSION_NAME: ${{ needs.matrix.outputs.extension_name }}
+          UPSTREAM_REPOSITORY: ${{ needs.matrix.outputs.upstream_repository }}
+          VERIFY_LICENSE: ${{ needs.matrix.outputs.verify_upstream_license }}
+          BUILD_REPOSITORY: ${{ job.workflow_repository }}
+          BUILD_SHA: ${{ job.workflow_sha }}
+          PACKAGE_WORK: ${{ steps.package_route.outputs.work }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          & ".pgextwin-build/scripts/invoke-windows-package.ps1" `
+            -Action Finalize -WorkDir $env:PACKAGE_WORK -MatrixJson $env:MATRIX_ROW `
+            -ExtensionName $env:EXTENSION_NAME -UpstreamRepository $env:UPSTREAM_REPOSITORY `
+            -BuildRepository $env:BUILD_REPOSITORY -BuildCommit $env:BUILD_SHA -BuildMode release-attested `
+            -VerifyLicense:($env:VERIFY_LICENSE -eq 'true')
+
+      - name: Validate final package metadata
+        shell: pwsh
+        run: |
           python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
           if ($LASTEXITCODE -ne 0) { throw "Failed to install the package metadata schema validator." }
 

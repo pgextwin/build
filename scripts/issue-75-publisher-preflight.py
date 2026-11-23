@@ -68,7 +68,7 @@ def attempt_from_env(env, run_id, repo):
 
 
 def validate_pkg(pkg, *, major, repo, packaging_sha, upstream_sha,
-                 run_id, attempt, event="workflow_dispatch"):
+                 run_id, attempt, event="workflow_dispatch", signer_sha=SIGNER_SHA):
     require(type(pkg) is dict, "invalid PACKAGE-INFO")
     src = pkg.get("source")
     upstream = pkg.get("upstream")
@@ -84,7 +84,7 @@ def validate_pkg(pkg, *, major, repo, packaging_sha, upstream_sha,
             and upstream.get("commit") == upstream_sha
             and build.get("repository") == "pgextwin/build"
             and build.get("workflow") == SIGNER_PATH
-            and build.get("commit") == SIGNER_SHA,
+            and build.get("commit") == signer_sha,
             "PACKAGE-INFO trusted source, PG or fixed builder mismatch")
     require(event in ("workflow_dispatch", "push")
             and (event != "push" or attempt == 1),
@@ -220,7 +220,7 @@ def _unique(pairs):
 
 def verified_claims(raw, *, predicate, repo, packaging_sha,
                     run_id, attempt, zip_name, zip_digest, sbom,
-                    event="workflow_dispatch", config_path=PROMOTE_PATH):
+                    event="workflow_dispatch", config_path=PROMOTE_PATH, signer_sha=SIGNER_SHA):
     """Parse ONLY stdout from successful actual gh attestation verify.
 
     Cryptographic trust is provided by the caller's strict CLI invocation
@@ -268,7 +268,7 @@ def verified_claims(raw, *, predicate, repo, packaging_sha,
         pin.proof_statement(
             {"verificationResult": item["verificationResult"]},
             predicate, repo=repo, sha=packaging_sha,
-            signer_sha=SIGNER_SHA, run_id=run_id, attempt=attempt,
+            signer_sha=signer_sha, run_id=run_id, attempt=attempt,
             event=event, zip_name=zip_name,
             zip_digest=zip_digest, sbom=sbom, config_path=config_path)
     except (pin.Deny, pin.offline.Deny, TypeError, KeyError) as exc:

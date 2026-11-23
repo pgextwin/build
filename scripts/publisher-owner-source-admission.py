@@ -71,6 +71,7 @@ def get(repo, route):
                or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\?per_page=100", route)
                or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100", route)
                or re.fullmatch(r"issues/comments/[1-9][0-9]*", route)
+               or re.fullmatch(r"contents/\.github/workflows/chat-signed-main(?:-source)?\.yml\?ref=[0-9a-f]{40}", route)
                or re.fullmatch(r"contents/config/extension\.json\?ref=[0-9a-f]{40}", route))
     need(bool(allowed), "non-allowlisted source GET")
     raw = command(["gh", "api", "--method", "GET",
@@ -244,11 +245,19 @@ def read_file(folder, name):
          "missing or invalid source JSON")
     return json.loads(path.read_text("utf-8"), object_pairs_hook=unique)
 
+def expected_owner_signer(repo, sha, run, central_sha):
+    routes = audit.routes
+    if repo not in routes.PILOTS:
+        return audit.signer_sha_at(central_sha)
+    policy = routes.read_policy(audit.protected_blob(central_sha, routes.POLICY))
+    return routes.owner_signer(get, repo, sha, run, policy["ownerWrappers"][repo],
+                               audit.signer_sha_from_workflow)
+
+
 def admit(repo, run_id, *, scratch, fleet, lifecycle, central_sha, expected_sha=None):
     need(type(fleet) is dict and type(fleet.get("entries")) is list
          and repo in [e.get("repository") for e in fleet["entries"] if type(e) is dict],
          "non-fleet signed source")
-    signer_sha = audit.signer_sha_at(central_sha)
     branch = get(repo, "branches/main")
     sha = (branch.get("commit") or {}).get("sha")
     need(branch.get("name") == "main" and branch.get("protected") is True
@@ -263,6 +272,8 @@ def admit(repo, run_id, *, scratch, fleet, lifecycle, central_sha, expected_sha=
     need(manifest.get("name") == repo.split("/")[1], "wrong source manifest")
     majors = ident.maintained_majors(manifest, lifecycle)
     run = get(repo, f"actions/runs/{run_id}")
+    source_run(repo, sha, run_id, run)
+    signer_sha = expected_owner_signer(repo, sha, run, central_sha)
     jobs = get(repo, f"actions/runs/{run_id}/attempts/1/jobs?per_page=100")
     artifacts = get(repo, f"actions/runs/{run_id}/artifacts?per_page=100")
     root = scratch / "original-owner-signed"

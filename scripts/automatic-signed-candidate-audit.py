@@ -25,6 +25,7 @@ def load(label, filename):
     spec.loader.exec_module(m)
     return m
 
+routes = load("automatic_signed_package_routes", "signed-package-routes.py")
 ident = load("signed_candidate_identity", "fleet-release-identity.py")
 pin = load("signed_candidate_certificate", "issue-75-attempt-pin-migration-offline.py")
 vulnerability_policy = load("signed_candidate_grype_policy", "automatic-grype-publisher-policy.py")
@@ -55,8 +56,8 @@ def run_readonly(*args):
             "only attestation and GET commands allowed")
     if args[:3] == ("gh", "api", "--method"):
         require(len(args) == 5 and args[3] == "GET"
-                and re.fullmatch(r"repos/pgextwin/[a-z][a-z0-9_]*/actions/runs/[1-9][0-9]*", args[4]),
-                "non-readonly or non-run GitHub API resource")
+                and re.fullmatch(r"repos/pgextwin/[a-z][a-z0-9_]*/(?:branches/main|actions/runs/[1-9][0-9]*)", args[4]),
+                "non-readonly or unrelated GitHub API resource")
     else:
         require(len(args) >= 4 and args[2] == "verify",
                 "only gh attestation verify allowed")
@@ -75,7 +76,7 @@ def stable_run(run, *, repo, sha, run_id, attempt):
             "signed candidate must belong to one still-active main/push Run")
 
 def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
-          sha, run_id, attempt, verify):
+          sha, run_id, attempt, verify, signer_sha=pin.SIGNER_SHA, verifier_sha=None):
     require(type(repo) is str and REPO.fullmatch(repo)
             and type(sha) is str and SHA.fullmatch(sha)
             and type(run_id) is int and run_id > 0
@@ -84,6 +85,10 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
             "invalid protected main candidate identity")
     require(first_run == second_run, "Actions Run changed during signed audit")
     stable_run(first_run, repo=repo, sha=sha, run_id=run_id, attempt=attempt)
+    if verifier_sha is not None or signer_sha != pin.SIGNER_SHA:
+        require(repo in routes.PILOTS and signer_sha != pin.SIGNER_SHA,
+                "repository outside the new candidate signer pilot")
+        routes.require_run_refs(first_run, ((routes.SIGNER, signer_sha), (routes.CANDIDATE_AUDIT, verifier_sha)))
     require(type(intent) is dict and type(intent.get("schemaVersion")) is int
             and intent["schemaVersion"] == 1
             and intent.get("status") == "ELIGIBLE_FOR_FURTHER_SIGNED_BUILD_AUDIT_NONPUBLISHING"
@@ -140,7 +145,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
                 and origin.get("packagingCommit") == sha
                 and build.get("repository") == "pgextwin/build"
                 and build.get("workflow") == pin.offline.SIGNER_PATH
-                and build.get("commit") == pin.SIGNER_SHA
+                and build.get("commit") == signer_sha
                 and type(wf.get("id")) is int and wf["id"] == run_id
                 and type(wf.get("attempt")) is int and wf["attempt"] == attempt
                 and wf.get("url") == f"https://github.com/{repo}/actions/runs/{run_id}"
@@ -169,7 +174,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
             try:
                 pin.proof_statement(
                     {"verificationResult": item["verificationResult"]},
-                    kind, repo=repo, sha=sha, signer_sha=pin.SIGNER_SHA,
+                    kind, repo=repo, sha=sha, signer_sha=signer_sha,
                     run_id=run_id, attempt=attempt, event="push",
                     config_path=CALLER, zip_name=z.name,
                     zip_digest=hashes[z.name], sbom=sbom)
@@ -202,6 +207,7 @@ def main():
     a = argparse.ArgumentParser()
     for name in ("dist", "manifest", "lifecycle", "intent", "output"):
         a.add_argument("--" + name, required=True)
+    a.add_argument("--package-verifier-sha")
     args = a.parse_args()
     try:
         repo, sha = os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GITHUB_SHA", "")
@@ -210,6 +216,14 @@ def main():
                 and os.environ.get("GH_TOKEN") and REPO.fullmatch(repo)
                 and SHA.fullmatch(sha), "not a read-only trusted protected main-push runtime")
         run_id, attempt = int(os.environ["GITHUB_RUN_ID"]), int(os.environ["GITHUB_RUN_ATTEMPT"])
+        signer_sha = pin.SIGNER_SHA
+        if args.package_verifier_sha is not None:
+            require(repo in routes.PILOTS, "repository outside the new candidate signer pilot")
+            signer_sha = routes.read_policy()["candidateSigner"]
+            branch = run_readonly("gh", "api", "--method", "GET", f"repos/{repo}/branches/main")
+            require(branch.get("name") == "main" and branch.get("protected") is True
+                    and (branch.get("commit") or {}).get("sha") == sha,
+                    "pilot candidate source is not protected main")
         def github_run():
             return run_readonly("gh", "api", "--method", "GET",
                                 f"repos/{repo}/actions/runs/{run_id}")
@@ -217,7 +231,7 @@ def main():
             return run_readonly("gh", "attestation", "verify", str(z),
                                 "--repo", trusted_repo,
                                 "--signer-workflow", "pgextwin/build/" + pin.offline.SIGNER_PATH,
-                                "--signer-digest", pin.SIGNER_SHA,
+                                "--signer-digest", signer_sha,
                                 "--source-digest", trusted_sha,
                                 "--source-ref", "refs/heads/main",
                                 "--predicate-type", kind, "--format", "json")
@@ -226,7 +240,8 @@ def main():
                        json_object(Path(args.lifecycle).read_text("utf-8")),
                        json_object(Path(args.intent).read_text("utf-8")),
                        first, github_run(), repo=repo, sha=sha,
-                       run_id=run_id, attempt=attempt, verify=real_verify)
+                       run_id=run_id, attempt=attempt, verify=real_verify, signer_sha=signer_sha,
+                       verifier_sha=args.package_verifier_sha)
         # Check current exact root Run once more after real signature operations.
         stable_run(github_run(), repo=repo, sha=sha, run_id=run_id, attempt=attempt)
         Path(args.output).write_text(json.dumps(result, indent=2) + "\n", "utf-8")

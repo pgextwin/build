@@ -30,6 +30,10 @@ _guard_spec = importlib.util.spec_from_file_location(
     "pre_g4_publisher_guard", ROOT / "issue-75-publisher-preflight.py")
 guard = importlib.util.module_from_spec(_guard_spec)
 _guard_spec.loader.exec_module(guard)
+_route_spec = importlib.util.spec_from_file_location(
+    "formal_publisher_signed_package_routes", ROOT / "signed-package-routes.py")
+routes = importlib.util.module_from_spec(_route_spec)
+_route_spec.loader.exec_module(routes)
 _auth_spec = importlib.util.spec_from_file_location("typed_release_auth", ROOT / "release-authorization.py")
 auth = importlib.util.module_from_spec(_auth_spec)
 _auth_spec.loader.exec_module(auth)
@@ -159,15 +163,24 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
     # Authenticated attempt-scoped jobs, not root completion, are the prewrite gate.
     attempt = None
     initial_snapshot = None
+    signer_sha = guard.SIGNER_SHA
+    run_path = "actions/runs/" + str(run_id)
+
+    def candidate_signer(run):
+        return routes.candidate_signer(lambda _, path: get(path), REPO, commit, run,
+                                       routes.read_policy(), guard.SIGNER_SHA)
     if verify_signatures:
         if automatic:
             attempt = 1
+            original_run = get(run_path)
             initial_snapshot = guard.validate_completed_push_snapshot(
-                get("actions/runs/" + str(run_id)),
+                original_run,
                 get("actions/runs/" + str(run_id) + "/attempts/1/jobs?per_page=100"),
                 get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
                 repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
                 majors=maintained)
+            if REPO in routes.PILOTS:
+                signer_sha = candidate_signer(original_run)
         else:
             attempt = guard.attempt_from_env(os.environ, run_id, REPO)
             initial_snapshot = guard.validate_snapshot(
@@ -200,7 +213,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
         guard.validate_pkg(pkg, major=major, repo=REPO,
                            packaging_sha=commit, upstream_sha=source["commit"],
                            run_id=run_id, attempt=package_attempt,
-                           event="push" if automatic else "workflow_dispatch")
+                           event="push" if automatic else "workflow_dispatch", signer_sha=signer_sha)
         check(pkg.get("buildMode") == "release-attested"
               and pkg["package"]["name"] == ext["name"]
               and pkg["postgresql"]["major"] == major
@@ -238,7 +251,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 verified = run(
                     "gh", "attestation", "verify", str(zip_path),
                     "--repo", REPO, "--signer-workflow", SIGNER,
-                    "--signer-digest", guard.SIGNER_SHA,
+                    "--signer-digest", signer_sha,
                     "--source-digest", commit, "--source-ref", "refs/heads/main",
                     "--predicate-type", kind, "--format", "json")
                 guard.verified_claims(
@@ -246,7 +259,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                     run_id=run_id, attempt=attempt, zip_name=zip_path.name,
                     zip_digest=zip_hash, sbom=sbom,
                     event="push" if automatic else "workflow_dispatch",
-                    config_path=(guard.PUSH_PATH if automatic else guard.PROMOTE_PATH))
+                    config_path=(guard.PUSH_PATH if automatic else guard.PROMOTE_PATH), signer_sha=signer_sha)
                 check(digest(zip_path) == zip_hash and
                       digest(spdx_path) == before_hashes[spdx_path.name],
                       "local ZIP/SPDX modified during signed verification")
@@ -254,12 +267,15 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
           "local release assets changed during preflight")
     if verify_signatures:
         if automatic:
+            final_run = get(run_path)
             final_snapshot = guard.validate_completed_push_snapshot(
-                get("actions/runs/" + str(run_id)),
+                final_run,
                 get("actions/runs/" + str(run_id) + "/attempts/1/jobs?per_page=100"),
                 get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
                 repo=REPO, sha=commit, run_id=run_id, attempt=1,
                 majors=maintained)
+            if REPO in routes.PILOTS:
+                check(candidate_signer(final_run) == signer_sha, "candidate signer changed during preflight")
         else:
             final_snapshot = guard.validate_snapshot(
                 get("actions/runs/" + str(run_id)),
