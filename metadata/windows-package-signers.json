@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "candidateSigner": "3e235c7a403bf32a86b1013db6c302ab23e445df",
-  "candidateAudit": "678644865ca028b90da8930e9065a8916fe9e28b",
+  "candidateAudit": "ca181f8ac4ffb4d5d4b08cd33402b2f30529607f",
   "ownerWrappers": {
     "pgextwin/pg_profile": "b311498a3b7a78662b579333f48b58a05789e5f3",
     "pgextwin/pg_track_settings": "b311498a3b7a78662b579333f48b58a05789e5f3"
