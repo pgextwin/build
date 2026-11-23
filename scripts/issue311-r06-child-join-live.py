@@ -472,12 +472,11 @@ def pr_windows_evidence(repo, head, protected, push, push_jobs):
     main = get(repo, "commits/" + head)
     checkout = get(repo, "commits/" + checkout_sha)
     tree = reuse.github_sha(main["commit"]["tree"]["sha"])
-    # The provider's Run head is the PR tip. The shared workflow checks out
-    # GitHub's test merge, whose parents bind it to that tip and the main base.
-    parents = [p["sha"] for p in main["parents"]]
+    # GitHub's test merge uses the PR tip as its second parent, including when
+    # the protected merge later squashes the PR. The PR number is in the log.
+    parents = [p["sha"] for p in checkout["parents"]]
     need(main["sha"] == head and checkout["sha"] == checkout_sha
          and len(parents) == 2 and parents[1] == pr_head
-         and [p["sha"] for p in checkout["parents"]] == parents
          and checkout["commit"]["tree"]["sha"] == tree
          and source["checkout_tree"] == current["checkout_tree"] == tree,
          "Windows actual checkout does not match the protected main tree")

@@ -243,6 +243,7 @@ class WindowsEvidenceTests(unittest.TestCase):
 
     def test_pr_evidence_uses_real_checkout_and_fixed_inputs_when_push_has_no_windows_build(self):
         self.jobs[30] = self.jobs[30][:1]
+        self.commits[self.head]["parents"] = [{"sha": self.parent}]  # Protected squash merge.
         result = self.evidence()
         self.assertEqual(result["windowsPrRunId"], 20)
         self.assertNotIn("windowsPostmergeRunId", result)
