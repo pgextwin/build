@@ -132,7 +132,7 @@ def timestamp(value):
 
 def validate(report, run, build_branch, target_branch, repository, head, pin, now, *,
              live_replay=False, source_equivalent=False, registry=None,
-             workflow_sha=None):
+             workflow_sha=None, scan_job=None):
     approved = protected_fleet(registry)
     need(repository in approved, "unregistered candidate repository")
     need(type(head) is str and SHA.fullmatch(head), "invalid candidate main SHA")
@@ -166,13 +166,24 @@ def validate(report, run, build_branch, target_branch, repository, head, pin, no
     need(type(run) is dict and run.get("event") == "schedule"
          and run.get("path") == WATCH_PATH and run.get("head_branch") == "main"
          and run.get("run_attempt") == 1
-         and run.get("status") == "completed"
-         and run.get("conclusion") == "success"
          and type(run.get("id")) is int and run["id"] > 0
          and (run.get("repository") or {}).get("full_name") == BUILD,
-         "untrusted or incomplete central fleet run")
+         "untrusted central fleet run")
     started = timestamp(run.get("created_at"))
-    finished = timestamp(run.get("updated_at"))
+    if scan_job is None:
+        need(run.get("status") == "completed" and run.get("conclusion") == "success",
+             "incomplete central fleet run")
+        finished = timestamp(run.get("updated_at"))
+    else:
+        # Direct handoff authenticates the completed scan job in THIS run.
+        # The rest of the run is still executing and has no verdict yet.
+        need(not live_replay and current_build == run_head == source_sha
+             and run.get("status") == "in_progress" and run.get("conclusion") is None
+             and scan_job.get("run_id") == run["id"] and scan_job.get("run_attempt") == 1
+             and scan_job.get("head_sha") == run_head and scan_job.get("name") == "readonly-fleet"
+             and scan_job.get("status") == "completed" and scan_job.get("conclusion") == "success",
+             "same-run fleet scan job has no authenticated success")
+        finished = timestamp(scan_job.get("completed_at"))
     need(started <= finished <= now + timedelta(minutes=5)
          and now - started < timedelta(hours=3), "central run expired or clock invalid")
     need(type(report) is dict and report.get("schemaVersion") == 1

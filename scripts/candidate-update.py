@@ -594,6 +594,12 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
         raise WatchError("untrusted candidate caller")
     if os.environ.get("GITHUB_REF") != "refs/heads/main" or not os.environ.get("GH_TOKEN"):
         raise WatchError("proposer requires trusted main and GH_TOKEN")
+    propose_candidate(record, manifest_path, repository, watch_path, policy_path)
+
+
+def propose_candidate(record, manifest_path, repository, watch_path, policy_path=None, *,
+                      writer=None, fetch=api):
+    """Apply a proposal after the local or central caller authenticates its context."""
     config = read(manifest_path)
     # Enforce the live central authority again immediately before any mutation.
     import importlib.util
@@ -602,14 +608,15 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
     fleet = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fleet)
     policy = publication_policy.load_candidate_policy(BUILD_ROOT) if policy_path is None else read(policy_path)
-    allowed, mode = fleet.decide(fleet.get_live(), repository, config, load_watch(config, watch_path), "candidate", policy)
+    registry = fleet.get_live() if writer is None else fleet.get_live(lambda url, token: fetch(url))
+    allowed, mode = fleet.decide(registry, repository, config, load_watch(config, watch_path), "candidate", policy)
     if not allowed:
         raise WatchError("candidate proposal denied by live central policy: " + mode)
     if config["upstream"]["repository"] != record["repository"]:
         raise WatchError("upstream repository changed")
-    changed = apply(config, record, pin_remaining=True)
+    changed = apply(config, record, pin_remaining=True, fetch=fetch)
     if record.get("firstRelease") is True:
-        if not no_formal_release(repository, api):
+        if not no_formal_release(repository, fetch):
             raise WatchError("formal Release exists; no new first-release candidate")
         if Path(FIRST_FILE).exists():
             raise WatchError("initial Release candidate intent already merged")
@@ -619,7 +626,7 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
         proposal_file = manifest_path
         proposal = changed
     for update in record["updates"]:
-        if peel_tag(record["repository"], update["ref"]) != update["commit"]:
+        if peel_tag(record["repository"], update["ref"], fetch) != update["commit"]:
             raise WatchError("upstream tag moved after plan")
     branch = record["branch"]
     if not re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch):
@@ -628,19 +635,27 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
     remote = execute("git", "ls-remote", "--heads", "origin", "refs/heads/" + branch)
     if remote:
         execute("git", "fetch", "--no-tags", "origin", "refs/heads/" + branch + ":refs/remotes/origin/" + branch)
-        message = execute("git", "log", "-1", "--format=%B", "refs/remotes/origin/" + branch)
+        remote_ref = "refs/remotes/origin/" + branch
+        message = execute("git", "log", "-1", "--format=%B", remote_ref)
         if marker not in message:
+            if writer is not None:
+                raise WatchError("central writer requires the original immutable candidate marker")
             repair_exact_bot_candidate_base_sync(
                 record, repository, proposal_file, proposal, marker, branch)
             return
-        actual = json.loads(execute("git", "show", "refs/remotes/origin/" + branch + ":" + proposal_file))
+        actual = json.loads(execute("git", "show", remote_ref + ":" + proposal_file))
         if actual != proposal:
             raise WatchError("existing branch differs from immutable candidate")
+        if writer is not None and (
+                execute("git", "log", "-1", "--format=%P", remote_ref) != execute("git", "rev-parse", "HEAD")
+                or execute("git", "diff", "--name-only", "HEAD", remote_ref) != proposal_file):
+            raise WatchError("central writer cannot reuse a branch with a changed base or extra files")
     else:
         execute("git", "checkout", "-b", branch)
         Path(proposal_file).write_text(json.dumps(proposal, indent=2) + "\n", encoding="utf-8")
-        execute("git", "config", "user.name", "github-actions[bot]")
-        execute("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
+        login, user_id = writer or ("github-actions[bot]", 41898282)
+        execute("git", "config", "user.name", login)
+        execute("git", "config", "user.email", f"{user_id}+{login}@users.noreply.github.com")
         execute("git", "add", "--", proposal_file)
         execute("git", "commit", "-m", "chore: propose upstream candidate\n\n" + marker)
         execute("git", "push", "--set-upstream", "origin", branch)
@@ -651,6 +666,8 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
     if prs:
         if marker not in (prs[0].get("body") or ""):
             raise WatchError("candidate PR is not automation-owned")
+        if writer is not None and (prs[0].get("author") or {}).get("login") != writer[0]:
+            raise WatchError("candidate PR does not belong to the configured writer")
         if prs[0]["state"] != "OPEN":
             print("Candidate PR already closed: never reopen or rebuild")
             return

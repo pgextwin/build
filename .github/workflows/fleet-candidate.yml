@@ -1,0 +1,129 @@
+name: Prepare candidates from the same protected fleet schedule
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      extension:
+        type: string
+        required: true
+      sha:
+        type: string
+        required: true
+      snapshot:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    if: >-
+      ${{ github.repository == 'pgextwin/build' &&
+          github.workflow_ref == 'pgextwin/build/.github/workflows/fleet-upstream-watch.yml@refs/heads/main' &&
+          github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.run_attempt == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    outputs:
+      candidate: ${{ steps.plan.outputs.candidate }}
+      decision: ${{ steps.decision.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.sha }}
+          path: target-extension
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.snapshot }}
+          path: ${{ runner.temp }}/fleet-snapshot
+      - name: Plan from exact protected extension main
+        id: plan
+        working-directory: target-extension
+        env:
+          PGEXTWIN_SCAN_READ_TOKEN: ${{ github.token }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+        run: >-
+          python3 ../scripts/fleet-candidate.py plan
+          --snapshot "$RUNNER_TEMP/fleet-snapshot/fleet-upstream-watch.json"
+          --repository "$TARGET_REPOSITORY"
+          --record "$RUNNER_TEMP/candidate-plan.json"
+      - name: Preserve candidate decision
+        id: decision
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-decision-${{ inputs.extension }}
+          path: ${{ runner.temp }}/candidate-plan.json
+          if-no-files-found: error
+      - name: Record deferred write during pilot rollout
+        if: >-
+          ${{ steps.plan.outputs.candidate == 'true' &&
+              (vars.PGEXTWIN_FLEET_CANDIDATE_WRITES != 'enabled' ||
+               vars.PGEXTWIN_FLEET_CANDIDATE_APP_CLIENT_ID == '') }}
+        run: echo 'Candidate planned. Proposal deferred pending dedicated writer and audit identity rollout.' >> "$GITHUB_STEP_SUMMARY"
+
+  propose:
+    needs: plan
+    if: >-
+      ${{ github.repository == 'pgextwin/build' &&
+          github.workflow_ref == 'pgextwin/build/.github/workflows/fleet-upstream-watch.yml@refs/heads/main' &&
+          github.event_name == 'schedule' && github.ref == 'refs/heads/main' &&
+          github.run_attempt == '1' && needs.plan.outputs.candidate == 'true' &&
+          needs.plan.outputs.decision != '' &&
+          vars.PGEXTWIN_FLEET_CANDIDATE_WRITES == 'enabled' &&
+          vars.PGEXTWIN_FLEET_CANDIDATE_APP_CLIENT_ID != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    environment: fleet-candidate-writer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ inputs.snapshot }}
+          path: ${{ runner.temp }}/fleet-snapshot
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.plan.outputs.decision }}
+          path: ${{ runner.temp }}/fleet-decision
+      - name: Mint a short-lived token for this extension only
+        id: writer
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.PGEXTWIN_FLEET_CANDIDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.fleet_candidate_app_private_key }}
+          owner: pgextwin
+          repositories: ${{ inputs.extension }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.sha }}
+          path: target-extension
+          token: ${{ steps.writer.outputs.token }}
+          fetch-depth: 0
+      - name: Recheck plan, create or reuse draft PR and dispatch Windows CI
+        working-directory: target-extension
+        env:
+          GH_TOKEN: ${{ steps.writer.outputs.token }}
+          PGEXTWIN_WRITER_SLUG: ${{ steps.writer.outputs.app-slug }}
+          PGEXTWIN_SCAN_READ_TOKEN: ${{ github.token }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+        run: >-
+          python3 ../scripts/fleet-candidate.py propose
+          --snapshot "$RUNNER_TEMP/fleet-snapshot/fleet-upstream-watch.json"
+          --repository "$TARGET_REPOSITORY"
+          --record "$RUNNER_TEMP/fleet-decision/candidate-plan.json"
