@@ -41,7 +41,7 @@ def dispatch_request(env,*,repository=None):
               type(inputs.get("dry_run")) is bool and str(inputs["dry_run"]).lower()==dry)
          and (repository is None or target==repository),"dispatch inputs mismatch")
     return target,dry=="true"
-def issue_request(env,*,repository=None):
+def owner_issue_comment(env):
     need(context(env)=="issue_comment","not an issue comment")
     obj=payload(env);comment=obj.get("comment");issue=obj.get("issue")
     need(obj.get("action")=="created" and type(issue) is dict and issue.get("number")==ISSUE
@@ -50,6 +50,9 @@ def issue_request(env,*,repository=None):
          and owner(comment.get("user")) and owner(obj.get("sender"))
          and comment.get("issue_url")=="https://api.github.com/repos/pgextwin/build/issues/311",
          "untrusted owner Issue #311 event")
+    return comment
+def issue_request(env,*,repository=None):
+    comment=owner_issue_comment(env)
     body=comment.get("body")
     m=COMMAND.fullmatch(body) if type(body) is str else None
     need(m is not None and (repository is None or repository==m.group(1)),
