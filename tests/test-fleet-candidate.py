@@ -170,7 +170,19 @@ class FleetCandidate(TestCase):
         self.assertIn("uses: ./.github/workflows/local-authorized-candidate.yml", candidate)
         self.assertIn("github.event_name == 'schedule'", writer)
         self.assertIn("secrets.fleet_candidate_app_private_key", writer)
-        self.assertIn("secrets.LOCAL_AUTH_ISSUER_TOKEN", writer)
+        issuer_id = "\n        id: issuer\n"
+        self.assertIn(issuer_id, writer)
+        issuer, proposal, *_ = writer.split(issuer_id, 1)[1].split("\n      - ")
+        self.assertIn("actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1", issuer)
+        self.assertIn("client-id: ${{ vars.PGEXTWIN_FLEET_CANDIDATE_APP_CLIENT_ID }}", issuer)
+        self.assertIn("private-key: ${{ secrets.fleet_candidate_app_private_key }}", issuer)
+        self.assertIn("          owner: pgextwin\n", issuer)
+        self.assertIn("          repositories: local-auth-issuer\n", issuer)
+        self.assertEqual({line.strip() for line in issuer.splitlines() if line.strip().startswith("permission-")},
+                         {"permission-actions: write", "permission-contents: read"})
+        self.assertIn("python3 ../scripts/fleet-candidate.py propose\n", proposal)
+        self.assertIn("LOCAL_AUTH_ISSUER_TOKEN: ${{ steps.issuer.outputs.token }}", proposal)
+        self.assertNotIn("secrets." + "LOCAL_AUTH_ISSUER_TOKEN", writer)
         self.assertNotIn("PUBLISHER_APP", writer)
 
 
