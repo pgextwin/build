@@ -12,6 +12,8 @@
 - 記録は既存の `issue311-r06-child-join-original` に追加する。`windowsEvidence` に証拠種別、PR 番号、Run ID と試行番号、必須ジョブ結果を出力する。PR 証拠には実 checkout と main の SHA・tree、Build SHA、main の入力記録を取得した Run ID も含める。証拠に採用した PR Run は `windowsPrRunId`、push Run は `windowsPostmergeRunId` に記録する。`issue311-r06-child-join-independent-readback` は原本を再取得して一致した結果を残す。
 - 既存の source／watchdog／独立 readback が同じ判定を実行する。GitHub PR・Commits・Actions の原本を GET し、PR と main push の matrix ジョブに残った入力記録を `scripts/windows-main-reuse.py` の照合で比較する。PR の証拠が欠けるか一致しない場合は、従来どおり push で必須ジョブすべての成功が必要になる。実際の main push 実行が監査対象の子には、要求に `"requireWindowsPostmerge": true` を付ける。pg_hint_plan #60 の PG17 復旧確認も push を必須とする。
 
+実ビルドを必要とする PR は、対象 PR のマージ前に `metadata/main-reuse.json` の `requireOriginalPush` にリポジトリと PR 番号を登録し、caller が使用する `windows-ci` に反映する。同じ設定を R06 と main push の matrix 解決ステップが読む。通常の unsigned main push は、同一リポジトリの PR の第1試行、checkout、固定入力、共有 Build SHA、解決済みマトリクスの全 Windows ジョブと summary を照合できたときだけ Windows ジョブを省略できる。push Run には `PGEXTWIN_INPUT_RECORD` と、再利用した PR Run を示す `Windows CI reused from a successful PR` ステップサマリーが残る。
+
 元のZIPはAPIで再取得し、provider digestと実圧縮バイトSHA256、単一エントリ、中央要求および17 SHAとの結合を独立検証する。実skipped jobには架空のreceiptを作らず、元jobのSKIPPEDとartifact不在を保存する。実failureはexit17、timeoutは原本workflowのtimeout-minutes:1、実stepのfailure、60秒以上の実時間とGitHub timeoutログを照合する。workflowの結論がfailureでも、実step timeoutをworkflow-level timed_outと偽称しない。
 
 検証ステップの表示名は各原本Workflowの固定コマンドと`ff551bd2`完全SHA pinから対応付け、実ジョブの同名ステップSUCCESSを照合する。リポジトリ名から表示名を推測しない。原本のコマンド・pin・環境・表示名が変わった場合は拒否する。

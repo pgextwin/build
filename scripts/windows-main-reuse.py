@@ -16,6 +16,7 @@ RECORD_LINE = re.compile(
     + RECORD_PREFIX + r"(.*)"
 )
 WORKFLOW_PATH = "pgextwin/build/.github/workflows/build-extension.yml"
+CALLER_PATH = ".github/workflows/windows.yml"
 MATRIX_JOB_NAME = "Resolve extension and PostgreSQL matrix"
 SUMMARY_NAME = "Windows required summary"
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -66,11 +67,16 @@ def encode_record(record):
     return json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def record_from_log(log):
-    matches = [match[1] for line in log.splitlines()
+def record_from_log(log, *, pr_number=None):
+    lines = log.splitlines()
+    matches = [match[1] for line in lines
                if (match := RECORD_LINE.fullmatch(line))]
     if len(matches) != 1:
         raise NoReuse("input_record_not_unique")
+    if pr_number is not None:
+        checkout = f"[command]/usr/bin/git checkout --progress --force refs/remotes/pull/{pr_number}/merge"
+        if not any(line.endswith(checkout) for line in lines):
+            raise NoReuse("pr_checkout_ref_mismatch")
     return json.loads(matches[0])
 
 
@@ -87,7 +93,7 @@ def pinned_matrix(matrix):
     entries = matrix["include"]
     return (type(entries) is list and bool(entries)
             and all(isinstance(entry.get("upstreamCommit"), str)
-                    and entry["upstreamCommit"].strip() for entry in entries))
+                    and SHA.fullmatch(entry["upstreamCommit"].lower()) for entry in entries))
 
 
 def successful(item):
@@ -104,6 +110,24 @@ def github_sha(value):
     if not isinstance(value, str) or not SHA.fullmatch(value):
         raise NoReuse("invalid_sha")
     return value
+
+
+def referenced_build_sha(run):
+    shas = [workflow["sha"] for workflow in run["referenced_workflows"]
+            if workflow["path"].partition("@")[0] == WORKFLOW_PATH]
+    if len(shas) != 1:
+        raise NoReuse("referenced_workflow_mismatch")
+    return github_sha(shas[0])
+
+
+def original_push_prs(config, repository):
+    by_repository = config.get("requireOriginalPush", {})
+    if type(by_repository) is not dict:
+        raise NoReuse("invalid_original_push_policy")
+    numbers = by_repository.get(repository, [])
+    if type(numbers) is not list or any(type(number) is not int or number < 1 for number in numbers):
+        raise NoReuse("invalid_original_push_policy")
+    return numbers
 
 
 def collection(get, path, key):
@@ -126,13 +150,14 @@ def collection(get, path, key):
     return items
 
 
-def find_source(*, repository, push_sha, current, current_tree, current_build_sha, get):
+def find_source(*, repository, push_sha, current, current_tree, current_build_sha, get, require_push=()):
     repo = f"/repos/{repository}"
     github_sha(push_sha)
     github_sha(current_tree)
     github_sha(current_build_sha)
     if (current["repository"] != repository or current["checkout_commit"] != push_sha
-            or current["checkout_tree"] != current_tree or current["build_sha"] != current_build_sha):
+            or current["checkout_tree"] != current_tree or current["build_sha"] != current_build_sha
+            or current["pr_head_sha"] != ""):
         raise NoReuse("current_record_mismatch")
     if not pinned_matrix(current["matrix"]):
         raise NoReuse("upstream_not_pinned")
@@ -143,6 +168,10 @@ def find_source(*, repository, push_sha, current, current_tree, current_build_sh
         raise NoReuse("merged_pr_not_unique")
     pr = merged[0]
     pr_number = positive_id(pr["number"])
+    if pr_number in require_push:
+        raise NoReuse("original_push_required")
+    if pr["head"]["repo"]["full_name"] != repository or pr["base"]["repo"]["full_name"] != repository:
+        raise NoReuse("pr_repository_mismatch")
     pr_head = github_sha(pr["head"]["sha"])
 
     # Bind the PR Run by its head SHA (the design's key). The REST run's
@@ -155,14 +184,14 @@ def find_source(*, repository, push_sha, current, current_tree, current_build_sh
     if len(matching) != 1:
         raise NoReuse("pr_run_not_unique")
     run = matching[0]
-    if run["event"] != "pull_request" or not successful(run):
+    if (run["event"] != "pull_request" or run["path"] != CALLER_PATH or run["run_attempt"] != 1
+            or run["repository"]["full_name"] != repository or run["head_branch"] != pr["head"]["ref"]
+            or run["created_at"] > pr["merged_at"] or not successful(run)):
         raise NoReuse("pr_run_not_successful")
     run_id = positive_id(run["id"])
     attempt = positive_id(run["run_attempt"])
     suite_id = positive_id(run["check_suite_id"])
-    workflow_shas = [workflow["sha"] for workflow in run["referenced_workflows"]
-                     if workflow["path"].partition("@")[0] == WORKFLOW_PATH]
-    if workflow_shas != [current_build_sha]:
+    if referenced_build_sha(run) != current_build_sha:
         raise NoReuse("referenced_workflow_mismatch")
 
     checks = collection(get, f"{repo}/check-suites/{suite_id}/check-runs", "check_runs")
@@ -170,11 +199,19 @@ def find_source(*, repository, push_sha, current, current_tree, current_build_sh
         raise NoReuse("required_summary_missing")
 
     jobs = collection(get, f"{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs")
-    matrix_jobs = [job for job in jobs if MATRIX_JOB_NAME in job["name"]]
+    majors = [entry["major"] for entry in current["matrix"]["include"]]
+    if any(type(major) is not int for major in majors) or len(set(majors)) != len(majors):
+        raise NoReuse("invalid_required_matrix")
+    for name in [SUMMARY_NAME, *(f"windows / PostgreSQL {major} / Windows x64" for major in majors)]:
+        required = [job for job in jobs if job["name"] == name]
+        if len(required) != 1 or not successful(required[0]):
+            raise NoReuse("required_job_missing_or_failed")
+
+    matrix_jobs = [job for job in jobs if job["name"] == "windows / " + MATRIX_JOB_NAME]
     if len(matrix_jobs) != 1 or not successful(matrix_jobs[0]):
         raise NoReuse("matrix_job_not_unique_or_successful")
     job_id = positive_id(matrix_jobs[0]["id"])
-    source = record_from_log(get(f"{repo}/actions/jobs/{job_id}/logs"))
+    source = record_from_log(get(f"{repo}/actions/jobs/{job_id}/logs"), pr_number=pr_number)
     if source["pr_head_sha"] != pr_head or source["checkout_tree"] != current_tree:
         raise NoReuse("source_checkout_mismatch")
 
@@ -210,7 +247,8 @@ def fallback(reason):
 def determine(*, enabled_list, current_record, current_tree, current_build_sha, env=None, get=get):
     env = os.environ if env is None else env
     try:
-        enabled = json.loads(Path(enabled_list).read_text(encoding="utf-8"))["enabledRepositories"]
+        config = json.loads(Path(enabled_list).read_text(encoding="utf-8"))
+        enabled = config["enabledRepositories"]
         if type(enabled) is not list or any(type(repo) is not str for repo in enabled):
             raise NoReuse("invalid_enabled_list")
         repository = env["GITHUB_REPOSITORY"]
@@ -218,7 +256,8 @@ def determine(*, enabled_list, current_record, current_tree, current_build_sha, 
             return fallback("not_enabled")
         return find_source(repository=repository, push_sha=env["GITHUB_SHA"],
                            current=json.loads(current_record), current_tree=current_tree,
-                           current_build_sha=current_build_sha, get=get)
+                           current_build_sha=current_build_sha, get=get,
+                           require_push=original_push_prs(config, repository))
     except NoReuse as exc:
         return fallback(str(exc))
     except Exception:

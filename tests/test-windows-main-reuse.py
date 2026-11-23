@@ -27,7 +27,7 @@ PUSH, HEAD, CHECKOUT, TREE, BUILD, UPSTREAM = (char * 40 for char in "abcdef")
 PULLS = f"{BASE}/commits/{PUSH}/pulls?per_page=100"
 RUNS = f"{BASE}/actions/workflows/windows.yml/runs?event=pull_request&head_sha={HEAD}&per_page=100"
 CHECKS = f"{BASE}/check-suites/98/check-runs?per_page=100"
-JOBS = f"{BASE}/actions/runs/65/attempts/2/jobs?per_page=100"
+JOBS = f"{BASE}/actions/runs/65/attempts/1/jobs?per_page=100"
 LOGS = f"{BASE}/actions/jobs/77/logs"
 SUCCESS = {"status": "completed", "conclusion": "success"}
 
@@ -62,25 +62,33 @@ class MainReuseTests(unittest.TestCase):
     def setUp(self):
         self.current = reuse.record_inputs(record_env())
         self.source = dict(copy.deepcopy(self.current), checkout_commit=CHECKOUT, pr_head_sha=HEAD)
+        repository = {"full_name": REPO}
         self.pr = {"number": 42, "merged_at": "2026-11-22T00:23:18Z",
-                   "merge_commit_sha": PUSH, "base": {"ref": "main"}, "head": {"sha": HEAD}}
+                   "merge_commit_sha": PUSH, "base": {"ref": "main", "repo": repository},
+                   "head": {"sha": HEAD, "ref": "change", "repo": repository}}
         self.run = {
-            **SUCCESS, "event": "pull_request", "id": 65, "run_attempt": 2, "check_suite_id": 98,
-            "head_sha": HEAD, "head_repository": {"full_name": REPO}, "pull_requests": [{"number": 42}],
+            **SUCCESS, "event": "pull_request", "id": 65, "run_attempt": 1, "check_suite_id": 98,
+            "head_sha": HEAD, "head_repository": repository, "repository": repository, "head_branch": "change",
+            "path": reuse.CALLER_PATH, "created_at": "2026-11-22T00:00:00Z", "pull_requests": [],
             "referenced_workflows": [{"path": reuse.WORKFLOW_PATH + "@windows-ci", "sha": BUILD}],
         }
         self.responses = {
             PULLS: [self.pr],
             RUNS: collection("workflow_runs", [self.run]),
             CHECKS: collection("check_runs", [{"id": 81, "name": reuse.SUMMARY_NAME, **SUCCESS}]),
-            JOBS: collection("jobs", [{"id": 77, "name": "windows / " + reuse.MATRIX_JOB_NAME, **SUCCESS}]),
+            JOBS: collection("jobs", [
+                {"id": 77, "name": "windows / " + reuse.MATRIX_JOB_NAME, **SUCCESS},
+                {"id": 78, "name": "windows / PostgreSQL 17 / Windows x64", **SUCCESS},
+                {"id": 79, "name": reuse.SUMMARY_NAME, **SUCCESS},
+            ]),
             f"{BASE}/git/commits/{HEAD}": {"tree": {"sha": TREE}},
             f"{BASE}/git/commits/{CHECKOUT}": {"tree": {"sha": TREE}},
         }
         self.get = Mock(side_effect=lambda path: copy.deepcopy(self.responses[path]))
 
     def determine(self, *, repository=REPO, build_sha=BUILD):
-        self.responses.setdefault(LOGS, "2026-11-22T00:00:00.000Z starting step\n"
+        self.responses.setdefault(LOGS, "2026-11-22T00:00:00.000Z [command]/usr/bin/git checkout "
+                                  "--progress --force refs/remotes/pull/42/merge\n"
                                   f"2026-11-22T00:00:00.500Z {reuse.RECORD_PREFIX}"
                                   f"{reuse.encode_record(self.source)}\n")
         return reuse.determine(
@@ -111,7 +119,7 @@ class MainReuseTests(unittest.TestCase):
         self.assertEqual(self.determine(), {
             "reuse_applied": "true", "reuse_reason": "matched",
             "reuse_source_pr": 42, "reuse_source_run_id": 65,
-            "reuse_source_attempt": 2, "reuse_source_build_sha": BUILD,
+            "reuse_source_attempt": 1, "reuse_source_build_sha": BUILD,
         })
         for path in (JOBS, LOGS, f"{BASE}/git/commits/{HEAD}", f"{BASE}/git/commits/{CHECKOUT}"):
             self.get.assert_any_call(path)
@@ -129,10 +137,12 @@ class MainReuseTests(unittest.TestCase):
                 self.assertFalse(reuse.same_inputs(self.current, dict(self.source, **{field: value})))
 
     def test_unpinned_upstream_falls_back_even_with_equal_records(self):
-        for record in (self.current, self.source):
-            record["matrix"]["include"][0]["upstreamCommit"] = ""
-        self.assertTrue(reuse.same_inputs(self.current, self.source))
-        self.assert_fallback("upstream_not_pinned")
+        for ref in ("", "main"):
+            with self.subTest(ref=ref):
+                for record in (self.current, self.source):
+                    record["matrix"]["include"][0]["upstreamCommit"] = ref
+                self.assertTrue(reuse.same_inputs(self.current, self.source))
+                self.assert_fallback("upstream_not_pinned")
 
     def test_checkout_tree_mismatch_falls_back(self):
         self.responses[f"{BASE}/git/commits/{CHECKOUT}"]["tree"]["sha"] = "1" * 40
@@ -152,8 +162,17 @@ class MainReuseTests(unittest.TestCase):
         self.pr["merge_commit_sha"] = HEAD
         self.assert_fallback("merged_pr_not_unique")
 
+    def test_pg17_recovery_preserves_the_original_push_build(self):
+        self.pr["number"] = 60
+        self.assert_fallback("original_push_required")
+        self.get.assert_called_once_with(PULLS)
+
     def test_unsuccessful_run_falls_back(self):
         self.run["conclusion"] = "failure"
+        self.assert_fallback("pr_run_not_successful")
+
+    def test_rerun_cannot_replace_the_original_build(self):
+        self.run["run_attempt"] = 2
         self.assert_fallback("pr_run_not_successful")
 
     def test_run_with_a_different_head_falls_back(self):
@@ -177,6 +196,19 @@ class MainReuseTests(unittest.TestCase):
     def test_missing_summary_falls_back(self):
         self.responses[CHECKS] = collection("check_runs", [])
         self.assert_fallback("required_summary_missing")
+
+    def test_successful_source_needs_each_job_and_summary_from_attempt_one(self):
+        jobs = self.responses[JOBS]["jobs"]
+        for job in jobs[1:]:
+            with self.subTest(job=job["name"]):
+                job["conclusion"] = "skipped"
+                self.assert_fallback("required_job_missing_or_failed")
+                job["conclusion"] = "success"
+
+    def test_mismatched_pr_checkout_ref_falls_back(self):
+        self.responses[LOGS] = ("[command]/usr/bin/git checkout --progress --force refs/remotes/pull/43/merge\n"
+                                f"{reuse.RECORD_PREFIX}{reuse.encode_record(self.source)}\n")
+        self.assert_fallback("pr_checkout_ref_mismatch")
 
     def test_missing_record_falls_back(self):
         self.responses[LOGS] = "2026-11-22T00:00:00.000Z no input record"
@@ -218,8 +250,8 @@ class MainReuseTests(unittest.TestCase):
                             GITHUB_REPOSITORY=REPO):
                 reuse.write_result(self.determine())
             self.assertIn("reuse_applied=true", outputs.read_text().splitlines())
-            self.assertIn("reuse_source_attempt=2", outputs.read_text().splitlines())
-            for value in (f"{REPO}/pull/42", f"{REPO}/actions/runs/65/attempts/2", BUILD):
+            self.assertIn("reuse_source_attempt=1", outputs.read_text().splitlines())
+            for value in (f"{REPO}/pull/42", f"{REPO}/actions/runs/65/attempts/1", BUILD):
                 self.assertIn(value, summary.read_text())
 
     def test_logs_redirect_does_not_forward_the_github_token(self):
