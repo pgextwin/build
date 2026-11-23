@@ -1,4 +1,24 @@
 {
   "schemaVersion": 1,
-  "enabledRepositories": ["pgextwin/pg_hint_plan"]
+  "enabledRepositories": [
+    "pgextwin/orafce",
+    "pgextwin/pg_hint_plan",
+    "pgextwin/pg_partman",
+    "pgextwin/pg_bigm",
+    "pgextwin/pg_cron",
+    "pgextwin/pg_ivm",
+    "pgextwin/pg_permissions",
+    "pgextwin/pg_qualstats",
+    "pgextwin/pg_repack",
+    "pgextwin/pg_stat_monitor",
+    "pgextwin/pg_store_plans",
+    "pgextwin/pg_track_settings",
+    "pgextwin/pg_variables",
+    "pgextwin/pgaudit",
+    "pgextwin/pgtap",
+    "pgextwin/set_user",
+    "pgextwin/wal2json",
+    "pgextwin/hypopg",
+    "pgextwin/plpgsql_check"
+  ]
 }

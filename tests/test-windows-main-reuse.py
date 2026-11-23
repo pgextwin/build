@@ -187,7 +187,7 @@ class MainReuseTests(unittest.TestCase):
         self.assert_fallback("input_record_not_unique")
 
     def test_disabled_repository_does_not_call_github(self):
-        self.assertEqual(self.determine(repository="pgextwin/pgaudit")["reuse_reason"], "not_enabled")
+        self.assertEqual(self.determine(repository="pgextwin/pg_show_plans")["reuse_reason"], "not_enabled")
         self.get.assert_not_called()
 
     def test_api_error_falls_back(self):
