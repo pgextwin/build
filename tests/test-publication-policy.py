@@ -17,7 +17,7 @@ CANDIDATE = "candidate-build.json"
 RELEASE = "release-promotion.json"
 OWNER = "owner-source-publication.json"
 REPO = "pgextwin/orafce"
-NO_OWNER_SOURCE = {"pgextwin/pg_store_plans", "pgextwin/pg_variables", "pgextwin/pgtap"}
+NO_OWNER_SOURCE = {"pgextwin/pg_store_plans", "pgextwin/pg_variables"}
 
 
 class PublicationPolicyTests(unittest.TestCase):
@@ -36,7 +36,7 @@ class PublicationPolicyTests(unittest.TestCase):
         repositories = {entry["repository"] for entry in fleet["entries"]}
         self.assertEqual(len(repositories), 26)
         self.assertTrue(NO_OWNER_SOURCE <= repositories)
-        self.assertEqual(len(repositories - NO_OWNER_SOURCE), 23)
+        self.assertEqual(len(repositories - NO_OWNER_SOURCE), 24)
         release = {"schemaVersion": 1, "enabled": True, "releasePolicy": "automatic-signed-schedule"}
         owner = {**release, "sourceKind": "OWNER_ISSUE_COMMENT_MAIN_SIGNING"}
         for repo in sorted(repositories):
