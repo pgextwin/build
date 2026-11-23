@@ -100,7 +100,7 @@ def eligible_artifact(artifacts, audit_run):
 
 
 def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None,
-         central_api=None, central_retrieve=None):
+         central_api=None, central_retrieve=None, verify_origin=None):
     """Return a proven *nonpublishing* observation using authentic run bytes."""
     require(type(repo) is str and REPO.fullmatch(repo)
             and type(event) is dict and event.get("ref") == "refs/heads/main"
@@ -198,7 +198,8 @@ def live(repo, event, fleet, lifecycle, *, auth_api=gh, retrieve=None,
     try:
         result = bridge.verify(repository=repo,event=event,commit=commit,
             pr=pr,pr_files=files,branch=branch,checks=checks,
-            ci_run=original_ci,bound=bound,manifest=extension,lifecycle=lifecycle,fleet=fleet)
+            ci_run=original_ci,bound=bound,manifest=extension,lifecycle=lifecycle,fleet=fleet,
+            verify_origin=verify_origin or bridge.candidate_origin.verify)
     except (bridge.Denied, ValueError, TypeError, KeyError) as exc:
         raise Denied("postmerge bridge refused untrusted main event: "+str(exc)) from exc
     require(result.get("publicationAuthorized") is False

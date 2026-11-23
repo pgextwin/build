@@ -31,6 +31,11 @@ _publication_spec = importlib.util.spec_from_file_location(
 publication_policy = importlib.util.module_from_spec(_publication_spec)
 _publication_spec.loader.exec_module(publication_policy)
 
+
+_origin_spec = importlib.util.spec_from_file_location("fleet_candidate_origin", ROOT / "fleet_candidate_origin.py")
+origin = importlib.util.module_from_spec(_origin_spec)
+_origin_spec.loader.exec_module(origin)
+
 class Denied(ValueError):
     pass
 
@@ -41,7 +46,7 @@ def require(ok, reason):
 
 
 def plan(*, witness, decision, pr, manifest, lifecycle, fleet, central_policy, local_candidate_policy,
-         today=None):
+         today=None, verify_origin=None):
     """Check exact machine-readable joins, returning only a nonpublishing plan.
 
     A green candidate CI and unsigned ZIP digest are never evidence of signed
@@ -89,9 +94,12 @@ def plan(*, witness, decision, pr, manifest, lifecycle, fleet, central_policy, l
             and pr.get("merge_commit_sha") == witness["mainMergeSha"]
             and (pr.get("head") or {}).get("sha") == witness["candidateHeadSha"]
             and (pr.get("head") or {}).get("ref") == witness.get("candidateBranch")
-            and (pr.get("base") or {}).get("ref") == "main"
-            and (pr.get("user") or {}).get("login") == "github-actions[bot]",
+            and (pr.get("base") or {}).get("ref") == "main",
             "merged candidate PR does not match protected native witness")
+    evidence = origin.author(repository, pr, verify_origin=verify_origin, denied=Denied)
+    if evidence is not None:
+        require(decision == evidence["record"]["decision"],
+                "planned decision differs from authenticated App origin")
     for forbidden in ("signedArtifactsVerified", "publishableReceipt",
                       "publicationAuthorized", "automaticReleaseEnabled"):
         require(witness.get(forbidden) is False,

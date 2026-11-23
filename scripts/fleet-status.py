@@ -10,6 +10,7 @@ import re
 import subprocess
 import tempfile
 from urllib.parse import quote
+import fleet_candidate_origin as origin
 from update_watch_lib import WatchError, github_get_json
 from importlib.util import spec_from_file_location,module_from_spec
 
@@ -115,7 +116,7 @@ def candidate_run_url(repo, branch, event):
             + "&branch=" + quote(branch, safe="") + "&per_page=100")
 
 
-def native_candidate_ci(page, pr, repo, event="pull_request"):
+def native_candidate_ci(page, pr, repo, event="pull_request", *, verify_origin=origin.verify):
     """Observe exact active bot PR Windows CI; NEVER authorize merge or Release.
 
     Native pull_request CI does not necessarily include a legacy candidate-audit
@@ -132,12 +133,12 @@ def native_candidate_ci(page, pr, repo, event="pull_request"):
         raise WatchError("native PR CI response paginated or incomplete")
     head = (pr.get("head") or {}) if type(pr) is dict else {}
     branch, sha = head.get("ref"), head.get("sha")
-    if (type(pr) is not dict or (pr.get("user") or {}).get("login") != "github-actions[bot]"
-            or (head.get("repo") or {}).get("full_name") != repo
+    if (type(pr) is not dict or (head.get("repo") or {}).get("full_name") != repo
             or type(branch) is not str
             or re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch) is None
             or type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None):
         raise WatchError("active PR is not an authentic same-repository bot candidate")
+    origin.author(repo, pr, verify_origin=verify_origin, denied=WatchError)
     if not all(type(r) is dict and r.get("event") == event for r in runs):
         raise WatchError("unfiltered native PR run list")
     if any(r.get("head_branch") != branch for r in runs):
@@ -218,6 +219,15 @@ def one(entry,lifecycle,schedule_utc=None):
         row["errors"].append("candidate PR: "+str(e))
     try:
         if owned_pr is not None:
+            if origin.is_app(owned_pr):
+                number = owned_pr.get("number")
+                if not origin.positive(number):
+                    raise WatchError("invalid active App candidate PR number")
+                live_pr = request(BASE + repo + "/pulls/" + str(number))
+                if (not origin.is_app(live_pr) or live_pr.get("number") != number
+                        or live_pr.get("head", {}).get("sha") != owned_pr["head"].get("sha")):
+                    raise WatchError("active App candidate moved")
+                owned_pr = live_pr
             # Active native pull_request CI ALWAYS takes precedence over stale
             # legacy workflow_dispatch runs. Do not assume green means audited.
             page=request(candidate_run_url(repo,owned_pr["head"]["ref"],"pull_request"))
