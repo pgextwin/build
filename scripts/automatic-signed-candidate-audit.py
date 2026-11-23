@@ -86,8 +86,8 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
     require(first_run == second_run, "Actions Run changed during signed audit")
     stable_run(first_run, repo=repo, sha=sha, run_id=run_id, attempt=attempt)
     if verifier_sha is not None or signer_sha != pin.SIGNER_SHA:
-        require(repo in routes.PILOTS and signer_sha != pin.SIGNER_SHA,
-                "repository outside the new candidate signer pilot")
+        require(repo in routes.PACKAGE_REPOSITORIES and signer_sha != pin.SIGNER_SHA,
+                "repository outside the shared candidate signing route")
         routes.require_run_refs(first_run, ((routes.SIGNER, signer_sha), (routes.CANDIDATE_AUDIT, verifier_sha)))
     require(type(intent) is dict and type(intent.get("schemaVersion")) is int
             and intent["schemaVersion"] == 1
@@ -218,8 +218,8 @@ def main():
         run_id, attempt = int(os.environ["GITHUB_RUN_ID"]), int(os.environ["GITHUB_RUN_ATTEMPT"])
         signer_sha = pin.SIGNER_SHA
         if args.package_verifier_sha is not None:
-            require(repo in routes.PILOTS, "repository outside the new candidate signer pilot")
-            signer_sha = routes.read_policy()["candidateSigner"]
+            require(repo in routes.PACKAGE_REPOSITORIES, "repository outside the shared candidate signing route")
+            signer_sha = routes.repository_policy(routes.read_policy(), repo)["candidateSigner"]
             branch = run_readonly("gh", "api", "--method", "GET", f"repos/{repo}/branches/main")
             require(branch.get("name") == "main" and branch.get("protected") is True
                     and (branch.get("commit") or {}).get("sha") == sha,

@@ -247,11 +247,13 @@ def read_file(folder, name):
 
 def expected_owner_signer(repo, sha, run, central_sha):
     routes = audit.routes
-    if repo not in routes.PILOTS:
+    if repo not in routes.PACKAGE_REPOSITORIES:
         return audit.signer_sha_at(central_sha)
     policy = routes.read_policy(audit.protected_blob(central_sha, routes.POLICY))
-    return routes.owner_signer(get, repo, sha, run, policy["ownerWrappers"][repo],
-                               audit.signer_sha_from_workflow)
+    group = routes.repository_policy(policy, repo)
+    return routes.owner_signer(get, repo, sha, run, group["ownerWrappers"][repo],
+                               audit.signer_sha_from_workflow,
+                               legacy_wrapper_sha=routes.WAVE2_LEGACY_WRAPPERS.get(repo))
 
 
 def admit(repo, run_id, *, scratch, fleet, lifecycle, central_sha, expected_sha=None):

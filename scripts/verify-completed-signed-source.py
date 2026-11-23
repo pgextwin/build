@@ -73,7 +73,7 @@ def github(repository, route):
     require(type(repository) is str and REPO.fullmatch(repository)
             and (route=="branches/main"
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*",route)
-                 or (repository in routes.PILOTS and re.fullmatch(
+                 or (repository in routes.PACKAGE_REPOSITORIES and re.fullmatch(
                      r"contents/\.github/workflows/update-watch\.yml\?ref=[0-9a-f]{40}", route))
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\?per_page=100",route)
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100",route)
@@ -92,7 +92,7 @@ def digest(path):
     return h.hexdigest()
 
 def expected_candidate_signer(get, repository, sha, run):
-    if repository not in routes.PILOTS:
+    if repository not in routes.PACKAGE_REPOSITORIES:
         return guard.SIGNER_SHA
     return routes.candidate_signer(get, repository, sha, run, routes.read_policy(), guard.SIGNER_SHA)
 

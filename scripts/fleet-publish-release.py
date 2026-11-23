@@ -179,7 +179,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
                 repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
                 majors=maintained)
-            if REPO in routes.PILOTS:
+            if REPO in routes.PACKAGE_REPOSITORIES:
                 signer_sha = candidate_signer(original_run)
         else:
             attempt = guard.attempt_from_env(os.environ, run_id, REPO)
@@ -274,7 +274,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 get("actions/runs/" + str(run_id) + "/artifacts?per_page=100"),
                 repo=REPO, sha=commit, run_id=run_id, attempt=1,
                 majors=maintained)
-            if REPO in routes.PILOTS:
+            if REPO in routes.PACKAGE_REPOSITORIES:
                 check(candidate_signer(final_run) == signer_sha, "candidate signer changed during preflight")
         else:
             final_snapshot = guard.validate_snapshot(
