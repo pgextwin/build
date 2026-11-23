@@ -4,7 +4,13 @@
 
 ## 起動と原本
 
-既存の中央PREPARE原本を同一cycleの17ローカル要求へ結合し、すべての子RunとWindows postmergeが終わってから、新しい`pgextwin-r06-original-child-join`要求を保護PRで追加する。要求は元中央Run/HEAD/Artifact/ZIP SHA256、17対象のlocal Run/request ID、AUDIT_ONLY、公開不可、最大30分の期限を固定する。各子の真正なpush/main/actor/attempt1、原本親commit、request-only保護マージ、最新HEADのApp15368 PG14〜18/Summary、Windows original postmergeをGETで再検証する。
+既存の中央PREPARE原本を同一cycleの17ローカル要求へ結合し、すべての子RunとWindows main push Runが終わってから、新しい`pgextwin-r06-original-child-join`要求を保護PRで追加する。要求は元中央Run/HEAD/Artifact/ZIP SHA256、17対象のlocal Run/request ID、AUDIT_ONLY、公開不可、最大30分の期限を固定する。各子の真正なpush/main/actor/attempt1、原本親commit、request-only保護マージと最新HEADのApp15368 PG14〜18/SummaryをGETで再検証する。
+
+## Windows CI の代替証拠
+
+- 合格条件は、同一リポジトリの保護 main にマージされた PR の最終 HEAD に対応する `windows.yml` の `pull_request` 第1試行が成功し、従来の PG14〜18 各ジョブと `Windows required summary` もすべて成功すること。共有 Build の入力記録と GitHub Commits で、PR の実 checkout と保護 main のマージツリー、解決済み Build SHA、固定の上流コミットを含む全ビルド入力が一致することを求める。通常の unsigned CI のみを対象とする。
+- 記録は既存の `issue311-r06-child-join-original` に追加する。`windowsEvidence` に証拠種別、PR 番号、Run ID と試行番号、必須ジョブ結果を出力する。PR 証拠には実 checkout と main の SHA・tree、Build SHA、main の入力記録を取得した Run ID も含める。証拠に採用した PR Run は `windowsPrRunId`、push Run は `windowsPostmergeRunId` に記録する。`issue311-r06-child-join-independent-readback` は原本を再取得して一致した結果を残す。
+- 既存の source／watchdog／独立 readback が同じ判定を実行する。GitHub PR・Commits・Actions の原本を GET し、PR と main push の matrix ジョブに残った入力記録を `scripts/windows-main-reuse.py` の照合で比較する。PR の証拠が欠けるか一致しない場合は、従来どおり push で必須ジョブすべての成功が必要になる。実際の main push 実行が監査対象の子には、要求に `"requireWindowsPostmerge": true` を付ける。pg_hint_plan #60 の PG17 復旧確認も push を必須とする。
 
 元のZIPはAPIで再取得し、provider digestと実圧縮バイトSHA256、単一エントリ、中央要求および17 SHAとの結合を独立検証する。実skipped jobには架空のreceiptを作らず、元jobのSKIPPEDとartifact不在を保存する。実failureはexit17、timeoutは原本workflowのtimeout-minutes:1、実stepのfailure、60秒以上の実時間とGitHub timeoutログを照合する。workflowの結論がfailureでも、実step timeoutをworkflow-level timed_outと偽称しない。
 

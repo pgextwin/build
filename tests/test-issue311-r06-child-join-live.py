@@ -86,6 +86,7 @@ class BoundaryTests(unittest.TestCase):
                      lambda r: r["children"].pop(),
                      lambda r: r["children"].__setitem__(0, copy.deepcopy(r["children"][1])),
                      lambda r: r["children"][0].update(runId=True),
+                     lambda r: r["children"][0].update(requireWindowsPostmerge="true"),
                      lambda r: r["central"].update(runId=True),
                      lambda r: r["central"].update(zipSha256="f"*40),
                      lambda r: r.update(expiresAt="2026-10-29T23:00:00Z"),
@@ -170,6 +171,124 @@ class BoundaryTests(unittest.TestCase):
         self.assertIsNone(after.get_header("Authorization"))
         with self.assertRaises(ValueError):
             mod.SafeRedirect().redirect_request(original, None, 302, "Found", {}, "http://example.com/unsafe")
+
+
+class WindowsEvidenceTests(unittest.TestCase):
+    repo = "pgextwin/pg_hint_plan"
+    head = "a" * 40
+    tip = "b" * 40
+    checkout = "c" * 40
+    tree = "d" * 40
+    build = "e" * 40
+    parent = "f" * 40
+    number = 99
+
+    def setUp(self):
+        repository = {"full_name": self.repo}
+        self.protected = {"number": self.number, "headSha": self.tip, "mergedSha": self.head}
+        self.pr = {"number": self.number, "merged": True, "merge_commit_sha": self.head,
+                   "merged_at": "2026-10-30T02:00:00Z",
+                   "head": {"sha": self.tip, "ref": "change", "repo": repository.copy()},
+                   "base": {"ref": "main", "repo": repository.copy()}}
+        self.push = {"id": 30, "run_attempt": 1, "repository": repository, "head_branch": "main",
+                     "head_sha": self.head, "path": mod.WINDOWS_PATH, "event": "push",
+                     "status": "completed", "conclusion": "success", "actor": {"login": "ShutenOishi"},
+                     "workflow_id": 10, "referenced_workflows": [{"path": mod.reuse.WORKFLOW_PATH + "@windows-ci",
+                                                                 "sha": self.build}]}
+        self.run = dict(copy.deepcopy(self.push), id=20, event="pull_request", head_sha=self.tip,
+                        head_branch="change", head_repository=repository, created_at="2026-10-30T01:00:00Z")
+        names = ["windows / " + mod.reuse.MATRIX_JOB_NAME, *mod.WINDOWS_REQUIRED]
+        self.jobs = {
+            run_id: [{"id": run_id * 10 + i, "run_id": run_id, "name": name, "status": "completed",
+                      "conclusion": "success", "steps": [{"name": "Record resolved Windows CI inputs",
+                                                         "status": "completed", "conclusion": "success"}]}
+                     for i, name in enumerate(names)] for run_id in (20, 30)
+        }
+        self.records = {
+            run_id: dict.fromkeys(mod.reuse.ENV_FIELDS, "input") |
+            {"schemaVersion": 1, "repository": self.repo, "checkout_tree": self.tree,
+             "checkout_commit": sha, "pr_head_sha": pr_head, "build_sha": self.build,
+             "matrix": {"include": [{"upstreamCommit": self.parent}]}}
+            for run_id, sha, pr_head in ((20, self.checkout, self.tip), (30, self.head, ""))
+        }
+        self.commits = {
+            sha: {"sha": sha, "commit": {"tree": {"sha": self.tree}},
+                  "parents": [{"sha": self.parent}, {"sha": self.tip}]}
+            for sha in (self.checkout, self.head)
+        }
+        self.checkout_log = f"[command]/usr/bin/git checkout --progress --force refs/remotes/pull/{self.number}/merge\n"
+
+    def evidence(self, *, require_push=False):
+        responses = {
+            f"actions/runs?head_sha={self.head}&event=push&per_page=100":
+                {"total_count": 1, "workflow_runs": [self.push]},
+            f"pulls/{self.protected['number']}": self.pr,
+            f"actions/workflows/windows.yml/runs?event=pull_request&head_sha={self.tip}&per_page=100":
+                {"total_count": 1, "workflow_runs": [self.run]},
+            "actions/runs/20": self.run, "actions/runs/30": self.push,
+            **{f"commits/{sha}": commit for sha, commit in self.commits.items()},
+            **{f"actions/runs/{run_id}/attempts/1/jobs?per_page=100": {"total_count": len(items), "jobs": items}
+               for run_id, items in self.jobs.items()},
+        }
+        logs = {
+            f"actions/jobs/{run_id * 10}/logs":
+                ((self.checkout_log if run_id == 20 else "") +
+                 mod.reuse.RECORD_PREFIX + json.dumps(record)).encode()
+            for run_id, record in self.records.items()
+        }
+        with (patch.object(mod, "get", side_effect=lambda repo, path: responses[path]) as get,
+              patch.object(mod, "get_bytes", side_effect=lambda repo, path: logs[path])):
+            self.get = get
+            return mod.windows_evidence(self.repo, self.head, self.protected, require_push=require_push)
+
+    def test_pr_evidence_uses_real_checkout_and_fixed_inputs_when_push_has_no_windows_build(self):
+        self.jobs[30] = self.jobs[30][:1]
+        result = self.evidence()
+        self.assertEqual(result["windowsPrRunId"], 20)
+        self.assertNotIn("windowsPostmergeRunId", result)
+        proof = result["windowsEvidence"]
+        self.assertEqual(proof["checkoutSha"], self.checkout)
+        self.assertEqual(proof["mainSha"], self.head)
+        self.assertEqual(proof["checkoutTree"], self.tree)
+        self.assertEqual(proof["mainTree"], self.tree)
+        self.assertEqual(proof["buildSha"], self.build)
+        self.assertEqual(proof["mainInputsRunId"], 30)
+        self.assertEqual(proof["runAttempt"], 1)
+        self.assertEqual(proof["prNumber"], self.number)
+        self.assertEqual([row["name"] for row in proof["requiredJobs"]], mod.WINDOWS_REQUIRED)
+
+    def test_pr_evidence_failures_fall_back_to_original_push(self):
+        cases = {
+            "tree mismatch": lambda: self.commits[self.checkout]["commit"]["tree"].update(sha=self.parent),
+            "inputs mismatch": lambda: self.records[20].update(license_files="other licence"),
+            "workflow mismatch": lambda: self.run["referenced_workflows"][0].update(sha=self.parent),
+            "job failure": lambda: self.jobs[20][1].update(conclusion="failure"),
+            "summary failure": lambda: self.jobs[20][-1].update(conclusion="failure"),
+            "missing log": lambda: self.records.pop(20),
+            "wrong PR merge ref": lambda: setattr(self, "checkout_log", self.checkout_log.replace("/99/", "/98/")),
+            "fork PR": lambda: self.pr["head"]["repo"].update(full_name="other/fork"),
+            "rerun": lambda: self.run.update(run_attempt=2),
+        }
+        for reason, invalidate in cases.items():
+            with self.subTest(reason=reason):
+                self.setUp()
+                invalidate()
+                result = self.evidence()
+                self.assertEqual(result["windowsPostmergeRunId"], 30)
+                self.assertEqual(result["windowsEvidence"]["kind"], "push")
+
+    def test_missing_pr_proof_with_skipped_push_denies(self):
+        self.records.pop(20)
+        self.jobs[30][1]["conclusion"] = "skipped"
+        with self.assertRaisesRegex(ValueError, "required job failed"):
+            self.evidence()
+
+    def test_explicit_and_pg17_recovery_cases_require_original_push(self):
+        self.assertEqual(self.evidence(require_push=True)["windowsPostmergeRunId"], 30)
+        self.assertFalse(any(call.args[1].startswith("pulls/") for call in self.get.call_args_list))
+        self.protected["number"] = 60
+        self.assertEqual(self.evidence()["windowsPostmergeRunId"], 30)
+        self.assertFalse(any(call.args[1].startswith("pulls/") for call in self.get.call_args_list))
 
 
 if __name__ == "__main__":

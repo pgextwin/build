@@ -47,6 +47,10 @@ SHARED_VERIFY_STEP = "Authenticate protected request / central original Run-job-
 TIMEOUT_STEP = "R06 original one-shot timed-out step (real Actions timeout)"
 FAIL_STEP = "R06 one-shot failure witness (nonpublishing, exact request-only push)"
 MISSING_REPO = "pgextwin/orafce"
+WINDOWS_PATH = ".github/workflows/windows.yml"
+WINDOWS_REQUIRED = [f"windows / PostgreSQL {n} / Windows x64" for n in range(14, 19)] + [
+    "Windows required summary"]
+ORIGINAL_WINDOWS_PUSH = {("pgextwin/pg_hint_plan", 60)}
 ANOMALIES = {"pgextwin/pg_bigm": "FAILED", "pgextwin/pg_cron": "SKIPPED",
              "pgextwin/pg_hint_plan": "TIMEOUT", MISSING_REPO: "MISSING_EVENT"}
 SHA40 = re.compile(r"[0-9a-f]{40}$")
@@ -65,6 +69,7 @@ store = load("r06_live_store", "scripts/issue311-lifecycle-store.py")
 life = store.lifecycle
 writer = load("r06_live_writer", "scripts/issue311-writer-runtime.py")
 policy = load("r06_live_policy", "scripts/issue311-r06-local-child-join.py")
+reuse = load("r06_windows_main_reuse", "scripts/windows-main-reuse.py")
 
 
 def need(ok, reason):
@@ -240,7 +245,7 @@ def protected_merge(repo, head, parent, request_path):
     checks = get(repo, "commits/" + pr["head"]["sha"] + "/check-runs?per_page=100")
     rows = checks.get("check_runs", [])
     need(checks.get("total_count") == len(rows) <= 100, "incomplete required checks")
-    required = [f"windows / PostgreSQL {n} / Windows x64" for n in range(14, 19)] + ["Windows required summary"]
+    required = WINDOWS_REQUIRED
     for name in required:
         matches = [x for x in rows if x.get("name") == name]
         need(len(matches) == 1 and matches[0].get("head_sha") == pr["head"]["sha"]
@@ -278,7 +283,8 @@ def validate_request(raw, path, *, now=None):
     need(type(r["children"]) is list and len(r["children"]) == 17, "17 original children required")
     repos, ids = set(), set()
     for x in r["children"]:
-        need(type(x) is dict and set(x) == {"repo", "runId", "requestId"}
+        need(type(x) is dict and set(x) - {"requireWindowsPostmerge"} == {"repo", "runId", "requestId"}
+             and type(x.get("requireWindowsPostmerge", False)) is bool
              and x["repo"] in targets() and x["repo"] not in repos
              and type(x["runId"]) is int and x["runId"] > 0 and x["runId"] not in ids
              and re.fullmatch(r"r-20\d{6}-r06local[a-z0-9-]{4,40}", x["requestId"]),
@@ -411,6 +417,101 @@ def preflight_child(central, child):
     return child
 
 
+def windows_jobs(items):
+    required = [exact_job(items, name) for name in WINDOWS_REQUIRED]
+    need(all(j["conclusion"] == "success" for j in required), "Windows required job failed")
+    return [{"name": j["name"], "jobId": j["id"], "conclusion": j["conclusion"]} for j in required]
+
+
+def windows_input_record(repo, items, *, pr_number=None):
+    job = exact_job(items, "windows / " + reuse.MATRIX_JOB_NAME)
+    need(job["conclusion"] == "success", "Windows input resolver failed")
+    step(job, "Record resolved Windows CI inputs", "success")
+    raw = get_bytes(repo, f"actions/jobs/{reuse.positive_id(job['id'])}/logs")
+    log = raw.decode("utf-8")
+    if pr_number is not None:
+        checkout_ref = f"refs/remotes/pull/{pr_number}/merge"
+        need(any(line.endswith(f"[command]/usr/bin/git checkout --progress --force {checkout_ref}")
+                 for line in log.splitlines()), "Windows checkout was not this PR's merge ref")
+    return reuse.record_from_log(log)
+
+
+def windows_build_sha(run):
+    shas = [ref["sha"] for ref in run["referenced_workflows"]
+            if ref["path"].partition("@")[0] == reuse.WORKFLOW_PATH]
+    need(len(shas) == 1, "missing/ambiguous shared Windows Build SHA")
+    return reuse.github_sha(shas[0])
+
+
+def pr_windows_evidence(repo, head, protected, push, push_jobs):
+    number = reuse.positive_id(protected["number"])
+    pr = get(repo, f"pulls/{number}")
+    pr_head = reuse.github_sha(pr["head"]["sha"])
+    need(pr["number"] == number and pr["merged"] is True and pr["merge_commit_sha"] == head
+         and pr["base"]["ref"] == "main" and pr_head == protected["headSha"]
+         and pr["head"]["repo"]["full_name"] == pr["base"]["repo"]["full_name"] == repo,
+         "Windows PR is not the same-repository protected merge")
+    listed = get(repo, f"actions/workflows/windows.yml/runs?event=pull_request&head_sha={pr_head}&per_page=100")
+    runs = listed["workflow_runs"]
+    need(listed["total_count"] == len(runs) == 1, "missing/ambiguous Windows PR run")
+    run_id = reuse.positive_id(runs[0]["id"])
+    run = get(repo, f"actions/runs/{run_id}")
+    need(run["id"] == run_id and run["path"] == WINDOWS_PATH and run["workflow_id"] == push["workflow_id"]
+         and run["head_sha"] == pr_head and run["head_branch"] == pr["head"]["ref"]
+         and run["head_repository"]["full_name"] == run["repository"]["full_name"] == repo
+         and run["event"] == "pull_request" and run["run_attempt"] == 1
+         and reuse.successful(run) and utc(run["created_at"]) <= utc(pr["merged_at"]),
+         "not genuine successful first-attempt Windows PR run")
+    pr_jobs = jobs(repo, run_id)
+    required = windows_jobs(pr_jobs)
+    build_sha = windows_build_sha(run)
+    need(build_sha == windows_build_sha(push), "Windows shared Build SHA mismatch")
+    source = windows_input_record(repo, pr_jobs, pr_number=number)
+    current = windows_input_record(repo, push_jobs)
+    checkout_sha = reuse.github_sha(source["checkout_commit"])
+    main = get(repo, "commits/" + head)
+    checkout = get(repo, "commits/" + checkout_sha)
+    tree = reuse.github_sha(main["commit"]["tree"]["sha"])
+    # The provider's Run head is the PR tip. The shared workflow checks out
+    # GitHub's test merge, whose parents bind it to that tip and the main base.
+    parents = [p["sha"] for p in main["parents"]]
+    need(main["sha"] == head and checkout["sha"] == checkout_sha
+         and len(parents) == 2 and parents[1] == pr_head
+         and [p["sha"] for p in checkout["parents"]] == parents
+         and checkout["commit"]["tree"]["sha"] == tree
+         and source["checkout_tree"] == current["checkout_tree"] == tree,
+         "Windows actual checkout does not match the protected main tree")
+    need(source["pr_head_sha"] == pr_head and current["pr_head_sha"] == ""
+         and current["checkout_commit"] == head and source["repository"] == current["repository"] == repo
+         and source["build_sha"] == current["build_sha"] == build_sha
+         and reuse.pinned_matrix(current["matrix"]) and reuse.same_inputs(current, source),
+         "Windows resolved build inputs differ or are unpinned")
+    return {"kind": "pull_request", "prNumber": number, "prHeadSha": pr_head,
+            "runId": run_id, "runAttempt": 1, "checkoutSha": checkout_sha, "checkoutTree": tree,
+            "mainSha": head, "mainTree": tree, "buildSha": build_sha, "requiredJobs": required,
+            "mainInputsRunId": push["id"], "inputsMatch": True}
+
+
+def windows_evidence(repo, head, protected, *, require_push=False):
+    listed = get(repo, "actions/runs?head_sha=" + head + "&event=push&per_page=100")
+    candidates = [r for r in listed.get("workflow_runs", []) if r.get("path") == WINDOWS_PATH]
+    need(listed.get("total_count", 101) <= 100 and len(candidates) == 1, "Windows postmerge missing/ambiguous")
+    push = original_run(repo, candidates[0]["id"], WINDOWS_PATH, head)
+    need(push["conclusion"] == "success", "Windows postmerge not successful")
+    push_jobs = jobs(repo, push["id"])
+    if not require_push and (repo, protected["number"]) not in ORIGINAL_WINDOWS_PUSH:
+        try:
+            proof = pr_windows_evidence(repo, head, protected, push, push_jobs)
+            return {"windowsPrRunId": proof["runId"], "windowsEvidence": proof}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, reuse.NoReuse):
+            # Missing or inconsistent PR evidence leaves the original push
+            # gate in force, including successful execution of every job.
+            pass
+    return {"windowsPostmergeRunId": push["id"], "windowsEvidence": {
+        "kind": "push", "prNumber": protected["number"], "runId": push["id"], "runAttempt": 1,
+        "mainSha": head, "requiredJobs": windows_jobs(push_jobs)}}
+
+
 def collect_child(item, central):
     repo = item["repo"]
     run = original_run(repo, item["runId"], policy.LOCAL_WORKFLOW)
@@ -469,16 +570,8 @@ def collect_child(item, central):
         else:
             need(run["conclusion"] == "success" and local_job["conclusion"] == "success"
                  and receipt.get("result") in policy.NORMAL, "normal source is not successful")
-    # Windows postmerge is a separate original run, never inferred from PR CI.
-    listed = get(repo, "actions/runs?head_sha=" + run["head_sha"] + "&event=push&per_page=100")
-    candidates = [r for r in listed.get("workflow_runs", []) if r.get("path") == ".github/workflows/windows.yml"]
-    need(listed.get("total_count", 101) <= 100 and len(candidates) == 1, "Windows postmerge missing/ambiguous")
-    windows = original_run(repo, candidates[0]["id"], ".github/workflows/windows.yml", run["head_sha"])
-    need(windows["conclusion"] == "success", "Windows postmerge not successful")
-    wjobs = jobs(repo, windows["id"])
-    for name in [f"windows / PostgreSQL {n} / Windows x64" for n in range(14, 19)] + ["Windows required summary"]:
-        need(exact_job(wjobs, name)["conclusion"] == "success", "Windows postmerge required job failed")
-    result["windowsPostmergeRunId"] = windows["id"]
+    result.update(windows_evidence(repo, run["head_sha"], result["protectedMerge"],
+                                  require_push=item.get("requireWindowsPostmerge", False)))
     return preflight_child(central, result)
 
 
@@ -698,6 +791,7 @@ def readback():
     out = {"requestId": request["requestId"], "result": "ORIGINAL_GET_VERIFIED", "targetCount": 17,
         "stateBlobSha": blob, "stateRevision": actual["revision"], "targetOutcomes": actual["targets"],
         "terminalArtifact": meta, "negativeDenials": checks, "appKeyAvailable": False,
+        "windowsEvidenceReadback": {x["repo"]: x["windowsEvidence"] for x in verified},
         "publisherAuthorized": False, "publicationAuthorized": False, "replay": "DENY_NO_PUT"}
     Path(READBACK_FILE).write_bytes(writer.canonical(out))
     print("R06_CHILD_INDEPENDENT_JOB_READBACK 17 ORIGINAL_GET_VERIFIED REPLAY_DENY NO_APP_KEY")
