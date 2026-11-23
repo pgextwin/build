@@ -28,6 +28,7 @@ def module(label, name):
     return obj
 
 
+routes = module("owner_signed_package_routes", "signed-package-routes.py")
 ident = module("owner_main_ident", "fleet-release-identity.py")
 pin = module("owner_main_pin", "issue-75-attempt-pin-migration-offline.py")
 vuln = module("owner_main_grype", "automatic-grype-publisher-policy.py")
@@ -54,39 +55,30 @@ def read(path):
 
 
 def signer_sha_from_workflow(raw):
-    import yaml
-
-    class WorkflowLoader(yaml.BaseLoader):
-        def construct_mapping(self, node, deep=False):
-            mapping = {}
-            for key_node, value_node in node.value:
-                key = self.construct_object(key_node, deep=deep)
-                need(type(key) is str and key != "<<" and key not in mapping,
-                     "ambiguous key in central owner-source workflow")
-                mapping[key] = self.construct_object(value_node, deep=deep)
-            return mapping
-
     try:
-        workflow = yaml.load(raw, Loader=WorkflowLoader)
-        uses = workflow["jobs"]["signed_windows"]["uses"]
-    except (yaml.YAMLError, TypeError, KeyError) as exc:
-        raise Denied("invalid central owner-source workflow") from exc
+        uses, = routes.workflow_uses(raw, ["signed_windows"])
+    except routes.Denied as exc:
+        raise Denied(str(exc)) from exc
     signer = f"{CENTRAL_REPOSITORY}/{pin.offline.SIGNER_PATH}"
     match = re.fullmatch(re.escape(signer) + r"@([0-9a-f]{40})", uses) if type(uses) is str else None
     need(match is not None, "central owner-source workflow must pin the exact builder digest")
     return match.group(1)
 
 
-def signer_sha_at(central_sha):
-    """Read the inner uses from the authenticated central commit, ignoring working-tree edits."""
+def protected_blob(central_sha, path):
+    """Read a blob from the authenticated central commit, ignoring working-tree edits."""
     need(type(central_sha) is str and ident.SHA.fullmatch(central_sha),
          "missing immutable central workflow commit")
     result = subprocess.run(
         ["git", "-C", str(ROOT.parent), "--no-replace-objects",
-         "show", f"{central_sha}:{SOURCE_WORKFLOW}"],
+         "show", f"{central_sha}:{path}"],
         capture_output=True, timeout=15, check=False)
     need(result.returncode == 0, "central owner-source workflow blob unavailable")
-    return signer_sha_from_workflow(result.stdout)
+    return result.stdout
+
+
+def signer_sha_at(central_sha):
+    return signer_sha_from_workflow(protected_blob(central_sha, SOURCE_WORKFLOW))
 
 
 def protected_admission(get):
@@ -102,12 +94,30 @@ def protected_admission(get):
     return ident.parse_admission(base64.b64decode(data["content"].replace("\n", ""), validate=True))
 
 
-def central_get(route):
+def github_get(repo, route):
     result = subprocess.run(
-        ["gh", "api", "--method", "GET", f"repos/{CENTRAL_REPOSITORY}/{route}"],
+        ["gh", "api", "--method", "GET", f"repos/{repo}/{route}"],
         capture_output=True, timeout=30, check=False)
-    need(result.returncode == 0, "central PostgreSQL admission lookup failed")
+    need(result.returncode == 0, "protected GitHub source lookup failed")
     return json.loads(result.stdout)
+
+
+def central_get(route):
+    return github_get(CENTRAL_REPOSITORY, route)
+
+
+def resolve_owner_signer(repo, sha, run_id, wrapper_sha):
+    branch = github_get(repo, "branches/main")
+    need(branch.get("name") == "main" and branch.get("protected") is True
+         and (branch.get("commit") or {}).get("sha") == sha, "owner source main changed")
+    run = github_get(repo, f"actions/runs/{run_id}")
+    need(run.get("event") == "issue_comment" and run.get("run_attempt") == 1
+         and run.get("head_sha") == sha and run.get("id") == run_id
+         and run.get("path") == CALLER and run.get("head_branch") == "main"
+         and (run.get("repository") or {}).get("full_name") == repo,
+         "owner source Run does not match the protected caller")
+    return routes.owner_signer(github_get, repo, sha, run, wrapper_sha, signer_sha_from_workflow,
+                               wrapper_raw=protected_blob(wrapper_sha, SOURCE_WORKFLOW))
 
 
 def verify(z, kind, repo, sha, signer_sha):
@@ -212,6 +222,7 @@ def main():
     p = argparse.ArgumentParser()
     for a in ("intent", "manifest", "lifecycle", "dist", "output", "workflow-sha"):
         p.add_argument("--" + a, required=True)
+    p.add_argument("--pilot-wrapper", action="store_true")
     args = p.parse_args()
     try:
         env = os.environ
@@ -221,11 +232,13 @@ def main():
              and re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*",
                               env.get("GITHUB_REPOSITORY", "")),
              "wrong authentic audit context")
+        repo, sha, run_id = env["GITHUB_REPOSITORY"], env["GITHUB_SHA"], int(env["GITHUB_RUN_ID"])
+        signer = (resolve_owner_signer(repo, sha, run_id, args.workflow_sha)
+                  if args.pilot_wrapper else signer_sha_at(args.workflow_sha))
         outcome, blocking_findings = audit(
             Path(args.dist), read(args.intent), read(args.manifest),
-            read(args.lifecycle), repo=env["GITHUB_REPOSITORY"],
-            sha=env["GITHUB_SHA"], run_id=int(env["GITHUB_RUN_ID"]),
-            signer_sha=signer_sha_at(args.workflow_sha), admission=protected_admission(central_get))
+            read(args.lifecycle), repo=repo, sha=sha, run_id=run_id,
+            signer_sha=signer, admission=protected_admission(central_get))
         print(f"Grype blocking findings across audited majors: {blocking_findings}")
         Path(args.output).write_text(json.dumps(outcome, sort_keys=True) + "\n", "utf-8")
         print(outcome["status"] + "; PUBLISH_DENY")
