@@ -248,8 +248,9 @@ def api(url, token):
                 raw = response.read(2 * 1024 * 1024 + 1)
                 need(len(raw) <= 2 * 1024 * 1024, "GitHub response too large")
                 return strict_json(raw.decode("utf-8"))
-        except (HTTPError, URLError, OSError, ValueError, UnicodeError):
-            raise Denied("GitHub GET unavailable") from None
+        except (HTTPError, URLError, OSError, ValueError, UnicodeError) as exc:
+            # The pinned scanner distinguishes a missing legacy file from other failures.
+            raise Denied("GitHub GET unavailable") from exc
 
     try:
         return request_json(token)

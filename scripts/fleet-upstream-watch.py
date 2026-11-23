@@ -10,8 +10,12 @@ from pathlib import Path
 import re
 import sys
 import time
+from urllib.error import HTTPError
 
-from update_watch_lib import WatchError, detect_extension_update, github_get_json, utc_now, validate_watch_semantics
+from update_watch_lib import (
+    WatchError, detect_extension_update, github_get_json, resolve_watch, utc_now,
+    validate_watch_semantics,
+)
 import importlib.util
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,9 +26,15 @@ BASE = "https://api.github.com/repos/"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
-def load_at_commit(repository, sha, path, fetch):
+def load_at_commit(repository, sha, path, fetch, *, missing_ok=False):
     url = BASE + repository + "/contents/" + path + "?ref=" + sha
-    body = fetch(url)
+    try:
+        body = fetch(url)
+    except (WatchError, ValueError) as exc:
+        # The scheduled scan and replay wrap HTTP failures in their own errors.
+        if missing_ok and isinstance(exc.__cause__, HTTPError) and exc.__cause__.code == 404:
+            return None
+        raise
     if not isinstance(body, dict) or body.get("encoding") != "base64" or not isinstance(body.get("content"), str):
         raise WatchError("missing authenticated GitHub content blob")
     try:
@@ -47,7 +57,8 @@ def snapshot(repository, entry, fetch):
     if not isinstance(sha, str) or not SHA.fullmatch(sha):
         raise WatchError("unknown protected main commit")
     ext = load_at_commit(repository, sha, "config/extension.json", fetch)
-    watch = load_at_commit(repository, sha, "config/update-watch.json", fetch)
+    legacy_watch = load_at_commit(repository, sha, "config/update-watch.json", fetch, missing_ok=True)
+    watch = resolve_watch(ext, legacy_watch)
     if ext.get("name") != repository.split("/")[-1]:
         raise WatchError("extension identity mismatch")
     validate_watch_semantics(ext, watch)
