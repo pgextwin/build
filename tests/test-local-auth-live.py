@@ -167,6 +167,33 @@ class LiveBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "artifact bytes differ"):
                 issuance_transport.receive(*args)
 
+    def test_pgtap_license_is_compared_at_the_signed_source_commit(self):
+        repository = "pgextwin/pgtap"
+        upstream = "theory/pgtap"
+        target_sha, upstream_sha = "1" * 40, "2" * 40
+        entry = {"major": 17, "upstreamCommit": upstream_sha, "upstreamRef": "v1.3.4",
+                 "upstreamVersion": "1.3.4", "licenseFiles": [
+                     {"repositoryPath": "LICENSE", "upstreamPath": "README.md"}]}
+        heading = b"Copyright and License\n---------------------\n\n"
+        license_bytes = b"fixture license\n"
+        files = {(upstream, "README.md", upstream_sha): b"About\n\n" + heading + license_bytes,
+                 (repository, "LICENSE", target_sha): license_bytes}
+
+        def read_file(fetch, repo, path, sha):
+            raw = files[(repo, path, sha)]
+            return {"path": path, "encoding": "base64", "size": len(raw),
+                    "sha": hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest(),
+                    "content": base64.b64encode(raw).decode()}
+
+        with patch.object(authority, "build_matrix", return_value=("false", [entry])), patch.object(
+                authority, "file_at", side_effect=read_file):
+            args = ({"upstream": {"repository": upstream}}, repository, target_sha, None, self.now)
+            sources = authority.versioned_sources(*args)
+            self.assertEqual(sources[0]["licenses"][0]["sha256"], hashlib.sha256(license_bytes).hexdigest())
+            files[(upstream, "README.md", upstream_sha)] += b"unexpected suffix\n"
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "VERSIONED_LICENSE_MISMATCH"):
+                authority.versioned_sources(*args)
+
     def test_current_authority_policy_stays_deny(self):
         policy = json.loads((ROOT / "metadata/local-candidate-authority.json").read_text())
         self.assertEqual(policy["mode"], "DENY")

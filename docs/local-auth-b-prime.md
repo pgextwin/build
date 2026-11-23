@@ -15,6 +15,8 @@ Build schedule. The common matrix resolver yields the required PostgreSQL
 major and source version. For each required version, both sides fetch the
 license files at exact commits, validate the Git blob bytes and check exact
 equality between upstream and packaging copies.
+For pgTap, the upstream source is the final `Copyright and License` section
+of the versioned README. Its bytes must equal the packaging LICENSE exactly.
 
 Issuer uses a repository Actions Secret with a pinned Ed25519 public key.
 The signer checks that the Secret derives the pinned public key and requires
@@ -63,8 +65,8 @@ Prepare the issuer and Build code under DENY. Build's protected
 `fleet-candidate-writer` Environment needs an issuer-only credential
 `LOCAL_AUTH_ISSUER_TOKEN` with Actions write and Contents read. The candidate
 writer App needs an installation covering the full fleet and its identity
-must work with the native candidate audit. Confirm coverage and license
-contracts before switching the single policy for all fleet entries. Set a
+must work with the native candidate audit. Confirm coverage before switching
+the single policy for all fleet entries. Set a
 finite UTC delegation window in that PR and allow the first real candidate
 to reach the issuer through the existing scan. Switching policy does not
 dispatch a candidate or release.

@@ -37,6 +37,7 @@ EXTENSION = "config/extension.json"
 LEGACY_WATCH = "config/update-watch.json"
 LIFECYCLE = "metadata/postgresql.json"
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+PGTAP_LICENSE_HEADING = re.compile(rb"(?m)^Copyright and License\n-+\n\n")
 
 
 def need(condition, code):
@@ -87,8 +88,7 @@ def build_matrix(extension, now):
             env=dict(os.environ, GITHUB_OUTPUT=str(output)), capture_output=True, timeout=45)
         need(result.returncode == 0, "MATRIX_RESOLUTION_FAILED")
         outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    need(outputs["verify_upstream_license"] == "true", "LICENSE_VERIFICATION_REQUIRED")
-    return json.loads(outputs["matrix"])["include"]
+    return outputs["verify_upstream_license"], json.loads(outputs["matrix"])["include"]
 
 
 def versioned_sources(extension, repository, target_sha, fetch, now):
@@ -103,14 +103,24 @@ def versioned_sources(extension, repository, target_sha, fetch, now):
             blobs[identity] = github_contents.decode_file(file_at(fetch, *identity), path)
         return blobs[identity]
 
+    verify, matrix = build_matrix(extension, now)
+    pgtap_readme_license = (verify == "false" and repository == "pgextwin/pgtap"
+                            and upstream == "theory/pgtap")
+    need(verify == "true" or pgtap_readme_license, "LICENSE_VERIFICATION_REQUIRED")
     sources = []
-    for entry in build_matrix(extension, now):
+    for entry in matrix:
         commit = entry["upstreamCommit"]
         verifier._hex(commit, 40, "INVALID_UPSTREAM_COMMIT")
         licenses = []
         for mapping in entry["licenseFiles"]:
             local, original = mapping["repositoryPath"], mapping["upstreamPath"]
             raw = license_at(upstream, original, commit)
+            if pgtap_readme_license:
+                need((local, original) == ("LICENSE", "README.md"), "INVALID_PGTAP_LICENSE_MAPPING")
+                sections = PGTAP_LICENSE_HEADING.split(raw)
+                need(len(sections) == 2, "INVALID_PGTAP_LICENSE_SECTION")
+                # pgTap places the complete license at the end of README.md.
+                raw = sections[1]
             need(raw == license_at(repository, local, target_sha), "VERSIONED_LICENSE_MISMATCH")
             licenses.append(dict(mapping, sha256=hashlib.sha256(raw).hexdigest()))
         need(licenses, "MISSING_VERSIONED_LICENSE")
