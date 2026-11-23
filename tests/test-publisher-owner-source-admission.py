@@ -215,13 +215,18 @@ class AdmissionTests(TestCase):
         lifecycle = assets.fixture()[1]
         lifecycle["postgresql"].append({"major": 19, "eol": "2031-12-31"})
         workflow = (ROOT / mod.audit.SOURCE_WORKFLOW).read_text("utf-8")
-        signer_sha = mod.audit.signer_sha_from_workflow(workflow)
+        canonical_signer = mod.audit.signer_sha_from_workflow(workflow)
+        routes = mod.audit.routes
+        policy_raw = (ROOT / routes.POLICY).read_bytes()
+        policy = routes.read_policy(policy_raw)
         central_sha = "c" * 40
         for name, ref, version, legacy, majors in (
                 ("pg_hint_plan", "REL19_1_0", "1.0", False, [15, 16, 17, 18, 19]),
                 ("pg_permissions", "REL_1_4_1", "1.4.1", True, [15, 16, 17, 18]),
                 ("pg_track_settings", "2.1.2", "2.1.2", False, [15, 16, 17, 18])):
             repo = "pgextwin/" + name
+            wrapper = policy["ownerWrappers"].get(repo)
+            signer_sha = policy["candidateSigner"] if wrapper else canonical_signer
             manifest = {"schemaVersion": 1, "name": name,
                         "upstream": {"repository": mod.ident.UPSTREAMS[name],
                                      "ref": ref, "version": version, "commit": "b"*40},
@@ -297,25 +302,48 @@ class AdmissionTests(TestCase):
                             }[artifact_name]
                             (folder / label[0]).write_text(json.dumps(label[1]))
 
+                    def blob(path, raw):
+                        return {"type": "file", "path": path, "encoding": "base64",
+                                "content": base64.b64encode(raw.encode()).decode()}
+
                     def get(repository, route):
+                        if wrapper and repository == routes.CENTRAL:
+                            self.assertEqual(route, f"contents/{routes.OWNER_WRAPPER}?ref={wrapper}")
+                            return blob(routes.OWNER_WRAPPER, workflow.replace(canonical_signer, signer_sha))
                         self.assertEqual(repository, repo)
+                        current_run = signed_run(repo)
+                        caller = {}
+                        if wrapper:
+                            current_run["referenced_workflows"] = [
+                                {"path": routes.workflow_ref(path, pin), "sha": pin}
+                                for path, pin in ((routes.OWNER_WRAPPER, wrapper), (routes.SIGNER, signer_sha))
+                            ]
+                            caller[f"contents/{routes.OWNER_CALLER}?ref={SHA}"] = blob(
+                                routes.OWNER_CALLER,
+                                f"jobs:\n  signed_main_source:\n    uses: {routes.workflow_ref(routes.OWNER_WRAPPER, wrapper)}\n")
                         return {
+                            **caller,
                             "branches/main": branch(),
                             f"contents/config/extension.json?ref={SHA}": {
                                 "encoding": "base64", "content": base64.b64encode(json.dumps(manifest).encode()).decode()},
-                            f"actions/runs/{run_id}": signed_run(repo),
+                            f"actions/runs/{run_id}": current_run,
                             f"actions/runs/{run_id}/attempts/1/jobs?per_page=100": original_jobs(majors, legacy=legacy),
                             f"actions/runs/{run_id}/artifacts?per_page=100": source_artifacts(legacy=legacy),
                             "issues/comments/4444": live_signing(repo, 1),
                         }[route]
 
-                    with patch.object(mod.audit, "signer_sha_at", return_value=signer_sha) as resolve, \
+                    with patch.object(mod.audit, "protected_blob", return_value=policy_raw) as protected, \
+                         patch.object(mod.audit, "signer_sha_at", return_value=canonical_signer) as resolve, \
                             patch.object(mod, "get", side_effect=get), patch.object(
                                 mod, "fetch_artifact", side_effect=fetch) as downloads:
                         result, admitted_manifest, admitted_intent = mod.admit(
                             repo, run_id, scratch=root, fleet=fleet, lifecycle=lifecycle,
                             central_sha=central_sha)
-                        resolve.assert_called_once_with(central_sha)
+                        if wrapper:
+                            protected.assert_called_once_with(central_sha, routes.POLICY)
+                            resolve.assert_not_called()
+                        else:
+                            resolve.assert_called_once_with(central_sha)
                         self.assertEqual(admitted_manifest, manifest)
                         self.assertEqual(admitted_intent, source_intent)
                         self.assertEqual(downloads.call_count, 3)

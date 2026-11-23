@@ -60,17 +60,17 @@ def create_assets(path,ext,majors=MAJORS):
               "source":{"type":"file","target":stem}}
         (path/(stem+".vulnerabilities.json")).write_text(json.dumps(scan))
 
-def signed_result(path,kind,repo,sha,*,tamper=None):
+def signed_result(path,kind,repo,sha,*,tamper=None,signer_sha=audit.pin.SIGNER_SHA):
     d=sha256(path.read_bytes()).hexdigest()
     sbom=json.loads(path.with_suffix(".spdx.json").read_text()) if False else None
     # The sidecar has the full stem before .zip.
     stem=path.name[:-4]
     sbom=json.loads((path.parent/(stem+".spdx.json")).read_text())
     uri=f"https://github.com/{repo}/actions/runs/{RUN}/attempts/1"
-    signer=f"https://github.com/pgextwin/build/{audit.pin.offline.SIGNER_PATH}@{audit.pin.SIGNER_SHA}"
+    signer=f"https://github.com/pgextwin/build/{audit.pin.offline.SIGNER_PATH}@{signer_sha}"
     cert={"issuer":audit.pin.offline.ISSUER,
           "runInvocationURI":uri,"buildSignerURI":signer,
-          "subjectAlternativeName":signer,"buildSignerDigest":audit.pin.SIGNER_SHA,
+          "subjectAlternativeName":signer,"buildSignerDigest":signer_sha,
           "sourceRepositoryURI":f"https://github.com/{repo}",
           "sourceRepositoryDigest":sha,"sourceRepositoryRef":"refs/heads/main",
           "buildConfigURI":f"https://github.com/{repo}/{audit.CALLER}@refs/heads/main",
@@ -90,6 +90,35 @@ def signed_result(path,kind,repo,sha,*,tamper=None):
         tamper(item)
     return [item]
 
+def pilot_candidate(folder):
+    _, lifecycle, intent, run = example()
+    repo = "pgextwin/pg_profile"
+    majors = [15, 16, 17, 18, 19]
+    ext = {"schemaVersion": 1, "name": "pg_profile",
+           "upstream": {"repository": audit.ident.UPSTREAMS["pg_profile"],
+                        "version": "4.16", "ref": "4.16", "commit": base.UPSTREAM},
+           "postgresql": {"majors": majors}}
+    lifecycle["postgresql"].append({"major": 19, "eol": "2031-12-31"})
+    policy = audit.routes.read_policy()
+    signer, verifier = policy["candidateSigner"], policy["candidateAudit"]
+    intent.update(repository=repo, maintainedMajors=majors, releaseTagStem="v4.16")
+    run.update(repository={"full_name": repo}, referenced_workflows=[
+        {"path": audit.routes.workflow_ref(path, pin), "sha": pin}
+        for path, pin in ((audit.routes.SIGNER, signer), (audit.routes.CANDIDATE_AUDIT, verifier))
+    ])
+    create_assets(folder, ext, majors)
+    for path in folder.glob("*.zip"):
+        with ZipFile(path) as archive:
+            pkg = json.loads(archive.read("PACKAGE-INFO.json"))
+        pkg["package"]["name"] = ext["name"]
+        pkg["source"]["packagingRepository"] = repo
+        pkg["workflowRun"]["url"] = f"https://github.com/{repo}/actions/runs/{RUN}"
+        pkg["buildInfrastructure"]["commit"] = signer
+        with ZipFile(path, "w") as archive:
+            archive.writestr("PACKAGE-INFO.json", json.dumps(pkg))
+    return repo, ext, lifecycle, intent, run, signer, verifier
+
+
 class SignedCandidateReadOnly(unittest.TestCase):
     def run_audit(self, mutate=None, proof=None):
         ext,lc,intent,run=example()
@@ -102,6 +131,45 @@ class SignedCandidateReadOnly(unittest.TestCase):
             return audit.audit(folder,ext,lc,intent,run,deepcopy(run),
                                repo=REPO,sha=SHA,run_id=RUN,
                                attempt=1,verify=callback)
+
+    def test_fixed_pilot_signer_and_audit_require_original_run_bytes(self):
+        with TemporaryDirectory() as td:
+            folder = Path(td)
+            repo, ext, lifecycle, intent, run, signer, verifier = pilot_candidate(folder)
+
+            def exact(path, kind, repository, sha):
+                return signed_result(path, kind, repository, sha, signer_sha=signer)
+
+            def run_pilot(source=run, verify=exact, audit_pin=verifier):
+                return audit.audit(folder, ext, lifecycle, intent, source, deepcopy(source),
+                                   repo=repo, sha=SHA, run_id=RUN, attempt=1, verify=verify,
+                                   signer_sha=signer, verifier_sha=audit_pin)
+
+            self.assertEqual(run_pilot()["maintainedMajors"], [15, 16, 17, 18, 19])
+            with self.assertRaisesRegex(audit.Denied, "cryptographic proof binding"):
+                run_pilot(verify=signed_result)
+            with self.assertRaisesRegex(audit.routes.Denied, "approved workflow"):
+                run_pilot(audit_pin="0" * 40)
+            for override in ({"event": "issue_comment"}, {"run_attempt": 2}):
+                with self.assertRaises(audit.Denied):
+                    run_pilot(source={**run, **override})
+
+            def changed_zip(path, *args):
+                proof = exact(path, *args)
+                with ZipFile(path, "a") as archive:
+                    archive.writestr("changed.txt", "replacement after download")
+                return proof
+
+            with self.assertRaisesRegex(audit.Denied, "changed while verifying"):
+                run_pilot(verify=changed_zip)
+
+    def test_new_candidate_signer_denied_outside_pilot(self):
+        extension, lifecycle, intent, run = example()
+        policy = audit.routes.read_policy()
+        with self.assertRaisesRegex(audit.Denied, "outside the new candidate signer"):
+            audit.audit(None, extension, lifecycle, intent, run, deepcopy(run),
+                        repo=REPO, sha=SHA, run_id=RUN, attempt=1, verify=None,
+                        signer_sha=policy["candidateSigner"], verifier_sha=policy["candidateAudit"])
 
     def test_complete_real_shape_is_never_a_release_receipt(self):
         result=self.run_audit()

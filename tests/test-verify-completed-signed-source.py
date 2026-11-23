@@ -3,7 +3,9 @@
 
 Synthetic fixtures never count as real gh Sigstore or an authorization.
 """
+import base64
 import importlib.util
+import json
 from pathlib import Path
 from copy import deepcopy
 import tempfile
@@ -123,6 +125,64 @@ class IndependentCompletedSource(unittest.TestCase):
                         repository=REPO,sha=SHA,run_id=RUN,
                         get=lambda _,route: branch if route=="branches/main" else {})
                 self.assertIn("signed ZIP directory unavailable",str(caught.exception))
+
+    def test_completed_pilot_rechecks_actual_manifest_pin_and_downloaded_bytes(self):
+        fixture_spec = importlib.util.spec_from_file_location(
+            "signed_pilot_fixture", ROOT / "tests/test-automatic-signed-candidate-audit.py")
+        fixture = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixture)
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            repository, manifest, lifecycle, intent, run, signer, verifier = fixture.pilot_candidate(folder)
+
+            def signature(path, kind, repo, sha):
+                return fixture.signed_result(path, kind, repo, sha, signer_sha=signer)
+
+            receipt = fixture.audit.audit(
+                folder, manifest, lifecycle, intent, run, deepcopy(run),
+                repo=repository, sha=fixture.SHA, run_id=fixture.RUN, attempt=1,
+                verify=signature, signer_sha=signer, verifier_sha=verifier)
+            run.update(status="completed", conclusion="success")
+            route = mod.routes.CANDIDATE_CALLER
+            caller = ("jobs:\n"
+                      "  candidate_attested_build:\n"
+                      f"    uses: {mod.routes.workflow_ref(mod.routes.SIGNER, signer)}\n"
+                      "  candidate_signed_audit:\n"
+                      f"    uses: {mod.routes.workflow_ref(mod.routes.CANDIDATE_AUDIT, verifier)}\n")
+
+            def get(repo, path):
+                self.assertEqual(repo, repository)
+                if path == "branches/main":
+                    return {"name": "main", "protected": True, "commit": {"sha": fixture.SHA}}
+                if path == f"contents/{route}?ref={fixture.SHA}":
+                    return {"type": "file", "path": route, "encoding": "base64",
+                            "content": base64.b64encode(caller.encode()).decode()}
+                return run if path == f"actions/runs/{fixture.RUN}" else {}
+
+            def verify(*args):
+                self.assertEqual(args[args.index("--signer-digest") + 1], signer)
+                return json.dumps(signature(Path(args[3]), args[args.index("--predicate-type") + 1],
+                                            repository, fixture.SHA))
+
+            def reevaluate():
+                fleet = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
+                return mod.verify_completed_source(
+                    folder, manifest, lifecycle, receipt, deepcopy(receipt), fleet,
+                    repository=repository, sha=fixture.SHA, run_id=fixture.RUN,
+                    get=get, verify=verify)
+
+            with patch.object(mod.guard, "validate_completed_push_snapshot", return_value=("offline-snapshot",)):
+                result = reevaluate()
+                self.assertTrue(result["realSigstoreRechecked"])
+                self.assertFalse(result["publicationAuthorized"])
+                run["referenced_workflows"][1]["sha"] = "d" * 40
+                with self.assertRaisesRegex(mod.routes.Denied, "approved workflow"):
+                    reevaluate()
+                run["referenced_workflows"][1]["sha"] = verifier
+                with next(folder.glob("*.zip")).open("ab") as file:
+                    file.write(b"changed after original digest")
+                with self.assertRaisesRegex(mod.Denied, "digest differ"):
+                    reevaluate()
 
     def test_only_readonly_status_is_exported_in_source(self):
         source=(ROOT/"scripts/verify-completed-signed-source.py").read_text()

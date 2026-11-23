@@ -341,6 +341,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
           python scripts/verify-completed-signed-source.py \
             --repository "$TARGET_REPOSITORY" \
             --sha "$SOURCE_SHA" \
@@ -508,6 +509,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
           python scripts/automatic-publisher-run.py \
             --repository "$TARGET_REPOSITORY" --sha "$TARGET_SOURCE_SHA" \
             --source-run "$ORIGINAL_RUN_ID" \

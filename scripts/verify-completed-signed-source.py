@@ -27,6 +27,7 @@ def load(name, filename):
     spec.loader.exec_module(mod)
     return mod
 
+routes = load("completed_signed_package_routes", "signed-package-routes.py")
 guard = load("completed_signed_source_guard", "issue-75-publisher-preflight.py")
 ident = load("completed_signed_source_identity", "fleet-release-identity.py")
 independent = load("completed_signed_source_opinion", "independent-signed-publisher-preflight.py")
@@ -72,6 +73,8 @@ def github(repository, route):
     require(type(repository) is str and REPO.fullmatch(repository)
             and (route=="branches/main"
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*",route)
+                 or (repository in routes.PILOTS and re.fullmatch(
+                     r"contents/\.github/workflows/update-watch\.yml\?ref=[0-9a-f]{40}", route))
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*/attempts/1/jobs\?per_page=100",route)
                  or re.fullmatch(r"actions/runs/[1-9][0-9]*/artifacts\?per_page=100",route)
                  or (repository=="pgextwin/build" and
@@ -87,6 +90,12 @@ def digest(path):
         for chunk in iter(lambda:file.read(1024*1024),b""):
             h.update(chunk)
     return h.hexdigest()
+
+def expected_candidate_signer(get, repository, sha, run):
+    if repository not in routes.PILOTS:
+        return guard.SIGNER_SHA
+    return routes.candidate_signer(get, repository, sha, run, routes.read_policy(), guard.SIGNER_SHA)
+
 
 def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *,
                             repository, sha, run_id, attempt=1, get=github,
@@ -121,10 +130,12 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
         files=ident.expected_assets(manifest,majors)-{"SHA256SUMS.txt"}
     except (ident.Denied,KeyError,ValueError,TypeError) as exc:
         raise Denied("protected PostgreSQL source identity invalid") from exc
+    original_run = get(repository, run_path)
     original=guard.validate_completed_push_snapshot(
-        get(repository,run_path),get(repository,jobs_path),
+        original_run,get(repository,jobs_path),
         get(repository,assets_path),repo=repository,sha=sha,
         run_id=run_id,attempt=attempt,majors=majors)
+    signer_sha = expected_candidate_signer(get, repository, sha, original_run)
     require({p.name for p in folder.iterdir()} == files
             and all(p.is_file() and not p.is_symlink()
                     and 0<p.stat().st_size<1024*1024*1024 for p in folder.iterdir()),
@@ -157,7 +168,7 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
             raise Denied("invalid signed ZIP package") from exc
         guard.validate_pkg(pkg,major=major,repo=repository,
                            packaging_sha=sha,upstream_sha=source["commit"],
-                           run_id=run_id,attempt=attempt,event="push")
+                           run_id=run_id,attempt=attempt,event="push",signer_sha=signer_sha)
         require(pkg.get("buildMode")=="release-attested"
                 and pkg.get("package",{}).get("name")==manifest["name"]
                 and pkg.get("upstream")=={
@@ -186,13 +197,13 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
             output=verify("gh","attestation","verify",str(zp),
                 "--repo",repository,
                 "--signer-workflow","pgextwin/build/"+guard.SIGNER_PATH,
-                "--signer-digest",guard.SIGNER_SHA,"--source-digest",sha,
+                "--signer-digest",signer_sha,"--source-digest",sha,
                 "--source-ref","refs/heads/main","--predicate-type",kind,
                 "--format","json")
             guard.verified_claims(output,predicate=kind,repo=repository,
                 packaging_sha=sha,run_id=run_id,attempt=attempt,
                 zip_name=zp.name,zip_digest=hashes[zp.name],sbom=sbom,
-                event="push",config_path=guard.PUSH_PATH)
+                event="push",config_path=guard.PUSH_PATH,signer_sha=signer_sha)
             require(digest(zp)==hashes[zp.name] and digest(sp)==hashes[sp.name],
                     "signed bytes changed during real Sigstore verification")
     require({name:digest(folder/name) for name in files}==hashes,
@@ -200,11 +211,13 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
     final_branch=get(repository,"branches/main")
     require(final_branch==branch and final_branch["commit"]["sha"]==sha,
             "source protected main changed during independent proof")
+    final_run = get(repository, run_path)
     final=guard.validate_completed_push_snapshot(
-        get(repository,run_path),get(repository,jobs_path),
+        final_run,get(repository,jobs_path),
         get(repository,assets_path),repo=repository,sha=sha,
         run_id=run_id,attempt=attempt,majors=majors)
-    require(original==final,"original signed Run/jobs/artifacts changed")
+    require(original==final and signer_sha==expected_candidate_signer(get, repository, sha, final_run),
+            "original signed Run/jobs/artifacts or signer changed")
     return {"schemaVersion":1,
             "status":"REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING",
             "repository":repository,"mainMergeSha":sha,

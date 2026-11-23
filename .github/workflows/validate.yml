@@ -487,3 +487,31 @@ jobs:
           name: windows-package-contract
           path: windows-package-contract.json
           if-no-files-found: error
+
+  signed-package-route-regression:
+    name: Offline signed package route regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fixed route pins
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Test original source, signer, downloaded bytes and admission without signing
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
+          bash tests/run-signed-package-route-regression.sh 2>&1 | tee signed-route-regression.txt
+
+      - name: Upload offline route evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-route-regression
+          path: signed-route-regression.txt
+          if-no-files-found: error
