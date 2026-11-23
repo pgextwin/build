@@ -138,9 +138,15 @@ jobs:
           PACKAGING_REPOSITORY: ${{ needs.matrix.outputs.repository }}
           BUILD_SHA: ${{ github.sha }}
         run: |
-          & ./scripts/windows-package-parity.ps1 -MatrixJson $env:MATRIX_ROW -ExtensionName $env:EXTENSION_NAME `
-            -UpstreamRepository $env:UPSTREAM_REPOSITORY -PackagingRepository $env:PACKAGING_REPOSITORY `
-            -BuildCommit $env:BUILD_SHA
+          New-Item -ItemType Directory -Force -Path parity | Out-Null
+          try {
+            & ./scripts/windows-package-parity.ps1 -MatrixJson $env:MATRIX_ROW -ExtensionName $env:EXTENSION_NAME `
+              -UpstreamRepository $env:UPSTREAM_REPOSITORY -PackagingRepository $env:PACKAGING_REPOSITORY `
+              -BuildCommit $env:BUILD_SHA
+          } catch {
+            $_ | Out-String | Set-Content -LiteralPath parity/failure.txt -Encoding utf8
+            throw
+          }
 
       - name: Upload comparison evidence
         if: always()
