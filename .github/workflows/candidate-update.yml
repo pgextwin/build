@@ -8,6 +8,7 @@ on:
         required: false
         default: config/extension.json
       update_watch_path:
+        description: Legacy watch path in the caller repository. If absent, use the extension watch section.
         type: string
         required: false
         default: config/update-watch.json

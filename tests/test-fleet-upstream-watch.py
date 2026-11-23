@@ -2,10 +2,13 @@
 """Offline hostile tests for scheduled 17-extension read-only detection."""
 import base64
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
 from unittest import TestCase, main
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -13,6 +16,10 @@ from update_watch_lib import WatchError
 spec = importlib.util.spec_from_file_location("fleet_watch", ROOT / "scripts/fleet-upstream-watch.py")
 w = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(w)
+replay_spec = importlib.util.spec_from_file_location(
+    "fleet_replay", ROOT / "scripts/verify-scheduled-fleet-candidate.py")
+replay = importlib.util.module_from_spec(replay_spec)
+replay_spec.loader.exec_module(replay)
 sha = "a" * 40
 
 
@@ -49,6 +56,48 @@ class ReadonlyFleet(TestCase):
         self.assertEqual(row["mainSha"],sha)
         self.assertEqual(row["status"],"up-to-date")
         self.assertEqual(row["updates"],[])
+
+    def test_pinned_watch_fallback_in_scan_and_replay(self):
+        repository = "pgextwin/pgtap"
+        entry = {"mode": "BUILD", "strategy": "github-releases"}
+        extension_url = w.BASE + repository + "/contents/config/extension.json?ref=" + sha
+        legacy_url = w.BASE + repository + "/contents/config/update-watch.json?ref=" + sha
+        extension = json.loads(base64.b64decode(fixture(extension_url)["content"]))
+        legacy = json.loads(base64.b64decode(fixture(legacy_url)["content"]))
+        section = {k: v for k, v in legacy.items() if k not in {"repository", "schemaVersion"}}
+
+        def respond(url):
+            if url == extension_url:
+                return encoded({**extension, "watch": embedded})
+            if url == legacy_url:
+                if status != 200:
+                    raise HTTPError(url, status, "fixture", None, None)
+                return encoded(legacy_payload)
+            return fixture(url)
+
+        def open_response(request, timeout):
+            response = io.BytesIO(json.dumps(respond(request.full_url)).encode())
+            response.status = 200
+            return response
+
+        for status, legacy_payload, embedded, valid in (
+            (404, None, section, True),
+            (200, legacy, {"unexpected": True}, True),
+            (200, None, section, False),
+            (403, None, section, False),
+            (503, None, section, False),
+        ):
+            with self.subTest(status=status, payload=legacy_payload):
+                with patch("update_watch_lib.urlopen", side_effect=open_response), \
+                     patch.object(replay, "build_opener") as opener:
+                    opener.return_value.open.side_effect = open_response
+                    for fetch in (w.github_get_json, lambda url: replay.api(url, "fixture")):
+                        if valid:
+                            row = w.snapshot(repository, entry, fetch)
+                            self.assertEqual((row["mainSha"], row["status"]), (sha, "up-to-date"))
+                        else:
+                            with self.assertRaises((WatchError, replay.Denied)):
+                                w.snapshot(repository, entry, fetch)
 
     def test_failure_is_never_no_change_or_release_permission(self):
         def bad(url):
