@@ -6,5 +6,6 @@
   "pg_ivm": ["7e8fcb6c333f7f89c8a53f0c4a23f52a7befe7d5"],
   "hypopg": ["676d22a15c0e45475c56e04f008c2e0d19e68acb"],
   "pg_bigm": ["69cfdcd1cdcbeb3c4cc6b98a6b0862dc6755dbf8"],
-  "pg_cron": ["7c35cee049ef1dc2289072bfda32ccfebf900867"]
+  "pg_cron": ["7c35cee049ef1dc2289072bfda32ccfebf900867"],
+  "pg_hint_plan": ["448ef54a75620d4698e7f6b7a62e0f3b7538d0d1"]
 }
