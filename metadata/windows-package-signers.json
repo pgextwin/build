@@ -52,8 +52,8 @@
     },
     "pgextwin/pg_qualstats": {
       "candidateSigner": "56a334045dceba0a661e76703f3aca635f99e81b",
-      "candidateAudit": null,
-      "ownerWrapper": "2c50abd432062aa07ed07ae76b55fc241d35c1c2",
+      "candidateAudit": "d92f430b360d56ceb02254029174179bbbb7ef52",
+      "ownerWrapper": "d92f430b360d56ceb02254029174179bbbb7ef52",
       "legacyOwnerWrapper": "2c50abd432062aa07ed07ae76b55fc241d35c1c2",
       "scheduledRequalification": null
     }
