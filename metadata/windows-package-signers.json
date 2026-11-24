@@ -42,6 +42,13 @@
       "ownerWrapper": "43c5a5da774b1c340921aed380408a60d0ef53a6",
       "legacyOwnerWrapper": "50e2075b0e6143334637a264b3b4438fc8ba3337",
       "scheduledRequalification": null
+    },
+    "pgextwin/pg_hint_plan": {
+      "candidateSigner": "49113f95db2252b929af8205c573abb0850fa347",
+      "candidateAudit": null,
+      "ownerWrapper": "0de5dfe50a1404dd1bef5aa41d6f22727294efd6",
+      "legacyOwnerWrapper": "0de5dfe50a1404dd1bef5aa41d6f22727294efd6",
+      "scheduledRequalification": null
     }
   }
 }
