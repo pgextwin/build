@@ -18,5 +18,6 @@
   "pgaudit": ["145800eaf1dc4374295443b5d43d224658a40732"],
   "plpgsql_check": ["404404196d5d36ea45336be1c54c07c1e06b2895"],
   "set_user": ["1cc376f0acfc01a35b3b4cf66090e52a7a42551b"],
-  "odbc_fdw": ["912ce562eff4eeda14aeb2875edf954050e79c40"]
+  "odbc_fdw": ["912ce562eff4eeda14aeb2875edf954050e79c40"],
+  "orafce": ["c517cc95fdcbc66994b989ff3bde17b306fd0229"]
 }
