@@ -108,10 +108,10 @@
     },
     "pgextwin/plpgsql_check": {
       "candidateSigner": "152e2a2575612f5b76960b74b1f3d599235b193e",
-      "candidateAudit": null,
-      "ownerWrapper": "52b7f14c0f11a8a7bd820ddef12a950e33bd06fb",
+      "candidateAudit": "f4b67e90c21e9d5320aeb5b2032ebaf25ba60f6f",
+      "ownerWrapper": "f4b67e90c21e9d5320aeb5b2032ebaf25ba60f6f",
       "legacyOwnerWrapper": "52b7f14c0f11a8a7bd820ddef12a950e33bd06fb",
-      "scheduledRequalification": null
+      "scheduledRequalification": "f4b67e90c21e9d5320aeb5b2032ebaf25ba60f6f"
     }
   }
 }
