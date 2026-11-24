@@ -12,6 +12,7 @@ on:
           - pg_permissions
           - pgtap
           - pg_ivm
+          - hypopg
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
