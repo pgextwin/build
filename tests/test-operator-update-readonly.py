@@ -14,11 +14,20 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github/workflows/operator-update-readonly.yml").read_text()
 ROSTER = tuple(x["repository"] for x in json.loads(
     (ROOT / "metadata/automation-fleet.json").read_text())["entries"])
-OLD = "16b886b9d06d6f389b369b87ce0c155767697ca0"
-NEW = "acd6eb28be6d750e89b626fa4ccd4403e1265cd6"
-WAVE3 = {"pgextwin/pgtap", "pgextwin/pg_variables",
-         "pgextwin/pg_store_plans"}
+DETECTOR_SHA = "3e5300afa99b99ea8c11be2a6ef75c994d708c28"
+OLD_DETECTOR_SHAS = (
+    "16b886b9d06d6f389b369b87ce0c155767697ca0",
+    "acd6eb28be6d750e89b626fa4ccd4403e1265cd6",
+)
+UNREGISTERED = (
+    "pgextwin/pg_permissions", "pgextwin/pg_track_settings",
+    "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger",
+    "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots",
+    "pgextwin/pg_squeeze", "pgextwin/odbc_fdw",
+)
+COHORT = tuple(repo for repo in ROSTER if repo not in UNREGISTERED)
 HEAD = "a" * 40
+CANDIDATE = {"dry": "false", "confirm": "UPDATE", "expected": HEAD}
 
 
 def gate():
@@ -49,34 +58,29 @@ class SharedUpdateTests(unittest.TestCase):
     def test_all_seventeen_exact_live_roster_positive(self):
         self.assertEqual(len(ROSTER), len(set(ROSTER)))
         self.assertEqual(len(ROSTER), 26)
-        unpinned = (
-            "pgextwin/pg_permissions", "pgextwin/pg_track_settings",
-            "pgextwin/pg_show_plans", "pgextwin/pg_profile", "pgextwin/pldebugger", "pgextwin/pg_wait_sampling", "pgextwin/pg_failover_slots", "pgextwin/pg_squeeze", "pgextwin/odbc_fdw",
-        )
-        cohort = tuple(repo for repo in ROSTER if repo not in unpinned)
-        self.assertEqual(len(cohort), 17)
-        self.assertTrue(WAVE3.issubset(cohort))
-        for repo in cohort:
-            pin = NEW if repo in WAVE3 else OLD
+        self.assertEqual(len(COHORT), 17)
+        for repo in COHORT:
             with self.subTest(repo=repo):
-                self.assertEqual(run(repo, pin), (0, "mode=read-only\n"))
-                self.assertEqual(run(repo, pin, dry="false", confirm="UPDATE",
-                                     expected=HEAD), (0, "mode=candidate\n"))
-        for repo in unpinned:
-            self.assertNotEqual(run(repo, NEW)[0], 0)
+                self.assertEqual(run(repo, DETECTOR_SHA), (0, "mode=read-only\n"))
+                self.assertEqual(run(repo, DETECTOR_SHA, **CANDIDATE),
+                                 (0, "mode=candidate\n"))
 
-    def test_foreign_or_wrong_sha_cannot_be_called(self):
-        for repo in (r for r in ROSTER if r not in ("pgextwin/pg_permissions", "pgextwin/pg_track_settings")):
-            wrong = OLD if repo in WAVE3 else NEW
-            self.assertNotEqual(run(repo, wrong)[0], 0, repo)
-        for repo in ("pgextwin/build", "pgextwin/catalog", "other/pgtap",
-                     "pgextwin/rogue", "pgextwin/pgtap/../catalog"):
-            self.assertNotEqual(run(repo, NEW)[0], 0, repo)
+    def test_wrong_detector_shas_denied_for_fleet(self):
+        for repo in ROSTER:
+            for pin in (*OLD_DETECTOR_SHAS, HEAD):
+                with self.subTest(repo=repo, pin=pin):
+                    self.assertNotEqual(run(repo, pin)[0], 0)
+                    self.assertNotEqual(run(repo, pin, **CANDIDATE)[0], 0)
+
+    def test_unregistered_repositories_denied(self):
+        for repo in (*UNREGISTERED, "pgextwin/build", "pgextwin/catalog",
+                     "other/pgtap", "pgextwin/rogue", "pgextwin/pgtap/../catalog"):
+            with self.subTest(repo=repo):
+                self.assertNotEqual(run(repo, DETECTOR_SHA)[0], 0)
+                self.assertNotEqual(run(repo, DETECTOR_SHA, **CANDIDATE)[0], 0)
 
     def test_adversarial_human_request_denied(self):
         for repo in ("pgextwin/hypopg", "pgextwin/pgtap"):
-            pin = NEW if repo in WAVE3 else OLD
-            defaults = {"dry": "false", "confirm": "UPDATE", "expected": HEAD}
             for changed in (
                 {"actor": "github-actions[bot]"},
                 {"triggering": "attacker"},
@@ -90,11 +94,11 @@ class SharedUpdateTests(unittest.TestCase):
                 {"attempt": "2"},
                 {"dry": "garbage"},
             ):
-                case = {**defaults, **changed}
+                case = {**CANDIDATE, **changed}
                 with self.subTest(repo=repo, case=changed):
-                    self.assertNotEqual(run(repo, pin, **case)[0], 0)
-            self.assertNotEqual(run(repo, pin, confirm="UPDATE")[0], 0)
-            self.assertNotEqual(run(repo, pin, expected=HEAD)[0], 0)
+                    self.assertNotEqual(run(repo, DETECTOR_SHA, **case)[0], 0)
+            self.assertNotEqual(run(repo, DETECTOR_SHA, confirm="UPDATE")[0], 0)
+            self.assertNotEqual(run(repo, DETECTOR_SHA, expected=HEAD)[0], 0)
 
     def test_shared_is_read_only_and_has_workflow_outputs(self):
         for value in ("on:\n  workflow_call:",
