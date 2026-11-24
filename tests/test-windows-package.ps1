@@ -167,6 +167,13 @@ $setSqlInstallPath = {
     $map.files[1].Remove('requiredMatches')
     $map.sqlInstallPath = @('1.0', '{version}')
 }
+$setSeparateSqlVersion = {
+    & $setSqlInstallPath
+    Rename-Item -LiteralPath (Join-Path $upstream 'example--1.0--2.0.sql') 'example--1.0--1.6.sql'
+    Set-Content -LiteralPath (Join-Path $upstream 'example.control') -Value "default_version = '1.6'"
+    $map.sqlVersion = '1.6'
+    $map.sqlInstallPath = @('1.0', '1.6')
+}
 try {
     $cases = @(
         Invoke-ContractCase valid {}
@@ -238,7 +245,13 @@ try {
         Invoke-ContractCase sql-install-path-wrong-version {
             & $setSqlInstallPath
             $map.sqlInstallPath = @('1.0', '3.0')
-        } 'end at the resolved upstream version'
+        } 'end at the expected SQL version'
+        Invoke-ContractCase separate-sql-version { & $setSeparateSqlVersion }
+        Invoke-ContractCase separate-sql-version-control-mismatch {
+            & $setSeparateSqlVersion
+            Set-Content -LiteralPath (Join-Path $upstream 'example.control') -Value "default_version = '2.0'"
+        } 'Control default_version'
+        Invoke-ContractCase invalid-sql-version { $map.sqlVersion = '../1.6' } 'sqlVersion requires'
         Invoke-ContractCase license-readme-range { & $setLicenseRange }
         Invoke-ContractCase license-readme-tampered {
             & $setLicenseRange

@@ -69,7 +69,7 @@ function Resolve-WindowsPackage {
     )
     $map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Json -AsHashtable
     Assert-PackageObject $map -Required @('schemaVersion', 'distribution', 'files', 'packageInfo') `
-        -Optional @('packageInfoFinalNewline', 'sqlInstallPath')
+        -Optional @('packageInfoFinalNewline', 'sqlVersion', 'sqlInstallPath')
     if ($map.Contains('packageInfoFinalNewline') -and $map.packageInfoFinalNewline -isnot [bool]) {
         throw 'packageInfoFinalNewline must be a boolean.'
     }
@@ -77,6 +77,14 @@ function Resolve-WindowsPackage {
         $map.distribution -cnotin @('sql-only', 'dll-sql', 'dll-only') -or
         $map.files -isnot [array] -or !$map.files.Count -or $map.packageInfo -isnot [array] -or !$map.packageInfo.Count) {
         throw 'Invalid schema version, distribution, files or packageInfo in package map.'
+    }
+    $sqlVersionPattern = '\A[A-Za-z0-9_.+]+(?:-[A-Za-z0-9_.+]+)*\z'
+    $sqlVersion = $Tokens.version
+    if ($map.Contains('sqlVersion')) {
+        if ($map.distribution -eq 'dll-only' -or $map.sqlVersion -isnot [string] -or $map.sqlVersion -cnotmatch $sqlVersionPattern) {
+            throw 'sqlVersion requires a valid PostgreSQL extension version in a package containing SQL.'
+        }
+        $sqlVersion = $map.sqlVersion
     }
     if ($map.Contains('sqlInstallPath') -and ($map.distribution -eq 'dll-only' -or
         $map.sqlInstallPath -isnot [array] -or $map.sqlInstallPath.Count -lt 2)) {
@@ -221,20 +229,20 @@ function Resolve-WindowsPackage {
     if ($matchedLicenses.Count -ne $licenses.Count) { throw 'Package map must place every verified license.' }
     if ($map.distribution -ne 'dll-only') {
         $controlPath = 'share/extension/' + $Tokens.extensionName + '.control'
-        $sqlPath = 'share/extension/' + $Tokens.extensionName + '--' + $Tokens.version + '.sql'
+        $sqlPath = 'share/extension/' + $Tokens.extensionName + '--' + $sqlVersion + '.sql'
         $controls = @($destinations.Values | ForEach-Object { if ($_.ContainsKey($controlPath)) { $_[$controlPath] } } | Select-Object -Unique)
         if ($map.Contains('sqlInstallPath')) {
             # PostgreSQL can install from a base script followed by update scripts.
             $versions = @(foreach ($version in $map.sqlInstallPath) {
                 if ($version -isnot [string]) { throw 'sqlInstallPath versions must be strings.' }
                 $version = Expand-PackageTokens $version $Tokens
-                if ($version -cnotmatch '^[A-Za-z0-9_.+]+(?:-[A-Za-z0-9_.+]+)*$') {
+                if ($version -cnotmatch $sqlVersionPattern) {
                     throw "Invalid sqlInstallPath version '$version'."
                 }
                 $version
             })
-            if ($versions[-1] -cne $Tokens.version -or @($versions | Select-Object -Unique).Count -ne $versions.Count) {
-                throw 'sqlInstallPath must use distinct versions and end at the resolved upstream version.'
+            if ($versions[-1] -cne $sqlVersion -or @($versions | Select-Object -Unique).Count -ne $versions.Count) {
+                throw 'sqlInstallPath must use distinct versions and end at the expected SQL version.'
             }
             $sqlPrefix = 'share/extension/' + $Tokens.extensionName + '--'
             $requiredSql = @("${sqlPrefix}$($versions[0]).sql")
@@ -257,8 +265,8 @@ function Resolve-WindowsPackage {
         }
         foreach ($control in $controls) {
             $versions = [regex]::Matches([IO.File]::ReadAllText($control), "(?m)^\s*default_version\s*=\s*'([^']+)'")
-            if ($versions.Count -ne 1 -or $versions[0].Groups[1].Value -cne $Tokens.version) {
-                throw "Control default_version does not match '$($Tokens.version)' in '$controlPath'."
+            if ($versions.Count -ne 1 -or $versions[0].Groups[1].Value -cne $sqlVersion) {
+                throw "Control default_version does not match '$sqlVersion' in '$controlPath'."
             }
         }
     }
