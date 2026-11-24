@@ -21,6 +21,7 @@ on:
           - pg_squeeze
           - pg_stat_monitor
           - pg_store_plans
+          - pg_variables
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
