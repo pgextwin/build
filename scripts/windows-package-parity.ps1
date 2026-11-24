@@ -54,6 +54,10 @@ $evidence = Join-Path $root 'parity'
 $work = [IO.Directory]::CreateTempSubdirectory('pgextwin-parity-').FullName
 try {
     $licenses = Invoke-PackageLicenseVerification $matrix $candidateDir $upstreamDir $work -RestoreWorktrees
+    # Some legacy hooks copy their own repository LICENSE rather than the upstream worktree file.
+    $legacyLicenseWork = Join-Path $work 'legacy-license-verification'
+    [void][IO.Directory]::CreateDirectory($legacyLicenseWork)
+    $null = Invoke-PackageLicenseVerification $matrix $legacyDir $upstreamDir $legacyLicenseWork -RestoreWorktrees
     Push-Location $legacyDir
     try {
         & (Join-Path $oldHooks 'build.ps1') -PgRoot $env:PGROOT -UpstreamDir $upstreamDir
