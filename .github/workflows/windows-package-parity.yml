@@ -28,6 +28,11 @@ on:
           - set_user
           - odbc_fdw
           - orafce
+          - wal2json
+          - pg_failover_slots
+          - pg_repack
+          - pg_partman
+          - pldebugger
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
