@@ -27,6 +27,7 @@ def load(label, filename):
 
 ident = load("signed_candidate_identity", "fleet-release-identity.py")
 pin = load("signed_candidate_certificate", "issue-75-attempt-pin-migration-offline.py")
+routes = load("scheduled_signed_package_routes", "signed-package-routes.py")
 vulnerability_policy = load("signed_candidate_grype_policy", "automatic-grype-publisher-policy.py")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 REPO = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
@@ -55,8 +56,10 @@ def run_readonly(*args):
             "only attestation and GET commands allowed")
     if args[:3] == ("gh", "api", "--method"):
         require(len(args) == 5 and args[3] == "GET"
-                and re.fullmatch(r"repos/pgextwin/[a-z][a-z0-9_]*/actions/runs/[1-9][0-9]*", args[4]),
-                "non-readonly or non-run GitHub API resource")
+                and re.fullmatch(
+                    r"repos/pgextwin/[a-z][a-z0-9_]*/(?:actions/runs/[1-9][0-9]*|branches/main"
+                    r"|contents/\.github/workflows/update-watch\.yml\?ref=[0-9a-f]{40})", args[4]),
+                "non-readonly or unrelated GitHub API resource")
     else:
         require(len(args) >= 4 and args[2] == "verify",
                 "only gh attestation verify allowed")
@@ -75,7 +78,7 @@ def stable_run(run, *, repo, sha, run_id, attempt):
             "signed candidate must belong to original local main/schedule Run")
 
 def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
-          sha, run_id, attempt, verify):
+          sha, run_id, attempt, verify, signer_sha=pin.SIGNER_SHA):
     require(type(repo) is str and REPO.fullmatch(repo)
             and type(sha) is str and SHA.fullmatch(sha)
             and type(run_id) is int and run_id > 0
@@ -149,7 +152,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
                 and origin.get("packagingCommit") == sha
                 and build.get("repository") == "pgextwin/build"
                 and build.get("workflow") == pin.offline.SIGNER_PATH
-                and build.get("commit") == pin.SIGNER_SHA
+                and build.get("commit") == signer_sha
                 and type(wf.get("id")) is int and wf["id"] == run_id
                 and type(wf.get("attempt")) is int and wf["attempt"] == attempt
                 and wf.get("url") == f"https://github.com/{repo}/actions/runs/{run_id}"
@@ -178,7 +181,7 @@ def audit(folder, manifest, lifecycle, intent, first_run, second_run, *, repo,
             try:
                 pin.proof_statement(
                     {"verificationResult": item["verificationResult"]},
-                    kind, repo=repo, sha=sha, signer_sha=pin.SIGNER_SHA,
+                    kind, repo=repo, sha=sha, signer_sha=signer_sha,
                     run_id=run_id, attempt=attempt, event="schedule",
                     config_path=CALLER, zip_name=z.name,
                     zip_digest=hashes[z.name], sbom=sbom)
@@ -218,6 +221,7 @@ def main():
     a = argparse.ArgumentParser()
     for name in ("dist", "manifest", "lifecycle", "intent", "output"):
         a.add_argument("--" + name, required=True)
+    a.add_argument("--package-requalification-sha")
     args = a.parse_args()
     try:
         repo, sha = os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GITHUB_SHA", "")
@@ -231,20 +235,32 @@ def main():
         def github_run():
             return run_readonly("gh", "api", "--method", "GET",
                                 f"repos/{repo}/actions/runs/{run_id}")
+        first = github_run()
+        stable_run(first, repo=repo, sha=sha, run_id=run_id, attempt=attempt)
+        signer_sha = pin.SIGNER_SHA
+        if args.package_requalification_sha is not None:
+            def get(repository, resource):
+                return run_readonly("gh", "api", "--method", "GET", f"repos/{repository}/{resource}")
+            branch = get(repo, "branches/main")
+            require(branch.get("name") == "main" and branch.get("protected") is True
+                    and (branch.get("commit") or {}).get("sha") == sha,
+                    "scheduled requalification source is not protected main")
+            signer_sha = routes.requalification_signer(
+                get, repo, sha, first, routes.read_policy(), args.package_requalification_sha)
+
         def real_verify(z, kind, trusted_repo, trusted_sha):
             return run_readonly("gh", "attestation", "verify", str(z),
                                 "--repo", trusted_repo,
                                 "--signer-workflow", "pgextwin/build/" + pin.offline.SIGNER_PATH,
-                                "--signer-digest", pin.SIGNER_SHA,
+                                "--signer-digest", signer_sha,
                                 "--source-digest", trusted_sha,
                                 "--source-ref", "refs/heads/main",
                                 "--predicate-type", kind, "--format", "json")
-        first = github_run()
         result = audit(Path(args.dist), json_object(Path(args.manifest).read_text("utf-8")),
                        json_object(Path(args.lifecycle).read_text("utf-8")),
                        json_object(Path(args.intent).read_text("utf-8")),
                        first, github_run(), repo=repo, sha=sha,
-                       run_id=run_id, attempt=attempt, verify=real_verify)
+                       run_id=run_id, attempt=attempt, verify=real_verify, signer_sha=signer_sha)
         # Check current exact root Run once more after real signature operations.
         stable_run(github_run(), repo=repo, sha=sha, run_id=run_id, attempt=attempt)
         Path(args.output).write_text(json.dumps(result, indent=2) + "\n", "utf-8")
