@@ -66,8 +66,8 @@
     },
     "pgextwin/pg_squeeze": {
       "candidateSigner": "87c98a47b9ed6c44c64d5b55d147e9f4f39fdcb1",
-      "candidateAudit": null,
-      "ownerWrapper": "2cb9c5dd6c59ccd70df98124d19688a7ea6c3eb5",
+      "candidateAudit": "597cfbba47b95bdbd1ee54fa38c01bde99d88653",
+      "ownerWrapper": "597cfbba47b95bdbd1ee54fa38c01bde99d88653",
       "legacyOwnerWrapper": "2cb9c5dd6c59ccd70df98124d19688a7ea6c3eb5",
       "scheduledRequalification": null
     }
