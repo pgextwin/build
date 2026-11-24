@@ -21,7 +21,7 @@ on:
         default: ''
         type: string
       detector_sha:
-        description: Original immutable central detector SHA, cohort checked
+        description: Required immutable central detector SHA, cohort checked
         required: true
         type: string
     outputs:
@@ -58,13 +58,13 @@ jobs:
           DETECTOR_SHA: ${{ inputs.detector_sha }}
         run: |
           set -euo pipefail
-          # Enforce immutable, per-cohort original detector refs. A caller
+          # Enforce the immutable detector SHA for registered callers. A caller
           # cannot choose a new GitHub workflow/code SHA by using an input.
           case "$REPO" in
             pgextwin/pg_bigm|pgextwin/pg_cron|pgextwin/pg_hint_plan|pgextwin/pgaudit|pgextwin/set_user|pgextwin/pg_repack|pgextwin/pg_ivm|pgextwin/pg_qualstats|pgextwin/plpgsql_check|pgextwin/hypopg|pgextwin/wal2json|pgextwin/pg_partman|pgextwin/pg_stat_monitor|pgextwin/orafce)
-              required_sha=16b886b9d06d6f389b369b87ce0c155767697ca0 ;;
+              required_sha=3e5300afa99b99ea8c11be2a6ef75c994d708c28 ;;
             pgextwin/pgtap|pgextwin/pg_variables|pgextwin/pg_store_plans)
-              required_sha=acd6eb28be6d750e89b626fa4ccd4403e1265cd6 ;;
+              required_sha=3e5300afa99b99ea8c11be2a6ef75c994d708c28 ;;
             *) echo 'DENY: unregistered update-watch caller' >&2; exit 1 ;;
           esac
           if [[ "$DETECTOR_SHA" != "$required_sha" ]]; then
