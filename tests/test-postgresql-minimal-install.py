@@ -36,8 +36,8 @@ assert "504 \\(Gateway Timeout\\)" in script
 assert "https://community.chocolatey.org/api/v2/" in script
 assert "401 \\(Unauthorized\\)" not in script and "403 \\(Forbidden\\)" not in script and "404 \\(Not Found\\)" not in script
 assert script.index("if ($feedOutageCount -ne $maxAttempts)") < script.index("Start-Process -FilePath $installer")
-# Chocolatey failure is not success: permit only five previously byte-verified
-# EDB EXEs and fail closed on any discrepancy or unsafe installer exit.
+# Accept only explicitly byte-pinned EDB installers for the exact requested
+# major and package version. The previously verified pins still apply.
 receipt = json.loads((ROOT / "evidence/issue-75/edb-pg14-18-exe-byte-observations-20261017.json").read_text(encoding="utf-8"))
 pins = receipt["sources"][0]["sourcePackages"]
 assert len(pins) == 5 and receipt["verifiedInstallerCount"] == 5
@@ -49,6 +49,17 @@ for package in pins:
     assert package["version"] in script
     assert package["url64"].removeprefix("https://get.enterprisedb.com/postgresql/") in script
     assert str(next(x["bytesRead"] for source in receipt["sources"] for x in source["downloadedInstallers"] if x["package"] == package["package"])) in script
+fallback = {}
+for major, rows in re.findall(r"^        '([0-9]+)' = @{\n(.*?)^        }$", script, re.M | re.S):
+    fallback[int(major)] = set(re.findall(
+        r"^            '([0-9.]+)' = @{ File = '[^']+'; "
+        r"Sha256 = '[a-f0-9]{64}'; Bytes = [1-9][0-9]* }$",
+        rows, re.M,
+    ))
+for version in meta["postgresql"]:
+    assert version["chocolateyVersion"] in fallback[version["major"]]
+assert "!$edb[$majorKey].ContainsKey($ChocolateyVersion)" in script
+assert "$pin = $edb[$majorKey][$ChocolateyVersion]" in script
 assert "if (-not $edb.ContainsKey($majorKey)" in script
 assert 'throw "Chocolatey failure; direct installer fallback DENY for unknown package/version"' in script
 assert "Invoke-WebRequest -Uri $uri -OutFile $installer" in script

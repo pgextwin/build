@@ -93,24 +93,39 @@ if ($successCodes -notcontains $code) {
         }
         throw "Chocolatey failed after $maxAttempts attempts, without verified V2 HTTP 406/502/503/504 in every attempt; EDB fallback DENY."
     }
-    # Only the exact EDB installer bytes independently retrieved and SHA256
-    # verified in successful Issue #75 Runs 39038000517 + 39038162434 may be
-    # used when the Chocolatey V2 registry itself is unavailable.
-    # These are fixed executable-byte pins, NOT a Release authorization.
+    # Permit only the exact EDB bytes previously measured in Issue #75 or
+    # independently downloaded and matched to the pinned Chocolatey package's SHA256.
     $edb = @{
-        '14' = @{ Version = '14.24.0'; File = 'postgresql-14.24-1-windows-x64.exe'; Sha256 = '52a51ec49c38a68a9f93f677b23e975ba709354ddab8283ef2558f3e7cb7f998'; Bytes = 360966784 }
-        '15' = @{ Version = '15.19.0'; File = 'postgresql-15.19-1-windows-x64.exe'; Sha256 = '09dc76dc45332e031074df8e5d19d9eac64b2b98b51e279099b7461a5c12a92a'; Bytes = 362808024 }
-        '16' = @{ Version = '16.15.5'; File = 'postgresql-16.15-5-windows-x64.exe'; Sha256 = '4065dbc5ffb52010e7357dfd6a74934878f1c6faf7a75cad1411a22e11b7b929'; Bytes = 404741880 }
-        '17' = @{ Version = '17.11.4'; File = 'postgresql-17.11-4-windows-x64.exe'; Sha256 = 'c9828fd3a4daebbeeace19bec2de5f38d73c047fce47278148b525cfbe28a5e4'; Bytes = 410984080 }
-        '18' = @{ Version = '18.6.5'; File = 'postgresql-18.6-5-windows-x64.exe'; Sha256 = '227e2bc08091b4c2b8338c7d61b11d057f895711480b006f90bfcfcd2410a58a'; Bytes = 414966472 }
+        '14' = @{
+            '14.24.0' = @{ File = 'postgresql-14.24-1-windows-x64.exe'; Sha256 = '52a51ec49c38a68a9f93f677b23e975ba709354ddab8283ef2558f3e7cb7f998'; Bytes = 360966784 }
+        }
+        '15' = @{
+            '15.19.0' = @{ File = 'postgresql-15.19-1-windows-x64.exe'; Sha256 = '09dc76dc45332e031074df8e5d19d9eac64b2b98b51e279099b7461a5c12a92a'; Bytes = 362808024 }
+            '15.20.1' = @{ File = 'postgresql-15.20-1-windows-x64.exe'; Sha256 = '105ccd558c9b7ae633f76910a32ba2c68e10a0f6a150a246c27122564db91c66'; Bytes = 406806952 }
+        }
+        '16' = @{
+            '16.15.5' = @{ File = 'postgresql-16.15-5-windows-x64.exe'; Sha256 = '4065dbc5ffb52010e7357dfd6a74934878f1c6faf7a75cad1411a22e11b7b929'; Bytes = 404741880 }
+            '16.16.1' = @{ File = 'postgresql-16.16-1-windows-x64.exe'; Sha256 = '37cad2be2c9ff2b43ab230a0614e571bc0ce48455fa0b6c68c9706a5b34fe2b3'; Bytes = 408717624 }
+        }
+        '17' = @{
+            '17.11.4' = @{ File = 'postgresql-17.11-4-windows-x64.exe'; Sha256 = 'c9828fd3a4daebbeeace19bec2de5f38d73c047fce47278148b525cfbe28a5e4'; Bytes = 410984080 }
+            '17.12.1' = @{ File = 'postgresql-17.12-1-windows-x64.exe'; Sha256 = '23bc416a9fee380f0d9ba1969647e374b43c4f37ce8ae5762f2ea59350f49fbc'; Bytes = 416659176 }
+        }
+        '18' = @{
+            '18.6.5' = @{ File = 'postgresql-18.6-5-windows-x64.exe'; Sha256 = '227e2bc08091b4c2b8338c7d61b11d057f895711480b006f90bfcfcd2410a58a'; Bytes = 414966472 }
+            '18.7.1' = @{ File = 'postgresql-18.7-1-windows-x64.exe'; Sha256 = '90bf244854a6c7f6d204b26934a32bd571b9953963b6137bb46d2fcd3f1a313e'; Bytes = 418917672 }
+        }
+        '19' = @{
+            '19.0.1' = @{ File = 'postgresql-19.0-1-windows-x64.exe'; Sha256 = '2e3dcb6d764fbdbbeb6dff688990b65b72abe85cd552862277605fedea9632fe'; Bytes = 115245552 }
+        }
     }
     $majorKey = [string]$Major
     if (-not $edb.ContainsKey($majorKey) -or
         $ChocolateyPackage -cne "postgresql$Major" -or
-        $ChocolateyVersion -cne $edb[$majorKey].Version) {
+        !$edb[$majorKey].ContainsKey($ChocolateyVersion)) {
         throw "Chocolatey failure; direct installer fallback DENY for unknown package/version"
     }
-    $pin = $edb[$majorKey]
+    $pin = $edb[$majorKey][$ChocolateyVersion]
     $uri = "https://get.enterprisedb.com/postgresql/$($pin.File)"
     $installer = Join-Path ([IO.Path]::GetTempPath()) ("pgextwin-edb-$Major-" + [Guid]::NewGuid().ToString('N') + '.exe')
     try {
