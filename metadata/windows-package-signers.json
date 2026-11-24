@@ -24,8 +24,8 @@
     },
     "pgextwin/hypopg": {
       "candidateSigner": "6097bd83843d0d53abb88390aa43d5af4e22fa42",
-      "candidateAudit": null,
-      "ownerWrapper": "3bc216aaa5545826033a4233b9f73f1d54fde97a",
+      "candidateAudit": "cc44200189b6f5b9d7bf5bcc90c4c8a498ef3a3c",
+      "ownerWrapper": "cc44200189b6f5b9d7bf5bcc90c4c8a498ef3a3c",
       "legacyOwnerWrapper": "3bc216aaa5545826033a4233b9f73f1d54fde97a",
       "scheduledRequalification": null
     }
