@@ -105,6 +105,13 @@
       "ownerWrapper": "f42fda10f3b22f3130556e46510fdef5b5519dad",
       "legacyOwnerWrapper": "a146c91f1328de5a4767fca82eaecbb592672a4a",
       "scheduledRequalification": null
+    },
+    "pgextwin/plpgsql_check": {
+      "candidateSigner": "152e2a2575612f5b76960b74b1f3d599235b193e",
+      "candidateAudit": null,
+      "ownerWrapper": "52b7f14c0f11a8a7bd820ddef12a950e33bd06fb",
+      "legacyOwnerWrapper": "52b7f14c0f11a8a7bd820ddef12a950e33bd06fb",
+      "scheduledRequalification": null
     }
   }
 }
