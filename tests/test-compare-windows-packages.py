@@ -75,6 +75,63 @@ class ComparePackagesTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(report["differences"]), 2)
 
+    def test_packaging_and_build_origins_verified_and_tampers_reported(self):
+        upstream_bytes = b"README\n"
+        packaging_bytes = b"Artistic\n"
+        build_bytes = b"PostgreSQL\n"
+        files = [
+            ("README.md", upstream_bytes),
+            ("LICENSE", packaging_bytes),
+            ("POSTGRESQL-COPYRIGHT", build_bytes),
+            ("share/extension/example.sql", b"SELECT 1;"),
+        ]
+        self.make_zip(self.before, files)
+        self.make_zip(self.after, files)
+        self.licenses.write_text(json.dumps({
+            "schemaVersion": 1,
+            "upstreamCommit": "a" * 40,
+            "packagingCommit": "b" * 40,
+            "licenses": [
+                {
+                    "upstreamPath": "README.md",
+                    "repositoryPath": "README.md",
+                    "zipPath": "README.md",
+                    "size": len(upstream_bytes),
+                    "sha256": hashlib.sha256(upstream_bytes).hexdigest(),
+                },
+                {
+                    "origin": "packaging",
+                    "repositoryPath": "LICENSE",
+                    "zipPath": "LICENSE",
+                    "size": len(packaging_bytes),
+                    "sha256": hashlib.sha256(packaging_bytes).hexdigest(),
+                },
+                {
+                    "origin": "build",
+                    "repositoryPath": "licenses/COPYRIGHT.postgresql",
+                    "generatedSource": "upstream",
+                    "generatedPath": "POSTGRESQL-COPYRIGHT",
+                    "zipPath": "POSTGRESQL-COPYRIGHT",
+                    "size": len(build_bytes),
+                    "sha256": hashlib.sha256(build_bytes).hexdigest(),
+                },
+            ],
+        }))
+        code, report = self.run_comparison()
+        self.assertEqual(code, 0, report["differences"])
+        self.assertTrue(report["equivalent"])
+
+        self.make_zip(self.after, [
+            ("README.md", upstream_bytes),
+            ("LICENSE", packaging_bytes.replace(b"\n", b"\r\n")),
+            ("POSTGRESQL-COPYRIGHT", b"Tampered\n"),
+            ("share/extension/example.sql", b"SELECT 1;"),
+        ])
+        code, report = self.run_comparison()
+        self.assertEqual(code, 1)
+        self.assertIn("after: license LICENSE differs from verified packaging blob.", report["differences"])
+        self.assertIn("after: license POSTGRESQL-COPYRIGHT differs from verified build blob.", report["differences"])
+
 
 if __name__ == "__main__":
     unittest.main()

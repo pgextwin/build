@@ -112,18 +112,30 @@ def versioned_sources(extension, repository, target_sha, fetch, now):
         commit = entry["upstreamCommit"]
         verifier._hex(commit, 40, "INVALID_UPSTREAM_COMMIT")
         licenses = []
+        upstream_licenses = 0
         for mapping in entry["licenseFiles"]:
-            local, original = mapping["repositoryPath"], mapping["upstreamPath"]
-            raw = license_at(upstream, original, commit)
-            if pgtap_readme_license:
-                need((local, original) == ("LICENSE", "README.md"), "INVALID_PGTAP_LICENSE_MAPPING")
-                sections = PGTAP_LICENSE_HEADING.split(raw)
-                need(len(sections) == 2, "INVALID_PGTAP_LICENSE_SECTION")
-                # pgTap places the complete license at the end of README.md.
-                raw = sections[1]
-            need(raw == license_at(repository, local, target_sha), "VERSIONED_LICENSE_MISMATCH")
-            licenses.append(dict(mapping, sha256=hashlib.sha256(raw).hexdigest()))
-        need(licenses, "MISSING_VERSIONED_LICENSE")
+            origin = mapping.get("origin")
+            if origin is None:
+                local, original = mapping["repositoryPath"], mapping["upstreamPath"]
+                raw = license_at(upstream, original, commit)
+                if pgtap_readme_license:
+                    need((local, original) == ("LICENSE", "README.md"), "INVALID_PGTAP_LICENSE_MAPPING")
+                    sections = PGTAP_LICENSE_HEADING.split(raw)
+                    need(len(sections) == 2, "INVALID_PGTAP_LICENSE_SECTION")
+                    # pgTap places the complete license at the end of README.md.
+                    raw = sections[1]
+                need(raw == license_at(repository, local, target_sha), "VERSIONED_LICENSE_MISMATCH")
+                licenses.append(dict(mapping, sha256=hashlib.sha256(raw).hexdigest()))
+                upstream_licenses += 1
+            elif origin in ("packaging", "build"):
+                expected = mapping.get("sha256")
+                verifier._hex(expected, 64, "INVALID_LICENSE_SHA256")
+                raw = license_at(repository, mapping["repositoryPath"], target_sha)
+                need(hashlib.sha256(raw).hexdigest() == expected, "VERSIONED_LICENSE_MISMATCH")
+                licenses.append(dict(mapping, sha256=expected))
+            else:
+                raise verifier.TicketRejected("INVALID_LICENSE_ORIGIN")
+        need(licenses and upstream_licenses >= 1, "MISSING_VERSIONED_LICENSE")
         sources.append({"major": entry["major"], "ref": entry["upstreamRef"],
                         "version": entry["upstreamVersion"], "commit": commit,
                         "licenses": licenses})

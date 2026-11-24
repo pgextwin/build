@@ -55,9 +55,10 @@ function Expand-PackageTokens {
 }
 
 function Assert-PackageLicenseBytes {
-    param([IO.FileInfo]$File, $License)
+    param([IO.FileInfo]$File, $License, [string]$Label)
     if ($File.Length -ne $License.size -or (Get-FileHash -LiteralPath $File.FullName).Hash -ine $License.sha256) {
-        throw "Verified license bytes changed for '$($License.repositoryPath)'."
+        $name = if ($Label) { $Label } else { $License.repositoryPath }
+        throw "Verified license bytes changed for '$name'."
     }
 }
 
@@ -69,7 +70,7 @@ function Resolve-WindowsPackage {
     )
     $map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Json -AsHashtable
     Assert-PackageObject $map -Required @('schemaVersion', 'distribution', 'files', 'packageInfo') `
-        -Optional @('packageInfoFinalNewline', 'sqlVersion', 'sqlInstallPath', 'perPostgresql')
+        -Optional @('packageInfoFinalNewline', 'sqlExtensionName', 'sqlVersion', 'sqlInstallPath', 'perPostgresql')
     if ($map.Contains('packageInfoFinalNewline') -and $map.packageInfoFinalNewline -isnot [bool]) {
         throw 'packageInfoFinalNewline must be a boolean.'
     }
@@ -86,7 +87,7 @@ function Resolve-WindowsPackage {
         }
         foreach ($major in $series.Keys) {
             if ($major -cnotmatch '\A[1-9][0-9]*\z') { throw "Invalid PostgreSQL major '$major' in package map." }
-            Assert-PackageObject $series[$major] -Optional @('sqlVersion', 'sqlInstallPath', 'files')
+            Assert-PackageObject $series[$major] -Optional @('sqlExtensionName', 'sqlVersion', 'sqlInstallPath', 'files')
             if ($series[$major].Contains('files') -and ($series[$major].files -isnot [array] -or !$series[$major].files.Count)) {
                 throw "Package files for PostgreSQL $major must be a nonempty array."
             }
@@ -95,9 +96,19 @@ function Resolve-WindowsPackage {
         if (!$series.Contains($major)) { throw "Package map has no settings for PostgreSQL $major." }
         $settings = $series[$major]
         if ($settings.Contains('files')) { $filesForMajor += $settings.files }
-        foreach ($key in @('sqlVersion', 'sqlInstallPath')) {
+        foreach ($key in @('sqlExtensionName', 'sqlVersion', 'sqlInstallPath')) {
             if ($settings.Contains($key)) { $map[$key] = $settings[$key] }
         }
+    }
+    $sqlExtensionName = $Tokens.extensionName
+    if ($map.Contains('sqlExtensionName')) {
+        if ($map.distribution -eq 'dll-only' -or $map.sqlExtensionName -isnot [string] -or
+            $map.sqlExtensionName -cnotmatch '\A[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?\z' -or
+            $map.sqlExtensionName -match '--') {
+            throw 'sqlExtensionName requires a valid PostgreSQL extension name in a package containing SQL.'
+        }
+        Assert-PackagePath ($map.sqlExtensionName + '.control')
+        $sqlExtensionName = $map.sqlExtensionName
     }
     $sqlVersionPattern = '\A[A-Za-z0-9_.+]+(?:-[A-Za-z0-9_.+]+)*\z'
     $sqlVersion = $Tokens.version
@@ -118,11 +129,52 @@ function Resolve-WindowsPackage {
     $roots = @{ upstream = $UpstreamDir; packaging = $PackagingDir; buildOutput = $BuildOutputDir; license = $LicenseStage
         licenseDocument = $LicenseSourceStage }
     $licenses = @{}
+    $upstreamLicensePaths = [Collections.Generic.List[string]]::new()
+    $generatedLicensePaths = @{
+        upstream    = [Collections.Generic.List[string]]::new()
+        buildOutput = [Collections.Generic.List[string]]::new()
+    }
+    $upstreamLicenseCount = 0
     foreach ($license in $VerifiedLicenses.licenses) {
         Assert-PackagePath $license.repositoryPath
-        Assert-PackagePath $license.upstreamPath
+        $origin = if ($license.PSObject.Properties['origin']) { [string]$license.origin } else { 'upstream' }
+        if ($origin -ceq 'upstream') {
+            if (!$license.PSObject.Properties['upstreamPath'] -or
+                $license.PSObject.Properties['generatedSource'] -or
+                $license.PSObject.Properties['generatedPath']) {
+                throw "Invalid upstream verified license entry for '$($license.repositoryPath)'."
+            }
+            Assert-PackagePath $license.upstreamPath
+            $upstreamLicensePaths.Add($license.upstreamPath)
+            $upstreamLicenseCount++
+        }
+        elseif ($origin -ceq 'packaging') {
+            if ($license.PSObject.Properties['upstreamPath'] -or
+                $license.PSObject.Properties['upstreamOffset'] -or
+                $license.PSObject.Properties['generatedSource'] -or
+                $license.PSObject.Properties['generatedPath']) {
+                throw "Invalid packaging verified license entry for '$($license.repositoryPath)'."
+            }
+        }
+        elseif ($origin -ceq 'build') {
+            if ($license.PSObject.Properties['upstreamPath'] -or
+                $license.PSObject.Properties['upstreamOffset'] -or
+                !$license.PSObject.Properties['generatedSource'] -or
+                !$license.PSObject.Properties['generatedPath'] -or
+                $license.generatedSource -cnotin @('upstream', 'buildOutput')) {
+                throw "Invalid build verified license entry for '$($license.repositoryPath)'."
+            }
+            Assert-PackagePath $license.generatedPath
+            $generatedLicensePaths[$license.generatedSource].Add($license.generatedPath)
+        }
+        else {
+            throw "Unsupported verified license origin '$origin'."
+        }
         if ($licenses.ContainsKey($license.repositoryPath)) { throw "Duplicate verified license '$($license.repositoryPath)'." }
         $licenses.Add($license.repositoryPath, $license)
+    }
+    if ($upstreamLicenseCount -lt 1) {
+        throw 'Package map requires at least one upstream-verified license.'
     }
     $sourceDocuments = @{}
     foreach ($license in $VerifiedLicenses.licenses) {
@@ -201,8 +253,9 @@ function Resolve-WindowsPackage {
             if ($row.source -ne 'license') {
                 $isLicenseName = '(?:^|/)(?:LICENSE|LICENCE|COPYING|COPYRIGHT|NOTICE)(?:[.\-_]|$)'
                 if ($relative -match $isLicenseName -or $destination -match $isLicenseName -or
-                    ($row.source -eq 'upstream' -and $relative -in $VerifiedLicenses.licenses.upstreamPath) -or
-                    ($row.source -eq 'packaging' -and $licenses.ContainsKey($relative))) {
+                    ($row.source -eq 'upstream' -and $relative -in $upstreamLicensePaths) -or
+                    ($row.source -eq 'packaging' -and $licenses.ContainsKey($relative)) -or
+                    ($generatedLicensePaths.ContainsKey($row.source) -and $relative -in $generatedLicensePaths[$row.source])) {
                     throw "License '$relative' must come from the verification stage."
                 }
             }
@@ -223,10 +276,19 @@ function Resolve-WindowsPackage {
             if ($row.source -eq 'license') {
                 $license = $licenses[$path]
                 Assert-PackageLicenseBytes $file $license
+                if ($license.PSObject.Properties['origin'] -and $license.origin -ceq 'build') {
+                    $generatedFile = Get-PackageItem $roots[$license.generatedSource] $license.generatedPath
+                    if (!$generatedFile) {
+                        throw "Build-generated license file missing: '$($license.generatedPath)' under '$($license.generatedSource)'."
+                    }
+                    if ($generatedFile -isnot [IO.FileInfo] -or ($generatedFile.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                        throw "Build-generated license is not an ordinary file: '$($license.generatedPath)'."
+                    }
+                    Assert-PackageLicenseBytes $generatedFile $license "$($license.generatedSource)/$($license.generatedPath) (pinned $($license.repositoryPath))"
+                }
                 $verifiedFile = $license
-                $licenseEntry = @{ repositoryPath = $license.repositoryPath; upstreamPath = $license.upstreamPath
-                    zipPath = $destination; size = $license.size; sha256 = $license.sha256 }
-                foreach ($field in @('upstreamOffset', 'upstreamSize', 'upstreamSha256')) {
+                $licenseEntry = @{ repositoryPath = $license.repositoryPath; zipPath = $destination; size = $license.size; sha256 = $license.sha256 }
+                foreach ($field in @('origin', 'upstreamPath', 'upstreamOffset', 'upstreamSize', 'upstreamSha256', 'generatedSource', 'generatedPath')) {
                     if ($license.PSObject.Properties[$field]) { $licenseEntry[$field] = $license.$field }
                 }
                 $matchedLicenses.Add($path, $licenseEntry)
@@ -250,8 +312,8 @@ function Resolve-WindowsPackage {
     }
     if ($matchedLicenses.Count -ne $licenses.Count) { throw 'Package map must place every verified license.' }
     if ($map.distribution -ne 'dll-only') {
-        $controlPath = 'share/extension/' + $Tokens.extensionName + '.control'
-        $sqlPath = 'share/extension/' + $Tokens.extensionName + '--' + $sqlVersion + '.sql'
+        $controlPath = 'share/extension/' + $sqlExtensionName + '.control'
+        $sqlPath = 'share/extension/' + $sqlExtensionName + '--' + $sqlVersion + '.sql'
         $controls = @($destinations.Values | ForEach-Object { if ($_.ContainsKey($controlPath)) { $_[$controlPath] } } | Select-Object -Unique)
         if ($map.Contains('sqlInstallPath')) {
             # PostgreSQL can install from a base script followed by update scripts.
@@ -266,7 +328,7 @@ function Resolve-WindowsPackage {
             if ($versions[-1] -cne $sqlVersion -or @($versions | Select-Object -Unique).Count -ne $versions.Count) {
                 throw 'sqlInstallPath must use distinct versions and end at the expected SQL version.'
             }
-            $sqlPrefix = 'share/extension/' + $Tokens.extensionName + '--'
+            $sqlPrefix = 'share/extension/' + $sqlExtensionName + '--'
             $requiredSql = @("${sqlPrefix}$($versions[0]).sql")
             for ($i = 1; $i -lt $versions.Count; $i++) {
                 $requiredSql += "${sqlPrefix}$($versions[$i - 1])--$($versions[$i]).sql"
@@ -296,14 +358,18 @@ function Resolve-WindowsPackage {
         if ($line -isnot [string] -or $line -match '[\r\n]') { throw 'packageInfo must contain individual text lines.' }
         Expand-PackageTokens $line $Tokens
     }
+    $verifiedLicensesRecord = @{
+        schemaVersion = 1; upstreamCommit = $VerifiedLicenses.upstreamCommit
+        licenses = @($matchedLicenses.Values | Sort-Object { $_.zipPath })
+    }
+    if ($VerifiedLicenses.PSObject.Properties['packagingCommit']) {
+        $verifiedLicensesRecord.packagingCommit = $VerifiedLicenses.packagingCommit
+    }
     return @{
         files = $files.ToArray()
         packageInfo = @($lines)
         packageInfoFinalNewline = !$map.Contains('packageInfoFinalNewline') -or $map.packageInfoFinalNewline
-        verifiedLicenses = @{
-            schemaVersion = 1; upstreamCommit = $VerifiedLicenses.upstreamCommit
-            licenses = @($matchedLicenses.Values | Sort-Object { $_.zipPath })
-        }
+        verifiedLicenses = $verifiedLicensesRecord
     }
 }
 
