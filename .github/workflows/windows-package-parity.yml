@@ -27,6 +27,7 @@ on:
           - plpgsql_check
           - set_user
           - odbc_fdw
+          - orafce
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
