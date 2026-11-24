@@ -45,10 +45,10 @@
     },
     "pgextwin/pg_hint_plan": {
       "candidateSigner": "49113f95db2252b929af8205c573abb0850fa347",
-      "candidateAudit": null,
-      "ownerWrapper": "0de5dfe50a1404dd1bef5aa41d6f22727294efd6",
+      "candidateAudit": "64e2251bb44104a423edcccbfb7ae86907863422",
+      "ownerWrapper": "64e2251bb44104a423edcccbfb7ae86907863422",
       "legacyOwnerWrapper": "0de5dfe50a1404dd1bef5aa41d6f22727294efd6",
-      "scheduledRequalification": null
+      "scheduledRequalification": "64e2251bb44104a423edcccbfb7ae86907863422"
     }
   }
 }
