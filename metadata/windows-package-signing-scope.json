@@ -1,7 +1,3 @@
 [
-  "pgextwin/wal2json",
-  "pgextwin/pg_failover_slots",
-  "pgextwin/pg_repack",
-  "pgextwin/pg_partman",
-  "pgextwin/pldebugger"
+  "pgextwin/pg_ivm"
 ]

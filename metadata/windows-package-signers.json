@@ -136,36 +136,36 @@
     },
     "pgextwin/wal2json": {
       "candidateSigner": "f33f254a36ac19245fd898a6ee35c2e44d5770c0",
-      "candidateAudit": null,
-      "ownerWrapper": "f452040504d30fc3909a935f23dfc2557946a8e8",
+      "candidateAudit": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
+      "ownerWrapper": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
       "legacyOwnerWrapper": "f452040504d30fc3909a935f23dfc2557946a8e8",
       "scheduledRequalification": null
     },
     "pgextwin/pg_failover_slots": {
       "candidateSigner": "f33f254a36ac19245fd898a6ee35c2e44d5770c0",
-      "candidateAudit": null,
-      "ownerWrapper": "50113621f52a6707b1a0c6bcf7760a6380c045eb",
+      "candidateAudit": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
+      "ownerWrapper": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
       "legacyOwnerWrapper": "50113621f52a6707b1a0c6bcf7760a6380c045eb",
       "scheduledRequalification": null
     },
     "pgextwin/pg_repack": {
       "candidateSigner": "f33f254a36ac19245fd898a6ee35c2e44d5770c0",
-      "candidateAudit": null,
-      "ownerWrapper": "3e5300afa99b99ea8c11be2a6ef75c994d708c28",
+      "candidateAudit": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
+      "ownerWrapper": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
       "legacyOwnerWrapper": "3e5300afa99b99ea8c11be2a6ef75c994d708c28",
       "scheduledRequalification": null
     },
     "pgextwin/pg_partman": {
       "candidateSigner": "f33f254a36ac19245fd898a6ee35c2e44d5770c0",
-      "candidateAudit": null,
-      "ownerWrapper": "96893a49558a0dd43ad734d5af4f237310858a9a",
+      "candidateAudit": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
+      "ownerWrapper": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
       "legacyOwnerWrapper": "96893a49558a0dd43ad734d5af4f237310858a9a",
       "scheduledRequalification": null
     },
     "pgextwin/pldebugger": {
       "candidateSigner": "f33f254a36ac19245fd898a6ee35c2e44d5770c0",
-      "candidateAudit": null,
-      "ownerWrapper": "aec29c9ad5a9afa00d264ba60c9927c136610bca",
+      "candidateAudit": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
+      "ownerWrapper": "fcb9b197ed63e071b59f63df03e3cf0a38997cbc",
       "legacyOwnerWrapper": "aec29c9ad5a9afa00d264ba60c9927c136610bca",
       "scheduledRequalification": null
     }
