@@ -171,10 +171,14 @@ class SignedCandidateReadOnly(unittest.TestCase):
 
     def test_new_candidate_signer_denied_outside_pilot(self):
         extension, lifecycle, intent, run = example()
+        repository = "pgextwin/unregistered_fixture"
+        extension["name"] = "unregistered_fixture"
+        run["repository"] = {"full_name": repository}
+        intent["repository"] = repository
         policy = audit.routes.read_policy()
         with self.assertRaisesRegex(audit.Denied, "outside the shared candidate signing route"):
             audit.audit(None, extension, lifecycle, intent, run, deepcopy(run),
-                        repo=REPO, sha=SHA, run_id=RUN, attempt=1, verify=None,
+                        repo=repository, sha=SHA, run_id=RUN, attempt=1, verify=None,
                         signer_sha=policy["candidateSigner"], verifier_sha=policy["candidateAudit"])
 
     def test_complete_real_shape_is_never_a_release_receipt(self):

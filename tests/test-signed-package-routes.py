@@ -62,7 +62,7 @@ class SignedPackageRoutes(unittest.TestCase):
 
         self.assertEqual(resolve(), SIGNER)
         with self.assertRaisesRegex(routes.Denied, "outside"):
-            resolve("pgextwin/pgaudit")
+            resolve("pgextwin/unregistered_fixture")
         run["referenced_workflows"][0]["sha"] = "e" * 40
         with self.assertRaisesRegex(routes.Denied, "approved workflow"):
             resolve()
@@ -124,7 +124,7 @@ class SignedPackageRoutes(unittest.TestCase):
                 candidate_run = refs((routes.SIGNER, signer), (routes.CANDIDATE_AUDIT, verifier))
                 audit_ref = routes.workflow_ref(routes.CANDIDATE_AUDIT, verifier)
                 self.assertEqual(routes.candidate_signer(get, repo, HEAD, candidate_run, POLICY, legacy_candidate), signer)
-                self.assertEqual(routes.candidate_signer(get, "pgextwin/pgaudit", HEAD, candidate_run, POLICY,
+                self.assertEqual(routes.candidate_signer(get, "pgextwin/unregistered_fixture", HEAD, candidate_run, POLICY,
                                                          legacy_candidate), legacy_candidate)
                 with self.assertRaisesRegex(routes.Denied, "approved signer and audit pair"):
                     routes.candidate_signer(get, REPO, HEAD, candidate_run, POLICY, legacy_candidate)
@@ -189,7 +189,7 @@ class SignedPackageRoutes(unittest.TestCase):
                               "candidate_signed_audit": (routes.CANDIDATE_AUDIT, audit_sha)}
                     run = refs(*caller.values())
                     self.assertEqual(routes.candidate_signer(get, repo, HEAD, run, POLICY, legacy_signer), approved)
-                    self.assertEqual(routes.candidate_signer(get, "pgextwin/pgaudit", HEAD, run, POLICY, legacy_signer),
+                    self.assertEqual(routes.candidate_signer(get, "pgextwin/unregistered_fixture", HEAD, run, POLICY, legacy_signer),
                                      legacy_signer)
                     run["referenced_workflows"][0]["sha"] = "e" * 40
                     with self.assertRaisesRegex(routes.Denied, "approved workflow"):
@@ -204,7 +204,7 @@ class SignedPackageRoutes(unittest.TestCase):
                 run = refs(*caller.values(), (routes.SIGNER, signer))
                 self.assertEqual(routes.requalification_signer(get, repo, HEAD, run, POLICY, schedule), signer)
                 with self.assertRaisesRegex(routes.Denied, "outside"):
-                    routes.requalification_signer(get, "pgextwin/pgaudit", HEAD, run, POLICY, schedule)
+                    routes.requalification_signer(get, "pgextwin/unregistered_fixture", HEAD, run, POLICY, schedule)
                 run["referenced_workflows"][1]["sha"] = legacy_signer
                 with self.assertRaisesRegex(routes.Denied, "approved workflow"):
                     routes.requalification_signer(get, repo, HEAD, run, POLICY, schedule)
