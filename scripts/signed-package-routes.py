@@ -10,6 +10,7 @@ OWNER_WRAPPER = ".github/workflows/chat-signed-main-source.yml"
 OWNER_CALLER = ".github/workflows/chat-signed-main.yml"
 CANDIDATE_CALLER = ".github/workflows/update-watch.yml"
 CANDIDATE_AUDIT = ".github/workflows/verify-signed-candidate-readonly.yml"
+SCHEDULED_REQUALIFICATION = ".github/workflows/requalify-merged-candidate-signed.yml"
 SIGNER = ".github/workflows/build-extension-attested.yml"
 LEGACY_AUDIT = "0ba07c7ad9fdbf20afba0a10264ecadb01ecc3df"
 POLICY = "metadata/windows-package-signers.json"
@@ -18,8 +19,8 @@ WAVE2_LEGACY_WRAPPERS = {
     "pgextwin/pg_permissions": "ff3b0f441a9744008312dbc05918b73613ae7469",
     "pgextwin/pgtap": "6b6dbab7128394a666fdb97e3bcccb29cf67c090",
 }
-PACKAGE_REPOSITORIES = PILOTS | WAVE2_LEGACY_WRAPPERS.keys()
 SHA = re.compile(r"^[0-9a-f]{40}$")
+REPOSITORY = re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
 
 
 class Denied(ValueError):
@@ -93,12 +94,12 @@ def read_policy(raw=None):
     policy = json.loads(raw, object_pairs_hook=unique)
     fields = {"candidateSigner", "candidateAudit", "ownerWrappers"}
     require(type(policy) is dict and policy.get("schemaVersion") == 1
-            and set(policy) - {"wave2"} == fields | {"schemaVersion"},
+            and set(policy) - {"wave2", "extensions"} == fields | {"schemaVersion"},
             "invalid protected signing route policy")
     for group, repos in [(policy, PILOTS), (policy.get("wave2"), WAVE2_LEGACY_WRAPPERS.keys())]:
         if group is None and "wave2" not in policy:
             continue
-        require(type(group) is dict and set(group) - {"schemaVersion", "wave2"} == fields
+        require(type(group) is dict and set(group) - {"schemaVersion", "wave2", "extensions"} == fields
                 and type(group.get("ownerWrappers")) is dict and group["ownerWrappers"].keys() == repos,
                 "invalid protected signing repository set")
         workflow_ref(SIGNER, group["candidateSigner"])
@@ -106,14 +107,43 @@ def read_policy(raw=None):
             workflow_ref(CANDIDATE_AUDIT, group["candidateAudit"])
         for sha in group["ownerWrappers"].values():
             workflow_ref(OWNER_WRAPPER, sha)
+    extensions = policy.get("extensions", {})
+    require(type(extensions) is dict, "invalid protected extension route table")
+    for repo, route in extensions.items():
+        require(REPOSITORY.fullmatch(repo) and repo not in PILOTS and repo not in WAVE2_LEGACY_WRAPPERS,
+                "invalid or duplicate protected extension route repository")
+        require(type(route) is dict and set(route) == {
+            "candidateSigner", "candidateAudit", "ownerWrapper", "legacyOwnerWrapper", "scheduledRequalification",
+        }, "invalid protected extension route")
+        workflow_ref(SIGNER, route["candidateSigner"])
+        workflow_ref(OWNER_WRAPPER, route["ownerWrapper"])
+        workflow_ref(OWNER_WRAPPER, route["legacyOwnerWrapper"])
+        for path, sha in ((CANDIDATE_AUDIT, route["candidateAudit"]),
+                          (SCHEDULED_REQUALIFICATION, route["scheduledRequalification"])):
+            if sha is not None:
+                workflow_ref(path, sha)
     return policy
 
 
+PACKAGE_REPOSITORIES = PILOTS | WAVE2_LEGACY_WRAPPERS.keys() | read_policy().get("extensions", {}).keys()
+
+
 def repository_policy(policy, repo):
-    require(repo in PACKAGE_REPOSITORIES, "repository outside shared package signing")
-    group = policy if repo in PILOTS else policy.get("wave2")
-    require(group is not None, "repository has no approved shared package route")
-    return group
+    if repo in PILOTS:
+        return policy
+    if repo in WAVE2_LEGACY_WRAPPERS:
+        require("wave2" in policy, "repository has no approved shared package route")
+        return policy["wave2"]
+    route = policy.get("extensions", {}).get(repo)
+    require(route is not None, "repository outside shared package signing")
+    return route
+
+
+def owner_wrapper_pins(policy, repo):
+    route = repository_policy(policy, repo)
+    if "ownerWrapper" in route:
+        return route["ownerWrapper"], route["legacyOwnerWrapper"]
+    return route["ownerWrappers"][repo], WAVE2_LEGACY_WRAPPERS.get(repo)
 
 
 def owner_signer(get, repo, source_sha, run, wrapper_sha, parse_signer, *,
@@ -146,3 +176,17 @@ def candidate_signer(get, repo, source_sha, run, policy, legacy_signer):
             require_run_refs(run, routes)
             return routes[0][1]
     raise Denied("protected candidate caller does not name an approved signer and audit pair")
+
+
+def requalification_signer(get, repo, source_sha, run, policy, workflow_sha):
+    route = policy.get("extensions", {}).get(repo)
+    require(route is not None, "repository outside shared scheduled requalification")
+    pinned = route["scheduledRequalification"]
+    require(pinned is None or pinned == workflow_sha, "unapproved scheduled requalification workflow")
+    caller = contents(get, repo, CANDIDATE_CALLER, source_sha)
+    require(workflow_uses(caller, ["merged_candidate_scheduled_oidc"]) == [
+        workflow_ref(SCHEDULED_REQUALIFICATION, workflow_sha),
+    ], "protected scheduled caller does not name the approved workflow")
+    signer = route["candidateSigner"]
+    require_run_refs(run, ((SCHEDULED_REQUALIFICATION, workflow_sha), (SIGNER, signer)))
+    return signer

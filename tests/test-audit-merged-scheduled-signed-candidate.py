@@ -63,17 +63,17 @@ def create_assets(path,ext):
               "source":{"type":"file","target":stem}}
         (path/(stem+".vulnerabilities.json")).write_text(json.dumps(scan))
 
-def signed_result(path,kind,repo,sha,*,tamper=None):
+def signed_result(path,kind,repo,sha,*,tamper=None,signer_sha=audit.pin.SIGNER_SHA):
     d=sha256(path.read_bytes()).hexdigest()
     sbom=json.loads(path.with_suffix(".spdx.json").read_text()) if False else None
     # The sidecar has the full stem before .zip.
     stem=path.name[:-4]
     sbom=json.loads((path.parent/(stem+".spdx.json")).read_text())
     uri=f"https://github.com/{repo}/actions/runs/{RUN}/attempts/1"
-    signer=f"https://github.com/pgextwin/build/{audit.pin.offline.SIGNER_PATH}@{audit.pin.SIGNER_SHA}"
+    signer=f"https://github.com/pgextwin/build/{audit.pin.offline.SIGNER_PATH}@{signer_sha}"
     cert={"issuer":audit.pin.offline.ISSUER,
           "runInvocationURI":uri,"buildSignerURI":signer,
-          "subjectAlternativeName":signer,"buildSignerDigest":audit.pin.SIGNER_SHA,
+          "subjectAlternativeName":signer,"buildSignerDigest":signer_sha,
           "sourceRepositoryURI":f"https://github.com/{repo}",
           "sourceRepositoryDigest":sha,"sourceRepositoryRef":"refs/heads/main",
           "buildConfigURI":f"https://github.com/{repo}/{audit.CALLER}@refs/heads/main",
@@ -94,7 +94,7 @@ def signed_result(path,kind,repo,sha,*,tamper=None):
     return [item]
 
 class SignedCandidateReadOnly(unittest.TestCase):
-    def run_audit(self, mutate=None, proof=None):
+    def run_audit(self, mutate=None, proof=None, signer_sha=audit.pin.SIGNER_SHA):
         ext,lc,intent,run=example()
         with TemporaryDirectory() as td:
             folder=Path(td)
@@ -104,7 +104,28 @@ class SignedCandidateReadOnly(unittest.TestCase):
             callback=proof or signed_result
             return audit.audit(folder,ext,lc,intent,run,deepcopy(run),
                                repo=REPO,sha=SHA,run_id=RUN,
-                               attempt=1,verify=callback)
+                               attempt=1,verify=callback,signer_sha=signer_sha)
+
+    def test_requalification_binds_the_pinned_signer_to_the_zip_and_certificate(self):
+        signer = audit.routes.read_policy()["extensions"]["pgextwin/pg_ivm"]["candidateSigner"]
+
+        def use_scoped_signer(ext, lifecycle, intent, run, folder):
+            for path in folder.glob("*.zip"):
+                with ZipFile(path) as archive:
+                    pkg = json.loads(archive.read("PACKAGE-INFO.json"))
+                pkg["buildInfrastructure"]["commit"] = signer
+                with ZipFile(path, "w") as archive:
+                    archive.writestr("PACKAGE-INFO.json", json.dumps(pkg))
+
+        def exact(path, kind, repo, sha):
+            return signed_result(path, kind, repo, sha, signer_sha=signer)
+
+        result = self.run_audit(use_scoped_signer, proof=exact, signer_sha=signer)
+        self.assertIs(result["publisherSourceKindAuthorized"], False)
+        with self.assertRaisesRegex(audit.Denied, "cryptographic proof binding"):
+            self.run_audit(use_scoped_signer, signer_sha=signer)
+        with self.assertRaisesRegex(audit.Denied, "ZIP source"):
+            self.run_audit(proof=exact, signer_sha=signer)
 
     def test_complete_real_shape_is_never_a_release_receipt(self):
         result=self.run_audit()

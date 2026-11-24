@@ -11,12 +11,13 @@ on:
           - pg_track_settings
           - pg_permissions
           - pgtap
+          - pg_ivm
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
         required: true
       legacy_sha:
-        description: Optional additional approved baseline for PostgreSQL 19 on pg_track_settings
+        description: Optional alternate legacy SHA approved for the selected extension
         type: string
 
 permissions:
@@ -33,6 +34,12 @@ jobs:
       legacy_sha: ${{ steps.inputs.outputs.legacy_sha }}
       candidate_sha: ${{ steps.inputs.outputs.candidate_sha }}
     steps:
+      - name: Check out fixed build revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Validate fixed comparison inputs
         id: inputs
         shell: bash
@@ -41,25 +48,13 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           LEGACY_SHA: ${{ inputs.legacy_sha }}
         run: |
-          case "$EXTENSION" in
-            pg_profile) legacy=f793432ba9d5f34d57f9c9b28b5cbb5a2c7cd11d ;;
-            pg_track_settings) legacy=3a0f55dfffb6d8657949cb98a74bd3f16e3633a0 ;;
-            pg_permissions) legacy=03e06c7b92d330de453deec1f06cc3cd114c0fb9 ;;
-            pgtap) legacy=749dd7c4631bdfd79472adc2fa73fc5c0c99842d ;;
-            *) exit 1 ;;
-          esac
-          if [[ -n "$LEGACY_SHA" ]]; then
-            [[ "$EXTENSION" == pg_track_settings && "$LEGACY_SHA" == 5e1958a76b2257d764be8d6d08d9adaad071b1c0 ]]
-            legacy="$LEGACY_SHA"
-          fi
+          [[ "$EXTENSION" =~ ^[a-z][a-z0-9_]*$ ]]
+          legacy=$(jq -er --arg extension "$EXTENSION" --arg sha "$LEGACY_SHA" '
+            .[$extension] | if $sha == "" then .[0] else .[] | select(. == $sha) end
+          ' metadata/windows-package-parity-baselines.json)
+          [[ "$legacy" =~ ^[0-9a-f]{40}$ ]]
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
           printf 'repository=pgextwin/%s\nlegacy_sha=%s\ncandidate_sha=%s\n' "$EXTENSION" "$legacy" "$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Check out fixed build revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
 
       - name: Check out fixed candidate revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

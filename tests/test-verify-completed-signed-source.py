@@ -127,13 +127,20 @@ class IndependentCompletedSource(unittest.TestCase):
                 self.assertIn("signed ZIP directory unavailable",str(caught.exception))
 
     def test_completed_pilot_rechecks_actual_manifest_pin_and_downloaded_bytes(self):
+        self.check_completed_signed_source("pg_profile", "4.16", "4.16")
+
+    def test_completed_pg_ivm_rechecks_actual_manifest_pin_and_downloaded_bytes(self):
+        self.check_completed_signed_source("pg_ivm", "1.17", "v1.17")
+
+    def check_completed_signed_source(self, name, version, ref):
         fixture_spec = importlib.util.spec_from_file_location(
             "signed_pilot_fixture", ROOT / "tests/test-automatic-signed-candidate-audit.py")
         fixture = importlib.util.module_from_spec(fixture_spec)
         fixture_spec.loader.exec_module(fixture)
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            repository, manifest, lifecycle, intent, run, signer, verifier = fixture.pilot_candidate(folder)
+            repository, manifest, lifecycle, intent, run, signer, verifier = fixture.fixed_candidate(
+                folder, name, version, ref)
 
             def signature(path, kind, repo, sha):
                 return fixture.signed_result(path, kind, repo, sha, signer_sha=signer)

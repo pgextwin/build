@@ -222,13 +222,14 @@ class AdmissionTests(TestCase):
         central_sha = "c" * 40
         for name, ref, version, legacy, majors in (
                 ("pg_hint_plan", "REL19_1_0", "1.0", False, [15, 16, 17, 18, 19]),
+                ("pg_ivm", "v1.17", "1.17", False, [15, 16, 17, 18, 19]),
                 ("pg_permissions", "REL_1_4_1", "1.4.1", True, [15, 16, 17, 18]),
                 ("pg_permissions", "REL_1_6", "1.6", False, [15, 16, 17, 18, 19]),
                 ("pgtap", "v1.3.4", "1.3.4", False, [15, 16, 17, 18, 19]),
                 ("pg_track_settings", "2.1.2", "2.1.2", False, [15, 16, 17, 18])):
             repo = "pgextwin/" + name
             group = routes.repository_policy(policy, repo) if repo in routes.PACKAGE_REPOSITORIES else None
-            wrapper = group["ownerWrappers"][repo] if group else None
+            wrapper = routes.owner_wrapper_pins(policy, repo)[0] if group else None
             signer_sha = group["candidateSigner"] if group else canonical_signer
             if legacy and repo in routes.WAVE2_LEGACY_WRAPPERS:
                 wrapper = routes.WAVE2_LEGACY_WRAPPERS[repo]

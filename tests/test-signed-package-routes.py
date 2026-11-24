@@ -2,6 +2,7 @@
 
 import base64
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import unittest
@@ -61,7 +62,7 @@ class SignedPackageRoutes(unittest.TestCase):
 
         self.assertEqual(resolve(), SIGNER)
         with self.assertRaisesRegex(routes.Denied, "outside"):
-            resolve("pgextwin/pg_ivm")
+            resolve("pgextwin/pgaudit")
         run["referenced_workflows"][0]["sha"] = "e" * 40
         with self.assertRaisesRegex(routes.Denied, "approved workflow"):
             resolve()
@@ -123,7 +124,7 @@ class SignedPackageRoutes(unittest.TestCase):
                 candidate_run = refs((routes.SIGNER, signer), (routes.CANDIDATE_AUDIT, verifier))
                 audit_ref = routes.workflow_ref(routes.CANDIDATE_AUDIT, verifier)
                 self.assertEqual(routes.candidate_signer(get, repo, HEAD, candidate_run, POLICY, legacy_candidate), signer)
-                self.assertEqual(routes.candidate_signer(get, "pgextwin/pg_ivm", HEAD, candidate_run, POLICY,
+                self.assertEqual(routes.candidate_signer(get, "pgextwin/pgaudit", HEAD, candidate_run, POLICY,
                                                          legacy_candidate), legacy_candidate)
                 with self.assertRaisesRegex(routes.Denied, "approved signer and audit pair"):
                     routes.candidate_signer(get, REPO, HEAD, candidate_run, POLICY, legacy_candidate)
@@ -134,6 +135,73 @@ class SignedPackageRoutes(unittest.TestCase):
                 candidate_run = refs((routes.SIGNER, legacy_candidate), (routes.CANDIDATE_AUDIT, routes.LEGACY_AUDIT))
                 self.assertEqual(routes.candidate_signer(get, repo, HEAD, candidate_run, POLICY, legacy_candidate),
                                  legacy_candidate)
+
+    def test_extension_routes_bind_fixed_workflows_and_readers(self):
+        for repo, route in POLICY["extensions"].items():
+            with self.subTest(repository=repo):
+                signer, verifier = route["candidateSigner"], route["candidateAudit"]
+                wrapper, legacy_wrapper = routes.owner_wrapper_pins(POLICY, repo)
+                schedule = route["scheduledRequalification"]
+                legacy_owner = owner.signer_sha_from_workflow(git_blob(legacy_wrapper, routes.OWNER_WRAPPER))
+                legacy_signer = "5756b3c5136a8bf4db710016cfe97555f0a71c6d"
+                print(f"{repo} signer={signer} candidate-audit={verifier} owner-wrapper={wrapper} "
+                      f"requalification={schedule} legacy-wrapper={legacy_wrapper} legacy-owner-signer={legacy_owner}")
+                self.assertIn(b"scripts/invoke-windows-package.ps1", git_blob(signer, routes.SIGNER))
+                scope = json.loads(git_blob(signer, "metadata/windows-package-signing-scope.json"))
+                self.assertEqual(set(scope), {name for name, value in POLICY["extensions"].items()
+                                              if value["candidateSigner"] == signer})
+                self.assertIn(b"metadata/windows-package-signing-scope.json", git_blob(signer, routes.SIGNER))
+                self.assertEqual(owner.signer_sha_from_workflow(git_blob(wrapper, routes.OWNER_WRAPPER)), signer)
+                self.assertEqual(routes.workflow_uses(git_blob(schedule, routes.SCHEDULED_REQUALIFICATION),
+                                                      ["signed_windows"]), [routes.workflow_ref(routes.SIGNER, signer)])
+                self.assertEqual(git_blob(schedule, routes.SCHEDULED_REQUALIFICATION).count(
+                    b'--package-requalification-sha "$REQUALIFICATION_SHA"'), 2)
+                self.assertEqual(git_blob(verifier, routes.CANDIDATE_AUDIT).count(
+                    b'--package-verifier-sha "$VERIFIER_SHA"'), 2)
+                for revision in (verifier, schedule):
+                    self.assertEqual(routes.repository_policy(routes.read_policy(git_blob(revision, routes.POLICY)),
+                                                              repo)["candidateSigner"], signer)
+
+                def refs(*pins):
+                    return {"referenced_workflows": [
+                        {"path": routes.workflow_ref(path, sha), "sha": sha} for path, sha in pins
+                    ]}
+
+                def get(repository, resource):
+                    path, revision = resource.removeprefix("contents/").split("?ref=")
+                    if repository == routes.CENTRAL:
+                        raw = git_blob(revision, path)
+                    else:
+                        self.assertEqual((repository, revision), (repo, HEAD))
+                        raw = ("jobs:\n" + "".join(
+                            f"  {job}:\n    uses: {routes.workflow_ref(workflow, pin)}\n"
+                            for job, (workflow, pin) in caller.items())).encode()
+                    return {"type": "file", "path": path, "encoding": "base64",
+                            "content": base64.b64encode(raw).decode()}
+
+                for approved, expected in ((wrapper, signer), (legacy_wrapper, legacy_owner)):
+                    caller = {"signed_main_source": (routes.OWNER_WRAPPER, approved)}
+                    run = refs((routes.OWNER_WRAPPER, approved), (routes.SIGNER, expected))
+                    self.assertEqual(routes.owner_signer(get, repo, HEAD, run, wrapper, owner.signer_sha_from_workflow,
+                                                        legacy_wrapper_sha=legacy_wrapper), expected)
+                for approved, audit_sha in ((signer, verifier), (legacy_signer, routes.LEGACY_AUDIT)):
+                    caller = {"candidate_attested_build": (routes.SIGNER, approved),
+                              "candidate_signed_audit": (routes.CANDIDATE_AUDIT, audit_sha)}
+                    run = refs(*caller.values())
+                    self.assertEqual(routes.candidate_signer(get, repo, HEAD, run, POLICY, legacy_signer), approved)
+                    self.assertEqual(routes.candidate_signer(get, "pgextwin/pgaudit", HEAD, run, POLICY, legacy_signer),
+                                     legacy_signer)
+                caller = {"merged_candidate_scheduled_oidc": (routes.SCHEDULED_REQUALIFICATION, schedule)}
+                run = refs(*caller.values(), (routes.SIGNER, signer))
+                self.assertEqual(routes.requalification_signer(get, repo, HEAD, run, POLICY, schedule), signer)
+                with self.assertRaisesRegex(routes.Denied, "outside"):
+                    routes.requalification_signer(get, "pgextwin/pgaudit", HEAD, run, POLICY, schedule)
+                run["referenced_workflows"][1]["sha"] = legacy_signer
+                with self.assertRaisesRegex(routes.Denied, "approved workflow"):
+                    routes.requalification_signer(get, repo, HEAD, run, POLICY, schedule)
+                caller["merged_candidate_scheduled_oidc"] = (routes.SCHEDULED_REQUALIFICATION, "e" * 40)
+                with self.assertRaisesRegex(routes.Denied, "protected scheduled caller"):
+                    routes.requalification_signer(get, repo, HEAD, run, POLICY, schedule)
 
 
 if __name__ == "__main__":
