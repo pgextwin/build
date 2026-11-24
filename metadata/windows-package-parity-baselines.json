@@ -13,5 +13,6 @@
   "pg_squeeze": ["7f20f5eeccbcca959b86031acbaa1f3ade4332d0"],
   "pg_stat_monitor": ["6909ee13dc97f9bcc4eb784fdea317dfd296bd15"],
   "pg_store_plans": ["42213f83566517d691bb2847f3b8ea488ad40d0a"],
-  "pg_variables": ["b7fa43df78178bba213a8905811ae32abed32f11"]
+  "pg_variables": ["b7fa43df78178bba213a8905811ae32abed32f11"],
+  "pg_wait_sampling": ["223f6e689e7d340c4ea413e217eb46691603962f"]
 }
