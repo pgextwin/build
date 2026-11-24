@@ -59,8 +59,8 @@
     },
     "pgextwin/pg_show_plans": {
       "candidateSigner": "6b235d3dd9a2097e832b705414c779a9b3e88ea7",
-      "candidateAudit": null,
-      "ownerWrapper": "d74b8a231814c5953914638259f4ace22eaeaadb",
+      "candidateAudit": "ef91a228bd0ec6114c91f9488ca60dc3b42b6bb9",
+      "ownerWrapper": "ef91a228bd0ec6114c91f9488ca60dc3b42b6bb9",
       "legacyOwnerWrapper": "d74b8a231814c5953914638259f4ace22eaeaadb",
       "scheduledRequalification": null
     }
