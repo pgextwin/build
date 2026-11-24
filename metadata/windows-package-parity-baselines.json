@@ -23,6 +23,6 @@
   "wal2json": ["6415841eb63638b2c7b1bcb82e8955546aa9605f"],
   "pg_failover_slots": ["8750d09fd91ddbb64727e8b1dbf0a78f42d4c5e7"],
   "pg_repack": ["e3ee08ce53658c6c970638878bbcb180bcf2ea46"],
-  "pg_partman": ["5903cd28bac8aac4e3ff13c36a6f5f3881ef7b9b"],
-  "pldebugger": ["388527914dbc96224e200cb90c555d704f4ce337"]
+  "pg_partman": ["5903cd28bac8aac4e3ff13c36a6f5f3881ef7b9b", "a8f7fadf33a2888025cb146501db410d03771209"],
+  "pldebugger": ["388527914dbc96224e200cb90c555d704f4ce337", "0b0adc00090f1088c14fafd21cc0f1d24550d21d"]
 }
