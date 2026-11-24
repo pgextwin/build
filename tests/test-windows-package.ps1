@@ -202,6 +202,22 @@ try {
         Invoke-ContractCase missing { Remove-Item -LiteralPath (Join-Path $upstream 'example.control') } 'Required package file missing'
         Invoke-ContractCase extra-glob { New-Item -ItemType File -Path (Join-Path $upstream 'example--unexpected.sql') | Out-Null } 'Expected 2 matches'
         Invoke-ContractCase wrong-glob { Rename-Item -LiteralPath (Join-Path $upstream 'example--2.0.sql') 'example--unexpected.sql' } 'Required glob match'
+        Invoke-ContractCase per-postgresql {
+            & $setSeparateSqlVersion
+            $map.perPostgresql = @{
+                '16' = @{ sqlVersion = '1.0'; files = @($map.files[1]) }
+                '17' = @{ sqlVersion = $map.sqlVersion; sqlInstallPath = $map.sqlInstallPath; files = @($map.files[1]) }
+            }
+            $map.Remove('sqlVersion')
+            $map.Remove('sqlInstallPath')
+            $map.files = @($map.files[0], $map.files[2], $map.files[3])
+        }
+        Invoke-ContractCase per-postgresql-missing {
+            $map.perPostgresql = @{ '16' = @{ sqlVersion = '1.0' } }
+        } 'Package map has no settings for PostgreSQL 17'
+        Invoke-ContractCase per-postgresql-unknown-setting {
+            $map.perPostgresql = @{ '17' = @{ licenseFiles = @() } }
+        } "Unknown package map field 'licenseFiles'"
         Invoke-ContractCase control-version { Set-Content -LiteralPath (Join-Path $upstream 'example.control') -Value "default_version = '1.0'" } 'Control default_version'
         Invoke-ContractCase absolute { $map.files[0].path = 'C:/example.control' } 'Invalid relative'
         Invoke-ContractCase parent-relative { $map.files[0].path = '../example.control' } 'Invalid relative'

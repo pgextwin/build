@@ -69,7 +69,7 @@ function Resolve-WindowsPackage {
     )
     $map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Json -AsHashtable
     Assert-PackageObject $map -Required @('schemaVersion', 'distribution', 'files', 'packageInfo') `
-        -Optional @('packageInfoFinalNewline', 'sqlVersion', 'sqlInstallPath')
+        -Optional @('packageInfoFinalNewline', 'sqlVersion', 'sqlInstallPath', 'perPostgresql')
     if ($map.Contains('packageInfoFinalNewline') -and $map.packageInfoFinalNewline -isnot [bool]) {
         throw 'packageInfoFinalNewline must be a boolean.'
     }
@@ -77,6 +77,27 @@ function Resolve-WindowsPackage {
         $map.distribution -cnotin @('sql-only', 'dll-sql', 'dll-only') -or
         $map.files -isnot [array] -or !$map.files.Count -or $map.packageInfo -isnot [array] -or !$map.packageInfo.Count) {
         throw 'Invalid schema version, distribution, files or packageInfo in package map.'
+    }
+    $filesForMajor = $map.files
+    if ($map.Contains('perPostgresql')) {
+        $series = $map.perPostgresql
+        if ($series -isnot [System.Collections.IDictionary] -or !$series.Count) {
+            throw 'perPostgresql must map PostgreSQL majors to package settings.'
+        }
+        foreach ($major in $series.Keys) {
+            if ($major -cnotmatch '\A[1-9][0-9]*\z') { throw "Invalid PostgreSQL major '$major' in package map." }
+            Assert-PackageObject $series[$major] -Optional @('sqlVersion', 'sqlInstallPath', 'files')
+            if ($series[$major].Contains('files') -and ($series[$major].files -isnot [array] -or !$series[$major].files.Count)) {
+                throw "Package files for PostgreSQL $major must be a nonempty array."
+            }
+        }
+        $major = [string]$Tokens.pgMajor
+        if (!$series.Contains($major)) { throw "Package map has no settings for PostgreSQL $major." }
+        $settings = $series[$major]
+        if ($settings.Contains('files')) { $filesForMajor += $settings.files }
+        foreach ($key in @('sqlVersion', 'sqlInstallPath')) {
+            if ($settings.Contains($key)) { $map[$key] = $settings[$key] }
+        }
     }
     $sqlVersionPattern = '\A[A-Za-z0-9_.+]+(?:-[A-Za-z0-9_.+]+)*\z'
     $sqlVersion = $Tokens.version
@@ -114,7 +135,7 @@ function Resolve-WindowsPackage {
     $matchedLicenses = @{}
     $files = [Collections.Generic.List[object]]::new()
     $destinations = @{ install = @{}; zip = @{} }
-    foreach ($row in $map.files) {
+    foreach ($row in $filesForMajor) {
         Assert-PackageObject $row -Required @('source', 'path', 'destination', 'targets') -Optional @('optional', 'expectedCount', 'requiredMatches')
         if ($row.source -isnot [string] -or $row.source -cnotin $roots.Keys -or $row.path -isnot [string] -or
             $row.destination -isnot [string] -or $row.targets -isnot [array] -or !$row.targets.Count -or
