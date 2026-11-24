@@ -374,6 +374,17 @@ try {
             if ($verified.schemaVersion -ne 1 -or $verified.upstreamCommit -cne $UpstreamCommit -or !$verified.licenses.Count) {
                 throw "Invalid verified license list for upstream '$UpstreamCommit'."
             }
+            $upstreamCount = @($verified.licenses | Where-Object { !$_.PSObject.Properties['origin'] -or $_.origin -ceq 'upstream' }).Count
+            if ($upstreamCount -lt 1) {
+                throw "Verified license list requires at least one upstream-verified license."
+            }
+            $hasNonUpstream = @($verified.licenses | Where-Object { $_.PSObject.Properties['origin'] -and $_.origin -cne 'upstream' }).Count -gt 0
+            if ($hasNonUpstream -and !$verified.PSObject.Properties['packagingCommit']) {
+                throw "Verified license list is missing packagingCommit for non-upstream license entries."
+            }
+            if ($verified.PSObject.Properties['packagingCommit'] -and $verified.packagingCommit -cne $PackagingCommit) {
+                throw "Invalid verified license list for packaging '$PackagingCommit'."
+            }
             foreach ($license in $verified.licenses) {
                 $entries = @($archive.Entries | Where-Object { $_.FullName -ieq $license.zipPath })
                 if ($entries.Count -ne 1 -or $entries[0].FullName -cne $license.zipPath -or $entries[0].Length -ne $license.size) {
@@ -382,7 +393,7 @@ try {
                 $stream = $entries[0].Open()
                 try {
                     if ((Get-FileHash -InputStream $stream).Hash -ine $license.sha256) {
-                        throw "Final package ZIP license bytes differ from verified upstream: '$($license.zipPath)'."
+                        throw "Final package ZIP license bytes differ from verified license: '$($license.zipPath)'."
                     }
                 } finally { $stream.Dispose() }
             }

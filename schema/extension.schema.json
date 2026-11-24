@@ -4,6 +4,102 @@
   "title": "pgextwin extension manifest",
   "type": "object",
   "additionalProperties": false,
+  "$defs": {
+    "upstreamLicenseFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryPath",
+        "upstreamPath"
+      ],
+      "properties": {
+        "repositoryPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upstreamPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "packagingLicenseFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "repositoryPath",
+        "sha256"
+      ],
+      "properties": {
+        "origin": {
+          "const": "packaging"
+        },
+        "repositoryPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "buildLicenseFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "repositoryPath",
+        "generatedSource",
+        "generatedPath",
+        "sha256"
+      ],
+      "properties": {
+        "origin": {
+          "const": "build"
+        },
+        "repositoryPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generatedSource": {
+          "enum": [
+            "upstream",
+            "buildOutput"
+          ]
+        },
+        "generatedPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "licenseFileList": {
+      "type": "array",
+      "minItems": 1,
+      "contains": {
+        "$ref": "#/$defs/upstreamLicenseFile"
+      },
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/upstreamLicenseFile"
+          },
+          {
+            "$ref": "#/$defs/packagingLicenseFile"
+          },
+          {
+            "$ref": "#/$defs/buildLicenseFile"
+          }
+        ]
+      }
+    }
+  },
   "required": [
     "schemaVersion",
     "name",
@@ -189,26 +285,7 @@
           "minLength": 1
         },
         "files": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "repositoryPath",
-              "upstreamPath"
-            ],
-            "properties": {
-              "repositoryPath": {
-                "type": "string",
-                "minLength": 1
-              },
-              "upstreamPath": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
-          }
+          "$ref": "#/$defs/licenseFileList"
         },
         "perPostgresql": {
           "type": "object",
@@ -217,26 +294,7 @@
             "pattern": "^[1-9][0-9]*$"
           },
           "additionalProperties": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "repositoryPath",
-                "upstreamPath"
-              ],
-              "properties": {
-                "repositoryPath": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "upstreamPath": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            }
+            "$ref": "#/$defs/licenseFileList"
           }
         }
       },

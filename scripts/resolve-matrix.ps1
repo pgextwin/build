@@ -156,6 +156,141 @@ $matrixEntries = @(
     }
 )
 
+function Resolve-LicenseFileList {
+    param(
+        [AllowEmptyCollection()]$Entries,
+        [string]$Context
+    )
+
+    if ($null -eq $Entries -or @($Entries).Count -eq 0) {
+        throw "$Context must contain at least one entry."
+    }
+
+    $resolved = [Collections.Generic.List[object]]::new()
+    $upstreamCount = 0
+    $seenGenerated = @{}
+    $upstreamRepoPaths = @{}
+    $nonUpstreamRepoPaths = @{}
+
+    foreach ($file in @($Entries)) {
+        if ($null -eq $file -or $file -isnot [PSCustomObject]) {
+            throw "Each $Context entry must be an object."
+        }
+
+        $propertyNames = @($file.PSObject.Properties.Name)
+        if ($propertyNames -cnotcontains "origin") {
+            foreach ($name in $propertyNames) {
+                if ($name -cnotin @("repositoryPath", "upstreamPath")) {
+                    throw "Unsupported property '$name' in $Context entry."
+                }
+            }
+            if ($propertyNames -cnotcontains "repositoryPath" -or
+                $propertyNames -cnotcontains "upstreamPath" -or
+                $file.repositoryPath -isnot [string] -or
+                $file.upstreamPath -isnot [string] -or
+                [string]::IsNullOrWhiteSpace($file.repositoryPath) -or
+                [string]::IsNullOrWhiteSpace($file.upstreamPath)) {
+                throw "Each $Context entry must define non-empty 'repositoryPath' and 'upstreamPath'."
+            }
+
+            $repoPath = [string]$file.repositoryPath
+            $repoKey = $repoPath.ToLowerInvariant()
+            if ($nonUpstreamRepoPaths.ContainsKey($repoKey)) {
+                throw "Duplicate license repositoryPath '$repoPath' in $Context."
+            }
+            $upstreamRepoPaths[$repoKey] = $true
+
+            $resolved.Add([ordered]@{
+                repositoryPath = $repoPath
+                upstreamPath   = [string]$file.upstreamPath
+            })
+            $upstreamCount++
+        }
+        else {
+            $origin = [string]$file.origin
+            if ($origin -ceq "packaging") {
+                foreach ($name in $propertyNames) {
+                    if ($name -cnotin @("origin", "repositoryPath", "sha256")) {
+                        throw "Unsupported property '$name' in $Context packaging entry."
+                    }
+                }
+                if ($propertyNames -cnotcontains "repositoryPath" -or
+                    $propertyNames -cnotcontains "sha256" -or
+                    $file.repositoryPath -isnot [string] -or
+                    $file.sha256 -isnot [string] -or
+                    [string]::IsNullOrWhiteSpace($file.repositoryPath) -or
+                    $file.sha256 -cnotmatch '\A[0-9a-f]{64}\z') {
+                    throw "Each $Context packaging entry must define non-empty 'repositoryPath' and 64-char lowercase hex 'sha256'."
+                }
+
+                $repoPath = [string]$file.repositoryPath
+                $repoKey = $repoPath.ToLowerInvariant()
+                if ($nonUpstreamRepoPaths.ContainsKey($repoKey) -or $upstreamRepoPaths.ContainsKey($repoKey)) {
+                    throw "Duplicate license repositoryPath '$repoPath' in $Context."
+                }
+                $nonUpstreamRepoPaths[$repoKey] = $true
+
+                $resolved.Add([ordered]@{
+                    origin         = "packaging"
+                    repositoryPath = $repoPath
+                    sha256         = [string]$file.sha256
+                })
+            }
+            elseif ($origin -ceq "build") {
+                foreach ($name in $propertyNames) {
+                    if ($name -cnotin @("origin", "repositoryPath", "generatedSource", "generatedPath", "sha256")) {
+                        throw "Unsupported property '$name' in $Context build entry."
+                    }
+                }
+                if ($propertyNames -cnotcontains "repositoryPath" -or
+                    $propertyNames -cnotcontains "generatedSource" -or
+                    $propertyNames -cnotcontains "generatedPath" -or
+                    $propertyNames -cnotcontains "sha256" -or
+                    $file.repositoryPath -isnot [string] -or
+                    $file.generatedSource -isnot [string] -or
+                    $file.generatedPath -isnot [string] -or
+                    $file.sha256 -isnot [string] -or
+                    [string]::IsNullOrWhiteSpace($file.repositoryPath) -or
+                    $file.generatedSource -cnotin @("upstream", "buildOutput") -or
+                    [string]::IsNullOrWhiteSpace($file.generatedPath) -or
+                    $file.sha256 -cnotmatch '\A[0-9a-f]{64}\z') {
+                    throw "Each $Context build entry must define non-empty 'repositoryPath', 'generatedSource' ('upstream' or 'buildOutput'), 'generatedPath', and 64-char lowercase hex 'sha256'."
+                }
+
+                $repoPath = [string]$file.repositoryPath
+                $repoKey = $repoPath.ToLowerInvariant()
+                if ($nonUpstreamRepoPaths.ContainsKey($repoKey) -or $upstreamRepoPaths.ContainsKey($repoKey)) {
+                    throw "Duplicate license repositoryPath '$repoPath' in $Context."
+                }
+                $nonUpstreamRepoPaths[$repoKey] = $true
+
+                $generatedKey = $file.generatedSource + ":" + $file.generatedPath.ToLowerInvariant()
+                if ($seenGenerated.ContainsKey($generatedKey)) {
+                    throw "Duplicate generated license source/path '$generatedKey' in $Context."
+                }
+                $seenGenerated[$generatedKey] = $true
+
+                $resolved.Add([ordered]@{
+                    origin          = "build"
+                    repositoryPath  = $repoPath
+                    generatedSource = [string]$file.generatedSource
+                    generatedPath   = [string]$file.generatedPath
+                    sha256          = [string]$file.sha256
+                })
+            }
+            else {
+                throw "Unsupported license origin '$origin' in $Context."
+            }
+        }
+    }
+
+    if ($upstreamCount -lt 1) {
+        throw "$Context must include at least one upstream-verified license entry."
+    }
+
+    return $resolved.ToArray()
+}
+
 $verifyLicense = $true
 $licenseMode = "uniform"
 $licenseFiles = @(
@@ -181,21 +316,7 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
     }
 
     if ($hasLicenseFiles) {
-        $licenseFiles = @(
-            foreach ($file in $extension.license.files) {
-                if (-not $file.PSObject.Properties.Name.Contains("repositoryPath") -or
-                    -not $file.PSObject.Properties.Name.Contains("upstreamPath") -or
-                    [string]::IsNullOrWhiteSpace([string]$file.repositoryPath) -or
-                    [string]::IsNullOrWhiteSpace([string]$file.upstreamPath)) {
-                    throw "Each license.files entry must define non-empty 'repositoryPath' and 'upstreamPath'."
-                }
-
-                [ordered]@{
-                    repositoryPath = [string]$file.repositoryPath
-                    upstreamPath = [string]$file.upstreamPath
-                }
-            }
-        )
+        $licenseFiles = @(Resolve-LicenseFileList -Entries $extension.license.files -Context "license.files")
     }
     elseif ($hasPerPostgresqlLicense) {
         if ($null -eq $extension.license.perPostgresql -or
@@ -221,6 +342,7 @@ if ($extension.PSObject.Properties.Name.Contains("license")) {
 # license is a suffix of README.md. Verify that suffix against the LICENSE blob.
 if ($extension.name -ceq 'pgtap' -and $extension.upstream.repository -ceq 'theory/pgtap' -and
     $licenseMode -eq 'uniform' -and $licenseFiles.Count -eq 1 -and
+    $licenseFiles[0].Contains('upstreamPath') -and
     $licenseFiles[0].repositoryPath -ceq 'LICENSE' -and $licenseFiles[0].upstreamPath -ceq 'README.md') {
     $licenseFiles[0].upstreamStartMarker = 'Copyright (c)'
     $verifyLicense = $true
@@ -235,21 +357,7 @@ foreach ($entry in $matrixEntries) {
             throw "license.perPostgresql has no mapping for eligible PostgreSQL major $majorKey."
         }
 
-        $resolvedLicenseFiles = @(
-            foreach ($file in $mappingProperty.Value) {
-                if (-not $file.PSObject.Properties.Name.Contains("repositoryPath") -or
-                    -not $file.PSObject.Properties.Name.Contains("upstreamPath") -or
-                    [string]::IsNullOrWhiteSpace([string]$file.repositoryPath) -or
-                    [string]::IsNullOrWhiteSpace([string]$file.upstreamPath)) {
-                    throw "Each license.perPostgresql.$majorKey entry must define non-empty 'repositoryPath' and 'upstreamPath'."
-                }
-
-                [ordered]@{
-                    repositoryPath = [string]$file.repositoryPath
-                    upstreamPath = [string]$file.upstreamPath
-                }
-            }
-        )
+        $resolvedLicenseFiles = @(Resolve-LicenseFileList -Entries $mappingProperty.Value -Context "license.perPostgresql.$majorKey")
     }
     else {
         $resolvedLicenseFiles = @($licenseFiles)

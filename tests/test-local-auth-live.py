@@ -194,6 +194,70 @@ class LiveBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(authority.verifier.TicketRejected, "VERSIONED_LICENSE_MISMATCH"):
                 authority.versioned_sources(*args)
 
+    def test_packaging_and_build_licenses_are_checked_at_target_sha(self):
+        repository = "pgextwin/pldebugger"
+        upstream = "EnterpriseDB/pldebugger"
+        target_sha, upstream_sha = "1" * 40, "2" * 40
+        readme_bytes = b"pldebugger README\n"
+        pkg_license = b"Artistic License 2.0\n"
+        build_notice = b"PostgreSQL License\n"
+        pkg_sha = hashlib.sha256(pkg_license).hexdigest()
+        build_sha = hashlib.sha256(build_notice).hexdigest()
+        entry = {
+            "major": 17,
+            "upstreamCommit": upstream_sha,
+            "upstreamRef": "v1.10",
+            "upstreamVersion": "1.10",
+            "licenseFiles": [
+                {"repositoryPath": "README-pldebugger.md", "upstreamPath": "README-pldebugger.md"},
+                {"origin": "packaging", "repositoryPath": "LICENSE", "sha256": pkg_sha},
+                {
+                    "origin": "build",
+                    "repositoryPath": "licenses/COPYRIGHT.postgresql",
+                    "generatedSource": "upstream",
+                    "generatedPath": "POSTGRESQL-COPYRIGHT",
+                    "sha256": build_sha,
+                },
+            ],
+        }
+        files = {
+            (upstream, "README-pldebugger.md", upstream_sha): readme_bytes,
+            (repository, "README-pldebugger.md", target_sha): readme_bytes,
+            (repository, "LICENSE", target_sha): pkg_license,
+            (repository, "licenses/COPYRIGHT.postgresql", target_sha): build_notice,
+        }
+
+        def read_file(fetch, repo, path, sha):
+            raw = files[(repo, path, sha)]
+            return {
+                "path": path,
+                "encoding": "base64",
+                "size": len(raw),
+                "sha": hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest(),
+                "content": base64.b64encode(raw).decode(),
+            }
+
+        with patch.object(authority, "build_matrix", return_value=("true", [entry])), patch.object(
+                authority, "file_at", side_effect=read_file):
+            args = ({"upstream": {"repository": upstream}}, repository, target_sha, None, self.now)
+            sources = authority.versioned_sources(*args)
+            self.assertEqual(len(sources[0]["licenses"]), 3)
+            self.assertEqual(sources[0]["licenses"][1]["sha256"], pkg_sha)
+            self.assertEqual(sources[0]["licenses"][2]["sha256"], build_sha)
+
+            entry["licenseFiles"][1]["sha256"] = "0" * 64
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "VERSIONED_LICENSE_MISMATCH"):
+                authority.versioned_sources(*args)
+            entry["licenseFiles"][1]["sha256"] = pkg_sha
+
+            files[(repository, "licenses/COPYRIGHT.postgresql", target_sha)] = b"Tampered\n"
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "VERSIONED_LICENSE_MISMATCH"):
+                authority.versioned_sources(*args)
+
+            entry["licenseFiles"] = [entry["licenseFiles"][1]]
+            with self.assertRaisesRegex(authority.verifier.TicketRejected, "MISSING_VERSIONED_LICENSE"):
+                authority.versioned_sources(*args)
+
     def test_policy_can_revoke_authority_without_issuer_changes(self):
         policy = json.loads((ROOT / "metadata/local-candidate-authority.json").read_text())
         deny = dict(policy, mode="DENY", delegationStartsAt=None, delegationEndsAt=None)

@@ -41,12 +41,8 @@ class LicenseBytesTests(unittest.TestCase):
         self.source_stage = root / "verified sources"
         self.verified = root / "verified.json"
 
-    def verify(self, *pairs, restore=False, marker=None):
-        self.config.write_text(json.dumps([
-            {"repositoryPath": repository, "upstreamPath": upstream,
-             **({"upstreamStartMarker": marker} if marker is not None else {})}
-            for repository, upstream in pairs
-        ]), encoding="utf-8")
+    def verify_entries(self, entries, restore=False):
+        self.config.write_text(json.dumps(entries), encoding="utf-8")
         command = [
             sys.executable, str(SCRIPT),
             "--license-files", str(self.config),
@@ -59,6 +55,13 @@ class LicenseBytesTests(unittest.TestCase):
         if restore:
             command.append("--restore-worktrees")
         return subprocess.run(command, capture_output=True, text=True)
+
+    def verify(self, *pairs, restore=False, marker=None):
+        return self.verify_entries([
+            {"repositoryPath": repository, "upstreamPath": upstream,
+             **({"upstreamStartMarker": marker} if marker is not None else {})}
+            for repository, upstream in pairs
+        ], restore=restore)
 
     def assert_failed(self, result, message):
         self.assertNotEqual(result.returncode, 0)
@@ -171,6 +174,158 @@ class LicenseBytesTests(unittest.TestCase):
         commit_files(self.upstream, {"README.md": b"README\n" + LICENSE})
         commit_files(self.packaging, {"LICENSE": LICENSE.replace(b"\n", b"\r\n")})
         self.assert_failed(self.verify(("LICENSE", "README.md"), marker="Copyright"), "differs from upstream")
+
+    def test_packaging_origin_license_verified_and_restored(self):
+        pkg_license = b"Artistic License 2.0\nLine 2\n"
+        commit_files(self.upstream, {"README-ext.md": LICENSE})
+        commit_files(self.packaging, {"README-ext.md": LICENSE, "LICENSE": pkg_license})
+        (self.packaging / "LICENSE").write_bytes(pkg_license.replace(b"\n", b"\r\n"))
+
+        pkg_sha = hashlib.sha256(pkg_license).hexdigest()
+        result = self.verify_entries([
+            {"repositoryPath": "README-ext.md", "upstreamPath": "README-ext.md"},
+            {"origin": "packaging", "repositoryPath": "LICENSE", "sha256": pkg_sha},
+        ], restore=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.stage / "README-ext.md").read_bytes(), LICENSE)
+        self.assertEqual((self.stage / "LICENSE").read_bytes(), pkg_license)
+        self.assertEqual((self.packaging / "LICENSE").read_bytes(), pkg_license)
+        verified = json.loads(self.verified.read_bytes())
+        self.assertIn("packagingCommit", verified)
+        self.assertEqual(len(verified["licenses"]), 2)
+        self.assertEqual(verified["licenses"][1], {
+            "origin": "packaging",
+            "repositoryPath": "LICENSE",
+            "size": len(pkg_license),
+            "sha256": pkg_sha,
+        })
+
+    def test_packaging_origin_rejects_mismatched_missing_and_malformed_sha256(self):
+        pkg_license = b"Artistic License 2.0\n"
+        commit_files(self.upstream, {"README-ext.md": LICENSE})
+        commit_files(self.packaging, {"README-ext.md": LICENSE, "LICENSE": pkg_license.replace(b"\n", b"\r\n")})
+
+        lf_sha = hashlib.sha256(pkg_license).hexdigest()
+        self.assert_failed(
+            self.verify_entries([
+                {"repositoryPath": "README-ext.md", "upstreamPath": "README-ext.md"},
+                {"origin": "packaging", "repositoryPath": "LICENSE", "sha256": lf_sha},
+            ]),
+            "does not match pinned",
+        )
+        self.assert_failed(
+            self.verify_entries([
+                {"repositoryPath": "README-ext.md", "upstreamPath": "README-ext.md"},
+                {"origin": "packaging", "repositoryPath": "LICENSE"},
+            ]),
+            "Invalid fields",
+        )
+        self.assert_failed(
+            self.verify_entries([
+                {"repositoryPath": "README-ext.md", "upstreamPath": "README-ext.md"},
+                {"origin": "packaging", "repositoryPath": "LICENSE", "sha256": lf_sha.upper()},
+            ]),
+            "Invalid pinned license sha256",
+        )
+
+    def test_packaging_only_without_upstream_entry_is_rejected(self):
+        pkg_license = b"Artistic License 2.0\n"
+        commit_files(self.upstream, {})
+        commit_files(self.packaging, {"LICENSE": pkg_license})
+        self.assert_failed(
+            self.verify_entries([
+                {"origin": "packaging", "repositoryPath": "LICENSE",
+                 "sha256": hashlib.sha256(pkg_license).hexdigest()},
+            ]),
+            "at least one upstream-verified license file",
+        )
+
+    def test_build_origin_license_verified_and_restored_without_writing_upstream(self):
+        pg_notice = b"PostgreSQL Database Management System\nPortions Copyright\n"
+        commit_files(self.upstream, {"README-ext.md": LICENSE})
+        commit_files(self.packaging, {
+            "README-ext.md": LICENSE,
+            "licenses/COPYRIGHT.postgresql": pg_notice,
+        })
+        (self.packaging / "licenses/COPYRIGHT.postgresql").write_bytes(pg_notice.replace(b"\n", b"\r\n"))
+
+        pg_sha = hashlib.sha256(pg_notice).hexdigest()
+        result = self.verify_entries([
+            {"repositoryPath": "README-ext.md", "upstreamPath": "README-ext.md"},
+            {
+                "origin": "build",
+                "repositoryPath": "licenses/COPYRIGHT.postgresql",
+                "generatedSource": "upstream",
+                "generatedPath": "POSTGRESQL-COPYRIGHT",
+                "sha256": pg_sha,
+            },
+        ], restore=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.stage / "licenses/COPYRIGHT.postgresql").read_bytes(), pg_notice)
+        self.assertEqual((self.packaging / "licenses/COPYRIGHT.postgresql").read_bytes(), pg_notice)
+        self.assertFalse((self.upstream / "POSTGRESQL-COPYRIGHT").exists())
+        verified = json.loads(self.verified.read_bytes())
+        self.assertEqual(verified["licenses"][1], {
+            "origin": "build",
+            "repositoryPath": "licenses/COPYRIGHT.postgresql",
+            "size": len(pg_notice),
+            "sha256": pg_sha,
+            "generatedSource": "upstream",
+            "generatedPath": "POSTGRESQL-COPYRIGHT",
+        })
+
+    def test_build_origin_rejects_invalid_generated_source_and_path_traversal(self):
+        pg_notice = b"PostgreSQL Notice\n"
+        pg_sha = hashlib.sha256(pg_notice).hexdigest()
+        commit_files(self.upstream, {"README-ext.md": LICENSE})
+        commit_files(self.packaging, {"README-ext.md": LICENSE, "licenses/COPYRIGHT.postgresql": pg_notice})
+
+        self.assert_failed(
+            self.verify_entries([
+                {"repositoryPath": "README-ext.md", "upstreamPath": "README-ext.md"},
+                {
+                    "origin": "build",
+                    "repositoryPath": "licenses/COPYRIGHT.postgresql",
+                    "generatedSource": "packaging",
+                    "generatedPath": "POSTGRESQL-COPYRIGHT",
+                    "sha256": pg_sha,
+                },
+            ]),
+            "Invalid generatedSource",
+        )
+        self.assert_failed(
+            self.verify_entries([
+                {"repositoryPath": "README-ext.md", "upstreamPath": "README-ext.md"},
+                {
+                    "origin": "build",
+                    "repositoryPath": "licenses/COPYRIGHT.postgresql",
+                    "generatedSource": "upstream",
+                    "generatedPath": "../POSTGRESQL-COPYRIGHT",
+                    "sha256": pg_sha,
+                },
+            ]),
+            "Invalid generatedPath",
+        )
+
+    def test_duplicate_repository_path_across_upstream_and_packaging_rejected(self):
+        commit_files(self.upstream, {"README.md": LICENSE})
+        commit_files(self.packaging, {"LICENSE": LICENSE})
+        sha = hashlib.sha256(LICENSE).hexdigest()
+
+        self.assert_failed(
+            self.verify_entries([
+                {"repositoryPath": "LICENSE", "upstreamPath": "README.md"},
+                {"origin": "packaging", "repositoryPath": "LICENSE", "sha256": sha},
+            ]),
+            "Duplicate license staging path",
+        )
+        self.assert_failed(
+            self.verify_entries([
+                {"origin": "packaging", "repositoryPath": "LICENSE", "sha256": sha},
+                {"repositoryPath": "LICENSE", "upstreamPath": "README.md"},
+            ]),
+            "Duplicate license staging path",
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "name": "fixture-packaging-license",
+  "upstream": {
+    "repository": "example/fixture",
+    "ref": "v1",
+    "version": "1"
+  },
+  "postgresql": {
+    "majors": [17]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "files": [
+      {
+        "repositoryPath": "README-fixture.md",
+        "upstreamPath": "README-fixture.md"
+      },
+      {
+        "origin": "packaging",
+        "repositoryPath": "LICENSE",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "origin": "build",
+        "repositoryPath": "licenses/COPYRIGHT.postgresql",
+        "generatedSource": "upstream",
+        "generatedPath": "POSTGRESQL-COPYRIGHT",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  }
+}

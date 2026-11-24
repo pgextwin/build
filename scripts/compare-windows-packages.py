@@ -75,9 +75,10 @@ def compare(args, report):
             raise ValueError(f"Duplicate verified license ZIP path: {name}")
         seen.add(name.casefold())
         expected = {field: license_info[field] for field in ("size", "sha256")}
+        source_label = license_info.get("origin", "upstream")
         for side in ("before", "after"):
             if report[side]["entries"].get(name) != expected:
-                differences.append(f"{side}: license {name} differs from verified upstream blob.")
+                differences.append(f"{side}: license {name} differs from verified {source_label} blob.")
 
 
 def main():
