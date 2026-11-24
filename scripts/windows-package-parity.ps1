@@ -96,10 +96,16 @@ try {
             'pgextwin/build' $BuildCommit $mode ".github/workflows/$workflow"
         Write-WindowsPackageStage $plan $stage $licenseList
         $legacy = Get-LegacyPackageInputs $tokens $upstreamDir
+        $originalCurrentDirectory = [Environment]::CurrentDirectory
         Push-Location $legacyDir
         try {
+            # Legacy hooks may pass relative paths to both PowerShell cmdlets and .NET APIs.
+            [Environment]::CurrentDirectory = $legacyDir
             & (Join-Path $oldHooks 'package.ps1') @legacy -DistDir $beforeDistName
-        } finally { Pop-Location }
+        } finally {
+            [Environment]::CurrentDirectory = $originalCurrentDirectory
+            Pop-Location
+        }
         & (Join-Path $PSScriptRoot 'finalize-package.ps1') @finalizer -DistDir $beforeDist `
             -VerifiedLicenseList $licenseList
         & (Join-Path $PSScriptRoot 'finalize-package.ps1') @finalizer -DistDir $afterDist `
