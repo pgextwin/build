@@ -59,15 +59,19 @@ try {
         & (Join-Path $oldHooks 'build.ps1') -PgRoot $env:PGROOT -UpstreamDir $upstreamDir
     } finally { Pop-Location }
 
+    # The legacy build above runs once and owns the shared build output.
     $plan = Resolve-WindowsPackage (Join-Path $candidateDir 'windows/ci/package.json') $candidateDir $upstreamDir `
-        (Join-Path $candidateDir 'build') $licenses.stage $licenses.verified $tokens -LicenseSourceStage $licenses.sourceStage
+        (Join-Path $legacyDir 'build') $licenses.stage $licenses.verified $tokens -LicenseSourceStage $licenses.sourceStage
     $afterPg = Join-Path $work 'postgresql'
     [void][IO.Directory]::CreateDirectory($afterPg)
     foreach ($directory in @('share', 'lib', 'bin')) {
         Copy-Item -LiteralPath (Join-Path $env:PGROOT $directory) -Destination $afterPg -Recurse
     }
     $original = Get-InstallationInventory $env:PGROOT
-    & (Join-Path $oldHooks 'install.ps1') -PgRoot $env:PGROOT -UpstreamDir $upstreamDir
+    Push-Location $legacyDir
+    try {
+        & (Join-Path $oldHooks 'install.ps1') -PgRoot $env:PGROOT -UpstreamDir $upstreamDir
+    } finally { Pop-Location }
     Copy-PackageFiles $plan $afterPg install
     $beforeList = Get-PlacedFiles $original (Get-InstallationInventory $env:PGROOT)
     $afterList = Get-PlacedFiles $original (Get-InstallationInventory $afterPg)
