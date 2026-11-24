@@ -63,6 +63,13 @@
       "ownerWrapper": "ef91a228bd0ec6114c91f9488ca60dc3b42b6bb9",
       "legacyOwnerWrapper": "d74b8a231814c5953914638259f4ace22eaeaadb",
       "scheduledRequalification": null
+    },
+    "pgextwin/pg_squeeze": {
+      "candidateSigner": "87c98a47b9ed6c44c64d5b55d147e9f4f39fdcb1",
+      "candidateAudit": null,
+      "ownerWrapper": "2cb9c5dd6c59ccd70df98124d19688a7ea6c3eb5",
+      "legacyOwnerWrapper": "2cb9c5dd6c59ccd70df98124d19688a7ea6c3eb5",
+      "scheduledRequalification": null
     }
   }
 }
