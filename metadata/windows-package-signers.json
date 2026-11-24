@@ -31,8 +31,8 @@
     },
     "pgextwin/pg_bigm": {
       "candidateSigner": "9c3fe72759258ab1db5e91435cdeda113dd18dcf",
-      "candidateAudit": null,
-      "ownerWrapper": "2cb9c5dd6c59ccd70df98124d19688a7ea6c3eb5",
+      "candidateAudit": "4d5ec1d607bb14992d49c24ea383a2decdbe16d3",
+      "ownerWrapper": "4d5ec1d607bb14992d49c24ea383a2decdbe16d3",
       "legacyOwnerWrapper": "2cb9c5dd6c59ccd70df98124d19688a7ea6c3eb5",
       "scheduledRequalification": null
     }
