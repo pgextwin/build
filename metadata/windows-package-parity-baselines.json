@@ -4,5 +4,6 @@
   "pg_permissions": ["03e06c7b92d330de453deec1f06cc3cd114c0fb9"],
   "pgtap": ["749dd7c4631bdfd79472adc2fa73fc5c0c99842d"],
   "pg_ivm": ["7e8fcb6c333f7f89c8a53f0c4a23f52a7befe7d5"],
-  "hypopg": ["676d22a15c0e45475c56e04f008c2e0d19e68acb"]
+  "hypopg": ["676d22a15c0e45475c56e04f008c2e0d19e68acb"],
+  "pg_bigm": ["69cfdcd1cdcbeb3c4cc6b98a6b0862dc6755dbf8"]
 }
