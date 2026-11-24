@@ -64,18 +64,25 @@ function Invoke-ContractCase {
             if ($info -match '[\r\n]$') { throw 'Unexpected terminal newline in PACKAGE-INFO.txt.' }
         }
 
-        $oldShare = Join-Path $caseDir 'pg-old/share/extension'
+        $oldRoot = Join-Path $caseDir 'pg-old'
+        $oldShare = Join-Path $oldRoot 'share/extension'
         [void][IO.Directory]::CreateDirectory($oldShare)
         Copy-Item -LiteralPath (Join-Path $upstream 'example.control') -Destination $oldShare
         Get-ChildItem -LiteralPath $upstream -File -Filter 'example--*.sql' | Copy-Item -Destination $oldShare
-        $case.before = @(Get-ChildItem -LiteralPath $oldShare -File | Sort-Object Name | ForEach-Object {
-            @{ path = "share/extension/$($_.Name)"; size = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName).Hash }
-        })
-        $case.after = @(Get-ChildItem -LiteralPath (Join-Path $pgRoot 'share/extension') -File | Sort-Object Name | ForEach-Object {
-            @{ path = "share/extension/$($_.Name)"; size = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName).Hash }
-        })
+        if ($map.distribution -eq 'dll-sql') {
+            $oldLib = Join-Path $oldRoot 'lib'
+            [void][IO.Directory]::CreateDirectory($oldLib)
+            Copy-Item -LiteralPath (Join-Path $caseDir 'build/Release/example.dll') -Destination $oldLib
+        }
+        foreach ($target in @('before', 'after')) {
+            $root = if ($target -eq 'before') { $oldRoot } else { $pgRoot }
+            $case[$target] = @(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName | ForEach-Object {
+                @{ path = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+                    size = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName).Hash }
+            })
+        }
         foreach ($file in $case.before) {
-            $oldBytes = [IO.File]::ReadAllBytes((Join-Path $caseDir "pg-old/$($file.path)"))
+            $oldBytes = [IO.File]::ReadAllBytes((Join-Path $oldRoot $file.path))
             $newBytes = [IO.File]::ReadAllBytes((Join-Path $pgRoot $file.path))
             if ([Convert]::ToBase64String($oldBytes) -cne [Convert]::ToBase64String($newBytes)) {
                 throw "Installed bytes differ at '$($file.path)'."
@@ -100,7 +107,28 @@ function Invoke-ContractCase {
             [IO.File]::WriteAllBytes((Join-Path $stage 'LICENSE'), [byte[]]@(70, 10, 66))
         }
         & (Join-Path $PSScriptRoot '../scripts/finalize-package.ps1') @metadata
-        if (!(Test-Path -LiteralPath (Join-Path $metadata.DistDir $asset))) { throw 'Verified ZIP was not produced.' }
+        $zipPath = Join-Path $metadata.DistDir $asset
+        if (!(Test-Path -LiteralPath $zipPath)) { throw 'Verified ZIP was not produced.' }
+        if ($map.distribution -eq 'dll-sql') {
+            $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+            try {
+                $case.zipEntries = @($zip.Entries.FullName | Sort-Object)
+                $optionalPath = 'upstream-scripts/dump-metadata'
+                if (($optionalPath -cin $case.zipEntries) -ne (Test-Path -LiteralPath (Join-Path $upstream 'scripts/dump-metadata'))) {
+                    throw 'ZIP-only optional file does not match source presence.'
+                }
+                foreach ($file in $case.before) {
+                    $entry = $zip.GetEntry($file.path)
+                    if (!$entry) { throw "Missing ZIP entry '$($file.path)'." }
+                    $stream = $entry.Open()
+                    try {
+                        if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) -cne $file.sha256) {
+                            throw "ZIP bytes differ at '$($file.path)'."
+                        }
+                    } finally { $stream.Dispose() }
+                }
+            } finally { $zip.Dispose() }
+        }
     } catch {
         $case.exitCode = 1
         $case.error = $_.Exception.Message
@@ -125,6 +153,19 @@ $setLicenseRange = {
     $verified.licenses[0].upstreamSha256 = (Get-FileHash -LiteralPath $readme).Hash.ToLowerInvariant()
     $map.files[2] = @{ source = 'licenseDocument'; path = 'README.md'; destination = 'UPSTREAM-README.md'; targets = @('zip') }
     $map.packageInfoFinalNewline = $false
+}
+$setDll = {
+    $map.distribution = 'dll-sql'
+    [void][IO.Directory]::CreateDirectory((Join-Path $caseDir 'build/Release'))
+    [IO.File]::WriteAllBytes((Join-Path $caseDir 'build/Release/example.dll'), [byte[]]@(77, 90, 0, 255))
+    $map.files += @{ source = 'buildOutput'; path = 'Release/example.dll'; destination = 'lib/example.dll'; targets = @('install', 'zip') }
+    $map.files += @{ source = 'upstream'; path = 'scripts/dump-metadata'; destination = 'upstream-scripts/dump-metadata'
+        targets = @('zip'); optional = $true }
+}
+$setSqlInstallPath = {
+    Rename-Item -LiteralPath (Join-Path $upstream 'example--2.0.sql') 'example--1.0.sql'
+    $map.files[1].Remove('requiredMatches')
+    $map.sqlInstallPath = @('1.0', '{version}')
 }
 try {
     $cases = @(
@@ -175,6 +216,29 @@ try {
             New-Item -ItemType File -Path (Join-Path $upstream 'example.dll') | Out-Null
             $map.files += @{ source = 'upstream'; path = 'example.dll'; destination = 'lib/example.dll'; targets = @('zip') }
         } 'SQL-only package cannot contain a DLL'
+        Invoke-ContractCase dll-sql-optional-present {
+            & $setDll
+            & $setSqlInstallPath
+            [void][IO.Directory]::CreateDirectory((Join-Path $upstream 'scripts'))
+            Set-Content -LiteralPath (Join-Path $upstream 'scripts/dump-metadata') -Value 'metadata helper'
+        }
+        Invoke-ContractCase dll-sql-optional-absent { & $setDll }
+        Invoke-ContractCase dll-wrong-destination {
+            & $setDll
+            $map.files[4].destination = 'bin/example.dll'
+        } 'DLL destination must be under lib/'
+        Invoke-ContractCase dll-missing {
+            & $setDll
+            Remove-Item -LiteralPath (Join-Path $caseDir 'build/Release/example.dll')
+        } 'Required package file missing'
+        Invoke-ContractCase sql-install-path-missing-upgrade {
+            & $setSqlInstallPath
+            Rename-Item -LiteralPath (Join-Path $upstream 'example--1.0--2.0.sql') 'example--1.0--3.0.sql'
+        } "sqlInstallPath requires 'share/extension/example--1.0--2.0.sql'"
+        Invoke-ContractCase sql-install-path-wrong-version {
+            & $setSqlInstallPath
+            $map.sqlInstallPath = @('1.0', '3.0')
+        } 'end at the resolved upstream version'
         Invoke-ContractCase license-readme-range { & $setLicenseRange }
         Invoke-ContractCase license-readme-tampered {
             & $setLicenseRange

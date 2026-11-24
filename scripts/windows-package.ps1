@@ -68,7 +68,8 @@ function Resolve-WindowsPackage {
         [string]$LicenseSourceStage
     )
     $map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Json -AsHashtable
-    Assert-PackageObject $map -Required @('schemaVersion', 'distribution', 'files', 'packageInfo') -Optional @('packageInfoFinalNewline')
+    Assert-PackageObject $map -Required @('schemaVersion', 'distribution', 'files', 'packageInfo') `
+        -Optional @('packageInfoFinalNewline', 'sqlInstallPath')
     if ($map.Contains('packageInfoFinalNewline') -and $map.packageInfoFinalNewline -isnot [bool]) {
         throw 'packageInfoFinalNewline must be a boolean.'
     }
@@ -76,6 +77,10 @@ function Resolve-WindowsPackage {
         $map.distribution -cnotin @('sql-only', 'dll-sql', 'dll-only') -or
         $map.files -isnot [array] -or !$map.files.Count -or $map.packageInfo -isnot [array] -or !$map.packageInfo.Count) {
         throw 'Invalid schema version, distribution, files or packageInfo in package map.'
+    }
+    if ($map.Contains('sqlInstallPath') -and ($map.distribution -eq 'dll-only' -or
+        $map.sqlInstallPath -isnot [array] -or $map.sqlInstallPath.Count -lt 2)) {
+        throw 'sqlInstallPath requires an ordered list of at least two SQL versions.'
     }
     if ($null -eq $VerifiedLicenses -or $VerifiedLicenses.schemaVersion -ne 1 -or
         $VerifiedLicenses.upstreamCommit -cne $Tokens.upstreamCommit -or !$VerifiedLicenses.licenses.Count) {
@@ -218,7 +223,36 @@ function Resolve-WindowsPackage {
         $controlPath = 'share/extension/' + $Tokens.extensionName + '.control'
         $sqlPath = 'share/extension/' + $Tokens.extensionName + '--' + $Tokens.version + '.sql'
         $controls = @($destinations.Values | ForEach-Object { if ($_.ContainsKey($controlPath)) { $_[$controlPath] } } | Select-Object -Unique)
-        if (!$controls.Count -or !($destinations.install.ContainsKey($sqlPath) -or $destinations.zip.ContainsKey($sqlPath))) {
+        if ($map.Contains('sqlInstallPath')) {
+            # PostgreSQL can install from a base script followed by update scripts.
+            $versions = @(foreach ($version in $map.sqlInstallPath) {
+                if ($version -isnot [string]) { throw 'sqlInstallPath versions must be strings.' }
+                $version = Expand-PackageTokens $version $Tokens
+                if ($version -cnotmatch '^[A-Za-z0-9_.+]+(?:-[A-Za-z0-9_.+]+)*$') {
+                    throw "Invalid sqlInstallPath version '$version'."
+                }
+                $version
+            })
+            if ($versions[-1] -cne $Tokens.version -or @($versions | Select-Object -Unique).Count -ne $versions.Count) {
+                throw 'sqlInstallPath must use distinct versions and end at the resolved upstream version.'
+            }
+            $sqlPrefix = 'share/extension/' + $Tokens.extensionName + '--'
+            $requiredSql = @("${sqlPrefix}$($versions[0]).sql")
+            for ($i = 1; $i -lt $versions.Count; $i++) {
+                $requiredSql += "${sqlPrefix}$($versions[$i - 1])--$($versions[$i]).sql"
+            }
+            foreach ($target in $destinations.Keys) {
+                if ($destinations[$target].ContainsKey($controlPath)) {
+                    foreach ($path in $requiredSql) {
+                        if (!$destinations[$target].ContainsKey($path)) {
+                            throw "sqlInstallPath requires '$path' in $target."
+                        }
+                    }
+                }
+            }
+        }
+        if (!$controls.Count -or (!$map.Contains('sqlInstallPath') -and
+            !($destinations.install.ContainsKey($sqlPath) -or $destinations.zip.ContainsKey($sqlPath)))) {
             throw "Package map requires '$controlPath' and '$sqlPath'."
         }
         foreach ($control in $controls) {
