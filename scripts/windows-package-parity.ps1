@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 function Get-InstallationInventory {
     param([string]$Root)
     $items = @{}
-    foreach ($directory in @('share/extension', 'lib', 'bin')) {
+    foreach ($directory in @('share/extension', 'lib', 'bin', 'include')) {
         foreach ($file in Get-ChildItem -LiteralPath (Join-Path $Root $directory) -Recurse -File) {
             $relative = [IO.Path]::GetRelativePath($Root, $file.FullName).Replace('\', '/')
             $items[$relative] = @{ size = $file.Length; sha256 = (Get-FileHash -LiteralPath $file.FullName).Hash.ToLowerInvariant() }
@@ -68,7 +68,7 @@ try {
         (Join-Path $legacyDir 'build') $licenses.stage $licenses.verified $tokens -LicenseSourceStage $licenses.sourceStage
     $afterPg = Join-Path $work 'postgresql'
     [void][IO.Directory]::CreateDirectory($afterPg)
-    foreach ($directory in @('share', 'lib', 'bin')) {
+    foreach ($directory in @('share', 'lib', 'bin', 'include')) {
         Copy-Item -LiteralPath (Join-Path $env:PGROOT $directory) -Destination $afterPg -Recurse
     }
     $original = Get-InstallationInventory $env:PGROOT

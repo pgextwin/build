@@ -232,7 +232,8 @@ function Resolve-WindowsPackage {
                 $matchedLicenses.Add($path, $licenseEntry)
             }
             foreach ($target in $row.targets) {
-                if ($target -eq 'install' -and $destination -notmatch '^(?:share/extension|lib|bin)/') {
+                if ($target -eq 'install' -and $destination -notmatch '^(?:share/extension|lib|bin)/' -and
+                    !($file.Extension -ieq '.h' -and $destination -match '^include/[^/]+\.h$')) {
                     throw "Invalid install destination '$destination'."
                 }
                 $selected = $destinations[$target]
