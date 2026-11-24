@@ -152,13 +152,9 @@ class SignedPackageRoutes(unittest.TestCase):
                                               if value["candidateSigner"] == signer})
                 self.assertIn(b"metadata/windows-package-signing-scope.json", git_blob(signer, routes.SIGNER))
                 self.assertEqual(owner.signer_sha_from_workflow(git_blob(wrapper, routes.OWNER_WRAPPER)), signer)
-                self.assertEqual(routes.workflow_uses(git_blob(schedule, routes.SCHEDULED_REQUALIFICATION),
-                                                      ["signed_windows"]), [routes.workflow_ref(routes.SIGNER, signer)])
-                self.assertEqual(git_blob(schedule, routes.SCHEDULED_REQUALIFICATION).count(
-                    b'--package-requalification-sha "$REQUALIFICATION_SHA"'), 2)
                 self.assertEqual(git_blob(verifier, routes.CANDIDATE_AUDIT).count(
                     b'--package-verifier-sha "$VERIFIER_SHA"'), 2)
-                for revision in (verifier, schedule):
+                for revision in filter(None, (verifier, schedule)):
                     self.assertEqual(routes.repository_policy(routes.read_policy(git_blob(revision, routes.POLICY)),
                                                               repo)["candidateSigner"], signer)
 
@@ -184,6 +180,10 @@ class SignedPackageRoutes(unittest.TestCase):
                     run = refs((routes.OWNER_WRAPPER, approved), (routes.SIGNER, expected))
                     self.assertEqual(routes.owner_signer(get, repo, HEAD, run, wrapper, owner.signer_sha_from_workflow,
                                                         legacy_wrapper_sha=legacy_wrapper), expected)
+                    run["referenced_workflows"][1]["sha"] = "e" * 40
+                    with self.assertRaisesRegex(routes.Denied, "approved workflow"):
+                        routes.owner_signer(get, repo, HEAD, run, wrapper, owner.signer_sha_from_workflow,
+                                            legacy_wrapper_sha=legacy_wrapper)
                 for approved, audit_sha in ((signer, verifier), (legacy_signer, routes.LEGACY_AUDIT)):
                     caller = {"candidate_attested_build": (routes.SIGNER, approved),
                               "candidate_signed_audit": (routes.CANDIDATE_AUDIT, audit_sha)}
@@ -191,6 +191,15 @@ class SignedPackageRoutes(unittest.TestCase):
                     self.assertEqual(routes.candidate_signer(get, repo, HEAD, run, POLICY, legacy_signer), approved)
                     self.assertEqual(routes.candidate_signer(get, "pgextwin/pgaudit", HEAD, run, POLICY, legacy_signer),
                                      legacy_signer)
+                    run["referenced_workflows"][0]["sha"] = "e" * 40
+                    with self.assertRaisesRegex(routes.Denied, "approved workflow"):
+                        routes.candidate_signer(get, repo, HEAD, run, POLICY, legacy_signer)
+                if schedule is None:
+                    continue
+                scheduled_workflow = git_blob(schedule, routes.SCHEDULED_REQUALIFICATION)
+                self.assertEqual(routes.workflow_uses(scheduled_workflow, ["signed_windows"]),
+                                 [routes.workflow_ref(routes.SIGNER, signer)])
+                self.assertEqual(scheduled_workflow.count(b'--package-requalification-sha "$REQUALIFICATION_SHA"'), 2)
                 caller = {"merged_candidate_scheduled_oidc": (routes.SCHEDULED_REQUALIFICATION, schedule)}
                 run = refs(*caller.values(), (routes.SIGNER, signer))
                 self.assertEqual(routes.requalification_signer(get, repo, HEAD, run, POLICY, schedule), signer)

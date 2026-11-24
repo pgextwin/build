@@ -3,5 +3,6 @@
   "pg_track_settings": ["3a0f55dfffb6d8657949cb98a74bd3f16e3633a0", "5e1958a76b2257d764be8d6d08d9adaad071b1c0"],
   "pg_permissions": ["03e06c7b92d330de453deec1f06cc3cd114c0fb9"],
   "pgtap": ["749dd7c4631bdfd79472adc2fa73fc5c0c99842d"],
-  "pg_ivm": ["7e8fcb6c333f7f89c8a53f0c4a23f52a7befe7d5"]
+  "pg_ivm": ["7e8fcb6c333f7f89c8a53f0c4a23f52a7befe7d5"],
+  "hypopg": ["676d22a15c0e45475c56e04f008c2e0d19e68acb"]
 }
