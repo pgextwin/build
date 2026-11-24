@@ -11,5 +11,6 @@
   "pg_qualstats": ["7af7b39d37b8128efe08cd1e84e0161b97c5fb1d"],
   "pg_show_plans": ["2582fcfea59ffcca7a2c9924dd6fbec605a4d866"],
   "pg_squeeze": ["7f20f5eeccbcca959b86031acbaa1f3ade4332d0"],
-  "pg_stat_monitor": ["6909ee13dc97f9bcc4eb784fdea317dfd296bd15"]
+  "pg_stat_monitor": ["6909ee13dc97f9bcc4eb784fdea317dfd296bd15"],
+  "pg_store_plans": ["42213f83566517d691bb2847f3b8ea488ad40d0a"]
 }

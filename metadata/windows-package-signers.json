@@ -77,6 +77,13 @@
       "ownerWrapper": "e12c272ca035ac8a4411265a8f4d48e119617c0a",
       "legacyOwnerWrapper": "b3738937b9bcba3305a84e6ae03a96a5baa4e062",
       "scheduledRequalification": null
+    },
+    "pgextwin/pg_store_plans": {
+      "candidateSigner": "4fe9e87fe859eab8471936453d4fe17091d935fb",
+      "candidateAudit": "c34b4282645700bd094db81466293ac2be5b4bdb",
+      "ownerWrapper": "c34b4282645700bd094db81466293ac2be5b4bdb",
+      "legacyOwnerWrapper": "e73f96515d3d297ea51a68070d06139a15481c50",
+      "scheduledRequalification": null
     }
   }
 }
