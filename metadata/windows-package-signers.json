@@ -122,8 +122,8 @@
     },
     "pgextwin/odbc_fdw": {
       "candidateSigner": "9252e51c911dc45bd7442bb1f64ef0a7eda55fb3",
-      "candidateAudit": null,
-      "ownerWrapper": "7adcf2f68bbd7ed04216732556de609c50b1ac79",
+      "candidateAudit": "3c0601426ba77f5afe9d7f8d673f6e822ce1223d",
+      "ownerWrapper": "3c0601426ba77f5afe9d7f8d673f6e822ce1223d",
       "legacyOwnerWrapper": "7adcf2f68bbd7ed04216732556de609c50b1ac79",
       "scheduledRequalification": null
     }
