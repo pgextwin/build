@@ -62,6 +62,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          jq -e --arg repository "$GITHUB_REPOSITORY" 'index($repository) != null' \
+            .pgextwin-build/metadata/windows-package-signing-scope.json
           gh api --method GET "repos/$GITHUB_REPOSITORY/issues/comments/${{ github.event.comment.id }}" > "$RUNNER_TEMP/owner-comment.json"
           gh api --method GET "repos/$GITHUB_REPOSITORY/branches/main" > "$RUNNER_TEMP/owner-main.json"
           gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$RUNNER_TEMP/owner-run.json"
@@ -91,8 +93,8 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    # Canonical owner-source signer digest. Admission policy is maintained separately.
-    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@4558c82c28b0814e60f35c6e5e5f8ee1025a5754
+    # Fixed Windows package signer for the repositories approved at this revision.
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@f33f254a36ac19245fd898a6ee35c2e44d5770c0
     with:
       extension_config_path: ${{ inputs.extension_config_path }}
       test_contract_path: ${{ inputs.test_contract_path }}
@@ -139,7 +141,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
           python .pgextwin-build/scripts/chat-signed-main-audit.py \
-            --workflow-sha "$CENTRAL_WORKFLOW_SHA" \
+            --workflow-sha "$CENTRAL_WORKFLOW_SHA" --pilot-wrapper \
             --intent "$RUNNER_TEMP/owner-intent/owner-main-intent.json" \
             --manifest "${{ inputs.extension_config_path }}" \
             --lifecycle .pgextwin-build/metadata/postgresql.json \

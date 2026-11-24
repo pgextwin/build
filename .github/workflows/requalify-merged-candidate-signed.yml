@@ -43,6 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          jq -e --arg repository "$GITHUB_REPOSITORY" 'index($repository) != null' \
+            .pgextwin-build/metadata/windows-package-signing-scope.json
           python .pgextwin-build/scripts/verify-merged-schedule-signing-intent.py \
             --output "$RUNNER_TEMP/merged-schedule-signing-intent.json" \
             --github-output "$GITHUB_OUTPUT"
@@ -64,7 +66,7 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@5756b3c5136a8bf4db710016cfe97555f0a71c6d
+    uses: pgextwin/build/.github/workflows/build-extension-attested.yml@f33f254a36ac19245fd898a6ee35c2e44d5770c0
     with:
       extension_config_path: config/extension.json
       test_contract_path: config/test-contract.json
