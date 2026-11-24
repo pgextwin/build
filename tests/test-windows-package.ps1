@@ -74,6 +74,10 @@ function Invoke-ContractCase {
             [void][IO.Directory]::CreateDirectory($oldLib)
             Copy-Item -LiteralPath (Join-Path $caseDir 'build/Release/example.dll') -Destination $oldLib
         }
+        if ($Name -eq 'dll-sql-public-header') {
+            [void][IO.Directory]::CreateDirectory((Join-Path $oldRoot 'include'))
+            Copy-Item -LiteralPath (Join-Path $upstream 'example.h') -Destination (Join-Path $oldRoot 'include/example.h')
+        }
         foreach ($target in @('before', 'after')) {
             $root = if ($target -eq 'before') { $oldRoot } else { $pgRoot }
             $case[$target] = @(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName | ForEach-Object {
@@ -162,6 +166,11 @@ $setDll = {
     $map.files += @{ source = 'upstream'; path = 'scripts/dump-metadata'; destination = 'upstream-scripts/dump-metadata'
         targets = @('zip'); optional = $true }
 }
+$setPublicHeader = {
+    & $setDll
+    Set-Content -LiteralPath (Join-Path $upstream 'example.h') -Value '#define EXAMPLE 1'
+    $map.files += @{ source = 'upstream'; path = 'example.h'; destination = 'include/example.h'; targets = @('install', 'zip') }
+}
 $setSqlInstallPath = {
     Rename-Item -LiteralPath (Join-Path $upstream 'example--2.0.sql') 'example--1.0.sql'
     $map.files[1].Remove('requiredMatches')
@@ -246,6 +255,11 @@ try {
             Set-Content -LiteralPath (Join-Path $upstream 'scripts/dump-metadata') -Value 'metadata helper'
         }
         Invoke-ContractCase dll-sql-optional-absent { & $setDll }
+        Invoke-ContractCase dll-sql-public-header { & $setPublicHeader }
+        Invoke-ContractCase non-header-include-destination {
+            & $setPublicHeader
+            $map.files[-1].destination = 'include/example.txt'
+        } 'Invalid install destination'
         Invoke-ContractCase dll-wrong-destination {
             & $setDll
             $map.files[4].destination = 'bin/example.dll'

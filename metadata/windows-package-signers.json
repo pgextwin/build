@@ -112,6 +112,13 @@
       "ownerWrapper": "f4b67e90c21e9d5320aeb5b2032ebaf25ba60f6f",
       "legacyOwnerWrapper": "52b7f14c0f11a8a7bd820ddef12a950e33bd06fb",
       "scheduledRequalification": "f4b67e90c21e9d5320aeb5b2032ebaf25ba60f6f"
+    },
+    "pgextwin/set_user": {
+      "candidateSigner": "5fa12e51d84a1e4e74e258fe0e5ea2f80f4257f5",
+      "candidateAudit": "fe52bc9c967b4cbc8f65c7be121e90da9dbea4c8",
+      "ownerWrapper": "fe52bc9c967b4cbc8f65c7be121e90da9dbea4c8",
+      "legacyOwnerWrapper": "7a87b202ae606f38377e82770abc9761da2a0696",
+      "scheduledRequalification": null
     }
   }
 }

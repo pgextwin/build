@@ -25,6 +25,7 @@ on:
           - pg_wait_sampling
           - pgaudit
           - plpgsql_check
+          - set_user
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
