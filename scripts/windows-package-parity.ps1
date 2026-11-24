@@ -79,8 +79,16 @@ try {
     Set-Content -LiteralPath (Join-Path $evidence 'after-install.json') -Value $afterList -Encoding utf8
     $installEquivalent = $beforeList -ceq $afterList
 
-    & (Join-Path $oldHooks 'smoke-test.ps1') -PgRoot $env:PGROOT -PgPort ([int]$env:PGPORT) -PostgreSqlMajor $matrix.major
-    & (Join-Path $candidateDir 'windows/ci/smoke-test.ps1') -PgRoot $afterPg -PgPort ([int]$env:PGPORT) -PostgreSqlMajor $matrix.major
+    # A smoke hook may leave a fixed data directory or log under RUNNER_TEMP.
+    $originalRunnerTemp = $env:RUNNER_TEMP
+    try {
+        $env:RUNNER_TEMP = Join-Path $work 'legacy-smoke'
+        [void][IO.Directory]::CreateDirectory($env:RUNNER_TEMP)
+        & (Join-Path $oldHooks 'smoke-test.ps1') -PgRoot $env:PGROOT -PgPort ([int]$env:PGPORT) -PostgreSqlMajor $matrix.major
+        $env:RUNNER_TEMP = Join-Path $work 'common-smoke'
+        [void][IO.Directory]::CreateDirectory($env:RUNNER_TEMP)
+        & (Join-Path $candidateDir 'windows/ci/smoke-test.ps1') -PgRoot $afterPg -PgPort ([int]$env:PGPORT) -PostgreSqlMajor $matrix.major
+    } finally { $env:RUNNER_TEMP = $originalRunnerTemp }
 
     $failures = [Collections.Generic.List[string]]::new()
     if (!$installEquivalent) { $failures.Add('Installed file paths or bytes differ.') }
