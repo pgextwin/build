@@ -35,6 +35,13 @@
       "ownerWrapper": "4d5ec1d607bb14992d49c24ea383a2decdbe16d3",
       "legacyOwnerWrapper": "2cb9c5dd6c59ccd70df98124d19688a7ea6c3eb5",
       "scheduledRequalification": null
+    },
+    "pgextwin/pg_cron": {
+      "candidateSigner": "8a92b7e42eb1f7610625e4951bf3ab78db995fa4",
+      "candidateAudit": null,
+      "ownerWrapper": "50e2075b0e6143334637a264b3b4438fc8ba3337",
+      "legacyOwnerWrapper": "50e2075b0e6143334637a264b3b4438fc8ba3337",
+      "scheduledRequalification": null
     }
   }
 }
