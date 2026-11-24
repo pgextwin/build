@@ -90,18 +90,18 @@ def signed_result(path,kind,repo,sha,*,tamper=None,signer_sha=audit.pin.SIGNER_S
         tamper(item)
     return [item]
 
-def pilot_candidate(folder):
+def fixed_candidate(folder, name, version, ref):
     _, lifecycle, intent, run = example()
-    repo = "pgextwin/pg_profile"
+    repo = f"pgextwin/{name}"
     majors = [15, 16, 17, 18, 19]
-    ext = {"schemaVersion": 1, "name": "pg_profile",
-           "upstream": {"repository": audit.ident.UPSTREAMS["pg_profile"],
-                        "version": "4.16", "ref": "4.16", "commit": base.UPSTREAM},
+    ext = {"schemaVersion": 1, "name": name,
+           "upstream": {"repository": audit.ident.UPSTREAMS[name],
+                        "version": version, "ref": ref, "commit": base.UPSTREAM},
            "postgresql": {"majors": majors}}
     lifecycle["postgresql"].append({"major": 19, "eol": "2031-12-31"})
-    policy = audit.routes.read_policy()
+    policy = audit.routes.repository_policy(audit.routes.read_policy(), repo)
     signer, verifier = policy["candidateSigner"], policy["candidateAudit"]
-    intent.update(repository=repo, maintainedMajors=majors, releaseTagStem="v4.16")
+    intent.update(repository=repo, maintainedMajors=majors, releaseTagStem=f"v{version}")
     run.update(repository={"full_name": repo}, referenced_workflows=[
         {"path": audit.routes.workflow_ref(path, pin), "sha": pin}
         for path, pin in ((audit.routes.SIGNER, signer), (audit.routes.CANDIDATE_AUDIT, verifier))
@@ -133,9 +133,15 @@ class SignedCandidateReadOnly(unittest.TestCase):
                                attempt=1,verify=callback)
 
     def test_fixed_pilot_signer_and_audit_require_original_run_bytes(self):
+        self.check_fixed_signer_and_audit("pg_profile", "4.16", "4.16")
+
+    def test_fixed_pg_ivm_signer_and_audit_require_original_run_bytes(self):
+        self.check_fixed_signer_and_audit("pg_ivm", "1.17", "v1.17")
+
+    def check_fixed_signer_and_audit(self, name, version, ref):
         with TemporaryDirectory() as td:
             folder = Path(td)
-            repo, ext, lifecycle, intent, run, signer, verifier = pilot_candidate(folder)
+            repo, ext, lifecycle, intent, run, signer, verifier = fixed_candidate(folder, name, version, ref)
 
             def exact(path, kind, repository, sha):
                 return signed_result(path, kind, repository, sha, signer_sha=signer)

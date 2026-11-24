@@ -17,10 +17,10 @@
   "extensions": {
     "pgextwin/pg_ivm": {
       "candidateSigner": "b81cd7df4956d2703a7c4146e759adb01c7e04e1",
-      "candidateAudit": null,
-      "ownerWrapper": "73f1001052c5f84717d8da5209ebc04685e0be25",
+      "candidateAudit": "9f4a1aab650b0a35f30729ff3e97013b1bb66490",
+      "ownerWrapper": "9f4a1aab650b0a35f30729ff3e97013b1bb66490",
       "legacyOwnerWrapper": "73f1001052c5f84717d8da5209ebc04685e0be25",
-      "scheduledRequalification": null
+      "scheduledRequalification": "9f4a1aab650b0a35f30729ff3e97013b1bb66490"
     }
   }
 }
