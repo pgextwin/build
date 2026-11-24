@@ -101,8 +101,8 @@
     },
     "pgextwin/pgaudit": {
       "candidateSigner": "79a071ad557ae02b806226f8510c22062dc1212c",
-      "candidateAudit": null,
-      "ownerWrapper": "a146c91f1328de5a4767fca82eaecbb592672a4a",
+      "candidateAudit": "f42fda10f3b22f3130556e46510fdef5b5519dad",
+      "ownerWrapper": "f42fda10f3b22f3130556e46510fdef5b5519dad",
       "legacyOwnerWrapper": "a146c91f1328de5a4767fca82eaecbb592672a4a",
       "scheduledRequalification": null
     }

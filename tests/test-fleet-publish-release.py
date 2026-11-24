@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline fail-closed 14-extension attested publisher and draft-ID fixtures."""
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -242,9 +243,27 @@ class FleetPublisherTests(TestCase):
                            approvalProvenance="INDEPENDENT_LIVE_OWNER_DISPATCH_AND_SIGNED_SOURCE")
             env.update(GITHUB_EVENT_NAME=event,GITHUB_ACTOR="ShutenOishi",
                        GITHUB_ACTOR_ID="27071164",GITHUB_TRIGGERING_ACTOR="ShutenOishi")
+        signer = p.routes.workflow_ref(p.routes.SIGNER, p.guard.SIGNER_SHA)
+        audit = p.routes.workflow_ref(p.routes.CANDIDATE_AUDIT, p.routes.LEGACY_AUDIT)
+        caller = (
+            f"jobs:\n  candidate_attested_build:\n    uses: {signer}\n"
+            f"  candidate_signed_audit:\n    uses: {audit}\n"
+        )
+
+        def get_fixture(path):
+            if path == "actions/runs/123":
+                return {"referenced_workflows": [
+                    {"path": signer, "sha": p.guard.SIGNER_SHA},
+                    {"path": audit, "sha": p.routes.LEGACY_AUDIT},
+                ]}
+            if path == f"contents/{p.routes.CANDIDATE_CALLER}?ref={COMMIT}":
+                return {"type": "file", "path": p.routes.CANDIDATE_CALLER, "encoding": "base64",
+                        "content": base64.b64encode(caller.encode()).decode()}
+            return {"mock": True}
+
         with TemporaryDirectory() as tmp, patch.object(p,"REPO",REPO), \
              patch.dict(p.os.environ,env), \
-             patch.object(p,"get",return_value={"mock":True}) as github, \
+             patch.object(p,"get",side_effect=get_fixture) as github, \
              patch.object(p.guard,"validate_completed_push_snapshot",
                           return_value={"immutable":"original"} ) as snapshots, \
              patch.object(p.guard,"verified_claims") as signed, \
