@@ -73,8 +73,8 @@
     },
     "pgextwin/pg_stat_monitor": {
       "candidateSigner": "5e8c492c77d7b48cd23f93600dc78f84e7037a57",
-      "candidateAudit": null,
-      "ownerWrapper": "b3738937b9bcba3305a84e6ae03a96a5baa4e062",
+      "candidateAudit": "e12c272ca035ac8a4411265a8f4d48e119617c0a",
+      "ownerWrapper": "e12c272ca035ac8a4411265a8f4d48e119617c0a",
       "legacyOwnerWrapper": "b3738937b9bcba3305a84e6ae03a96a5baa4e062",
       "scheduledRequalification": null
     }
