@@ -100,6 +100,10 @@ class IdentityTests(unittest.TestCase):
         pldebugger["postgresql"]["majors"] = [15, 16, 17, 18, 19]
         self.assertEqual(lib.maintained_majors(pldebugger, data, today), [15, 16, 17, 18, 19])
 
+        pg_partman = manifest("pg_partman")
+        pg_partman["postgresql"]["majors"].append(19)
+        self.assertEqual(lib.maintained_majors(pg_partman, data, today), [15, 16, 17, 18, 19])
+
         ext = manifest("hypopg")
         ext["postgresql"] = {"minMajor": 14, "maxMajor": 19}
         with patch.object(lib, "PG19_ADMISSION_OPT_IN", frozenset()):

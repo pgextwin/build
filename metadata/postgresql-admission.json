@@ -22,6 +22,7 @@
     "pg_repack",
     "pg_track_settings",
     "pgtap",
-    "pldebugger"
+    "pldebugger",
+    "pg_partman"
   ]
 }
