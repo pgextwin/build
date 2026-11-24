@@ -115,8 +115,8 @@
     },
     "pgextwin/set_user": {
       "candidateSigner": "5fa12e51d84a1e4e74e258fe0e5ea2f80f4257f5",
-      "candidateAudit": null,
-      "ownerWrapper": "7a87b202ae606f38377e82770abc9761da2a0696",
+      "candidateAudit": "fe52bc9c967b4cbc8f65c7be121e90da9dbea4c8",
+      "ownerWrapper": "fe52bc9c967b4cbc8f65c7be121e90da9dbea4c8",
       "legacyOwnerWrapper": "7a87b202ae606f38377e82770abc9761da2a0696",
       "scheduledRequalification": null
     }
