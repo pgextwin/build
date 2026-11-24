@@ -80,8 +80,8 @@
     },
     "pgextwin/pg_store_plans": {
       "candidateSigner": "4fe9e87fe859eab8471936453d4fe17091d935fb",
-      "candidateAudit": null,
-      "ownerWrapper": "e73f96515d3d297ea51a68070d06139a15481c50",
+      "candidateAudit": "c34b4282645700bd094db81466293ac2be5b4bdb",
+      "ownerWrapper": "c34b4282645700bd094db81466293ac2be5b4bdb",
       "legacyOwnerWrapper": "e73f96515d3d297ea51a68070d06139a15481c50",
       "scheduledRequalification": null
     }
