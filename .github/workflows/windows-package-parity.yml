@@ -18,6 +18,7 @@ on:
           - pg_hint_plan
           - pg_qualstats
           - pg_show_plans
+          - pg_squeeze
       candidate_sha:
         description: Full packaging commit SHA containing the proposed placement map
         type: string
