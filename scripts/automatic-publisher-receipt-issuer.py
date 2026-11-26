@@ -196,10 +196,12 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
               and type(proof.get("maintainedMajors")) is list,
               "real original/fresh owner Sigstore source proof not established")
         # The source's read-only admission alone does not authorize a release.
-        # Blocking Grype is independently evaluated before any privileged write.
+        # E3 PR3 decision (a): the Grype finding count is a recorded
+        # diagnostic value; it must be present and well-formed, but no value
+        # of it clears or blocks the privileged write by itself.
         check(type(proof.get("blockingGrypeFindings")) is int
-              and proof["blockingGrypeFindings"]==0,
-              "blocking owner-source Grype findings not independently cleared")
+              and proof["blockingGrypeFindings"]>=0,
+              "owner-source Grype diagnostic not recorded")
     else:
         check(type(proof) is dict and proof.get("schemaVersion")==1
               and proof.get("status")=="REAL_COMPLETED_SIGNED_SOURCE_VERIFIED_NONPUBLISHING"
@@ -211,7 +213,7 @@ def issue(*, proof, lifecycle, manifest, fleet, central, local, unattended,
               and proof["sourceRunAttempt"]==1
               and proof.get("realSigstoreRechecked") is True
               and type(proof.get("blockingGrypeFindings")) is int
-              and proof["blockingGrypeFindings"]==0
+              and proof["blockingGrypeFindings"]>=0
               and all(proof.get(k) is False for k in (
                   "publicationAuthorized","publishableReceipt",
                   "publisherTokenRequested","automaticReleaseEnabled")),

@@ -37,8 +37,9 @@ _route_spec.loader.exec_module(routes)
 _auth_spec = importlib.util.spec_from_file_location("typed_release_auth", ROOT / "release-authorization.py")
 auth = importlib.util.module_from_spec(_auth_spec)
 _auth_spec.loader.exec_module(auth)
-# Reuse the same fail-closed unfiltered Grype policy as all 17 signed
-# candidate audits. Policy review never mints a Publisher authorization.
+# Reuse the same unfiltered Grype classification as all 17 signed candidate
+# audits. The classification is recorded as a diagnostic only (E3 PR3); it
+# never mints a Publisher authorization and never denies a Release.
 _vuln_spec = importlib.util.spec_from_file_location(
     "formal_publisher_grype_policy", ROOT / "automatic-grype-publisher-policy.py")
 vulnerability = importlib.util.module_from_spec(_vuln_spec)
@@ -157,7 +158,14 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
         raise Denied("untrusted source identity: " + str(e)) from e
     check(receipt["majors"] == maintained and receipt.get("sources") == expected_sources,
           "receipt source pins or maintained PostgreSQL matrix mismatch")
-    check({p.name for p in folder.iterdir() if p.is_file()} == expected_files,
+    # E3 PR3 decision (c): a missing Grype report is a recorded diagnostic
+    # (NOT_PERFORMED), not a publication denial. Every other expected asset
+    # stays mandatory and no unexpected file may appear.
+    grype_files = {ident.asset_stem(ext, major) + ".vulnerabilities.json"
+                   for major in maintained}
+    present_files = {p.name for p in folder.iterdir() if p.is_file()}
+    check(present_files <= expected_files
+          and expected_files - grype_files <= present_files,
           "partial/extra major release files")
     # Existing manual Publisher runs *while* root Actions status is in_progress.
     # Authenticated attempt-scoped jobs, not root completion, are the prewrite gate.
@@ -189,7 +197,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                     str(attempt) + "/jobs?per_page=100"),
                 repo=REPO, sha=commit, run_id=run_id, attempt=attempt,
                 majors=maintained)
-    before_hashes = {name: digest(folder / name) for name in expected_files}
+    before_hashes = {name: digest(folder / name) for name in present_files}
     package_attempt = None
     for major in maintained:
         source = configured[major]
@@ -230,17 +238,30 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
               "package identity, source pin, run, or major mismatch")
         check(json.loads(spdx_path.read_text(encoding="utf-8-sig")).get("spdxVersion") == "SPDX-2.3",
               "invalid SPDX SBOM")
-        try:
-            grype = json.loads(grype_path.read_text(encoding="utf-8-sig"),
-                               object_pairs_hook=guard._unique)
-            finding_policy = vulnerability.review(grype, asset_stem=stem)
-        except (vulnerability.Denied, ValueError, TypeError, KeyError) as e:
-            raise Denied("untrusted or suppressed Grype evidence: " + str(e)) from e
-        # This is an actual formal Publisher preflight, not a reporting-only
-        # check. Any Critical/High/Unknown match MUST prevent tag reservation.
-        check(finding_policy["status"] == "NO_BLOCKING_FINDINGS"
-              and finding_policy["blockingFindingCount"] == 0,
-              "blocking Critical/High/Unknown vulnerability: Release denied")
+        # E3 PR3 decisions (a)/(b)/(c): Grype is diagnostic only in this
+        # Publisher preflight. Findings are recorded, a failed/unparseable
+        # scan is recorded as DIAGNOSTIC_FAILED and a missing report as
+        # NOT_PERFORMED; none of them reserve or deny the Release. The ZIP,
+        # PACKAGE-INFO, SPDX and signature checks around this block are
+        # separate contracts and keep denying on their own terms.
+        diagnostic = {"major": major, "status": "NOT_PERFORMED",
+                      "blockingFindingCount": None}
+        if grype_path.name in present_files:
+            try:
+                grype = json.loads(grype_path.read_text(encoding="utf-8-sig"),
+                                   object_pairs_hook=guard._unique)
+                finding_policy = vulnerability.review(grype, asset_stem=stem)
+                diagnostic = {"major": major, "status": "FINDINGS_RECORDED",
+                              "blockingFindingCount":
+                                  finding_policy["blockingFindingCount"],
+                              "findingCountBySeverity":
+                                  finding_policy["findingCountBySeverity"]}
+            except (vulnerability.Denied, ValueError, TypeError, KeyError,
+                    OSError) as e:
+                diagnostic = {"major": major, "status": "DIAGNOSTIC_FAILED",
+                              "blockingFindingCount": None,
+                              "reason": str(e)}
+        print("GRYPE_DIAGNOSTIC " + json.dumps(diagnostic, sort_keys=True))
         if verify_signatures:
             sbom = json.loads(spdx_path.read_text(encoding="utf-8-sig"),
                               object_pairs_hook=guard._unique)
@@ -263,7 +284,7 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 check(digest(zip_path) == zip_hash and
                       digest(spdx_path) == before_hashes[spdx_path.name],
                       "local ZIP/SPDX modified during signed verification")
-    check({name: digest(folder / name) for name in expected_files} == before_hashes,
+    check({name: digest(folder / name) for name in present_files} == before_hashes,
           "local release assets changed during preflight")
     if verify_signatures:
         if automatic:

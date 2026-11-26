@@ -98,15 +98,25 @@ def compare(first, second, *, repo, sha, run_id, attempt, manifest, lifecycle,
                 label + " has partial Grype risk matrix")
         for major in required_keys:
             r = risks[major]
-            require(type(r) is dict and r.get("status") == "NO_BLOCKING_FINDINGS"
+            # E3 PR3 decision (a): the recorded Grype verdict is diagnostic
+            # only. Coherence is verified and the first/second full-equality
+            # check below still binds both independent records; the counts
+            # themselves never deny.
+            require(type(r) is dict and r.get("status") in (
+                        "BLOCKING_FINDINGS", "NO_BLOCKING_FINDINGS")
                     and type(r.get("blockingFindingCount")) is int
-                    and r["blockingFindingCount"] == 0
+                    and r["blockingFindingCount"] >= 0
                     and r.get("publicationAuthorized") is False
                     and type(r.get("findingCountBySeverity")) is dict
                     and all(type(r["findingCountBySeverity"].get(k)) is int
-                            and r["findingCountBySeverity"][k] == 0
-                            for k in ("Critical", "High", "Unknown")),
-                    label + " contains blocking or incomplete Grype findings")
+                            and r["findingCountBySeverity"][k] >= 0
+                            for k in ("Critical", "High", "Unknown"))
+                    and r["blockingFindingCount"] == sum(
+                        r["findingCountBySeverity"][k]
+                        for k in ("Critical", "High", "Unknown"))
+                    and (r["status"] == "BLOCKING_FINDINGS") ==
+                        (r["blockingFindingCount"] > 0),
+                    label + " contains incoherent or incomplete Grype diagnostic")
         require("publisherWriteEnabled" not in audit
                 and "authorizationMode" not in audit
                 and "releaseTag" not in audit

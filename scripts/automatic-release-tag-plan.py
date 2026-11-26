@@ -112,8 +112,9 @@ def plan(audit, bridge, manifest, releases, refs, *, repo, sha, run_id, attempt)
             "signed audit/PUBLISH DENY identity and safety policy mismatch")
     # A read-only tag proposal is NOT an authorization. Still fail closed
     # before passing this evidence toward a future independent Publisher if
-    # the bridge reports any High/Critical/Unknown Grype finding, or its
-    # digest and per-major evidence diverge from the genuine signed audit.
+    # its digest and per-major evidence diverge from the genuine signed
+    # audit. E3 PR3 decision (a): the recorded Grype verdict is diagnostic
+    # only; its coherence is verified, its counts never block the proposal.
     require(audit.get("maintainedMajors") == bridge.get("maintainedMajors")
             and all(audit.get(key) == bridge.get(key) and type(audit.get(key)) is dict
                     for key in ("zipSha256ByMajor", "spdxSha256ByMajor",
@@ -123,12 +124,18 @@ def plan(audit, bridge, manifest, releases, refs, *, repo, sha, run_id, attempt)
     require(type(risk) is dict and set(risk) ==
             {str(major) for major in bridge["maintainedMajors"]}
             and all(type(row) is dict
-                    and row.get("status") == "NO_BLOCKING_FINDINGS"
+                    and row.get("status") in ("BLOCKING_FINDINGS",
+                                              "NO_BLOCKING_FINDINGS")
                     and type(row.get("blockingFindingCount")) is int
-                    and row["blockingFindingCount"] == 0
-                    for row in risk.values())
-            and "BLOCKING_GRYPE_FINDINGS" not in bridge["policyBlockers"],
-            "blocking or unauthenticated Grype scan: no stable tag proposal")
+                    and row["blockingFindingCount"] >= 0
+                    and type(row.get("findingCountBySeverity")) is dict
+                    and row["blockingFindingCount"] == sum(
+                        row["findingCountBySeverity"][k]
+                        for k in ("Critical", "High", "Unknown"))
+                    and (row["status"] == "BLOCKING_FINDINGS") ==
+                        (row["blockingFindingCount"] > 0)
+                    for row in risk.values()),
+            "incoherent or unauthenticated Grype diagnostic: no stable tag proposal")
     require(type(releases) is list and type(refs) is list
             and len(releases) < 100 and len(refs) < 100,
             "incomplete release/tag inventory")

@@ -82,7 +82,10 @@ class FleetPublisherTests(TestCase):
             self.assertEqual(len(got),15)
             self.assertEqual(set(got),p.ident.expected_assets(ext,[14,15,16,17,18])-{"SHA256SUMS.txt"})
 
-    def test_formal_publisher_blocks_real_grype_risks_before_tag_write(self):
+    def test_formal_publisher_records_grype_risks_without_blocking(self):
+        # E3 PR3 decisions (a)/(b)/(c): Grype findings and scan failures are
+        # recorded diagnostics in the Publisher preflight; they never deny.
+        # ZIP/PACKAGE-INFO/SPDX/signature contracts keep denying (other tests).
         ext, lc, receipt = fixture()
         with TemporaryDirectory() as tmp, patch.object(p, "REPO", REPO):
             folder = Path(tmp)
@@ -99,14 +102,25 @@ class FleetPublisherTests(TestCase):
                                            "severity": severity},
                         "artifact": {"name": "library.dll"},
                         "matchDetails": [{"matcher": "dpkg"}]}
+            def diagnostics():
+                import contextlib, io
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    got = p.check_assets(folder, ext, receipt, COMMIT, 123, lc,
+                                         verify_signatures=False)
+                rows = [json.loads(line[len("GRYPE_DIAGNOSTIC "):])
+                        for line in out.getvalue().splitlines()
+                        if line.startswith("GRYPE_DIAGNOSTIC ")]
+                return got, {row["major"]: row for row in rows}
             for severity in ("Critical", "High", "Unknown"):
                 with self.subTest(severity=severity):
                     report = json.loads(json.dumps(clean))
                     report["matches"] = [vulnerability(severity)]
                     report_path.write_text(json.dumps(report))
-                    with self.assertRaisesRegex(p.Denied, "blocking"):
-                        p.check_assets(folder, ext, receipt, COMMIT, 123, lc,
-                                       verify_signatures=False)
+                    got, rows = diagnostics()
+                    self.assertEqual(len(got), 15)
+                    self.assertEqual(rows[18]["status"], "FINDINGS_RECORDED")
+                    self.assertEqual(rows[18]["blockingFindingCount"], 1)
             for name, mutate in (
                 ("ignored", lambda r: r.update(ignoredMatches=[vulnerability("High")])),
                 ("no-db", lambda r: r["descriptor"].pop("db")),
@@ -122,12 +136,19 @@ class FleetPublisherTests(TestCase):
                     report = json.loads(json.dumps(clean))
                     mutate(report)
                     report_path.write_text(json.dumps(report))
-                    with self.assertRaises(p.Denied):
-                        p.check_assets(folder, ext, receipt, COMMIT, 123, lc,
-                                       verify_signatures=False)
+                    got, rows = diagnostics()
+                    self.assertEqual(len(got), 15)
+                    self.assertEqual(rows[18]["status"], "DIAGNOSTIC_FAILED")
+                    self.assertIsNone(rows[18]["blockingFindingCount"])
             report_path.write_text(json.dumps(clean))
             self.assertEqual(len(p.check_assets(
                 folder, ext, receipt, COMMIT, 123, lc, verify_signatures=False)), 15)
+            # A missing report is NOT_PERFORMED: the remaining 14 assets are
+            # still published-eligible and the diagnostic says so.
+            report_path.unlink()
+            got, rows = diagnostics()
+            self.assertEqual(len(got), 14)
+            self.assertEqual(rows[18]["status"], "NOT_PERFORMED")
 
     def test_wrong_source_matrix_operator_or_asset_denied(self):
         ext,lc,receipt=fixture()

@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Fail-closed Grype finding policy for future unattended Windows Publisher.
+"""Grype finding classification for the Windows Publisher evidence chain.
 
 Reads an *already authenticated* Grype JSON report; it cannot verify signatures,
 authorize a Release, create tags, change policies, or contact GitHub. Only the
 real signed-candidate verifier may supply its result to a future Publisher.
+
+E3 PR3 (per-route decision 6A): this module only *classifies* a report into a
+recorded diagnostic verdict (status + per-severity counts). Callers record the
+verdict; severity findings never deny publication by themselves. A report that
+is malformed, filtered/suppressed, or whose database status is invalid raises
+Denied so the caller can record DIAGNOSTIC_FAILED for that major.
 """
 from __future__ import annotations
 

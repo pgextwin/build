@@ -57,12 +57,17 @@ class LegacyPublisherGuardTests(unittest.TestCase):
                     result = gate.verify(folder, ext, lifecycle)
                     self.assertEqual(set(result), {str(i) for i in range(14, 19)})
                     for item in result.values():
-                        self.assertEqual(item["blockingFindingCount"], 0)
+                        self.assertEqual(item["grypeDiagnostic"]["status"],
+                                         "FINDINGS_RECORDED")
+                        self.assertEqual(
+                            item["grypeDiagnostic"]["blockingFindingCount"], 0)
                         self.assertNotIn("publicationAuthorized", item)
                         self.assertNotIn("publishableReceipt", item)
                         self.assertNotIn("authorizationMode", item)
 
-    def test_deny_each_blocking_severity_before_legacy_publisher(self):
+    def test_blocking_severities_are_recorded_not_denied(self):
+        # E3 PR3 decision (a): Critical/High/Unknown findings are recorded as
+        # diagnostics and never deny the legacy Publisher guard.
         with TemporaryDirectory() as d:
             ext, lifecycle, folder = fixture(d)
             stem = gate.identity.asset_stem(ext, 18)
@@ -76,10 +81,17 @@ class LegacyPublisherGuardTests(unittest.TestCase):
                         "artifact": {"name": "module.dll"},
                         "matchDetails": [{"matcher": "dpkg"}]}]
                     p.write_text(json.dumps(report))
-                    with self.assertRaisesRegex(gate.Denied, "Critical/High/Unknown"):
-                        gate.verify(folder, ext, lifecycle)
+                    result = gate.verify(folder, ext, lifecycle)
+                    diagnostic = result["18"]["grypeDiagnostic"]
+                    self.assertEqual(diagnostic["status"], "FINDINGS_RECORDED")
+                    self.assertEqual(diagnostic["blockingFindingCount"], 1)
+                    self.assertEqual(
+                        diagnostic["findingCountBySeverity"][severity], 1)
 
-    def test_invalid_grype_report_is_not_a_clean_scan(self):
+    def test_invalid_grype_report_is_recorded_as_diagnostic_failure(self):
+        # E3 PR3 decision (b): a malformed/filtered/DB-invalid report is a
+        # recorded diagnostic failure, never a clean scan and never a denial
+        # of the separate ZIP/SPDX contracts.
         with TemporaryDirectory() as d:
             ext, lifecycle, folder = fixture(d)
             stem = gate.identity.asset_stem(ext, 14)
@@ -99,8 +111,12 @@ class LegacyPublisherGuardTests(unittest.TestCase):
                     item = json.loads(json.dumps(clean))
                     change(item)
                     p.write_text(json.dumps(item))
-                    with self.assertRaises(gate.Denied):
-                        gate.verify(folder, ext, lifecycle)
+                    result = gate.verify(folder, ext, lifecycle)
+                    diagnostic = result["14"]["grypeDiagnostic"]
+                    self.assertEqual(diagnostic["status"], "DIAGNOSTIC_FAILED")
+                    self.assertIsNone(diagnostic["blockingFindingCount"])
+                    self.assertEqual(result["15"]["grypeDiagnostic"]["status"],
+                                     "FINDINGS_RECORDED")
 
     def test_spdx_zip_bytes_and_directory_completeness_fail_closed(self):
         with TemporaryDirectory() as d:
@@ -122,14 +138,24 @@ class LegacyPublisherGuardTests(unittest.TestCase):
             with self.assertRaises(gate.Denied):
                 gate.verify(folder, ext, lifecycle)
 
-    def test_duplicate_json_keys_and_missing_assets_denied(self):
+    def test_grype_anomalies_recorded_but_missing_core_assets_denied(self):
+        # E3 PR3 decisions (b)/(c): duplicate-key or missing Grype reports are
+        # recorded diagnostics, not denials. A missing ZIP (a separate K2
+        # contract asset) still fails closed.
         with TemporaryDirectory() as d:
             ext, lifecycle, folder = fixture(d)
-            p = folder / (gate.identity.asset_stem(ext, 17) + ".vulnerabilities.json")
+            stem = gate.identity.asset_stem(ext, 17)
+            p = folder / (stem + ".vulnerabilities.json")
             p.write_text('{"matches":[],"matches":[]}')
-            with self.assertRaises(gate.Denied):
-                gate.verify(folder, ext, lifecycle)
+            result = gate.verify(folder, ext, lifecycle)
+            self.assertEqual(result["17"]["grypeDiagnostic"]["status"],
+                             "DIAGNOSTIC_FAILED")
             p.unlink()
+            result = gate.verify(folder, ext, lifecycle)
+            self.assertEqual(result["17"]["grypeDiagnostic"]["status"],
+                             "NOT_PERFORMED")
+            self.assertIsNone(result["17"]["grypeSha256"])
+            (folder / (stem + ".zip")).unlink()
             with self.assertRaises(gate.Denied):
                 gate.verify(folder, ext, lifecycle)
 

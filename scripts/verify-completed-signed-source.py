@@ -151,6 +151,7 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
             and proof.get("publicationAuthorized") is False,
             "independent signed audit not correctly denied for publication")
     hashes={name:digest(folder/name) for name in files}
+    blocking_total=0
     for major in majors:
         stem=ident.asset_stem(manifest,major)
         zp=folder/(stem+".zip")
@@ -184,10 +185,12 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
             policy=grype_policy.review(risks,asset_stem=stem)
         except (grype_policy.Denied,TypeError,KeyError,ValueError) as exc:
             raise Denied("unfiltered Grype policy evidence invalid") from exc
-        require(policy["status"]=="NO_BLOCKING_FINDINGS"
-                and policy["blockingFindingCount"]==0
-                and first["grypePolicyByMajor"][str(major)]==policy,
-                "Critical/High/Unknown risk or Grype evidence changed")
+        # E3 PR3 decision (a): the re-classification must agree with the
+        # first audit's recorded verdict (evidence consistency), but the
+        # finding count itself is a recorded diagnostic, never a refusal.
+        require(first["grypePolicyByMajor"][str(major)]==policy,
+                "Grype evidence changed")
+        blocking_total+=policy["blockingFindingCount"]
         for suffix,kind in (("zip","zip"),("spdx","spdx"),("grype","grype")):
             file_path=folder/(stem+{
                 "zip":".zip","spdx":".spdx.json","grype":".vulnerabilities.json"}[suffix])
@@ -226,7 +229,7 @@ def verify_completed_source(folder, manifest, lifecycle, first, second, fleet, *
             "zipSha256ByMajor":first["zipSha256ByMajor"],
             "spdxSha256ByMajor":first["spdxSha256ByMajor"],
             "grypeSha256ByMajor":first["grypeSha256ByMajor"],
-            "realSigstoreRechecked":True,"blockingGrypeFindings":0,
+            "realSigstoreRechecked":True,"blockingGrypeFindings":blocking_total,
             "publisherTokenRequested":False,"publishableReceipt":False,
             "publicationAuthorized":False,"automaticReleaseEnabled":False}
 

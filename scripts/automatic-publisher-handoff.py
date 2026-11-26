@@ -117,16 +117,25 @@ def handoff(first, second, opinion, bridge, tag, fleet, *,
     require(type(risk) is dict and set(risk) == keys, "partial Grype policy")
     for major in keys:
         item = risk[major]
+        # E3 PR3 decision (a): the recorded Grype verdict is diagnostic only.
+        # Its internal coherence is verified; its finding counts, whatever
+        # they are, neither clear nor block the handoff.
         require(type(item) is dict
-                and item.get("status") == "NO_BLOCKING_FINDINGS"
+                and item.get("status") in ("BLOCKING_FINDINGS",
+                                           "NO_BLOCKING_FINDINGS")
                 and type(item.get("blockingFindingCount")) is int
-                and item["blockingFindingCount"] == 0
+                and item["blockingFindingCount"] >= 0
                 and item.get("publicationAuthorized") is False
                 and type(item.get("findingCountBySeverity")) is dict
                 and all(type(item["findingCountBySeverity"].get(sev)) is int
-                        and item["findingCountBySeverity"][sev] == 0
-                        for sev in ("Critical", "High", "Unknown")),
-                "blocking or incomplete Grype finding")
+                        and item["findingCountBySeverity"][sev] >= 0
+                        for sev in ("Critical", "High", "Unknown"))
+                and item["blockingFindingCount"] == sum(
+                    item["findingCountBySeverity"][sev]
+                    for sev in ("Critical", "High", "Unknown"))
+                and (item["status"] == "BLOCKING_FINDINGS") ==
+                    (item["blockingFindingCount"] > 0),
+                "incoherent or incomplete Grype diagnostic record")
     require(type(opinion) is dict and opinion.get("schemaVersion") == 1
             and type(opinion.get("schemaVersion")) is int
             and opinion.get("status") == "INDEPENDENT_SIGNED_RECHECK_MATCH_NONPUBLISHING"
