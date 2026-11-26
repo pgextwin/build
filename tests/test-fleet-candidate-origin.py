@@ -124,6 +124,71 @@ class Evidence:
         return origin.verify(repo or self.repo, pr or self.pr, api=self.reads.__getitem__)
 
 
+def regenerated_evidence():
+    predecessor_id, successor_id, predecessor_number = "2" * 20, "3" * 20, 77
+    evidence = Evidence(native_fixture.fixture()["pr"])
+    predecessor_record = deepcopy(evidence.record)
+    predecessor_record["decision"]["candidateId"] = predecessor_id
+    predecessor_record["decision"]["branch"] = "auto-candidate/" + predecessor_id
+    evidence.record["decision"]["candidateId"] = successor_id
+    evidence.record["decision"]["branch"] = "auto-candidate/" + successor_id
+    evidence.record["regeneration"] = {"predecessorCandidateId": predecessor_id,
+                                        "predecessorPrNumber": predecessor_number}
+    evidence.pr["head"]["ref"] = "auto-candidate/" + successor_id
+    evidence.legacy_marker = f"<!-- pgextwin-candidate:v1:{successor_id} -->"
+    predecessor = {
+        "number": predecessor_number, "state": "closed", "merged": False,
+        "user": {"type": "Bot", "id": origin.APP["botUserId"], "login": origin.BOT},
+        "head": {"ref": "auto-candidate/" + predecessor_id, "sha": "7" * 40},
+        "base": {"ref": "main"},
+        "body": (f"<!-- pgextwin-candidate:v1:{predecessor_id} -->\n" +
+                 origin.marker(predecessor_record)),
+    }
+    evidence.reads["repos/" + REPO + "/pulls/" + str(predecessor_number)] = predecessor
+    evidence.propose()
+    return evidence
+
+
+def replace_predecessor_record(evidence, record):
+    predecessor = evidence.reads["repos/" + REPO + "/pulls/77"]
+    marker_text = f"<!-- pgextwin-candidate:v1:{'2' * 20} -->"
+    predecessor["body"] = marker_text + "\n" + origin.marker(record)
+
+
+def alter_predecessor_decision(evidence):
+    predecessor = evidence.reads["repos/" + REPO + "/pulls/77"]
+    record = origin.parse_marker(predecessor["body"])
+    record["decision"]["updates"][0]["version"] = "9.99"
+    replace_predecessor_record(evidence, record)
+
+
+def make_chain_cycle(evidence):
+    predecessor = evidence.reads["repos/" + REPO + "/pulls/77"]
+    record = origin.parse_marker(predecessor["body"])
+    record["regeneration"] = {"predecessorCandidateId": "3" * 20,
+                              "predecessorPrNumber": 78}
+    replace_predecessor_record(evidence, record)
+
+
+def make_chain_too_deep(evidence):
+    ids = [str(n) * 20 for n in (2, 4, 5, 6, 7, 8, 9, 0, 1)]
+    for index, candidate_id in enumerate(ids):
+        number = 77 + index
+        record = deepcopy(evidence.record)
+        record["decision"]["candidateId"] = candidate_id
+        record["decision"]["branch"] = "auto-candidate/" + candidate_id
+        record.pop("regeneration", None)
+        if index + 1 < len(ids):
+            record["regeneration"] = {"predecessorCandidateId": ids[index + 1],
+                                      "predecessorPrNumber": number + 1}
+        pr = {"number": number, "state": "closed", "merged": False,
+              "user": {"type": "Bot", "id": origin.APP["botUserId"], "login": origin.BOT},
+              "head": {"ref": "auto-candidate/" + candidate_id, "sha": "7" * 40},
+              "base": {"ref": "main"},
+              "body": f"<!-- pgextwin-candidate:v1:{candidate_id} -->\n" + origin.marker(record)}
+        evidence.reads["repos/" + REPO + "/pulls/" + str(number)] = pr
+
+
 class FleetCandidateOrigin(TestCase):
     def setUp(self):
         self.native = native_fixture.fixture()
@@ -158,6 +223,29 @@ class FleetCandidateOrigin(TestCase):
             with self.subTest(change=change):
                 evidence = deepcopy(self.evidence)
                 change(evidence)
+                with self.assertRaises(ValueError):
+                    evidence.verify()
+
+    def test_regenerated_candidate_accepts_exact_closed_app_predecessor_chain(self):
+        evidence = regenerated_evidence()
+        self.assertEqual(evidence.verify()["record"]["regeneration"],
+                         {"predecessorCandidateId": "2" * 20, "predecessorPrNumber": 77})
+
+    def test_regeneration_chain_mismatches_fail_closed(self):
+        changes = (
+            lambda e: e.reads["repos/" + REPO + "/pulls/77"].update(merged=True),
+            lambda e: e.reads["repos/" + REPO + "/pulls/77"]["user"].update(id=13),
+            lambda e: alter_predecessor_decision(e),
+            lambda e: e.reads["repos/" + REPO + "/pulls/77"].update(body="<!-- pgextwin-candidate:v1:" + "2" * 20 + " -->"),
+            lambda e: make_chain_cycle(e),
+            lambda e: make_chain_too_deep(e),
+            lambda e: e.record.update(regeneration={"predecessorCandidateId": "bad", "predecessorPrNumber": 77}),
+        )
+        for change in changes:
+            with self.subTest(change=change):
+                evidence = regenerated_evidence()
+                change(evidence)
+                evidence.propose()
                 with self.assertRaises(ValueError):
                     evidence.verify()
 

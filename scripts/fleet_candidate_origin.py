@@ -252,11 +252,63 @@ def validate_run(api, repository, pr, record):
     return origin
 
 
+def verify_regeneration_chain(api, repository, record):
+    """Bind a regenerated decision to the exact closed App PR it supersedes."""
+    visited = {record["decision"]["candidateId"]}
+
+    def walk(current, depth):
+        if "regeneration" not in current:
+            return
+        link = current.get("regeneration")
+        require(depth <= 8, "candidate regeneration chain exceeds depth limit")
+        require(type(link) is dict and set(link) == {
+            "predecessorCandidateId", "predecessorPrNumber"},
+            "malformed candidate regeneration pointer")
+        predecessor_id = link.get("predecessorCandidateId")
+        number = link.get("predecessorPrNumber")
+        require(type(predecessor_id) is str and re.fullmatch(r"[0-9a-f]{20}", predecessor_id)
+                and positive(number), "malformed candidate regeneration pointer")
+        require(predecessor_id not in visited, "candidate regeneration chain contains a cycle")
+        visited.add(predecessor_id)
+        pr = api("repos/" + repository + "/pulls/" + str(number))
+        require(type(pr) is dict and pr.get("number") == number
+                and app_identity(pr.get("user") or {}) and pr.get("state") == "closed"
+                and pr.get("merged") is False,
+                "regeneration predecessor is not a closed, unmerged App PR")
+        head, base = pr.get("head") or {}, pr.get("base") or {}
+        require(head.get("ref") == "auto-candidate/" + predecessor_id
+                and base.get("ref") == "main",
+                "regeneration predecessor branch or base differs")
+        body = pr.get("body")
+        markers = re.findall(r"<!-- pgextwin-candidate:v1:([0-9a-f]{20}) -->", body or "")
+        require(type(body) is str and body.count("<!-- pgextwin-candidate:v1:") == 1
+                and markers == [predecessor_id],
+                "regeneration predecessor candidate marker is missing, duplicate or mismatched")
+        previous = parse_marker(body)
+        require(previous.get("repository") == repository
+                and previous.get("appId") == APP["appId"]
+                and previous.get("botUserId") == APP["botUserId"],
+                "regeneration predecessor origin identity differs")
+        old_decision = previous.get("decision")
+        new_decision = current.get("decision")
+        require(type(old_decision) is dict and type(new_decision) is dict
+                and old_decision.get("candidateId") == predecessor_id
+                and old_decision.get("branch") == "auto-candidate/" + predecessor_id
+                and {k: v for k, v in old_decision.items() if k not in ("candidateId", "branch")} ==
+                {k: v for k, v in new_decision.items() if k not in ("candidateId", "branch")},
+                "regeneration predecessor decision differs from successor")
+        walk(previous, depth + 1)
+
+    walk(record, 1)
+
+
 def verify(repository, pr, *, api=github):
     """Verify the App route independently of any caller-supplied PR audit."""
     scope(repository)
     record = parse_marker(pr.get("body"))
     decision = validate_pr(repository, pr, record)
+    if "regeneration" in record:
+        verify_regeneration_chain(api, repository, record)
     check_app(api)
     artifact = validate_run(api, repository, pr, record)
     target = "repos/" + repository + "/"

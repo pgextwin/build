@@ -775,21 +775,19 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
             previous_id, number = predecessor
             body.extend(["", f"Regenerated from closed PR [#{number}](https://github.com/{repository}/pull/{number}) "
                              f"(candidate `{previous_id}`)."])
-        elif origin_body is not None:
-            body.append(origin_body(ref))
+        if origin_body is not None:
+            body.append(origin_body(ref, record, predecessor))
         body_path = Path(os.environ.get("RUNNER_TEMP", ".")) / "pgextwin-candidate-pr.md"
         body_text = "\n".join(body) + "\n"
         body_path.write_text(body_text, encoding="utf-8")
         url = execute("gh", "pr", "create", "--repo", repository, "--head", branch, "--base", "main",
                       "--title", "chore: candidate " + record["extension"] + " " +
                       record["updates"][0]["version"], "--body-file", str(body_path), "--draft")
-        if predecessor is not None:
-            # The origin callbacks attest the exact scheduled base plan. Verify
-            # the new draft directly without issuing that proof for a new ID.
-            if writer is not None:
-                verify_created_regeneration(repository, url, writer, branch, ref, body_text)
-        elif on_created is not None:
-            on_created(url)
+        if on_created is not None:
+            on_created(url, record, predecessor)
+        elif predecessor is not None and writer is not None:
+            # Preserve the local writer path when it has no origin callbacks.
+            verify_created_regeneration(repository, url, writer, branch, ref, body_text)
     print("Candidate PR: " + url)
     runs = json.loads(execute("gh", "run", "list", "--repo", repository, "--workflow", "windows.yml",
                               "--branch", branch, "--event", "workflow_dispatch", "--limit", "100",

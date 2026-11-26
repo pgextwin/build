@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/"scripts"))
 import update_watch_lib
 from update_watch_lib import WatchError
+import fleet_candidate_origin as origin_module
 spec = importlib.util.spec_from_file_location("candidate_update", ROOT/"scripts/candidate-update.py")
 c = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(c)
@@ -234,6 +235,13 @@ def exercise_candidate_regeneration():
     rest_users = {}
     origin = Mock()
     created = Mock()
+    def build_origin(ref, effective, predecessor):
+        origin_record = {"decision": effective}
+        if predecessor is not None:
+            origin_record["regeneration"] = {
+                "predecessorCandidateId": predecessor[0], "predecessorPrNumber": predecessor[1]}
+        return origin_module.marker(origin_record)
+    origin.side_effect = build_origin
     calls = []
     current_branch = None
     with tempfile.TemporaryDirectory() as temp:
@@ -312,6 +320,15 @@ def exercise_candidate_regeneration():
             assert [args[-1] for args in calls if args[:3] == ("gh", "workflow", "run")] == [branch]
             assert any(args[:2] == ("git", "commit") and marker_for(branch) in args[-1] for args in calls)
             assert prs[branch]["body"].startswith(marker_for(branch) + "\n")
+            attested = origin_module.parse_marker(prs[branch]["body"])
+            assert attested["decision"]["candidateId"] == branch.split("/")[1]
+            assert attested["regeneration"] == {
+                "predecessorCandidateId": predecessor.split("/")[1],
+                "predecessorPrNumber": prs[predecessor]["number"]}
+            assert origin.call_args.args[1]["candidateId"] == branch.split("/")[1]
+            assert origin.call_args.args[2] == (predecessor.split("/")[1], prs[predecessor]["number"])
+            assert created.call_args.args[1]["candidateId"] == branch.split("/")[1]
+            assert created.call_args.args[2] == (predecessor.split("/")[1], prs[predecessor]["number"])
             assert prs[predecessor]["url"] in prs[branch]["body"]
             assert predecessor.split("/")[1] in prs[branch]["body"]
             assert prs[predecessor]["state"] == "CLOSED"
@@ -348,8 +365,16 @@ def exercise_candidate_regeneration():
             assert [args[args.index("--head") + 1] for args in calls
                     if args[:3] == ("gh", "pr", "list")] == [base_branch, first, second]
             assert all(args[:3] == ("gh", "pr", "list") or args[:2] == ("gh", "api") for args in calls)
-            origin.assert_not_called()
-            created.assert_not_called()
+            assert origin.call_count == 2 and created.call_count == 2
+
+            # The base candidate still gets the same origin callback contract,
+            # with its unchanged decision and no regeneration field.
+            prs.clear()
+            task()
+            base_attestation = origin_module.parse_marker(prs[base_branch]["body"])
+            assert base_attestation["decision"] == original
+            assert "regeneration" not in base_attestation
+            assert origin.call_args.args[2] is None and created.call_args.args[2] is None
 
 
 def main():
