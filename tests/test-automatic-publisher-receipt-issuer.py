@@ -210,6 +210,24 @@ class IssuerTests(unittest.TestCase):
         self.assertEqual(result["sources"],[old.p.ident.sources(inputs()["manifest"])[m]
                                              for m in range(14,19)])
 
+    def test_recorded_blocking_grype_count_does_not_gate_issuance(self):
+        # E3 PR3 decision (a): the proof's Grype count is a recorded
+        # diagnostic. A nonzero value issues exactly like zero; a missing
+        # or malformed value is still denied (not recorded).
+        data=switched()
+        data["proof"].update(blockingGrypeFindings=3)
+        result=issuer.issue(**data)
+        self.assertEqual(result["authorizationMode"],"automatic-schedule")
+        self.assertTrue(result["publicationAuthorized"])
+        data=switched()
+        data["proof"].update(blockingGrypeFindings=-1)
+        with self.assertRaises(issuer.Denied):
+            issuer.issue(**data)
+        data=switched()
+        del data["proof"]["blockingGrypeFindings"]
+        with self.assertRaises(issuer.Denied):
+            issuer.issue(**data)
+
     def deny(self,mutations):
         for n,mutate in enumerate(mutations):
             with self.subTest(case=n),self.assertRaises(issuer.Denied):
@@ -297,7 +315,6 @@ class IssuerTests(unittest.TestCase):
             lambda x:x["central_branch"].update(protected=False),
             lambda x:x["signed_branch"]["commit"].update(sha="d"*40),
             lambda x:x["proof"].update(realSigstoreRechecked=False),
-            lambda x:x["proof"].update(blockingGrypeFindings=1),
             lambda x:x["proof"].update(publicationAuthorized=True),
             lambda x:x["proof"].update(sourceRunAttempt=2),
             lambda x:x["proof"].update(sourceRunId=123),

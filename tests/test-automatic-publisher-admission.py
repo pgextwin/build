@@ -127,7 +127,6 @@ class ScheduledAdmission(unittest.TestCase):
         self.assertIs(out["publicationAuthorized"], False)
         for alter, reason in (
             (lambda x: x["source"].update(realSigstoreRechecked=False), "real-signed source"),
-            (lambda x: x["source"].update(blockingGrypeFindings=1), "real-signed source"),
             (lambda x: x["source"]["zipSha256ByMajor"].pop("19"), "incomplete signed digest"),
             (lambda x: x["source"]["maintainedMajors"].append(19), "invalid maintained signed"),
             (lambda x: x["manifest"]["upstream"]["perPostgresql"].pop("19"), "pinned source"),
@@ -137,6 +136,12 @@ class ScheduledAdmission(unittest.TestCase):
                 invalid = deepcopy(values)
                 alter(invalid)
                 guard.assess(**invalid)
+        # E3 PR3 decision (a): a recorded nonzero Grype count is diagnostic
+        # only and is admitted like zero, also under the PG19 opt-in matrix.
+        recorded = deepcopy(values)
+        recorded["source"].update(blockingGrypeFindings=1)
+        self.assertEqual(guard.assess(**recorded)["maintainedMajors"],
+                         list(range(14, 20)))
 
     def test_forged_schedule_run_and_cross_event_denied(self):
         changes=[
@@ -169,7 +174,6 @@ class ScheduledAdmission(unittest.TestCase):
             lambda x:x["source"].update(realSigstoreRechecked=False),
             lambda x:x["source"].update(publicationAuthorized=True),
             lambda x:x["source"].update(publishableReceipt=True),
-            lambda x:x["source"].update(blockingGrypeFindings=1),
             lambda x:x["source"]["zipSha256ByMajor"].pop("14"),
             lambda x:x["source"]["spdxSha256ByMajor"].update({"14":"x"*64}),
             lambda x:x["source"].update(maintainedMajors=[14,14,15,16,17,18]),
@@ -181,6 +185,23 @@ class ScheduledAdmission(unittest.TestCase):
             lambda x:x["manifest"]["upstream"].update(repository="evil/repo"),
         ]
         self.deny(changes)
+
+    def test_recorded_blocking_grype_count_is_admitted_as_diagnostic(self):
+        # E3 PR3 decision (a): blockingGrypeFindings is a recorded diagnostic
+        # value in the source proof; any int >= 0 is admitted identically.
+        # A negative or non-integer value is not a recorded diagnostic.
+        values=fixture()
+        values["source"].update(blockingGrypeFindings=2)
+        out=guard.assess(**values)
+        self.assertEqual(out["status"],
+                         "SIGNED_SCHEDULE_PUBLISHER_ADMISSION_EVIDENCE_ONLY")
+        self.assertIs(out["publicationAuthorized"],False)
+        for bad in (-1, True, "0"):
+            with self.subTest(bad=bad),self.assertRaises(
+                    (guard.Denied,guard.scope.Denied)):
+                invalid=fixture()
+                invalid["source"].update(blockingGrypeFindings=bad)
+                guard.assess(**invalid)
 
     def test_publisher_policies_remain_explicit_denial(self):
         changes=[

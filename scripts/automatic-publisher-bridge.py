@@ -106,8 +106,10 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
                             for v in values.values())
                     for values in digests.values()),
             "incomplete/ambiguous Windows ZIP/SPDX/Grype SHA256 matrices")
-    # An authenticated Grype report may identify real blockers; a CLEAN scan
-    # still cannot bypass the existing independent Publisher authorization.
+    # E3 PR3 decision (a): the authenticated Grype verdict is recorded as a
+    # diagnostic only. It never appears in policyBlockers and never mints or
+    # clears Publisher authorization; the structural coherence of the
+    # recorded verdict is still verified here.
     grype_risk = audit.get("grypePolicyByMajor")
     require(type(grype_risk) is dict and set(grype_risk) == {str(m) for m in majors}
             and all(type(v) is dict
@@ -166,8 +168,6 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
                ] if scheduled else [
                    "CENTRAL_MANUAL_DISPATCH","LOCAL_MANUAL_DISPATCH",
                    "FLEET_MANUAL_ONLY","UNATTENDED_OBSERVE_DENY"]),
-            *(["BLOCKING_GRYPE_FINDINGS"] if any(
-                v["blockingFindingCount"] for v in grype_risk.values()) else []),
             "INDEPENDENT_PUBLISHER_AUTHORIZATION_NOT_ESTABLISHED",
         ],
         "publishableReceipt": False,

@@ -65,6 +65,16 @@ class InProcessOwnerTests(TestCase):
         self.assertTrue(receipt["publicationAuthorized"])
         self.assertTrue(receipt["publishableReceipt"])
 
+    def test_recorded_blocking_grype_count_does_not_gate_owner_issuance(self):
+        # E3 PR3 decision (a): the owner-source proof's Grype count is a
+        # recorded diagnostic value; 1 issues exactly like 0, while a bool
+        # (not a recorded integer) stays denied in the list above.
+        x=owner_args()
+        x["proof"].update(blockingGrypeFindings=1)
+        receipt=issuer.issue(**x)
+        self.assertTrue(receipt["publicationAuthorized"])
+        self.assertTrue(receipt["publishableReceipt"])
+
     def test_denies_missing_policy_forged_run_and_source_kind(self):
         edits=(
             lambda x:x.update(source_kind="PUSH"),
@@ -88,7 +98,6 @@ class InProcessOwnerTests(TestCase):
             lambda x:x["proof"].update(sourceRunAttempt=2),
             lambda x:x["proof"].update(publisherEligible=True),
             lambda x:x["proof"].update(publicationAuthorized=True),
-            lambda x:x["proof"].update(blockingGrypeFindings=1),
             lambda x:x["proof"].update(blockingGrypeFindings=True),
             lambda x:x["proof"]["SHA256"].pop(next(iter(x["proof"]["SHA256"]))),
         )

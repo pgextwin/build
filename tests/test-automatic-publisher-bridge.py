@@ -157,7 +157,10 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
         self.assertIn("independent-signed-candidate-audit.json",workflow)
         self.assertIn("independent-signed-publisher-preflight.json",workflow)
 
-    def test_real_blocking_report_remains_explicit_nonpublishing(self):
+    def test_real_blocking_report_is_recorded_without_grype_blocker(self):
+        # E3 PR3 decision (a): the bridge stays PUBLISH_DENY because Publisher
+        # authorization is not established, never because of a Grype verdict.
+        # The verdict itself remains recorded verbatim.
         inputs = fixture()
         record = inputs["audit"]["grypePolicyByMajor"]["14"]
         record["findingCountBySeverity"]["Critical"] = 1
@@ -165,7 +168,9 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
         record["status"] = "BLOCKING_FINDINGS"
         output = bridge.bridge(**inputs)
         self.assertEqual(output["status"], "PUBLISH_DENY")
-        self.assertIn("BLOCKING_GRYPE_FINDINGS", output["policyBlockers"])
+        self.assertNotIn("BLOCKING_GRYPE_FINDINGS", output["policyBlockers"])
+        self.assertEqual(
+            output["grypePolicyByMajor"]["14"]["blockingFindingCount"], 1)
         self.assertIs(output["publisherWriteEnabled"], False)
 
     def test_forged_audit_and_runtime_identity_rejected(self):

@@ -110,7 +110,7 @@ def assess(source,proposal,manifest,fleet,central,local,unattended,boundary,
             source["sourceRunAttempt"]==1 and
             source.get("realSigstoreRechecked") is True and
             type(source.get("blockingGrypeFindings")) is int and
-            source["blockingGrypeFindings"]==0 and
+            source["blockingGrypeFindings"]>=0 and
             all(source.get(x) is False for x in (
                 "publisherTokenRequested","publicationAuthorized",
                 "publishableReceipt","automaticReleaseEnabled")),

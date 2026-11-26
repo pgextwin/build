@@ -199,7 +199,9 @@ class OwnerFormalRuntimeTests(TestCase):
                 mod.verify_upload_bytes(folder, ext, lifecycle, proof)
             review.assert_not_called()
 
-    def test_prepare_retains_existing_blocking_grype_policy(self):
+    def test_prepare_records_blocking_grype_findings_without_gating(self):
+        # E3 PR3 decision (a): a nonzero verified Grype count is recorded in
+        # the prepared state as a diagnostic; it no longer denies prepare.
         central = {"allowedRepositories": [REPO], "releasePolicy": mod.issuer.MODE}
         owner_central = {"allowedRepositories": [REPO], "sourceKind": mod.issuer.OWNER_KIND}
         policies = {"central_policy": central, "owner_central_policy": owner_central}
@@ -209,11 +211,15 @@ class OwnerFormalRuntimeTests(TestCase):
                 mod, "authenticate", return_value=(None, None, None, None, 3333)), patch.object(
                 mod.issuer.fleet_policy, "read", side_effect=lambda name: policies.get(name, {})), patch.object(
                 mod.policy, "gate") as gate, patch.object(mod.issuer, "owner_policy_gate"), patch.object(
+                mod, "original_job", return_value=100), patch.object(
                 mod.owner, "admit", return_value=({"blockingGrypeFindings": 1}, {}, {})) as admit:
             scratch = Path(d)
-            with self.assertRaisesRegex(mod.Denied, "blocking .* Grype"):
-                mod.prepare(a, scratch, fixture.env())
-            self.assertFalse((scratch / mod.STATE_FILE).exists())
+            env = fixture.env()
+            env["GITHUB_OUTPUT"] = str(scratch / "github-output.txt")
+            self.assertEqual(mod.prepare(a, scratch, env), 0)
+            self.assertTrue((scratch / mod.STATE_FILE).exists())
+            state = json.loads((scratch / mod.STATE_FILE).read_text())
+            self.assertEqual(state["proof"]["blockingGrypeFindings"], 1)
             admit.assert_called_once()
             local = {"schemaVersion": 1, "enabled": True, "releasePolicy": mod.issuer.MODE}
             gate.assert_called_once_with(fleet={}, central=central, local=local, unattended={},

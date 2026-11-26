@@ -190,9 +190,10 @@ def prepare(a, scratch, env):
     proof, manifest, intent = owner.admit(
         repo, run_id, scratch=scratch, fleet=policies["fleet"],
         lifecycle=policies["lifecycle"], central_sha=env["GITHUB_SHA"], expected_sha=sha)
+    # E3 PR3 decision (a): the verified Grype finding count is recorded
+    # diagnostic information only; it no longer gates preparation.
     blocking = proof["blockingGrypeFindings"]
     print(f"Grype blocking findings across verified majors: {blocking}")
-    need(blocking == 0, "blocking Critical/High/Unknown Grype vulnerability")
     state = {"proof": proof, "manifest": manifest, "intent": intent,
              "requestCommentId": cid, "local": local, "ownerLocal": owner_local,
              "selectorJobId": original_job(int(env["GITHUB_RUN_ID"]), env["GITHUB_SHA"]),

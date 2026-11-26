@@ -112,7 +112,10 @@ class TagProposalTests(unittest.TestCase):
             with self.subTest(i=i), self.assertRaises(plan.Denied):
                 run_plan(mutation)
 
-    def test_blocking_grype_finding_rejects_tag_proposal_even_when_signed(self):
+    def test_blocking_grype_finding_is_recorded_not_rejected(self):
+        # E3 PR3 decision (a): a coherent BLOCKING_FINDINGS verdict, bound
+        # identically in the audit and the bridge, no longer rejects the
+        # (still nonpublishing) tag proposal.
         for severity in ("High", "Critical", "Unknown"):
             with self.subTest(severity=severity):
                 audit, bridged, manifest = fixture()
@@ -122,10 +125,12 @@ class TagProposalTests(unittest.TestCase):
                 entry["status"] = "BLOCKING_FINDINGS"
                 bridged = pub.bridge.bridge(**dict(pub.fixture(), audit=audit,
                                                    repo=REPO))
-                self.assertIn("BLOCKING_GRYPE_FINDINGS", bridged["policyBlockers"])
-                with self.assertRaises(plan.Denied):
-                    plan.plan(audit, bridged, manifest, [], [],
-                              repo=REPO, sha=SHA, run_id=RUN, attempt=1)
+                self.assertNotIn("BLOCKING_GRYPE_FINDINGS",
+                                 bridged["policyBlockers"])
+                got = plan.plan(audit, bridged, manifest, [], [],
+                                repo=REPO, sha=SHA, run_id=RUN, attempt=1)
+                self.assertEqual(got["status"], "PROPOSED_TAG_NONPUBLISHING")
+                self.assertIs(got["publicationAuthorized"], False)
 
     def test_divergent_signed_asset_evidence_and_scan_verdict_denied(self):
         changes = (
@@ -134,7 +139,6 @@ class TagProposalTests(unittest.TestCase):
             lambda a, b: b["grypeSha256ByMajor"].update({"14": "f" * 64}),
             lambda a, b: b["grypePolicyByMajor"].pop("17"),
             lambda a, b: b.update(maintainedMajors=[14, 15, 16, 17]),
-            lambda a, b: b["policyBlockers"].append("BLOCKING_GRYPE_FINDINGS"),
         )
         for i, change in enumerate(changes):
             with self.subTest(i=i):

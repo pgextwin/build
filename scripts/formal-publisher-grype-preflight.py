@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Fail-closed common, read-only Grype guard for legacy manual Publishers.
+"""Fail-closed common, read-only guard for legacy manual Publishers.
 
 Run BEFORE the frozen/approved Publisher executable writes any tag or draft.
 This supplements (NEVER replaces) the original manual PUBLISH authorization,
 exact attempt-bound Sigstore/SBOM proof and create-only Release verification.
 No GitHub API, tokens, network, subprocess or write actions are used.
+
+E3 PR3 (per-route decision 6A): the separate-contract checks in this guard
+(ZIP CRC, PACKAGE-INFO identity, SPDX-to-ZIP digest binding, asset set) stay
+fail-closed. Grype is diagnostic only: severity findings are recorded, a
+failed/unparseable scan is recorded as DIAGNOSTIC_FAILED, and a missing
+report as NOT_PERFORMED; none of them deny the Release here.
 """
 import argparse
 import hashlib
@@ -73,9 +79,14 @@ def verify(dist, extension, lifecycle, *, today=None):
         raise Denied("untrusted extension or lifecycle: " + str(exc)) from exc
     require(dist.is_dir() and not dist.is_symlink(), "untrusted asset directory")
     files = list(dist.iterdir())
+    # The Grype report is a diagnostic asset: it may be absent (NOT_PERFORMED)
+    # without denying, but no unexpected file may appear and every ZIP/SPDX
+    # asset stays mandatory.
+    grype_names = {identity.asset_stem(extension, major) + ".vulnerabilities.json"
+                   for major in majors}
     require(all(x.is_file() and not x.is_symlink() for x in files)
-            and {x.name for x in files} == expected
-            and len(files) == len(expected),
+            and {x.name for x in files} <= expected
+            and expected - grype_names <= {x.name for x in files},
             "missing, duplicate or unexpected Windows Release assets")
     report = {}
     for major in majors:
@@ -102,22 +113,33 @@ def verify(dist, extension, lifecycle, *, today=None):
                 and DIGEST.fullmatch(hashes[0].lower()) is not None
                 and hashes[0].lower() == zip_hash,
                 "SPDX source package digest differs from actual ZIP bytes")
-        risk = read_json(grype_path)
-        try:
-            verdict = policy.review(risk, asset_stem=stem)
-        except policy.Denied as exc:
-            raise Denied("missing, filtered or forged Grype report: " + str(exc)) from exc
-        require(verdict["status"] == "NO_BLOCKING_FINDINGS"
-                and type(verdict["blockingFindingCount"]) is int
-                and verdict["blockingFindingCount"] == 0
-                and verdict["publicationAuthorized"] is False,
-                "Critical/High/Unknown Grype findings: no formal Release")
+        # Grype is diagnostic only (E3 PR3 decisions (a)/(b)/(c)): findings
+        # are recorded, scan/report failures are recorded as DIAGNOSTIC_FAILED
+        # and a missing report as NOT_PERFORMED. None of these deny; the
+        # ZIP/SPDX checks above keep denying on their own contract.
+        diagnostic = {"status": "NOT_PERFORMED",
+                      "blockingFindingCount": None,
+                      "findingCountBySeverity": None}
+        grype_sha = None
+        if grype_path.is_file() and not grype_path.is_symlink():
+            grype_sha = sha256(grype_path)
+            try:
+                verdict = policy.review(read_json(grype_path), asset_stem=stem)
+                diagnostic = {"status": "FINDINGS_RECORDED",
+                              "blockingFindingCount": verdict["blockingFindingCount"],
+                              "findingCountBySeverity": verdict["findingCountBySeverity"]}
+            except (policy.Denied, Denied, ValueError, KeyError, TypeError,
+                    OSError) as exc:
+                diagnostic = {"status": "DIAGNOSTIC_FAILED",
+                              "blockingFindingCount": None,
+                              "findingCountBySeverity": None,
+                              "reason": str(exc)}
         require(sha256(zip_path) == zip_hash,
                 "Windows ZIP changed while inspecting vulnerability evidence")
         report[str(major)] = {"zipSha256": zip_hash,
                               "spdxSha256": sha256(spdx_path),
-                              "grypeSha256": sha256(grype_path),
-                              "blockingFindingCount": 0}
+                              "grypeSha256": grype_sha,
+                              "grypeDiagnostic": diagnostic}
     return report
 
 
