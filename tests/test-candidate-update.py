@@ -3,8 +3,9 @@ import base64
 import copy
 import json
 import os
+import re
 import tempfile
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import importlib.util
 from pathlib import Path
 import sys
@@ -52,7 +53,9 @@ def exercise_proposer_safety():
             ("human", [{"number":1,"body":"not owned","state":"OPEN","url":"https://example/1"}], [], True),
             ("prior-run", [{"number":1,"body":marker,"state":"OPEN","url":"https://example/1"}],
                           [{"databaseId":100,"event":"workflow_dispatch","status":"completed","conclusion":"success"}], False),
-            ("closed", [{"number":1,"body":marker,"state":"CLOSED","url":"https://example/1"}], [], False),
+            ("merged", [{"number":1,"body":marker,"state":"MERGED","url":"https://example/1"}], [], False),
+            ("unknown-state", [{"number":1,"body":marker,"state":"UNKNOWN","url":"https://example/1"}], [], True),
+            ("unowned-closed", [{"number":1,"body":"not owned","state":"CLOSED","url":"https://example/1"}], [], True),
         ]
         for name,prs,runs,must_fail in scenarios:
             calls=[]
@@ -62,7 +65,9 @@ def exercise_proposer_safety():
                 if args[:2]==("git","fetch"): return ""
                 if args[:2]==("git","log"): return "candidate branch\n"+marker
                 if args[:2]==("git","show"): return json.dumps(c.apply(EXT,record))
-                if args[:3]==("gh","pr","list"): return json.dumps(prs)
+                if args[:3]==("gh","pr","list"):
+                    return json.dumps([dict(pr, headRefName=record["branch"], baseRefName="main",
+                                            isCrossRepository=False) for pr in prs])
                 if args[:3]==("gh","run","list"): return json.dumps(runs)
                 raise AssertionError("unexpected or mutating command: "+repr(args))
             with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
@@ -74,6 +79,8 @@ def exercise_proposer_safety():
                 if must_fail: expect_fail(task)
                 else: assert task() is None
             assert not any(x[:3]==("gh","workflow","run") for x in calls),name
+            if name=="merged":
+                assert len(calls)==1 and calls[0][:3]==("gh","pr","list")
         with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
                                     "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \
              patch.object(update_watch_lib,"github_get_json",
@@ -134,7 +141,9 @@ def exercise_writer_identity_normalization():
                 if args[:2]==("git","rev-parse"): return parent
                 if args[:2]==("git","show"): return json.dumps(c.apply(EXT,record))
                 if args[:2]==("git","diff"): return str(manifest)
-                if args[:3]==("gh","pr","list"): return json.dumps([listed])
+                if args[:3]==("gh","pr","list"):
+                    return json.dumps([dict(listed, headRefName=record["branch"], baseRefName="main",
+                                            isCrossRepository=False)])
                 if args[:2]==("gh","api"): return json.dumps(rest_pr)
                 if args[:3]==("gh","run","list"): return "[]"
                 if args[:3]==("gh","workflow","run"): return ""
@@ -197,6 +206,150 @@ def exercise_new_candidate_positive():
         commit=[x for x in commands if x[:2]==("git","commit")][0]
         assert marker in " ".join(commit)
         assert not any(x[:2]==("gh","release") for x in commands)
+
+
+def exercise_candidate_regeneration():
+    """Drive a closed base, an open successor, and a second closed predecessor."""
+    record = c.plan(EXT, WATCH, POLICY, fixture)
+    original = copy.deepcopy(record)
+    repository = "pgextwin/plpgsql_check"
+    writer = ("pgextwin-fleet-candidate[bot]", 999001)
+    parent, head = "a"*40, "b"*40
+    actor = {"type": "Bot", "login": writer[0], "id": writer[1]}
+    central = (ROOT/"metadata/automation-fleet.json").read_bytes()
+    response = {"encoding": "base64", "content": base64.b64encode(central).decode()}
+
+    def marker_for(branch):
+        return "<!-- " + c.MARKER_PREFIX + ":" + branch.split("/")[1] + " -->"
+
+    def pr_for(branch, number, state, body):
+        return {"number": number, "state": state, "body": body, "headRefName": branch,
+                "baseRefName": "main", "isCrossRepository": False,
+                "url": f"https://github.com/{repository}/pull/{number}"}
+
+    base_branch = record["branch"]
+    prs = {base_branch: pr_for(base_branch, 114, "CLOSED", marker_for(base_branch))}
+    branches = set()
+    dispatched = set()
+    rest_users = {}
+    origin = Mock()
+    created = Mock()
+    calls = []
+    current_branch = None
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        manifest = root/"extension.json"
+        watch = root/"watch.json"
+        policy = root/"policy.json"
+        watch.write_text(json.dumps(WATCH), encoding="utf-8")
+        policy.write_text(json.dumps(POLICY), encoding="utf-8")
+
+        def execute(*args):
+            nonlocal current_branch
+            calls.append(args)
+            if args[:3] == ("gh", "pr", "list"):
+                branch = args[args.index("--head") + 1]
+                return json.dumps([prs[branch]] if branch in prs else [])
+            if args[:2] == ("gh", "api"):
+                number = int(args[2].rsplit("/", 1)[1])
+                pr = next(pr for pr in prs.values() if pr["number"] == number)
+                return json.dumps({
+                    "number": number, "state": "open" if pr["state"] == "OPEN" else "closed",
+                    "user": rest_users.get(number, actor), "body": pr["body"], "draft": True,
+                    "merged": pr["state"] == "MERGED",
+                    "head": {"ref": pr["headRefName"], "sha": head, "repo": {"full_name": repository}},
+                    "base": {"ref": "main", "sha": parent, "repo": {"full_name": repository}},
+                })
+            if args[:2] == ("git", "ls-remote"):
+                branch = args[-1].removeprefix("refs/heads/")
+                return f"{head} {args[-1]}" if branch in branches else ""
+            if args[:3] == ("git", "checkout", "-b"):
+                current_branch = args[3]
+                return ""
+            if args[:2] == ("git", "push"):
+                branches.add(args[-1])
+                return ""
+            if args[:3] == ("git", "rev-parse", "HEAD"):
+                return head if current_branch else parent
+            if args[:2] == ("git", "log"):
+                return parent if "--format=%P" in args else marker_for(args[-1].removeprefix("refs/remotes/origin/"))
+            if args[:2] == ("git", "show"):
+                return json.dumps(c.apply(EXT, record))
+            if args[:2] == ("git", "diff"):
+                return str(manifest)
+            if args[:3] == ("gh", "pr", "create"):
+                branch = args[args.index("--head") + 1]
+                assert branch in branches and branch not in prs and "--draft" in args
+                body = Path(args[args.index("--body-file") + 1]).read_text(encoding="utf-8")
+                prs[branch] = pr_for(branch, 114 + len(prs), "OPEN", body)
+                return prs[branch]["url"]
+            if args[:3] == ("gh", "run", "list"):
+                branch = args[args.index("--branch") + 1]
+                return json.dumps([{"databaseId": 100}] if branch in dispatched else [])
+            if args[:3] == ("gh", "workflow", "run"):
+                branch = args[args.index("--ref") + 1]
+                assert branch in prs and branch not in dispatched
+                dispatched.add(branch)
+                return ""
+            if args[:2] in {("git", "fetch"), ("git", "config"), ("git", "add"), ("git", "commit")}:
+                return ""
+            raise AssertionError("unexpected command " + repr(args))
+
+        def task():
+            nonlocal current_branch
+            calls.clear()
+            current_branch = None
+            manifest.write_text(json.dumps(EXT), encoding="utf-8")
+            c.propose_candidate(record, str(manifest), repository, str(watch), str(policy),
+                                writer=writer, fetch=lambda url: response,
+                                origin_body=origin, on_created=created)
+
+        def assert_new_proposal(predecessor, branch):
+            assert re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch)
+            assert [args[-1] for args in calls if args[:2] == ("git", "ls-remote")] == ["refs/heads/" + branch]
+            assert [args[-1] for args in calls if args[:2] == ("git", "push")] == [branch]
+            assert sum(args[:3] == ("gh", "pr", "create") for args in calls) == 1
+            assert [args[-1] for args in calls if args[:3] == ("gh", "workflow", "run")] == [branch]
+            assert any(args[:2] == ("git", "commit") and marker_for(branch) in args[-1] for args in calls)
+            assert prs[branch]["body"].startswith(marker_for(branch) + "\n")
+            assert prs[predecessor]["url"] in prs[branch]["body"]
+            assert predecessor.split("/")[1] in prs[branch]["body"]
+            assert prs[predecessor]["state"] == "CLOSED"
+            assert record == original
+
+        with patch.dict(os.environ, {"RUNNER_TEMP": temp}), \
+             patch.object(c, "execute", execute), patch.object(c, "peel_tag", return_value=SHA):
+            task()
+            first, = branches
+            assert first != base_branch
+            assert_new_proposal(base_branch, first)
+
+            task()
+            assert [args[args.index("--head") + 1] for args in calls
+                    if args[:3] == ("gh", "pr", "list")] == [base_branch, first]
+            assert ("gh", "api", f"repos/{repository}/pulls/115") in calls
+            assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")} for args in calls)
+            assert not any(args[:2] == ("git", "push") for args in calls)
+
+            rest_users[115] = dict(actor, login="other-app[bot]")
+            expect_fail(task)
+            assert not any(args[0] == "git" or args[:3] == ("gh", "workflow", "run") for args in calls)
+            del rest_users[115]
+
+            prs[first]["state"] = "CLOSED"
+            task()
+            second, = branches - {first}
+            assert second not in {base_branch, first}
+            assert_new_proposal(first, second)
+            assert dispatched == {first, second}
+
+            prs[second]["state"] = "MERGED"
+            task()
+            assert [args[args.index("--head") + 1] for args in calls
+                    if args[:3] == ("gh", "pr", "list")] == [base_branch, first, second]
+            assert all(args[:3] == ("gh", "pr", "list") or args[:2] == ("gh", "api") for args in calls)
+            origin.assert_not_called()
+            created.assert_not_called()
 
 
 def main():
@@ -283,6 +436,7 @@ def main():
     exercise_proposer_safety()
     exercise_writer_identity_normalization()
     exercise_new_candidate_positive()
+    exercise_candidate_regeneration()
     print("Step 19/20 candidate and proposer-safety fixture tests passed")
 
 if __name__=="__main__":main()
