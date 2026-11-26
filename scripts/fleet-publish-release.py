@@ -251,11 +251,22 @@ def check_assets(folder, ext, receipt, commit, run_id, lifecycle, verify_signatu
                 grype = json.loads(grype_path.read_text(encoding="utf-8-sig"),
                                    object_pairs_hook=guard._unique)
                 finding_policy = vulnerability.review(grype, asset_stem=stem)
-                diagnostic = {"major": major, "status": "FINDINGS_RECORDED",
-                              "blockingFindingCount":
-                                  finding_policy["blockingFindingCount"],
-                              "findingCountBySeverity":
-                                  finding_policy["findingCountBySeverity"]}
+                if finding_policy["status"] in ("DIAGNOSTIC_FAILED",
+                                                 "NOT_PERFORMED"):
+                    # E3 PR5 (audit M2): the classifier recorded a diagnostic
+                    # outcome (unusable database or a producer diagnostic
+                    # record); mirror it instead of FINDINGS_RECORDED.
+                    diagnostic = {"major": major,
+                                  "status": finding_policy["status"],
+                                  "blockingFindingCount": None,
+                                  "reason": finding_policy.get("diagnosticDetail")
+                                            or finding_policy.get("diagnosticReason")}
+                else:
+                    diagnostic = {"major": major, "status": "FINDINGS_RECORDED",
+                                  "blockingFindingCount":
+                                      finding_policy["blockingFindingCount"],
+                                  "findingCountBySeverity":
+                                      finding_policy["findingCountBySeverity"]}
             except (vulnerability.Denied, ValueError, TypeError, KeyError,
                     OSError) as e:
                 diagnostic = {"major": major, "status": "DIAGNOSTIC_FAILED",

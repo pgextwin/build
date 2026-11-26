@@ -105,6 +105,26 @@ class NonpublishingPublisherBridgeTests(unittest.TestCase):
                     "token", "receipt", "confirmRelease"):
             self.assertNotIn(key, result)
 
+    def test_diagnostic_grype_verdict_is_coherent_and_never_a_blocker(self):
+        # E3 PR5 (audit M2): a DIAGNOSTIC_FAILED verdict with zero counts
+        # passes the bridge coherence check unchanged; the same status
+        # carrying counts is incoherent and denied.
+        values = fixture()
+        verdict = values["audit"]["grypePolicyByMajor"]["14"]
+        verdict.update(status="DIAGNOSTIC_FAILED",
+                       diagnosticReason="database unavailable")
+        result = bridge.bridge(**values)
+        self.assertEqual(result["grypePolicyByMajor"]["14"]["status"],
+                         "DIAGNOSTIC_FAILED")
+        self.assertNotIn("BLOCKING_GRYPE_FINDINGS", result["policyBlockers"])
+        forged = fixture()
+        forged["audit"]["grypePolicyByMajor"]["14"].update(
+            status="DIAGNOSTIC_FAILED", blockingFindingCount=1)
+        forged["audit"]["grypePolicyByMajor"]["14"][
+            "findingCountBySeverity"]["Critical"] = 1
+        with self.assertRaises(bridge.Denied):
+            bridge.bridge(**forged)
+
     def test_17_repo_roster_parity_current(self):
         for row in FLEET["entries"]:
             inputs = fixture()

@@ -125,7 +125,8 @@ def plan(audit, bridge, manifest, releases, refs, *, repo, sha, run_id, attempt)
             {str(major) for major in bridge["maintainedMajors"]}
             and all(type(row) is dict
                     and row.get("status") in ("BLOCKING_FINDINGS",
-                                              "NO_BLOCKING_FINDINGS")
+                                              "NO_BLOCKING_FINDINGS",
+                                              "DIAGNOSTIC_FAILED", "NOT_PERFORMED")
                     and type(row.get("blockingFindingCount")) is int
                     and row["blockingFindingCount"] >= 0
                     and type(row.get("findingCountBySeverity")) is dict
@@ -134,6 +135,11 @@ def plan(audit, bridge, manifest, releases, refs, *, repo, sha, run_id, attempt)
                         for k in ("Critical", "High", "Unknown"))
                     and (row["status"] == "BLOCKING_FINDINGS") ==
                         (row["blockingFindingCount"] > 0)
+                    and (row["status"] not in ("DIAGNOSTIC_FAILED",
+                                                "NOT_PERFORMED")
+                         or (row["blockingFindingCount"] == 0
+                             and all(c == 0 for c in
+                                     row["findingCountBySeverity"].values())))
                     for row in risk.values()),
             "incoherent or unauthenticated Grype diagnostic: no stable tag proposal")
     require(type(releases) is list and type(refs) is list
