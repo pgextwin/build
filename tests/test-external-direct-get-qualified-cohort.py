@@ -304,12 +304,13 @@ class ExactReviewedOriginals(unittest.TestCase):
                     proposal.verify_qualified_manifest(
                         altered, SHA, CATALOG, RUN, NOW + timedelta(minutes=1))
 
-    def test_owner_event_only_and_reviewed_single_batch(self):
+    def test_owner_event_only_and_cohort_dispatch_retired(self):
         doc = yaml.load((ROOT / ".github/workflows/external-direct-get-issuer.yml")
                         .read_text("utf-8"), Loader=yaml.BaseLoader)
         self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
+        # E3 PR4 (J05 retirement): qualified_cohort is no longer dispatchable.
         self.assertEqual(doc["on"]["workflow_dispatch"]["inputs"]["extension"]["options"],
-                         ["pg_trickle", "hypopg", "portalcorp_pgvector", "qualified_cohort"])
+                         ["pg_trickle", "hypopg", "portalcorp_pgvector"])
         jobs = doc["jobs"]
         self.assertEqual(set(jobs),
                          {"issue-and-attest", "independent-verify", "propose-public-pin-pr"})
@@ -321,16 +322,20 @@ class ExactReviewedOriginals(unittest.TestCase):
         verify = next(step for step in jobs["independent-verify"]["steps"]
                       if step.get("name") ==
                       "Independently verify exact Build/main signer and no-mirror operation")
-        self.assertIn('elif len(d["records"]) in (5,7):', verify["run"])
+        self.assertNotIn('elif len(d["records"]) in (5,7):', verify["run"])
+        self.assertNotIn('elif len(d["records"]) == 11:', verify["run"])
+        self.assertNotIn('reviewed_latest_majors', verify["run"])
         self.assertIn('gh attestation verify', verify["run"])
         fetch = next(step for step in jobs["issue-and-attest"]["steps"]
                      if step.get("name") == "Fetch only selected pinned original ZIP bytes privately")
-        self.assertIn("for original in pg_trickle reviewed_pg14_17 reviewed_pg18", fetch["run"])
+        self.assertNotIn("reviewed_pg14_17", fetch["run"])
+        self.assertNotIn("reviewed_pg18", fetch["run"])
         self.assertIn("bash scripts/external-direct-get-originals.sh", fetch["run"])
         self.assertNotIn("gh release", fetch["run"])
         proposal_job = jobs["propose-public-pin-pr"]["steps"][-1]
-        self.assertIn("scripts/external-direct-get-qualified-cohort-pin-pr.py",
+        self.assertNotIn("scripts/external-direct-get-qualified-cohort-pin-pr.py",
                       proposal_job["run"])
+        self.assertNotIn("qualified_cohort", proposal_job["run"])
 
     def test_signed_metadata_destination_only_no_zip(self):
         self.assertEqual(
