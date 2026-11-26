@@ -84,6 +84,42 @@ class OwnerFormalRuntimeTests(TestCase):
                 with self.assertRaises(mod.owner.Denied):
                     mod.authenticate(REPO,SOURCE_RUN,SHA,env)
 
+    def test_owner_request_authentication_rejects_expired_request_window(self):
+        # The freshness window has three legs; the 7-day original leg is
+        # covered above. A Publisher Run that starts more than 30 minutes
+        # after the owner request treats the request as expired, and an
+        # original signed only after the request was made is not the
+        # original the request referred to.
+        with TemporaryDirectory() as d:
+            event=fixture.event()
+            event["comment"]["body"]="/pgextwin publish-owner-source "+REPO+" "+str(SOURCE_RUN)
+            event["comment"]["created_at"]="2026-11-03T00:00:00Z"
+            event["comment"]["updated_at"]="2026-11-03T00:00:00Z"
+            file=Path(d)/"event.json"
+            file.write_text(json.dumps(event),"utf-8")
+            env=fixture.env()
+            env.update(GITHUB_EVENT_PATH=str(file),GH_TOKEN="offline-fixture-token",
+                       GITHUB_RUN_ID=str(CENTRAL_RUN))
+            original=fixture.signed_run()
+            original["updated_at"]="2026-11-02T23:00:00Z"
+            central=fixture.run()
+            responses={
+                ("pgextwin/build","branches/main"):fixture.branch(),
+                ("pgextwin/build","actions/runs/"+str(CENTRAL_RUN)):central,
+                ("pgextwin/build","issues/comments/3333"):event["comment"],
+                (REPO,"actions/runs/"+str(SOURCE_RUN)):original,
+            }
+            with patch.object(mod.owner,"get",side_effect=lambda r,p:responses[(r,p)]):
+                central["created_at"]="2026-11-03T00:00:02Z"
+                self.assertEqual(mod.authenticate(REPO,SOURCE_RUN,SHA,env)[-1],3333)
+                central["created_at"]="2026-11-03T01:00:00Z"
+                with self.assertRaisesRegex(mod.Denied,"freshness or replay window"):
+                    mod.authenticate(REPO,SOURCE_RUN,SHA,env)
+                central["created_at"]="2026-11-03T00:00:02Z"
+                original["updated_at"]="2026-11-03T01:00:00Z"
+                with self.assertRaisesRegex(mod.Denied,"freshness or replay window"):
+                    mod.authenticate(REPO,SOURCE_RUN,SHA,env)
+
     def test_no_prior_locator_source_run_replay_can_generate_next_tag(self):
         manifest,lifecycle,_=old.old.fixture() if hasattr(old,"old") else (None,None,None)
         # Use the actual registered fixture from the established issuer suite.
