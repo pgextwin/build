@@ -303,6 +303,23 @@ class SignedCandidateReadOnly(unittest.TestCase):
         with self.assertRaises(audit.Denied):
             self.run_audit(proof=wrong_subject)
 
+    def test_cross_asset_and_cross_kind_bundle_swap_denied(self):
+        # A genuine proof bundle of a *different* asset (its real name and
+        # digest) is not evidence for this ZIP, and neither is the bundle
+        # of the other predicate kind for the same ZIP.
+        def cross_asset(z,k,r,s):
+            if "-pg14-" in z.name:
+                other = next(p for p in z.parent.glob("*-pg15-*.zip"))
+                return signed_result(other,k,r,s)
+            return signed_result(z,k,r,s)
+        with self.assertRaises(audit.Denied):
+            self.run_audit(proof=cross_asset)
+        def cross_kind(z,k,r,s):
+            other = audit.pin.SPDX if k == audit.pin.SLSA else audit.pin.SLSA
+            return signed_result(z,other,r,s)
+        with self.assertRaises(audit.Denied):
+            self.run_audit(proof=cross_kind)
+
     def test_fail_closed_on_broken_gh_verified_json_and_no_post(self):
         for case in ([],[{}],[{"verificationResult":"synthetic"}]):
             with self.subTest(case=case),self.assertRaises(
