@@ -109,11 +109,14 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
     # E3 PR3 decision (a): the authenticated Grype verdict is recorded as a
     # diagnostic only. It never appears in policyBlockers and never mints or
     # clears Publisher authorization; the structural coherence of the
-    # recorded verdict is still verified here.
+    # recorded verdict is still verified here. E3 PR5 (audit M2): a
+    # DIAGNOSTIC_FAILED / NOT_PERFORMED verdict is coherent only with zero
+    # counts -- the diagnostic produced no trustworthy classification.
     grype_risk = audit.get("grypePolicyByMajor")
     require(type(grype_risk) is dict and set(grype_risk) == {str(m) for m in majors}
             and all(type(v) is dict
-                    and v.get("status") in ("BLOCKING_FINDINGS", "NO_BLOCKING_FINDINGS")
+                    and v.get("status") in ("BLOCKING_FINDINGS", "NO_BLOCKING_FINDINGS",
+                                            "DIAGNOSTIC_FAILED", "NOT_PERFORMED")
                     and type(v.get("blockingFindingCount")) is int
                     and v["blockingFindingCount"] >= 0
                     and v.get("publicationAuthorized") is False
@@ -127,6 +130,9 @@ def bridge(audit, *, repo, sha, run_id, attempt, event, ref,
                         for k in ("Critical", "High", "Unknown"))
                     and (v["status"] == "BLOCKING_FINDINGS") ==
                         (v["blockingFindingCount"] > 0)
+                    and (v["status"] not in ("DIAGNOSTIC_FAILED", "NOT_PERFORMED")
+                         or all(c == 0
+                                for c in v["findingCountBySeverity"].values()))
                     for v in grype_risk.values()),
             "untrusted or incomplete per-PG blocking Grype scan verdict")
     try:

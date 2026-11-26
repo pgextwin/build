@@ -157,6 +157,7 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, signer_sha,
     need(files == expected, "missing/extra signed artifact bytes")
     digests = {}
     blocking_findings = 0
+    vulnerability_results = {}
     for major in majors:
         stem = ident.asset_stem(manifest, major, admission=admission)
         z, s, g = (folder / (stem + ext) for ext in
@@ -201,7 +202,13 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, signer_sha,
         need(type(sbom) is dict and sbom.get("spdxVersion") == "SPDX-2.3"
              and type(grype) is dict and type(grype.get("matches")) is list,
              "missing SPDX/Grype evidence")
-        blocking_findings += vuln.review(grype, asset_stem=stem)["blockingFindingCount"]
+        # E3 PR5 (audit M2): the verdict is recorded per major like the
+        # other audits. A diagnostic outcome (unusable database, producer
+        # diagnostic record) contributes zero to the blocking total and is
+        # preserved in grypePolicyByMajor instead of denying the audit.
+        verdict = vuln.review(grype, asset_stem=stem)
+        vulnerability_results[str(major)] = verdict
+        blocking_findings += verdict["blockingFindingCount"]
         for kind in (pin.SLSA, pin.SPDX):
             proof = verify(z, kind, repo, sha, signer_sha)
             pin.proof_statement(proof, kind, repo=repo, sha=sha,
@@ -214,6 +221,7 @@ def audit(folder, intent, manifest, lifecycle, *, repo, sha, run_id, signer_sha,
             "runId": run_id, "runAttempt": 1,
             "commentId": intent["commentId"],
             "majors": majors, "SHA256": digests,
+            "grypePolicyByMajor": vulnerability_results,
             "publisherEligible": False, "publicationAuthorized": False,
             "PUBLISH": "DENY"}, blocking_findings
 

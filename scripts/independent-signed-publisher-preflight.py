@@ -101,9 +101,11 @@ def compare(first, second, *, repo, sha, run_id, attempt, manifest, lifecycle,
             # E3 PR3 decision (a): the recorded Grype verdict is diagnostic
             # only. Coherence is verified and the first/second full-equality
             # check below still binds both independent records; the counts
-            # themselves never deny.
+            # themselves never deny. E3 PR5 (audit M2): a DIAGNOSTIC_FAILED
+            # / NOT_PERFORMED verdict must carry zero counts.
             require(type(r) is dict and r.get("status") in (
-                        "BLOCKING_FINDINGS", "NO_BLOCKING_FINDINGS")
+                        "BLOCKING_FINDINGS", "NO_BLOCKING_FINDINGS",
+                        "DIAGNOSTIC_FAILED", "NOT_PERFORMED")
                     and type(r.get("blockingFindingCount")) is int
                     and r["blockingFindingCount"] >= 0
                     and r.get("publicationAuthorized") is False
@@ -115,7 +117,12 @@ def compare(first, second, *, repo, sha, run_id, attempt, manifest, lifecycle,
                         r["findingCountBySeverity"][k]
                         for k in ("Critical", "High", "Unknown"))
                     and (r["status"] == "BLOCKING_FINDINGS") ==
-                        (r["blockingFindingCount"] > 0),
+                        (r["blockingFindingCount"] > 0)
+                    and (r["status"] not in ("DIAGNOSTIC_FAILED",
+                                             "NOT_PERFORMED")
+                         or (r["blockingFindingCount"] == 0
+                             and all(c == 0 for c in
+                                     r["findingCountBySeverity"].values()))),
                     label + " contains incoherent or incomplete Grype diagnostic")
         require("publisherWriteEnabled" not in audit
                 and "authorizationMode" not in audit

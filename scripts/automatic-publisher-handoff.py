@@ -119,10 +119,13 @@ def handoff(first, second, opinion, bridge, tag, fleet, *,
         item = risk[major]
         # E3 PR3 decision (a): the recorded Grype verdict is diagnostic only.
         # Its internal coherence is verified; its finding counts, whatever
-        # they are, neither clear nor block the handoff.
+        # they are, neither clear nor block the handoff. E3 PR5 (audit M2):
+        # a DIAGNOSTIC_FAILED / NOT_PERFORMED verdict must carry zero
+        # counts -- no trustworthy classification was produced.
         require(type(item) is dict
                 and item.get("status") in ("BLOCKING_FINDINGS",
-                                           "NO_BLOCKING_FINDINGS")
+                                           "NO_BLOCKING_FINDINGS",
+                                           "DIAGNOSTIC_FAILED", "NOT_PERFORMED")
                 and type(item.get("blockingFindingCount")) is int
                 and item["blockingFindingCount"] >= 0
                 and item.get("publicationAuthorized") is False
@@ -134,7 +137,11 @@ def handoff(first, second, opinion, bridge, tag, fleet, *,
                     item["findingCountBySeverity"][sev]
                     for sev in ("Critical", "High", "Unknown"))
                 and (item["status"] == "BLOCKING_FINDINGS") ==
-                    (item["blockingFindingCount"] > 0),
+                    (item["blockingFindingCount"] > 0)
+                and (item["status"] not in ("DIAGNOSTIC_FAILED", "NOT_PERFORMED")
+                     or (item["blockingFindingCount"] == 0
+                         and all(c == 0 for c in
+                                 item["findingCountBySeverity"].values()))),
                 "incoherent or incomplete Grype diagnostic record")
     require(type(opinion) is dict and opinion.get("schemaVersion") == 1
             and type(opinion.get("schemaVersion")) is int

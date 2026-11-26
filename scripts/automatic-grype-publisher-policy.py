@@ -7,9 +7,21 @@ real signed-candidate verifier may supply its result to a future Publisher.
 
 E3 PR3 (per-route decision 6A): this module only *classifies* a report into a
 recorded diagnostic verdict (status + per-severity counts). Callers record the
-verdict; severity findings never deny publication by themselves. A report that
-is malformed, filtered/suppressed, or whose database status is invalid raises
-Denied so the caller can record DIAGNOSTIC_FAILED for that major.
+verdict; severity findings never deny publication by themselves.
+
+E3 PR5 (audit M2): failures are separated into two kinds.
+- Integrity failures raise Denied: the evidence does not bind to the exact
+  signed ZIP (scanner identity, source target), is filtered/suppressed
+  (ignore/VEX configuration, ignored matches), or is structurally malformed.
+  Tampering, substitution and suppression stay refused.
+- Diagnostic-validity failures return a DIAGNOSTIC_FAILED verdict instead:
+  the vulnerability database block is missing or unusable (status not valid,
+  schema/built/from missing, no providers), so the scan's matches cannot be
+  trusted as a classification. The verdict carries zero counts, which means
+  "not classified", never "no findings"; the status says so explicitly.
+A producer diagnostic record (written by the signed build when Grype itself
+could not produce a report) is classified the same way and returns its
+recorded status (DIAGNOSTIC_FAILED or NOT_PERFORMED) with zero counts.
 """
 from __future__ import annotations
 
@@ -21,6 +33,9 @@ FORBIDDEN = frozenset((
     "ignore", "exclude", "vex-documents", "vex-add", "only-fixed",
     "only-notfixed", "ignore-wontfix", "fail-on", "fail-on-severity",
 ))
+DIAGNOSTIC_RECORD_NAME = "pgextwin-grype-diagnostic"
+DIAGNOSTIC_STATUSES = ("DIAGNOSTIC_FAILED", "NOT_PERFORMED")
+DB_UNAVAILABLE = "Grype database authenticity/freshness prerequisites unavailable"
 
 
 class Denied(ValueError):
@@ -30,6 +45,47 @@ class Denied(ValueError):
 def require(ok, reason):
     if not ok:
         raise Denied(reason)
+
+
+def zero_counts():
+    return {name: 0 for name in SEVERITIES}
+
+
+def diagnostic_verdict(status, reason, *, record=False, detail=None):
+    verdict = {"status": status,
+               "blockingFindingCount": 0,
+               "findingCountBySeverity": zero_counts(),
+               "publicationAuthorized": False,
+               "diagnosticReason": reason}
+    if record:
+        verdict["diagnosticRecord"] = True
+        verdict["diagnosticDetail"] = detail
+    return verdict
+
+
+def review_diagnostic_record(report, desc, *, asset_stem):
+    """Classify a producer diagnostic record; anything mislabelled is Denied."""
+    require(desc.get("name") == DIAGNOSTIC_RECORD_NAME
+            and desc.get("diagnosticRecord") is True
+            and desc.get("expectedScanner") == {"name": "grype",
+                                                "version": "0.120.1"},
+            "malformed Grype diagnostic record descriptor")
+    source = report.get("source")
+    require(type(source) is dict and source.get("type") == "file"
+            and type(source.get("target")) is str
+            and source["target"].replace("\\", "/").rstrip("/").split("/")[-1] == asset_stem,
+            "Grype diagnostic record is not bound to the exact signed ZIP")
+    status = report.get("status")
+    detail = report.get("detail")
+    require(status in DIAGNOSTIC_STATUSES
+            and type(detail) is str and bool(detail)
+            and report.get("matches") == []
+            and report.get("ignoredMatches", []) == [],
+            "malformed Grype diagnostic record body")
+    return diagnostic_verdict(
+        status,
+        "producer recorded no Grype report for this asset",
+        record=True, detail=detail)
 
 
 def settings(value):
@@ -49,19 +105,14 @@ def review(report, *, asset_stem):
             "unsafe expected Windows asset identity")
     require(type(report) is dict, "Grype report not a JSON object")
     desc, source = report.get("descriptor"), report.get("source")
+    if type(desc) is dict and desc.get("diagnosticRecord") is True:
+        return review_diagnostic_record(report, desc, asset_stem=asset_stem)
     require(type(desc) is dict and desc.get("name") == "grype"
             and desc.get("version") == "0.120.1", "unknown Grype scanner")
     require(type(source) is dict and source.get("type") == "file"
             and type(source.get("target")) is str
             and source["target"].replace("\\", "/").rstrip("/").split("/")[-1] == asset_stem,
             "Grype source is not the exact signed ZIP's SPDX SBOM")
-    db = desc.get("db")
-    require(type(db) is dict and type(db.get("status")) is dict
-            and db["status"].get("valid") is True
-            and all(type(db["status"].get(k)) is str and db["status"][k]
-                    for k in ("schemaVersion", "built", "from"))
-            and type(db.get("providers")) is dict and bool(db["providers"]),
-            "Grype database authenticity/freshness prerequisites unavailable")
     config = desc.get("configuration")
     require(type(config) is dict, "Grype configuration missing")
     props = list(settings(config))
@@ -75,6 +126,19 @@ def review(report, *, asset_stem):
     matches, ignored = report.get("matches"), report.get("ignoredMatches", [])
     require(type(matches) is list and type(ignored) is list and not ignored,
             "missing Grype matches or hidden/suppressed vulnerabilities")
+    # Diagnostic validity (E3 PR5, audit M2): an unusable vulnerability
+    # database means the scan produced no trustworthy classification. That
+    # is recorded as DIAGNOSTIC_FAILED with zero counts and never denies;
+    # the integrity checks above have already refused tampered, substituted
+    # or filtered evidence, so reaching here means the report is bound to
+    # this ZIP and unfiltered, only its database backing is unavailable.
+    db = desc.get("db")
+    if not (type(db) is dict and type(db.get("status")) is dict
+            and db["status"].get("valid") is True
+            and all(type(db["status"].get(k)) is str and db["status"][k]
+                    for k in ("schemaVersion", "built", "from"))
+            and type(db.get("providers")) is dict and bool(db["providers"])):
+        return diagnostic_verdict("DIAGNOSTIC_FAILED", DB_UNAVAILABLE)
     counts = {name: 0 for name in SEVERITIES}
     for entry in matches:
         require(type(entry) is dict and type(entry.get("vulnerability")) is dict

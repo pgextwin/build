@@ -288,18 +288,41 @@ jobs:
             --expected-tool-version "1.54.1"
           if ($LASTEXITCODE -ne 0) { throw "SPDX SBOM validation failed." }
 
+      # E3 PR5 (audit M1): Grype is diagnostic only in this build. Its
+      # installation or scan failure must not stop attestation or upload;
+      # the step after the scan materializes a diagnostic record in the
+      # report slot so the asset set stays identical to a successful scan.
       - name: Install checksum-pinned Grype
+        id: grype_install
+        continue-on-error: true
         shell: pwsh
         run: |
           & ".pgextwin-build/scripts/install-grype.ps1"
           if ($LASTEXITCODE -ne 0) { throw "Grype installation failed." }
 
       - name: Scan validated SPDX SBOM for known vulnerabilities
+        id: grype_scan
+        if: steps.grype_install.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         run: |
           & ".pgextwin-build/scripts/scan-vulnerabilities.ps1" `
             -GrypePath ".pgextwin-tools\grype\grype.exe"
           if ($LASTEXITCODE -ne 0) { throw "Vulnerability scan failed operationally." }
+
+      - name: Record vulnerability diagnostic when no report was produced
+        shell: pwsh
+        env:
+          GRYPE_INSTALL_OUTCOME: ${{ steps.grype_install.outcome }}
+          GRYPE_SCAN_OUTCOME: ${{ steps.grype_scan.outcome }}
+        run: |
+          python ".pgextwin-build/scripts/grype-diagnostic-record.py" `
+            --dist "dist" `
+            --install-outcome $env:GRYPE_INSTALL_OUTCOME `
+            --scan-outcome $env:GRYPE_SCAN_OUTCOME `
+            --expected-scanner-version "0.120.1" `
+            --summary-file $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) { throw "Failed to record the vulnerability diagnostic state." }
 
       - name: Validate and summarize vulnerability report
         shell: pwsh

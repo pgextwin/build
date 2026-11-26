@@ -245,6 +245,55 @@ class SignedCandidateReadOnly(unittest.TestCase):
         self.assertEqual(result["grypePolicyByMajor"]["14"]["blockingFindingCount"],1)
         self.assertIs(result["publicationAuthorized"],False)
 
+    def test_invalid_grype_database_recorded_not_denied(self):
+        # E3 PR5 (audit M2): a report whose vulnerability database block is
+        # unusable is a diagnostic-validity failure. The audit still verifies
+        # the signed candidate and records DIAGNOSTIC_FAILED for that major.
+        def bad_db(e,l,i,r,f):
+            path=f/(audit.ident.asset_stem(e,14)+".vulnerabilities.json")
+            doc=json.loads(path.read_text())
+            doc["descriptor"]["db"]["status"]["valid"]=False
+            path.write_text(json.dumps(doc))
+        result=self.run_audit(bad_db)
+        self.assertEqual(result["status"],audit.SIGNED)
+        verdict=result["grypePolicyByMajor"]["14"]
+        self.assertEqual(verdict["status"],"DIAGNOSTIC_FAILED")
+        self.assertEqual(verdict["blockingFindingCount"],0)
+        self.assertEqual(sum(verdict["findingCountBySeverity"].values()),0)
+        self.assertIs(result["publicationAuthorized"],False)
+
+    def test_producer_diagnostic_record_accepted_and_recorded(self):
+        # E3 PR5 (audit M1/M2): when the producer build could not produce a
+        # Grype report, the report slot carries a diagnostic record. The
+        # audit records its status and still verifies signatures and bytes.
+        def record(e,l,i,r,f):
+            stem=audit.ident.asset_stem(e,15)
+            doc={"matches":[],
+                 "descriptor":{"name":"pgextwin-grype-diagnostic",
+                               "diagnosticRecord":True,
+                               "expectedScanner":{"name":"grype",
+                                                  "version":"0.120.1"}},
+                 "source":{"type":"file","target":stem},
+                 "status":"NOT_PERFORMED",
+                 "detail":"Grype installation failed in the producer build."}
+            (f/(stem+".vulnerabilities.json")).write_text(json.dumps(doc))
+        result=self.run_audit(record)
+        self.assertEqual(result["status"],audit.SIGNED)
+        verdict=result["grypePolicyByMajor"]["15"]
+        self.assertEqual(verdict["status"],"NOT_PERFORMED")
+        self.assertIs(verdict["diagnosticRecord"],True)
+        self.assertIs(result["publicationAuthorized"],False)
+
+    def test_substituted_grype_report_still_denied(self):
+        # E3 PR5 (audit M2): one major's report presented for another major
+        # breaks the exact-ZIP binding and stays an integrity denial.
+        def swap(e,l,i,r,f):
+            src=f/(audit.ident.asset_stem(e,14)+".vulnerabilities.json")
+            dst=f/(audit.ident.asset_stem(e,15)+".vulnerabilities.json")
+            dst.write_text(src.read_text())
+        with self.assertRaises(audit.Denied):
+            self.run_audit(swap)
+
     def test_original_intent_and_root_identity_hostile_denials(self):
         cases=[
             lambda e,l,i,r,f:i.update(status="PUBLISH"),

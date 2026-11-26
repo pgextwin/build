@@ -125,9 +125,20 @@ def verify(dist, extension, lifecycle, *, today=None):
             grype_sha = sha256(grype_path)
             try:
                 verdict = policy.review(read_json(grype_path), asset_stem=stem)
-                diagnostic = {"status": "FINDINGS_RECORDED",
-                              "blockingFindingCount": verdict["blockingFindingCount"],
-                              "findingCountBySeverity": verdict["findingCountBySeverity"]}
+                if verdict["status"] in ("DIAGNOSTIC_FAILED", "NOT_PERFORMED"):
+                    # E3 PR5 (audit M2): the classifier itself recorded a
+                    # diagnostic outcome (unusable database or a producer
+                    # diagnostic record); mirror it instead of claiming
+                    # findings were recorded.
+                    diagnostic = {"status": verdict["status"],
+                                  "blockingFindingCount": None,
+                                  "findingCountBySeverity": None,
+                                  "reason": verdict.get("diagnosticDetail")
+                                            or verdict.get("diagnosticReason")}
+                else:
+                    diagnostic = {"status": "FINDINGS_RECORDED",
+                                  "blockingFindingCount": verdict["blockingFindingCount"],
+                                  "findingCountBySeverity": verdict["findingCountBySeverity"]}
             except (policy.Denied, Denied, ValueError, KeyError, TypeError,
                     OSError) as exc:
                 diagnostic = {"status": "DIAGNOSTIC_FAILED",
