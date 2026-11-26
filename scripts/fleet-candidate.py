@@ -164,24 +164,40 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
     repo = fetch(receipt.HOST + repository)
     receipt.need(repo.get("full_name") == repository and origin.positive(repo.get("id"))
                  and origin.positive(decision_id), "target repository or decision artifact ID missing")
-    origin_record = {
+    origin_base = {
         "schemaVersion": 1, "repository": repository, "repositoryId": repo["id"],
         "appId": origin.APP["appId"], "botUserId": origin.APP["botUserId"],
         "runId": context[0]["id"], "runAttempt": context[0]["run_attempt"],
         "runSha": context[0]["head_sha"], "decisionArtifactId": decision_id,
-        "baseSha": row["mainSha"], "decision": record,
+        "baseSha": row["mainSha"],
     }
+    origin_holder = {}
 
-    def origin_body(ref):
+    def origin_body(ref, effective_record, predecessor):
+        origin_record = {**origin_base, "decision": effective_record}
+        if predecessor is not None:
+            predecessor_id, predecessor_number = predecessor
+            origin_record["regeneration"] = {
+                "predecessorCandidateId": predecessor_id,
+                "predecessorPrNumber": predecessor_number,
+            }
         origin_record["headSha"] = candidate.execute("git", "rev-parse", ref)
         origin_record["manifestBlob"] = candidate.execute("git", "rev-parse", ref + ":" + MANIFEST)
+        origin_holder["record"] = origin_record
         return origin.marker(origin_record)
 
-    def on_created(url):
+    def on_created(url, effective_record, predecessor):
         prefix = "https://github.com/" + repository + "/pull/"
         number = url.removeprefix(prefix)
         receipt.need(url.startswith(prefix) and number.isascii() and number.isdecimal()
                      and int(number) > 0, "created candidate PR URL is invalid")
+        origin_record = origin_holder.get("record")
+        receipt.need(type(origin_record) is dict and origin_record.get("decision") == effective_record
+                     and ((predecessor is None and "regeneration" not in origin_record) or
+                          (predecessor is not None and origin_record.get("regeneration") == {
+                              "predecessorCandidateId": predecessor[0],
+                              "predecessorPrNumber": predecessor[1]})),
+                     "created candidate origin does not match its effective decision")
         pr = fetch(receipt.HOST + repository + "/pulls/" + number)
         origin.validate_pr(repository, pr, origin_record)
         receipt.need(pr["number"] == int(number) and pr.get("state") == "open"

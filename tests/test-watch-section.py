@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).with_name("fixtures") / "watch-section"
@@ -194,12 +194,31 @@ class WatchSectionTests(unittest.TestCase):
                             self.assertEqual(candidate.main(), 0)
                     record = read(output)
                     self.assertEqual(record["status"], "candidate")
+                    chain_query = ("gh", "pr", "list", "--repo", repo, "--head", record["branch"],
+                                   "--state", "all", "--limit", "100", "--json",
+                                   "number,body,state,url,headRefOid,headRefName,baseRefName,"
+                                   "isDraft,isCrossRepository")
+                    branch_lookup = ("git", "ls-remote", "--heads", "origin",
+                                     "refs/heads/" + record["branch"])
+                    # The proposer resolves the effective candidate branch by walking
+                    # the candidate-PR chain before any branch lookup or write, so a
+                    # failed chain query aborts the proposal at the first remote call.
                     with patch.object(update_watch_lib, "github_get_json", return_value=fleet_response), \
                          patch.object(candidate, "execute", side_effect=WatchError("stop at remote branch lookup")) as execute:
                         with self.assertRaisesRegex(WatchError, "stop at remote branch lookup"):
                             candidate.propose(record, manifest, repo, root / "update-watch.json")
-                        execute.assert_called_once_with("git", "ls-remote", "--heads", "origin",
-                                                        "refs/heads/" + record["branch"])
+                        execute.assert_called_once_with(*chain_query)
+                    # With no candidate PR in the chain, the remote branch lookup
+                    # follows with its original arguments, and its failure aborts too.
+                    def fail_at_branch_lookup(*args):
+                        if args[0] == "git":
+                            raise WatchError("stop at remote branch lookup")
+                        return "[]"
+                    with patch.object(update_watch_lib, "github_get_json", return_value=fleet_response), \
+                         patch.object(candidate, "execute", side_effect=fail_at_branch_lookup) as execute:
+                        with self.assertRaisesRegex(WatchError, "stop at remote branch lookup"):
+                            candidate.propose(record, manifest, repo, root / "update-watch.json")
+                        self.assertEqual(execute.call_args_list, [call(*chain_query), call(*branch_lookup)])
             self.assertEqual(read(manifest), embedded)
 
 

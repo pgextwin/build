@@ -597,6 +597,79 @@ def propose(record, manifest_path, repository, watch_path, policy_path=None):
     propose_candidate(record, manifest_path, repository, watch_path, policy_path)
 
 
+def regenerated_candidate_id(predecessor_id, predecessor_number):
+    """Hash each closed predecessor into its successor so unchanged PR history replays the same chain."""
+    material = f"pgextwin-candidate-regeneration:v1\n{predecessor_id}\n{predecessor_number}"
+    return hashlib.sha256(material.encode()).hexdigest()[:20]
+
+
+def writer_pull_request(repository, number, writer):
+    # GraphQL author.login uses app/<slug> for App authors. The authenticated
+    # REST user supplies the configured <slug>[bot] login.
+    pr = json.loads(execute("gh", "api", f"repos/{repository}/pulls/{number}"))
+    actor = pr.get("user") if isinstance(pr, dict) else None
+    if (not isinstance(actor, dict) or type(pr.get("number")) is not int or pr["number"] != number
+            or actor.get("type") != "Bot" or actor.get("login") != writer[0]):
+        raise WatchError("candidate PR does not belong to the configured writer")
+    return pr
+
+
+def candidate_pull_requests(repository, branch, marker, writer):
+    prs = json.loads(execute("gh", "pr", "list", "--repo", repository, "--head", branch, "--state", "all",
+                            "--limit", "100", "--json",
+                            "number,body,state,url,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository"))
+    if not isinstance(prs, list):
+        raise WatchError("candidate PR listing must be an array")
+    if len(prs) > 1:
+        raise WatchError("multiple PRs for candidate")
+    if not prs:
+        return prs
+    pr = prs[0]
+    if not isinstance(pr, dict):
+        raise WatchError("candidate PR must be an object")
+    number = pr.get("number")
+    if type(number) is not int or number <= 0:
+        raise WatchError("candidate PR number is invalid")
+    if (pr.get("headRefName") != branch or pr.get("baseRefName") != "main"
+            or pr.get("isCrossRepository") is not False):
+        raise WatchError("candidate PR has an unexpected head or base")
+    body = pr.get("body")
+    if (not isinstance(body, str) or marker not in body
+            or body.count("<!-- " + MARKER_PREFIX + ":") != 1):
+        raise WatchError("candidate PR is not automation-owned")
+    state = pr.get("state")
+    if state not in ("OPEN", "CLOSED", "MERGED"):
+        raise WatchError("candidate PR state is invalid")
+    if not isinstance(pr.get("url"), str) or not pr["url"]:
+        raise WatchError("candidate PR URL is invalid")
+    if writer is not None:
+        rest_pr = writer_pull_request(repository, number, writer)
+        if (rest_pr.get("state") != ("open" if state == "OPEN" else "closed")
+                or (state != "OPEN" and rest_pr.get("merged") is not (state == "MERGED"))):
+            raise WatchError("candidate PR state differs between GitHub APIs")
+    return prs
+
+
+def verify_created_regeneration(repository, url, writer, branch, ref, body):
+    prefix = f"https://github.com/{repository}/pull/"
+    number = url.removeprefix(prefix)
+    if not url.startswith(prefix) or not re.fullmatch(r"[1-9][0-9]*", number):
+        raise WatchError("created candidate PR URL is invalid")
+    pr = writer_pull_request(repository, int(number), writer)
+    head, base = pr.get("head"), pr.get("base")
+    for side in (head, base):
+        repo = side.get("repo") if isinstance(side, dict) else None
+        if not isinstance(repo, dict) or repo.get("full_name") != repository:
+            raise WatchError("created regenerated PR has an unexpected repository")
+    if (pr["user"].get("id") != writer[1] or pr.get("state") != "open"
+            or pr.get("merged") is not False or pr.get("draft") is not True
+            or not isinstance(pr.get("body"), str) or pr["body"].strip() != body.strip()
+            or head.get("ref") != branch or base.get("ref") != "main"
+            or head.get("sha") != execute("git", "rev-parse", ref)
+            or base.get("sha") != execute("git", "log", "-1", "--format=%P", ref)):
+        raise WatchError("created regenerated PR differs from the exact proposal")
+
+
 def propose_candidate(record, manifest_path, repository, watch_path, policy_path=None, *,
                       writer=None, fetch=api, origin_body=None, on_created=None):
     """Apply a proposal after the local or central caller authenticates its context."""
@@ -614,7 +687,8 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
         raise WatchError("candidate proposal denied by live central policy: " + mode)
     if config["upstream"]["repository"] != record["repository"]:
         raise WatchError("upstream repository changed")
-    changed = apply(config, record, pin_remaining=True, fetch=fetch)
+    proposal_file = manifest_path
+    proposal = apply(config, record, pin_remaining=True, fetch=fetch)
     if record.get("firstRelease") is True:
         if not no_formal_release(repository, fetch):
             raise WatchError("formal Release exists; no new first-release candidate")
@@ -622,16 +696,33 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
             raise WatchError("initial Release candidate intent already merged")
         proposal_file = FIRST_FILE
         proposal = initial_intent(config, record)
-    else:
-        proposal_file = manifest_path
-        proposal = changed
     for update in record["updates"]:
         if peel_tag(record["repository"], update["ref"], fetch) != update["commit"]:
             raise WatchError("upstream tag moved after plan")
-    branch = record["branch"]
-    if not re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch):
+
+    candidate_id = record.get("candidateId")
+    if (not isinstance(candidate_id, str) or not re.fullmatch(r"[0-9a-f]{20}", candidate_id)
+            or record.get("branch") != "auto-candidate/" + candidate_id):
         raise WatchError("invalid immutable candidate branch")
-    marker = "<!-- " + MARKER_PREFIX + ":" + record["candidateId"] + " -->"
+    predecessor = None
+    seen_ids = set()
+    while True:
+        if candidate_id in seen_ids:
+            raise WatchError("candidate regeneration repeats a candidate ID")
+        seen_ids.add(candidate_id)
+        branch = "auto-candidate/" + candidate_id
+        marker = "<!-- " + MARKER_PREFIX + ":" + candidate_id + " -->"
+        prs = candidate_pull_requests(repository, branch, marker, writer)
+        if not prs or prs[0]["state"] == "OPEN":
+            break
+        if prs[0]["state"] == "MERGED":
+            return
+        predecessor = candidate_id, prs[0]["number"]
+        candidate_id = regenerated_candidate_id(*predecessor)
+
+    record = {**record, "candidateId": candidate_id, "branch": branch}
+    if record.get("firstRelease") is True:
+        proposal["candidateId"] = candidate_id
     remote = execute("git", "ls-remote", "--heads", "origin", "refs/heads/" + branch)
     if remote:
         execute("git", "fetch", "--no-tags", "origin", "refs/heads/" + branch + ":refs/remotes/origin/" + branch)
@@ -659,36 +750,11 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
         execute("git", "add", "--", proposal_file)
         execute("git", "commit", "-m", "chore: propose upstream candidate\n\n" + marker)
         execute("git", "push", "--set-upstream", "origin", branch)
-    prs = json.loads(execute("gh", "pr", "list", "--repo", repository, "--head", branch, "--state", "all",
-                            "--limit", "100", "--json", "number,body,state,url,author,headRefOid,headRefName,baseRefName,isDraft"))
-    if len(prs) > 1:
-        raise WatchError("multiple PRs for candidate")
     if prs:
-        if marker not in (prs[0].get("body") or ""):
-            raise WatchError("candidate PR is not automation-owned")
-        if writer is not None:
-            # gh pr list author.login is the GitHub GraphQL Actor login
-            # (e.g. app/pgextwin-fleet-candidate), which differs from the
-            # REST bot login (e.g. pgextwin-fleet-candidate[bot]) for the
-            # same GitHub App. Never infer writer identity from that
-            # display field; read the authoritative PR metadata via
-            # authenticated, read-only REST, as recover_failed_first_release
-            # does. Run 45757757650 failed closed here because the two
-            # login forms can never be equal.
-            number = prs[0].get("number")
-            if type(number) is not int or number <= 0:
-                raise WatchError("candidate PR number is invalid")
-            rest_pr = json.loads(execute("gh", "api", "repos/" + repository + "/pulls/" + str(number)))
-            if type(rest_pr) is not dict or rest_pr.get("number") != number:
-                raise WatchError("candidate PR does not belong to the configured writer")
-            actor = rest_pr.get("user") or {}
-            if actor.get("type") != "Bot" or actor.get("login") != writer[0]:
-                raise WatchError("candidate PR does not belong to the configured writer")
-        if prs[0]["state"] != "OPEN":
-            print("Candidate PR already closed: never reopen or rebuild")
-            return
         url = prs[0]["url"]
     else:
+        if candidate_pull_requests(repository, branch, marker, writer):
+            raise WatchError("candidate PR appeared while preparing its branch")
         body = [marker, "## Automated upstream Windows candidate (NOT a Release)", "",
                 ("FIRST RELEASE: source pins unchanged; sole diff is a new immutable intent file."
                  if record.get("firstRelease") is True else "Stable upstream version change."),
@@ -704,16 +770,24 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
                         " | " + str(u["notes"]) + " |")
         body += ["", "Manual review: source diff, license, export audit, Test Contract, Windows compatibility.",
                  "A separate attested Release build and publication gate remain mandatory."]
+        ref = "refs/remotes/origin/" + branch if remote else "HEAD"
+        if predecessor is not None:
+            previous_id, number = predecessor
+            body.extend(["", f"Regenerated from closed PR [#{number}](https://github.com/{repository}/pull/{number}) "
+                             f"(candidate `{previous_id}`)."])
         if origin_body is not None:
-            ref = "refs/remotes/origin/" + branch if remote else "HEAD"
-            body.append(origin_body(ref))
+            body.append(origin_body(ref, record, predecessor))
         body_path = Path(os.environ.get("RUNNER_TEMP", ".")) / "pgextwin-candidate-pr.md"
-        body_path.write_text("\n".join(body) + "\n", encoding="utf-8")
+        body_text = "\n".join(body) + "\n"
+        body_path.write_text(body_text, encoding="utf-8")
         url = execute("gh", "pr", "create", "--repo", repository, "--head", branch, "--base", "main",
                       "--title", "chore: candidate " + record["extension"] + " " +
                       record["updates"][0]["version"], "--body-file", str(body_path), "--draft")
         if on_created is not None:
-            on_created(url)
+            on_created(url, record, predecessor)
+        elif predecessor is not None and writer is not None:
+            # Preserve the local writer path when it has no origin callbacks.
+            verify_created_regeneration(repository, url, writer, branch, ref, body_text)
     print("Candidate PR: " + url)
     runs = json.loads(execute("gh", "run", "list", "--repo", repository, "--workflow", "windows.yml",
                               "--branch", branch, "--event", "workflow_dispatch", "--limit", "100",
