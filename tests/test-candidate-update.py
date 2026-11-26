@@ -83,6 +83,80 @@ def exercise_proposer_safety():
 
 
 
+def exercise_writer_identity_normalization():
+    """Run 45757757650: a fleet-App candidate PR must pass the writer check.
+
+    gh pr list author.login is the GraphQL Actor login
+    (app/pgextwin-fleet-candidate) while the configured writer is the REST
+    bot login (pgextwin-fleet-candidate[bot]); the check must verify the
+    writer via the REST PR user, not the GraphQL display field. A PR owned
+    by any other identity must still fail closed.
+    """
+    record=c.plan(EXT,WATCH,POLICY,fixture)
+    marker="<!-- "+c.MARKER_PREFIX+":"+record["candidateId"]+" -->"
+    central=json.loads((ROOT/"metadata/automation-fleet.json").read_text(encoding="utf-8"))
+    response={"encoding":"base64","content":base64.b64encode(json.dumps(central).encode()).decode()}
+    writer=("pgextwin-fleet-candidate[bot]", 999001)
+    parent="a"*40
+    scenarios=[
+        ("graphql-app-author-accepted",
+         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
+          "author":{"login":"app/pgextwin-fleet-candidate"}},
+         {"number":114,"state":"open","user":{"type":"Bot","login":"pgextwin-fleet-candidate[bot]"}}, False),
+        ("other-app-rejected",
+         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
+          "author":{"login":"app/pgextwin-fleet-candidate"}},
+         {"number":114,"state":"open","user":{"type":"Bot","login":"other-app[bot]"}}, True),
+        ("human-author-rejected",
+         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
+          "author":{"login":"app/pgextwin-fleet-candidate"}},
+         {"number":114,"state":"open","user":{"type":"User","login":"ShutenOishi"}}, True),
+        ("rest-number-mismatch-rejected",
+         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
+          "author":{"login":"app/pgextwin-fleet-candidate"}},
+         {"number":999,"state":"open","user":{"type":"Bot","login":"pgextwin-fleet-candidate[bot]"}}, True),
+    ]
+    for name, listed, rest_pr, must_fail in scenarios:
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            manifest=root/"extension.json"
+            manifest.write_text(json.dumps(EXT),encoding="utf-8")
+            (root/"watch.json").write_text(json.dumps(WATCH),encoding="utf-8")
+            (root/"policy.json").write_text(json.dumps(POLICY),encoding="utf-8")
+            calls=[]
+            def execute(*args):
+                calls.append(args)
+                if args[:2]==("git","ls-remote"): return "ab refs/heads/"+record["branch"]
+                if args[:2]==("git","fetch"): return ""
+                if args[:2]==("git","log"):
+                    if "--format=%P" in args: return parent
+                    return "candidate branch\n"+marker
+                if args[:2]==("git","rev-parse"): return parent
+                if args[:2]==("git","show"): return json.dumps(c.apply(EXT,record))
+                if args[:2]==("git","diff"): return str(manifest)
+                if args[:3]==("gh","pr","list"): return json.dumps([listed])
+                if args[:2]==("gh","api"): return json.dumps(rest_pr)
+                if args[:3]==("gh","run","list"): return "[]"
+                if args[:3]==("gh","workflow","run"): return ""
+                raise AssertionError("unexpected or mutating command: "+repr(args))
+            with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
+                                      "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token",
+                                      "RUNNER_TEMP":temp}), \
+                 patch.object(update_watch_lib,"github_get_json",lambda url,token:response), \
+                 patch.object(c,"github_get_json",lambda url,token:response), \
+                 patch.object(c,"execute",execute),patch.object(c,"peel_tag",lambda *args,**kwargs:SHA):
+                task=lambda:c.propose_candidate(record,str(manifest),"pgextwin/plpgsql_check",
+                                               str(root/"watch.json"),str(root/"policy.json"),
+                                               writer=writer)
+                if must_fail: expect_fail(task)
+                else: assert task() is None
+            assert any(x[:2]==("gh","api") for x in calls),name
+            if must_fail:
+                assert not any(x[:3]==("gh","workflow","run") for x in calls),name
+            else:
+                assert sum(x[:3]==("gh","workflow","run") for x in calls)==1,name
+
+
 def exercise_new_candidate_positive():
     """Mock the complete new-branch -> draft-PR -> Windows dispatch path; no live PR."""
     record=c.plan(EXT,WATCH,POLICY,fixture)
@@ -207,6 +281,7 @@ def main():
     pinned_pg=c.apply(per,baseline_pg)
     assert all(v["commit"]==SHA for v in pinned_pg["upstream"]["perPostgresql"].values())
     exercise_proposer_safety()
+    exercise_writer_identity_normalization()
     exercise_new_candidate_positive()
     print("Step 19/20 candidate and proposer-safety fixture tests passed")
 

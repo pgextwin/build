@@ -666,8 +666,24 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
     if prs:
         if marker not in (prs[0].get("body") or ""):
             raise WatchError("candidate PR is not automation-owned")
-        if writer is not None and (prs[0].get("author") or {}).get("login") != writer[0]:
-            raise WatchError("candidate PR does not belong to the configured writer")
+        if writer is not None:
+            # gh pr list author.login is the GitHub GraphQL Actor login
+            # (e.g. app/pgextwin-fleet-candidate), which differs from the
+            # REST bot login (e.g. pgextwin-fleet-candidate[bot]) for the
+            # same GitHub App. Never infer writer identity from that
+            # display field; read the authoritative PR metadata via
+            # authenticated, read-only REST, as recover_failed_first_release
+            # does. Run 45757757650 failed closed here because the two
+            # login forms can never be equal.
+            number = prs[0].get("number")
+            if type(number) is not int or number <= 0:
+                raise WatchError("candidate PR number is invalid")
+            rest_pr = json.loads(execute("gh", "api", "repos/" + repository + "/pulls/" + str(number)))
+            if type(rest_pr) is not dict or rest_pr.get("number") != number:
+                raise WatchError("candidate PR does not belong to the configured writer")
+            actor = rest_pr.get("user") or {}
+            if actor.get("type") != "Bot" or actor.get("login") != writer[0]:
+                raise WatchError("candidate PR does not belong to the configured writer")
         if prs[0]["state"] != "OPEN":
             print("Candidate PR already closed: never reopen or rebuild")
             return
