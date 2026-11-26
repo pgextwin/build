@@ -22,6 +22,13 @@ E3 PR5 (audit M2): failures are separated into two kinds.
 A producer diagnostic record (written by the signed build when Grype itself
 could not produce a report) is classified the same way and returns its
 recorded status (DIAGNOSTIC_FAILED or NOT_PERFORMED) with zero counts.
+
+E3 PR6 (re-audit M2): every integrity check above, including the structural
+validation of each individual finding, completes before the diagnostic
+branch is consulted. A report whose database is unusable *and* whose
+findings are malformed is Denied, never classified; the diagnostic verdict
+is reserved for reports that are fully bound, unfiltered and structurally
+sound apart from their database backing.
 """
 from __future__ import annotations
 
@@ -126,19 +133,11 @@ def review(report, *, asset_stem):
     matches, ignored = report.get("matches"), report.get("ignoredMatches", [])
     require(type(matches) is list and type(ignored) is list and not ignored,
             "missing Grype matches or hidden/suppressed vulnerabilities")
-    # Diagnostic validity (E3 PR5, audit M2): an unusable vulnerability
-    # database means the scan produced no trustworthy classification. That
-    # is recorded as DIAGNOSTIC_FAILED with zero counts and never denies;
-    # the integrity checks above have already refused tampered, substituted
-    # or filtered evidence, so reaching here means the report is bound to
-    # this ZIP and unfiltered, only its database backing is unavailable.
-    db = desc.get("db")
-    if not (type(db) is dict and type(db.get("status")) is dict
-            and db["status"].get("valid") is True
-            and all(type(db["status"].get(k)) is str and db["status"][k]
-                    for k in ("schemaVersion", "built", "from"))
-            and type(db.get("providers")) is dict and bool(db["providers"])):
-        return diagnostic_verdict("DIAGNOSTIC_FAILED", DB_UNAVAILABLE)
+    # Integrity, continued (E3 PR6, re-audit M2): validate the structure of
+    # every finding *before* the diagnostic branch below. The counts are
+    # computed here but only reported when the database backing is usable;
+    # a structurally malformed finding is tampered or corrupt evidence and
+    # must be Denied even when the database is also unavailable.
     counts = {name: 0 for name in SEVERITIES}
     for entry in matches:
         require(type(entry) is dict and type(entry.get("vulnerability")) is dict
@@ -156,6 +155,20 @@ def review(report, *, asset_stem):
                         and bool(v["matcher"]) for v in details),
                 "missing vulnerability matcher evidence")
         counts[severity] += 1
+    # Diagnostic validity (E3 PR5, audit M2): an unusable vulnerability
+    # database means the scan produced no trustworthy classification. That
+    # is recorded as DIAGNOSTIC_FAILED with zero counts and never denies;
+    # every integrity check above has already refused tampered, substituted,
+    # filtered or structurally malformed evidence, so reaching here means
+    # the report is bound to this ZIP, unfiltered and structurally sound,
+    # and only its database backing is unavailable.
+    db = desc.get("db")
+    if not (type(db) is dict and type(db.get("status")) is dict
+            and db["status"].get("valid") is True
+            and all(type(db["status"].get(k)) is str and db["status"][k]
+                    for k in ("schemaVersion", "built", "from"))
+            and type(db.get("providers")) is dict and bool(db["providers"])):
+        return diagnostic_verdict("DIAGNOSTIC_FAILED", DB_UNAVAILABLE)
     blocking = sum(counts[name] for name in BLOCK)
     return {
         "status": "BLOCKING_FINDINGS" if blocking else "NO_BLOCKING_FINDINGS",
