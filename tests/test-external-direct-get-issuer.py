@@ -162,6 +162,15 @@ class Tests(unittest.TestCase):
             issuer.validate_original_owner_run(env(), event(), branch(), run()),
             (SHA, 1234))
 
+    def test_retired_qualified_cohort_dispatch_is_denied(self):
+        # E3 PR4 (J05 retirement): the qualified_cohort re-issuance entrance is
+        # closed in the shared owner-run validation, so even a genuine owner
+        # dispatch shape cannot validate for the retired cohort.
+        with self.assertRaises(Exception):
+            issuer.validate_original_owner_run(
+                env(), event(), branch(), run(),
+                expected_extension="qualified_cohort")
+
     def test_forged_dispatch_or_source_denied(self):
         cases = {
             "GITHUB_ACTIONS": "false",
