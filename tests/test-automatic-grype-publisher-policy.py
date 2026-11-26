@@ -108,6 +108,59 @@ class RiskRules(unittest.TestCase):
                 self.assertIs(x["publicationAuthorized"],False)
                 self.assertIs(x["diagnosticRecord"],True)
 
+    def test_database_unavailable_with_malformed_finding_denied(self):
+        # E3 PR6 (re-audit M2): the diagnostic branch must not skip the
+        # per-finding structural validation. A report whose database is
+        # unusable *and* whose findings are malformed is Denied, exactly
+        # like the same malformation with a usable database; only a fully
+        # sound report may reach the DIAGNOSTIC_FAILED verdict.
+        malformed=(
+            lambda r:r.update(matches=[{}]),
+            lambda r:r.update(matches=[{"vulnerability":{"id":"x","severity":"High"}}]),
+            lambda r:r.update(matches=[finding("Unclassified")]),
+            lambda r:r.update(matches=[{**finding(),"matchDetails":[]}]),
+            lambda r:r.update(matches=[{**finding(),"artifact":{"name":""}}]),
+            lambda r:r.update(matches=[finding(),{}]),
+        )
+        break_db=(
+            lambda r:r["descriptor"]["db"]["status"].update(valid=False),
+            lambda r:r["descriptor"]["db"]["status"].pop("built"),
+            lambda r:r["descriptor"].pop("db"),
+        )
+        for index,corrupt in enumerate(malformed):
+            for sub,breaker in enumerate(break_db):
+                r=report()
+                corrupt(r)
+                breaker(r)
+                with self.subTest(index=index,breaker=sub), \
+                        self.assertRaises(policy.Denied):
+                    policy.review(r,asset_stem=STEM)
+        # The same malformed findings with a usable database stay Denied,
+        # and a sound finding with an unusable database stays a verdict:
+        # the reordering changed neither side of the boundary.
+        r=report()
+        r["matches"]=[{}]
+        with self.assertRaises(policy.Denied):
+            policy.review(r,asset_stem=STEM)
+
+    def test_diagnostic_record_with_finding_elements_denied(self):
+        # E3 PR6 (re-audit M2): a producer diagnostic record is only a
+        # record when it carries no findings at all. Any element in
+        # matches/ignoredMatches -- well-formed or malformed -- is Denied
+        # by the record's structural validation before classification.
+        mutations=(
+            lambda r:r.update(matches=[{}]),
+            lambda r:r.update(matches=[{"vulnerability":{"id":"x"}}]),
+            lambda r:r.update(matches=[finding()]),
+            lambda r:r.update(ignoredMatches=[{}]),
+            lambda r:r.update(matches="not-a-list"),
+        )
+        for index,change in enumerate(mutations):
+            r=diagnostic_record()
+            change(r)
+            with self.subTest(index=index),self.assertRaises(policy.Denied):
+                policy.review(r,asset_stem=STEM)
+
     def test_mislabelled_diagnostic_record_denied(self):
         mutations=(
             lambda r:r["descriptor"].update(name="grype"),

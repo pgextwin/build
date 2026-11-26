@@ -256,6 +256,28 @@ def expected_owner_signer(repo, sha, run, central_sha):
                                legacy_wrapper_sha=legacy_wrapper)
 
 
+def receipt_comparable(original, fresh, *, legacy):
+    """Build the fresh receipt shape the original receipt must match exactly.
+
+    Receipts produced before E3 PR5 do not record ``grypePolicyByMajor``:
+    the pinned audit wrappers still in use predate that field. When the
+    original receipt lacks the field, exactly that one field is excluded
+    from the fresh side of the comparison; every other field must still
+    match exactly. When the original carries the field, the comparison is
+    the full dictionary, the field included. This is not a relaxation:
+    ``admit`` has already re-run the independent audit over the original
+    bytes, re-verifying every digest, signature and Run binding, before
+    this comparison is reached.
+    """
+    comparable = fresh
+    if legacy:
+        comparable = {**fresh, "schemaVersion": 1, "auditors": ["first", "second"],
+                      "status": "DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING"}
+    if type(original) is dict and "grypePolicyByMajor" not in original:
+        comparable = {k: v for k, v in comparable.items()
+                      if k != "grypePolicyByMajor"}
+    return comparable
+
 def admit(repo, run_id, *, scratch, fleet, lifecycle, central_sha, expected_sha=None):
     need(type(fleet) is dict and type(fleet.get("entries")) is list
          and repo in [e.get("repository") for e in fleet["entries"] if type(e) is dict],
@@ -311,11 +333,8 @@ def admit(repo, run_id, *, scratch, fleet, lifecycle, central_sha, expected_sha=
     fresh, blocking_findings = audit.audit(
         signed_folder, intent, manifest, lifecycle, repo=repo, sha=sha, run_id=run_id,
         signer_sha=signer_sha)
-    comparable = fresh
-    if legacy:
-        comparable = {**fresh, "schemaVersion": 1, "auditors": ["first", "second"],
-                      "status": "DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING"}
-    need(original == comparable, "original and independent Publisher Sigstore/byte receipts differ")
+    need(original == receipt_comparable(original, fresh, legacy=legacy),
+         "original and independent Publisher Sigstore/byte receipts differ")
     current = get(repo, "branches/main")
     need(current.get("protected") is True
          and (current.get("commit") or {}).get("sha") == sha,

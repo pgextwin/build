@@ -370,5 +370,225 @@ class AdmissionTests(TestCase):
                             mod.admit(repo, run_id, scratch=retry, fleet=fleet, lifecycle=lifecycle,
                                       central_sha=central_sha)
 
+class ReceiptComparableTests(TestCase):
+    def fresh(self):
+        return {"schemaVersion": 2,
+                "status": "VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING",
+                "SHA256": {"x.zip": "0"*64},
+                "grypePolicyByMajor": {"15": {"status": "NO_BLOCKING_FINDINGS"}}}
+
+    def test_new_format_compares_the_full_dictionary(self):
+        original = self.fresh()
+        self.assertEqual(mod.receipt_comparable(original, self.fresh(), legacy=False),
+                         original)
+        altered = self.fresh()
+        altered["grypePolicyByMajor"]["15"]["status"] = "BLOCKING_FINDINGS"
+        self.assertNotEqual(mod.receipt_comparable(altered, self.fresh(), legacy=False),
+                            altered)
+        altered = self.fresh()
+        altered["SHA256"] = {"x.zip": "1"*64}
+        self.assertNotEqual(mod.receipt_comparable(altered, self.fresh(), legacy=False),
+                            altered)
+
+    def test_old_format_excludes_exactly_the_missing_field(self):
+        original = self.fresh()
+        del original["grypePolicyByMajor"]
+        comparable = mod.receipt_comparable(original, self.fresh(), legacy=False)
+        self.assertEqual(comparable, original)
+        self.assertNotIn("grypePolicyByMajor", comparable)
+        # Every other field is still compared exactly.
+        for field, value in (("SHA256", {"x.zip": "1"*64}),
+                             ("status", "DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING"),
+                             ("schemaVersion", 1)):
+            altered = copy.deepcopy(original)
+            altered[field] = value
+            self.assertNotEqual(
+                mod.receipt_comparable(altered, self.fresh(), legacy=False), altered)
+        # An extra field in the old receipt is not silently dropped either.
+        altered = copy.deepcopy(original)
+        altered["unexpected"] = True
+        self.assertNotEqual(
+            mod.receipt_comparable(altered, self.fresh(), legacy=False), altered)
+
+    def test_legacy_shape_combines_with_both_formats(self):
+        legacy_shape = {**self.fresh(), "schemaVersion": 1,
+                        "auditors": ["first", "second"],
+                        "status": "DUAL_VERIFIED_OWNER_MAIN_SIGNED_NONPUBLISHING"}
+        self.assertEqual(mod.receipt_comparable(legacy_shape, self.fresh(), legacy=True),
+                         legacy_shape)
+        old = copy.deepcopy(legacy_shape)
+        del old["grypePolicyByMajor"]
+        self.assertEqual(mod.receipt_comparable(old, self.fresh(), legacy=True), old)
+
+
+class OldFormatReceiptAdmissionTests(TestCase):
+    def test_old_and_new_format_receipts_admit_only_with_full_reverification(self):
+        # Same offline harness style as the end-to-end admission test above:
+        # stub GitHub transport and Sigstore at the command boundary and run
+        # the real audit plus admit() against served original receipts.
+        def load(label, name):
+            spec = importlib.util.spec_from_file_location(label, ROOT / "tests" / name)
+            value = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(value)
+            return value
+        assets = load("pr6_assets", "test-fleet-publish-release.py")
+        proofs = load("pr6_proofs", "test-automatic-signed-candidate-audit.py")
+        fleet = json.loads((ROOT / "metadata/automation-fleet.json").read_text())
+        lifecycle = assets.fixture()[1]
+        lifecycle["postgresql"].append({"major": 19, "eol": "2031-12-31"})
+        workflow = (ROOT / mod.audit.SOURCE_WORKFLOW).read_text("utf-8")
+        canonical_signer = mod.audit.signer_sha_from_workflow(workflow)
+        routes = mod.audit.routes
+        policy_raw = (ROOT / routes.POLICY).read_bytes()
+        policy = routes.read_policy(policy_raw)
+        central_sha = "c" * 40
+        name, majors = "pg_ivm", [15, 16, 17, 18, 19]
+        repo = "pgextwin/" + name
+        group = routes.repository_policy(policy, repo)
+        wrapper = routes.owner_wrapper_pins(policy, repo)[0]
+        signer_sha = group["candidateSigner"]
+        manifest = {"schemaVersion": 1, "name": name,
+                    "upstream": {"repository": mod.ident.UPSTREAMS[name],
+                                 "ref": "v1.17", "version": "1.17", "commit": "b"*40},
+                    "postgresql": {"majors": majors}}
+        source_intent = intent(repo, 1)
+        run_id = source_intent["runId"]
+        uri = f"https://github.com/{repo}/actions/runs/{run_id}/attempts/1"
+        signer = ("https://github.com/pgextwin/build/" +
+                  mod.audit.pin.offline.SIGNER_PATH + "@" + signer_sha)
+        served = {"receipt": None, "bad_signer": False}
+
+        def verify_command(args, **kwargs):
+            self.assertEqual(args[:3], ["gh", "attestation", "verify"])
+            path = Path(args[3])
+            kind = args[args.index("--predicate-type") + 1]
+            entry = proofs.signed_result(path, kind, repo, SHA)[0]
+            cert = entry["verificationResult"]["signature"]["certificate"]
+            cert.update(runInvocationURI=uri, buildSignerURI=signer,
+                        subjectAlternativeName=signer,
+                        buildSignerDigest="d"*40 if served["bad_signer"] else signer_sha,
+                        buildConfigURI=f"https://github.com/{repo}/{mod.SOURCE_WORKFLOW}@refs/heads/main",
+                        buildTrigger="issue_comment")
+            if kind == mod.audit.pin.SLSA:
+                entry["verificationResult"]["statement"]["predicate"]["runDetails"]["metadata"]["invocationId"] = uri
+            return CompletedProcess(args, 0, stdout=json.dumps([entry]), stderr="")
+
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            original = root / "assets"
+            original.mkdir()
+            assets.make_assets(original, manifest, run=run_id, workflow_event="issue_comment")
+            for path in original.glob("*.zip"):
+                with ZipFile(path) as z:
+                    package = json.loads(z.read("PACKAGE-INFO.json"))
+                package["package"].update(name=name, platform="windows", architecture="x64")
+                package["source"]["packagingRepository"] = repo
+                package["workflowRun"]["url"] = uri.removesuffix("/attempts/1")
+                package["buildInfrastructure"]["commit"] = signer_sha
+                with ZipFile(path, "w") as z:
+                    z.writestr("PACKAGE-INFO.json", json.dumps(package))
+
+            def fetch(repository, source_run, artifact_name, folder, *, pattern=False):
+                self.assertEqual((repository, source_run), (repo, run_id))
+                folder.mkdir()
+                if pattern:
+                    for path in original.iterdir():
+                        shutil.copyfile(path, folder / path.name)
+                else:
+                    label = {
+                        "chat-main-source-intent-nonpublishing": ("owner-main-intent.json", source_intent),
+                        mod.audit.AUDIT_ARTIFACT: (mod.audit.AUDIT_FILE, served["receipt"]),
+                    }[artifact_name]
+                    (folder / label[0]).write_text(json.dumps(label[1]))
+
+            def blob(path, raw):
+                return {"type": "file", "path": path, "encoding": "base64",
+                        "content": base64.b64encode(raw.encode()).decode()}
+
+            def get(repository, route):
+                if repository == routes.CENTRAL:
+                    self.assertEqual(route, f"contents/{routes.OWNER_WRAPPER}?ref={wrapper}")
+                    return blob(routes.OWNER_WRAPPER, workflow.replace(canonical_signer, signer_sha))
+                self.assertEqual(repository, repo)
+                current_run = signed_run(repo)
+                current_run["referenced_workflows"] = [
+                    {"path": routes.workflow_ref(path, pin), "sha": pin}
+                    for path, pin in ((routes.OWNER_WRAPPER, wrapper), (routes.SIGNER, signer_sha))
+                ]
+                caller = {f"contents/{routes.OWNER_CALLER}?ref={SHA}": blob(
+                    routes.OWNER_CALLER,
+                    f"jobs:\n  signed_main_source:\n    uses: {routes.workflow_ref(routes.OWNER_WRAPPER, wrapper)}\n")}
+                return {
+                    **caller,
+                    "branches/main": branch(),
+                    f"contents/config/extension.json?ref={SHA}": {
+                        "encoding": "base64", "content": base64.b64encode(json.dumps(manifest).encode()).decode()},
+                    f"actions/runs/{run_id}": current_run,
+                    f"actions/runs/{run_id}/attempts/1/jobs?per_page=100": original_jobs(majors),
+                    f"actions/runs/{run_id}/artifacts?per_page=100": source_artifacts(),
+                    "issues/comments/4444": live_signing(repo, 1),
+                }[route]
+
+            with patch.object(mod.audit.subprocess, "run", side_effect=verify_command) as calls, \
+                 patch.object(mod.audit, "protected_blob", return_value=policy_raw), \
+                 patch.object(mod.audit, "signer_sha_at", return_value=canonical_signer), \
+                 patch.object(mod, "get", side_effect=get), \
+                 patch.object(mod, "fetch_artifact", side_effect=fetch):
+                genuine, blocking = mod.audit.audit(
+                    original, source_intent, manifest, lifecycle, repo=repo, sha=SHA,
+                    run_id=run_id, signer_sha=signer_sha)
+                self.assertEqual(blocking, 0)
+                self.assertIn("grypePolicyByMajor", genuine)
+                old_format = {k: v for k, v in genuine.items()
+                              if k != "grypePolicyByMajor"}
+                attempts = 0
+
+                def attempt():
+                    nonlocal attempts
+                    attempts += 1
+                    scratch = root / f"attempt{attempts}"
+                    scratch.mkdir()
+                    return mod.admit(repo, run_id, scratch=scratch, fleet=fleet,
+                                     lifecycle=lifecycle, central_sha=central_sha)
+
+                # New format, genuine: admitted (also covered for six
+                # repositories by the end-to-end test above).
+                served["receipt"] = copy.deepcopy(genuine)
+                result, _, _ = attempt()
+                self.assertTrue(result["originalAndFreshSigstoreAgree"])
+
+                # Old format, genuine: admitted, and the fresh audit still
+                # re-verified both Sigstore predicates for every major from
+                # the original bytes -- the format reading relaxes nothing.
+                served["receipt"] = copy.deepcopy(old_format)
+                calls.reset_mock()
+                result, _, _ = attempt()
+                self.assertTrue(result["originalAndFreshSigstoreAgree"])
+                self.assertEqual(calls.call_count, 2 * len(majors))
+
+                # Old format with a tampered digest: denied by comparison.
+                tampered = copy.deepcopy(old_format)
+                key = sorted(tampered["SHA256"])[0]
+                tampered["SHA256"][key] = "0"*64 if tampered["SHA256"][key] != "0"*64 else "1"*64
+                served["receipt"] = tampered
+                with self.assertRaisesRegex(mod.Denied, "receipts differ"):
+                    attempt()
+
+                # New format with a Grype verdict mismatch: denied.
+                forged = copy.deepcopy(genuine)
+                forged["grypePolicyByMajor"]["15"] = {
+                    **forged["grypePolicyByMajor"]["15"], "status": "BLOCKING_FINDINGS"}
+                served["receipt"] = forged
+                with self.assertRaisesRegex(mod.Denied, "receipts differ"):
+                    attempt()
+
+                # Old format served, but the original bytes fail Sigstore
+                # signer verification: denied by the fresh audit itself.
+                served["receipt"] = copy.deepcopy(old_format)
+                served["bad_signer"] = True
+                with self.assertRaises(mod.audit.pin.Deny):
+                    attempt()
+
+
 if __name__ == "__main__":
     main()
