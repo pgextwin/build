@@ -76,7 +76,9 @@ class Tests(unittest.TestCase):
             ("pgMajor", "17"), ("originalSha256", "0" * 64),
             ("originalProviderUrl", "https://evil.example/"),
             ("downloadAuthorized", False), ("mirrorAuthorized", True),
-            ("licenseUrl", "https://evil.example/"), ("unexpected", "x")):
+            ("licenseUrl", "https://evil.example/"),
+            ("licenseUrl", "https://github.com/trickle-labs/pg-trickle/blob/v0.0.0/LICENSE"),
+            ("unexpected", "x")):
             with self.subTest(row=name):
                 d = copy.deepcopy(source)
                 d["records"][0][name] = value
