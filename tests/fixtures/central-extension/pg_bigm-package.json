@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "distribution": "dll-sql",
+  "files": [
+    {
+      "source": "buildOutput",
+      "path": "Release/pg_bigm.dll",
+      "destination": "lib/pg_bigm.dll",
+      "targets": ["install", "zip"]
+    },
+    {
+      "source": "upstream",
+      "path": "pg_bigm.control",
+      "destination": "share/extension/pg_bigm.control",
+      "targets": ["install", "zip"]
+    },
+    {
+      "source": "upstream",
+      "path": "pg_bigm--*.sql",
+      "destination": "share/extension/{fileName}",
+      "targets": ["install", "zip"],
+      "expectedCount": 3
+    },
+    {
+      "source": "license",
+      "path": "LICENSE",
+      "destination": "LICENSE",
+      "targets": ["zip"]
+    },
+    {
+      "source": "upstream",
+      "path": "README.md",
+      "destination": "UPSTREAM-README.md",
+      "targets": ["zip"]
+    },
+    {
+      "source": "upstream",
+      "path": "docs/pg_bigm.md",
+      "destination": "docs/pg_bigm.md",
+      "targets": ["zip"],
+      "optional": true
+    },
+    {
+      "source": "upstream",
+      "path": "docs/pg_bigm_en.md",
+      "destination": "docs/pg_bigm_en.md",
+      "targets": ["zip"],
+      "optional": true
+    }
+  ],
+  "packageInfo": [
+    "pg_bigm Windows binary package",
+    "=================================",
+    "",
+    "Upstream repository: {upstreamRepository}",
+    "Upstream ref:        {upstreamRef}",
+    "Upstream commit:     {upstreamCommit}",
+    "pg_bigm version:     {version}",
+    "PostgreSQL major:    {pgMajor}",
+    "PostgreSQL tested:   {pgTested}",
+    "Architecture:        {architecture}",
+    "Compiler:            MSVC (GitHub-hosted windows-latest)",
+    "License:             PostgreSQL License; see LICENSE",
+    "",
+    "This is an unofficial Windows binary package.",
+    "The pg_bigm upstream documentation is authoritative."
+  ]
+}

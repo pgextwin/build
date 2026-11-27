@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "name": "pg_permissions",
+  "upstream": {
+    "repository": "cybertec-postgresql/pg_permissions",
+    "ref": "REL_1_6",
+    "version": "1.6",
+    "commit": "bb0746ffc841e99396e912553be9e016b80ae264"
+  },
+  "postgresql": {
+    "majors": [
+      15,
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  },
+  "watch": {
+    "source": "github",
+    "strategy": "github-releases",
+    "prereleases": false,
+    "stableTagPattern": "^REL_(?P<version>[0-9]+(?:_[0-9]+){2})$"
+  }
+}

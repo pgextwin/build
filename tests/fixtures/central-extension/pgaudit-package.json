@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "distribution": "dll-sql",
+  "files": [
+    {
+      "source": "upstream",
+      "path": "pgaudit.dll",
+      "destination": "lib/pgaudit.dll",
+      "targets": [
+        "install",
+        "zip"
+      ]
+    },
+    {
+      "source": "upstream",
+      "path": "pgaudit.control",
+      "destination": "share/extension/pgaudit.control",
+      "targets": [
+        "install",
+        "zip"
+      ]
+    },
+    {
+      "source": "license",
+      "path": "LICENSE",
+      "destination": "LICENSE",
+      "targets": [
+        "zip"
+      ]
+    },
+    {
+      "source": "upstream",
+      "path": "README.md",
+      "destination": "UPSTREAM-README.md",
+      "targets": [
+        "zip"
+      ]
+    },
+    {
+      "source": "upstream",
+      "path": "pgaudit.conf",
+      "destination": "UPSTREAM-pgaudit.conf",
+      "targets": [
+        "zip"
+      ],
+      "optional": true
+    }
+  ],
+  "packageInfo": [
+    "pgAudit Windows binary package",
+    "==============================",
+    "",
+    "Upstream repository: {upstreamRepository}",
+    "Upstream ref:        {upstreamRef}",
+    "Upstream commit:     {upstreamCommit}",
+    "pgAudit version:     {version}",
+    "PostgreSQL major:    {pgMajor}",
+    "PostgreSQL tested:   {pgTested}",
+    "Architecture:        Windows x64",
+    "Compiler:            MSVC",
+    "License:             PostgreSQL license; see LICENSE",
+    "",
+    "This is an unofficial pgextwin Windows package built from the official pgAudit source.",
+    "pgAudit must be loaded through shared_preload_libraries before CREATE EXTENSION."
+  ],
+  "perPostgresql": {
+    "15": {
+      "sqlVersion": "1.7.2",
+      "files": [
+        {
+          "source": "upstream",
+          "path": "pgaudit--*.sql",
+          "destination": "share/extension/{fileName}",
+          "targets": [
+            "install",
+            "zip"
+          ],
+          "expectedCount": 3
+        }
+      ]
+    },
+    "16": {
+      "sqlVersion": "16.2",
+      "files": [
+        {
+          "source": "upstream",
+          "path": "pgaudit--*.sql",
+          "destination": "share/extension/{fileName}",
+          "targets": [
+            "install",
+            "zip"
+          ],
+          "expectedCount": 3
+        }
+      ]
+    },
+    "17": {
+      "sqlVersion": "17.2",
+      "files": [
+        {
+          "source": "upstream",
+          "path": "pgaudit--*.sql",
+          "destination": "share/extension/{fileName}",
+          "targets": [
+            "install",
+            "zip"
+          ],
+          "expectedCount": 3
+        }
+      ]
+    },
+    "18": {
+      "sqlVersion": "18.1",
+      "files": [
+        {
+          "source": "upstream",
+          "path": "pgaudit--*.sql",
+          "destination": "share/extension/{fileName}",
+          "targets": [
+            "install",
+            "zip"
+          ],
+          "expectedCount": 2
+        }
+      ]
+    },
+    "19": {
+      "sqlVersion": "19.0",
+      "files": [
+        {
+          "source": "upstream",
+          "path": "pgaudit--*.sql",
+          "destination": "share/extension/{fileName}",
+          "targets": [
+            "install",
+            "zip"
+          ],
+          "expectedCount": 1
+        }
+      ]
+    }
+  }
+}

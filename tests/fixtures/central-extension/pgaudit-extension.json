@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "name": "pgaudit",
+  "upstream": {
+    "repository": "pgaudit/pgaudit",
+    "perPostgresql": {
+      "15": {
+        "ref": "1.7.2",
+        "version": "1.7.2",
+        "commit": "aa1b7f37869564fb3a51d281ebd5666da940dcd5"
+      },
+      "16": {
+        "ref": "16.2",
+        "version": "16.2",
+        "commit": "25c56a8c778e63f320bb0ff813197dbb7a0eb8fa"
+      },
+      "17": {
+        "ref": "17.2",
+        "version": "17.2",
+        "commit": "0ba8e31123ee511850c78ab678de7f7706ba79dd"
+      },
+      "18": {
+        "ref": "18.1",
+        "version": "18.1",
+        "commit": "91b7db030d44c1b5585f851de1923eeec1b2d625"
+      },
+      "19": {
+        "ref": "19.0",
+        "version": "19.0",
+        "commit": "ee057ae20ec67997746aa10771d696c6406d7270"
+      }
+    }
+  },
+  "postgresql": {
+    "majors": [
+      15,
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "windows": {
+    "architecture": "x64"
+  },
+  "license": {
+    "verifyAgainstUpstream": true,
+    "upstreamPath": "LICENSE"
+  },
+  "watch": {
+    "source": "github",
+    "strategy": "github-releases-per-postgresql",
+    "prereleases": false,
+    "perPostgresql": {
+      "14": {
+        "tagPattern": "^(?P<version>1\\.6\\.[0-9]+)$"
+      },
+      "15": {
+        "tagPattern": "^(?P<version>1\\.7\\.[0-9]+)$"
+      },
+      "16": {
+        "tagPattern": "^(?P<version>16\\.[0-9]+)$"
+      },
+      "17": {
+        "tagPattern": "^(?P<version>17\\.[0-9]+)$"
+      },
+      "18": {
+        "tagPattern": "^(?P<version>18\\.[0-9]+)$"
+      },
+      "19": {
+        "tagPattern": "^(?P<version>19\\.[0-9]+)$",
+        "informational": true
+      }
+    }
+  }
+}

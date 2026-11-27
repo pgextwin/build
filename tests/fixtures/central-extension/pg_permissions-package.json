@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "distribution": "sql-only",
+  "files": [
+    {
+      "source": "upstream",
+      "path": "pg_permissions.control",
+      "destination": "share/extension/pg_permissions.control",
+      "targets": [
+        "install",
+        "zip"
+      ]
+    },
+    {
+      "source": "upstream",
+      "path": "pg_permissions--*.sql",
+      "destination": "share/extension/{fileName}",
+      "targets": [
+        "install",
+        "zip"
+      ],
+      "expectedCount": 12,
+      "requiredMatches": [
+        "pg_permissions--{version}.sql"
+      ]
+    },
+    {
+      "source": "license",
+      "path": "LICENSE",
+      "destination": "LICENSE",
+      "targets": [
+        "zip"
+      ]
+    },
+    {
+      "source": "upstream",
+      "path": "README.md",
+      "destination": "UPSTREAM-README.md",
+      "targets": [
+        "zip"
+      ],
+      "optional": true
+    }
+  ],
+  "packageInfo": [
+    "pg_permissions Windows package",
+    "==============================",
+    "",
+    "Upstream repository: {upstreamRepository}",
+    "Upstream ref:        {upstreamRef}",
+    "Upstream commit:     {upstreamCommit}",
+    "pg_permissions version: {version}",
+    "SQL default_version: {version}",
+    "PostgreSQL major:    {pgMajor}",
+    "PostgreSQL tested:   {pgTested}",
+    "Architecture:        {architecture}",
+    "Compiler:            not-applicable",
+    "License:             PostgreSQL-style; see LICENSE",
+    "",
+    "This is an unofficial pgextwin Windows package built from the official pg_permissions source.",
+    "pg_permissions is a pure SQL extension and does not require a native DLL or preloading."
+  ]
+}
