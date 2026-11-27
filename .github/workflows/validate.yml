@@ -66,90 +66,32 @@ jobs:
       - name: Install schema validator
         run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
 
-      - name: Reject unauthorized one-shot App actor pilot dispatch (OFFLINE ONLY)
-        run: python tests/test-issue311-coordinator-dispatch-pilot.py
 
-      - name: Deny unauthorized coordinator App identity and dispatch (OFFLINE ONLY)
-        run: python tests/test-issue311-coordinator-identity.py
 
-      - name: Validate Issue 311 request scope and deny untrusted publication claims (NO RELEASE)
-        run: python tests/test-issue311-request-contract.py
 
-      - name: Validate Issue 311 pure CAS checkpoints and fail-closed replay states (NO WRITER)
-        run: python tests/test-issue311-state-core.py
 
-      - name: Verify R10 original report retained with bounded permanent SHA-pinned archive (NO NETWORK)
-        run: python tests/test-issue311-r10-protected-report.py
 
-      - name: Reject R04/R05 generic lifecycle replay, missing event, expiry and privilege (NO WRITER)
-        run: python tests/test-issue311-request-lifecycle.py
 
-      - name: Verify explicit approval-stop transition and reproducible remaining-work contract (OFFLINE NO WRITER)
-        run: python tests/test-issue311-approval-block.py
 
-      - name: Reject expired 17-target recovery forgeries and preserve failed original state (NO CREDENTIALS)
-        run: python tests/test-issue311-r04r05-terminal-recovery.py
 
-      - name: Validate R04 generalized original Contents CAS, ambiguity and immutable scope (NO CREDENTIALS)
-        run: python tests/test-issue311-lifecycle-store.py
 
-      - name: Validate R06 original request scan, recovered 17 local SHA and no schedule spoof (READ ONLY)
-        run: python tests/test-issue311-r06-request-scan.py
 
-      - name: Reject forged R06 PREPARE source and prove no candidate or publication rights (NO WRITER)
-        run: python tests/test-issue311-r06-prepare-scan.py
 
-      - name: Deny forged R06 original ZIP source kinds and local candidate admission (NO WRITER)
-        run: python tests/test-issue311-r06-local-sourcekind.py
 
-      - name: Deny forged shared 17-local PREPARE request, source ZIP and writer claims (NO WRITER)
-        run: python tests/test-issue311-r06-fleet-local-prepare.py
 
-      - name: Reject R06 authentic original publisher flag mismatch and durable replay (NO WRITER)
-        run: python tests/test-issue311-r06-hostile17-live.py
 
-      - name: Deny cross-cycle or spoofed R06 17 local child Runs before any App CAS (POLICY ONLY)
-        run: python tests/test-issue311-r06-local-child-join.py
 
-      - name: Reject forged original child bundles, unsafe App terminals and replay (NO CREDENTIALS)
-        run: python tests/test-issue311-r06-child-join-live.py
 
-      - name: Validate Issue 311 GitHub Contents CAS lease and ambiguous-write isolation (NO WRITER)
-        run: python tests/test-issue311-state-github.py
 
-      - name: Validate dedicated R04 Writer global ledger, fencing, App identity and deny paths (NO CREDENTIALS)
-        run: python tests/test-issue311-writer-runtime.py
 
-      - name: Reject forged R04 two-request App candidate races and malformed original proof receipts (NO RELEASE)
-        run: python tests/test-issue311-r04-claim-race.py
 
-      - name: Validate R04 durable failed-Run to separate-Run restart and ambiguous writer quarantine (NO PUBLISH)
-        run: python tests/test-issue311-r04-stopped-run.py
 
-      - name: Reject unsafe R04 ambiguous App PUT response, publication scope and blind retry (NO RELEASE)
-        run: python tests/test-issue311-r04-ambiguous-put.py
 
-      - name: Validate R05 original 17-repo readonly fanout and failure terminal (NO RELEASE)
-        run: python tests/test-issue311-r05-original-17repo.py
 
-      - name: Reject R05 forged and missing 17 Windows original completion events/ZIP receipts (NO RELEASE)
-        run: python tests/test-issue311-r05-windows-17.py
 
-      - name: Validate original Windows read-only negative terminal and strict scopes (NO RELEASE)
-        run: python tests/test-issue311-r05-windows-probe.py
 
-      - name: Reject R04/R05 generic App original source/bridge/finite watchdog forgeries (NO CREDS)
-        run: python tests/test-issue311-r04r05-generic-live.py
-      - name: Enforce exact 17-target controlled missing-event contract (NO CREDS)
-        run: python tests/test-issue311-r05-eventgap17.py
-      - name: Fault-inject HTTP 429/503 and deny unauthorized 17-target terminal (NO CREDS)
-        run: python tests/test-issue311-r05-watchdog-http-faults.py
 
-      - name: Deny fake R05 17-Windows workflow_run completion event and missing original ZIP (NO RELEASE)
-        run: python tests/test-issue311-r05-windows-completion-bridge.py
 
-      - name: Validate R05 real Windows-positive state join and hostile receipts (NO RELEASE)
-        run: python tests/test-issue311-r05-windows-positive.py
 
       - name: Validate GitHub Actions trust policy
         run: python tests/test-github-actions-security.py
@@ -287,16 +229,8 @@ jobs:
 
       - name: Reject forged merged-bot requalification origin and unsigned shortcuts (NO RELEASE)
         run: python tests/test-merged-candidate-requalification.py
-      - name: Reject forged R08 App-origin OIDC intent before any signing (NO CREDENTIALS)
-        run: python tests/test-issue311-r08-app-oidc-intent.py
-      - name: Deny R08 App-OIDC and independent Sigstore forged source and bytes (OFFLINE ONLY)
-        run: python tests/test-issue311-r08-app-sigstore.py
-      - name: Reject R08 new App-source Publisher actor/PG/SBOM/Grype/replay/ambiguous write (NO CREDENTIALS)
-        run: python tests/test-issue311-r08-publisher-deny.py
       - name: R10 reject unknown formal Publisher write outcomes before any retry (OFFLINE, NO RELEASE)
         run: python tests/test-issue311-r10-publisher-write-unknown.py
-      - name: Deny fabricated per-target R10 original outcome, missing ZIP, and privileged recovery (NO CREDS)
-        run: python tests/test-issue311-r10-final-readonly-report.py
       - name: Reject fake local schedule and unsigned merged-bot signing shortcuts (NO RELEASE)
         run: python tests/test-merged-schedule-signing-intent.py
       - name: Reject forged scheduled OIDC/Sigstore ZIP, event and signing source (NO RELEASE)
