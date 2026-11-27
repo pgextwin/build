@@ -28,10 +28,10 @@ def env():
     }
 
 
-def event():
+def event(extension="pg_trickle"):
     return {
         "repository": {"full_name": BUILD},
-        "inputs": {"extension": "pg_trickle",
+        "inputs": {"extension": extension,
                    "operation": "ORIGINAL_PROVIDER_GET_ONLY"},
     }
 
@@ -91,6 +91,41 @@ class Tests(unittest.TestCase):
         self.assertEqual(
             doc["jobs"]["independent-verify"]["if"],
             "${{ needs['issue-and-attest'].result == 'success' }}")
+
+    def test_owner_event_only_and_cohort_dispatch_retired(self):
+        import yaml
+        text = (Path(__file__).resolve().parents[1] /
+                ".github/workflows/external-direct-get-issuer.yml").read_text("utf-8")
+        doc = yaml.load(text, Loader=yaml.BaseLoader)
+        self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
+        # E3 PR4 (J05 retirement): qualified_cohort is no longer dispatchable.
+        self.assertEqual(doc["on"]["workflow_dispatch"]["inputs"]["extension"]["options"],
+                         ["pg_trickle", "hypopg", "portalcorp_pgvector"])
+        jobs = doc["jobs"]
+        self.assertEqual(set(jobs),
+                         {"issue-and-attest", "independent-verify", "propose-public-pin-pr"})
+        self.assertEqual(jobs["issue-and-attest"]["environment"],
+                         "external-direct-provider-publisher")
+        self.assertNotIn("environment", jobs["independent-verify"])
+        self.assertEqual(jobs["propose-public-pin-pr"]["environment"],
+                         "external-direct-provider-publisher")
+        verify = next(step for step in jobs["independent-verify"]["steps"]
+                      if step.get("name") ==
+                      "Independently verify exact Build/main signer and no-mirror operation")
+        self.assertNotIn('elif len(d["records"]) in (5,7):', verify["run"])
+        self.assertNotIn('elif len(d["records"]) == 11:', verify["run"])
+        self.assertNotIn('reviewed_latest_majors', verify["run"])
+        self.assertIn('gh attestation verify', verify["run"])
+        fetch = next(step for step in jobs["issue-and-attest"]["steps"]
+                     if step.get("name") == "Fetch only selected pinned original ZIP bytes privately")
+        self.assertNotIn("reviewed_pg14_17", fetch["run"])
+        self.assertNotIn("reviewed_pg18", fetch["run"])
+        self.assertIn("bash scripts/external-direct-get-originals.sh", fetch["run"])
+        self.assertNotIn("gh release", fetch["run"])
+        proposal_job = jobs["propose-public-pin-pr"]["steps"][-1]
+        self.assertNotIn("scripts/external-direct-get-qualified-cohort-pin-pr.py",
+                      proposal_job["run"])
+        self.assertNotIn("qualified_cohort", proposal_job["run"])
 
     def test_workflow_stages_nested_bundle_flat_and_fails_closed(self):
         import yaml
@@ -166,10 +201,11 @@ class Tests(unittest.TestCase):
         # E3 PR4 (J05 retirement): the qualified_cohort re-issuance entrance is
         # closed in the shared owner-run validation, so even a genuine owner
         # dispatch shape cannot validate for the retired cohort.
-        with self.assertRaises(Exception):
+        extension = "qualified_cohort"
+        with self.assertRaisesRegex(issuer.Denied, r": unreviewed dispatch cohort$"):
             issuer.validate_original_owner_run(
-                env(), event(), branch(), run(),
-                expected_extension="qualified_cohort")
+                env(), event(extension), branch(), run(),
+                expected_extension=extension)
 
     def test_forged_dispatch_or_source_denied(self):
         cases = {
