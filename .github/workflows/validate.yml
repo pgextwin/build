@@ -370,10 +370,10 @@ jobs:
         run: python tests/test-extension-schema.py
 
       - name: Validate central monorepo declaration and layout foundation (F21-01)
-        run: python tests/test-central-extension-declaration.py
+        run: python -m unittest -v tests/test-central-extension-declaration.py
 
       - name: Validate central packaging and K2/K4 verification foundation (F21-04)
-        run: python tests/test-central-package-foundation.py
+        run: python -m unittest -v tests/test-central-package-foundation.py
 
       - name: Validate Test Contract v2 schema and semantics
         run: python tests/test-test-contract.py

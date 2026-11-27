@@ -10,6 +10,7 @@ adapter privilege boundary (DESIGN chapter 1, F2-1-PACKAGE F21-01).
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -87,6 +88,22 @@ class ConversionTests(unittest.TestCase):
         self.assertNotIn("source-lock", json.dumps(decl))
         self.assertNotIn("sourceLock", decl)
 
+    def test_mixed_postgresql_block_rejected(self):
+        legacy = load_fixture("pg_permissions-extension.json")
+        legacy["postgresql"] = {"majors": [15, 16], "minMajor": 15, "maxMajor": 19}
+        with self.assertRaises(ValueError):
+            central.convert_declaration(legacy, load_fixture("pg_permissions-package.json"))
+
+    def test_bool_and_non_list_majors_rejected(self):
+        for bad in ({"majors": [True, 15]}, {"majors": "15-19"}, {"majors": []}):
+            with self.subTest(postgresql=bad):
+                legacy = load_fixture("pg_permissions-extension.json")
+                legacy["postgresql"] = bad
+                with self.assertRaises(ValueError):
+                    central.convert_declaration(
+                        legacy, load_fixture("pg_permissions-package.json")
+                    )
+
 
 class DeclarationSchemaTests(unittest.TestCase):
     def setUp(self):
@@ -141,6 +158,75 @@ class DeclarationSchemaTests(unittest.TestCase):
         decl = copy.deepcopy(self.base)
         decl["packaging"]["files"][0]["source"] = "internet"
         self.assert_rejected(decl, "bad packaging file source")
+
+    def test_pg_hint_plan_like_declaration(self):
+        # pg_hint_plan form: per-major sqlInstallPath arrays plus a
+        # license.perPostgresql block covering every declared major.
+        decl = convert("pgaudit")
+        decl["packaging"]["sqlInstallPath"] = ["1.7", "1.8"]
+        decl["packaging"]["perPostgresql"]["17"]["sqlInstallPath"] = ["17.0", "18.0"]
+        decl["license"] = {
+            "verifyAgainstUpstream": True,
+            "perPostgresql": {
+                str(m): [{"repositoryPath": "LICENSE", "upstreamPath": "LICENSE"}]
+                for m in (15, 16, 17, 18, 19)
+            },
+        }
+        self.assertEqual(central.validate_declaration(decl, "pgaudit"), [])
+
+    def test_packaging_and_license_document_sources(self):
+        # pgtap / pg_store_plans form: files[] may draw on the packaging
+        # tree itself and on staged license documents.
+        decl = copy.deepcopy(self.base)
+        decl["packaging"]["files"][0]["source"] = "packaging"
+        decl["packaging"]["files"][1]["source"] = "licenseDocument"
+        self.assertEqual(central.validate_declaration(decl, "pg_permissions"), [])
+
+    def test_sql_install_path_scalar_rejected(self):
+        decl = copy.deepcopy(self.base)
+        decl["packaging"]["sqlInstallPath"] = "share/extension"
+        self.assert_rejected(decl, "sqlInstallPath must be an array of SQL versions")
+        decl = copy.deepcopy(self.base)
+        decl["packaging"]["sqlInstallPath"] = ["only-one"]
+        self.assert_rejected(decl, "sqlInstallPath needs at least two entries")
+
+    def test_per_postgresql_commit_missing_rejected(self):
+        decl = convert("pgaudit")
+        del decl["upstream"]["perPostgresql"]["17"]["commit"]
+        errors = central.validate_declaration(decl, "pgaudit")
+        self.assertTrue(errors, "perPostgresql commit must be required by the schema")
+
+    def test_per_postgresql_major_missing_rejected(self):
+        decl = convert("pgaudit")
+        del decl["upstream"]["perPostgresql"]["19"]
+        errors = central.validate_declaration(decl, "pgaudit")
+        self.assertTrue(any("no pinned upstream" in e for e in errors), errors)
+
+    def test_license_per_postgresql_major_missing_rejected(self):
+        decl = convert("pgaudit")
+        decl["license"] = {
+            "verifyAgainstUpstream": True,
+            "perPostgresql": {
+                str(m): [{"repositoryPath": "LICENSE", "upstreamPath": "LICENSE"}]
+                for m in (15, 16, 17, 18)
+            },
+        }
+        errors = central.validate_declaration(decl, "pgaudit")
+        self.assertTrue(any("no license entries" in e for e in errors), errors)
+
+    def test_watch_prereleases_must_be_false(self):
+        decl = copy.deepcopy(self.base)
+        decl["watch"]["prereleases"] = True
+        self.assert_rejected(decl, "watch prereleases must stay false")
+
+    def test_watch_strategy_exclusivity(self):
+        decl = copy.deepcopy(self.base)
+        decl["watch"]["perPostgresql"] = {"17": {"tagPattern": "^v17"}}
+        self.assert_rejected(decl, "github-releases watch must not carry perPostgresql")
+        decl = convert("pgaudit")
+        decl["watch"]["strategy"] = "github-releases"
+        errors = central.validate_declaration(decl, "pgaudit")
+        self.assertTrue(errors, "github-releases watch requires stableTagPattern only")
 
 
 def write_file(root, rel, content):
@@ -239,6 +325,114 @@ class TreeValidationTests(unittest.TestCase):
             write_file(ext, "source-lock.json", "{}\n")
         errors = self.errors_for(build)
         self.assertTrue(any("source-lock" in e for e in errors), errors)
+
+    def test_non_carry_in_assets_in_allowed_dirs_rejected(self):
+        # The N-01..N-18 classification applies at any depth: hiding a
+        # carry-in asset inside an allowed directory must not help.
+        cases = {
+            "N-01": "packaging/windows.yml",
+            "N-02": "tests/build.ps1",
+            "N-03": "tests/install-postgresql.ps1",
+            "N-04": "packaging/update-watch.json",
+            "N-05": "tests/create-candidate.ps1",
+            "N-06": "tests/package.ps1",
+            "N-07": "tests/generate-sbom.ps1",
+            "N-08": "tests/run-tests.ps1",
+            "N-09": "tests/publish-release.ps1",
+            "N-10": "packaging/versions.json",
+            "N-11": "packaging/issue311-one-shot.yml",
+            "N-12": "packaging/issue-123-proof.py",
+            "N-13": "packaging/migration-helper.py",
+            "N-14": "tests/compat-wrapper.ps1",
+            "N-16": "packaging/source/pg_permissions.c",
+            "N-17": "packaging/__pycache__/module.pyc",
+            "N-18": "packaging/OPERATIONS.md",
+        }
+        for n_id, rel in cases.items():
+            with self.subTest(case=n_id, path=rel):
+                def build(root, rel=rel):
+                    ext = valid_tree(root)
+                    write_file(ext, rel, b"payload\n")
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any(n_id in e for e in errors),
+                    f"{n_id} carry-in '{rel}' inside an allowed directory not rejected: {errors}",
+                )
+
+    def test_source_lock_in_subdirectory_rejected(self):
+        for rel in (
+            "packaging/source-lock.json",
+            "licenses/source-lock.json",
+            "tests/nested/source-lock.json",
+        ):
+            with self.subTest(path=rel):
+                def build(root, rel=rel):
+                    ext = valid_tree(root)
+                    write_file(ext, rel, "{}\n")
+                errors = self.errors_for(build)
+                self.assertTrue(any("source-lock" in e for e in errors), errors)
+
+    def test_uppercase_powershell_extension_rejected(self):
+        for rel in ("packaging/helper.PS1", "licenses/helper.Ps1"):
+            with self.subTest(path=rel):
+                def build(root, rel=rel):
+                    ext = valid_tree(root)
+                    write_file(ext, rel, "Write-Host 'x'\n")
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("executable scripts" in e for e in errors),
+                    f"uppercase PowerShell '{rel}' not rejected: {errors}",
+                )
+
+    def test_symlink_rejected(self):
+        def build(root):
+            ext = valid_tree(root)
+            target = write_file(root, "outside.txt", "outside\n")
+            (ext / "packaging").mkdir(exist_ok=True)
+            write_file(ext, "packaging/placeholder.txt", "placeholder\n")
+            try:
+                os.symlink(target, ext / "packaging" / "linked.txt")
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+        errors = self.errors_for(build)
+        self.assertTrue(any("symbolic link" in e for e in errors), errors)
+
+    def test_tests_script_privilege_mixing_rejected(self):
+        samples = {
+            "oidc-token": "$t = $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN\n",
+            "oidc-url": "$u = $env:ACTIONS_ID_TOKEN_REQUEST_URL\n",
+            "runtime-token": "$t = $env:ACTIONS_RUNTIME_TOKEN\n",
+            "attest": "uses: actions/attest-build-provenance@v1\n",
+            "gh-api": "gh api repos/pgextwin/build\n",
+            "gh-workflow": "gh workflow run sign.yml\n",
+            "private-key": "$k = $env:APP_PRIVATE_KEY\n",
+        }
+        for category, content in samples.items():
+            with self.subTest(category=category):
+                def build(root, content=content):
+                    ext = valid_tree(root)
+                    write_file(ext, "tests/smoke-test.ps1", content)
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("adapter area contains" in e for e in errors),
+                    f"{category} material in tests/smoke-test.ps1 not rejected: {errors}",
+                )
+
+    def test_whitespace_only_patch_rejected_n15(self):
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "patches/fix.patch", "\n   \n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_comment_only_adapter_rejected_n15(self):
+        def build(root):
+            valid_tree(
+                root, "pg_bigm",
+                adapter_content="# placeholder only\n\n# nothing substantive\n",
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
 
     def test_adapter_privilege_mixing_rejected(self):
         samples = {

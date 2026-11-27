@@ -35,10 +35,11 @@ NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+\Z")
 SHA40_RE = re.compile(r"^[0-9a-fA-F]{40}\Z")
 
 BUILD_OPTION_KEYS = ("exports", "defines", "dependencies", "components")
+# sqlInstallPath is deliberately not a scalar: the windows-package.ps1
+# contract requires an ordered array of at least two SQL versions.
 PACKAGING_SCALAR_KEYS = (
     "packageInfoFinalNewline",
     "sqlVersion",
-    "sqlInstallPath",
     "sqlExtensionName",
 )
 
@@ -56,7 +57,7 @@ def _basename(path):
 def _carry_in_class(rel):
     base = _basename(rel)
     lower = base.lower()
-    if rel == "source-lock.json":
+    if lower == "source-lock.json":
         return "SOURCE-LOCK"
     if lower == "update-watch.yml" or lower == "update-watch.json":
         return "N-04"
@@ -86,9 +87,10 @@ def _carry_in_class(rel):
         return "N-13"
     if "wrapper" in lower or lower.startswith("compat-"):
         return "N-14"
-    if rel.split("/", 1)[0] in ("source", "src", "upstream", "upstream-src"):
+    parts = PurePosixPath(rel).parts
+    if any(part in ("source", "src", "upstream", "upstream-src") for part in parts):
         return "N-16"
-    if "__pycache__" in rel or lower.endswith((".pyc", ".tmp", ".temp")) or rel.split("/", 1)[0] in ("bin", "obj"):
+    if "__pycache__" in parts or any(part in ("bin", "obj") for part in parts) or lower.endswith((".pyc", ".tmp", ".temp")):
         return "N-17"
     if lower.endswith(".md") and base != "README.md":
         return "N-18"
@@ -98,10 +100,10 @@ def _carry_in_class(rel):
 # Adapter privilege boundary (DESIGN 1.3): the adapter area must not carry
 # signing, Publisher, authorization, or credential material.
 ADAPTER_FORBIDDEN = (
-    ("signing", re.compile(r"attestation|sigstore|cosign|id-token|oidc", re.IGNORECASE)),
-    ("publisher", re.compile(r"\bpublisher\b|fleet-publish-release|publisher-candidate-intake|gh\s+release\s+create", re.IGNORECASE)),
+    ("signing", re.compile(r"attestation|actions/attest|sigstore|cosign|id-token|oidc", re.IGNORECASE)),
+    ("publisher", re.compile(r"\bpublisher\b|fleet-publish-release|publisher-candidate-intake|gh\s+(?:release|api|workflow)\b", re.IGNORECASE)),
     ("authorization", re.compile(r"local-auth|admission|local-candidate-authority", re.IGNORECASE)),
-    ("credentials", re.compile(r"GITHUB_TOKEN|GH_TOKEN|secrets\.", re.IGNORECASE)),
+    ("credentials", re.compile(r"GITHUB_TOKEN|GH_TOKEN|secrets\.|ACTIONS_ID_TOKEN_REQUEST(?:_TOKEN|_URL)?|ACTIONS_RUNTIME(?:_TOKEN|_URL)?|PRIVATE_KEY|INSTALLATION_TOKEN", re.IGNORECASE)),
 )
 
 
@@ -115,16 +117,25 @@ def normalize_majors(postgresql):
     """Normalize the legacy postgresql block to the sorted majors array."""
     if not isinstance(postgresql, dict):
         raise ValueError("postgresql must be an object.")
-    if "majors" in postgresql:
+    has_majors = "majors" in postgresql
+    has_range = "minMajor" in postgresql or "maxMajor" in postgresql
+    if has_majors and has_range:
+        raise ValueError("postgresql must not declare both majors and minMajor/maxMajor.")
+    if has_majors:
         majors = postgresql["majors"]
+        if not isinstance(majors, list):
+            raise ValueError("postgresql majors must be a list.")
     elif "minMajor" in postgresql and "maxMajor" in postgresql:
         low, high = postgresql["minMajor"], postgresql["maxMajor"]
-        if not isinstance(low, int) or not isinstance(high, int) or low > high:
+        if (
+            isinstance(low, bool) or isinstance(high, bool)
+            or not isinstance(low, int) or not isinstance(high, int) or low > high
+        ):
             raise ValueError("postgresql minMajor/maxMajor are invalid.")
         majors = list(range(low, high + 1))
     else:
         raise ValueError("postgresql must declare majors or minMajor/maxMajor.")
-    if not majors or any(not isinstance(m, int) or m < 1 for m in majors):
+    if not majors or any(isinstance(m, bool) or not isinstance(m, int) or m < 1 for m in majors):
         raise ValueError("postgresql majors must be positive integers.")
     return sorted(set(majors))
 
@@ -170,6 +181,10 @@ def convert_declaration(legacy_extension, legacy_package, *, adapter=False, buil
     for key in PACKAGING_SCALAR_KEYS:
         if key in legacy_package:
             packaging[key] = legacy_package[key]
+    if "sqlInstallPath" in legacy_package:
+        # Array contract (windows-package.ps1); deep-copy like the other
+        # structured packaging values.
+        packaging["sqlInstallPath"] = json.loads(json.dumps(legacy_package["sqlInstallPath"]))
     if "perPostgresql" in legacy_package:
         packaging["perPostgresql"] = json.loads(json.dumps(legacy_package["perPostgresql"]))
     central["packaging"] = packaging
@@ -215,6 +230,12 @@ def validate_declaration(declaration, expected_name=None, validator=None):
             errors.append(
                 f"upstream.perPostgresql majors {sorted(extra)} are outside postgresql.majors."
             )
+        missing = major_set - set(upstream["perPostgresql"])
+        if missing:
+            errors.append(
+                f"upstream.perPostgresql majors {sorted(missing)} are declared in "
+                "postgresql.majors but have no pinned upstream."
+            )
         missing_commit = [
             m for m, entry in upstream["perPostgresql"].items()
             if not SHA40_RE.fullmatch(entry.get("commit", ""))
@@ -230,6 +251,12 @@ def validate_declaration(declaration, expected_name=None, validator=None):
             errors.append(
                 f"license.perPostgresql majors {sorted(extra)} are outside postgresql.majors."
             )
+        missing = major_set - set(license_block["perPostgresql"])
+        if missing:
+            errors.append(
+                f"license.perPostgresql majors {sorted(missing)} are declared in "
+                "postgresql.majors but have no license entries."
+            )
     packaging = declaration["packaging"]
     if "perPostgresql" in packaging:
         extra = set(packaging["perPostgresql"]) - major_set
@@ -244,7 +271,7 @@ def _scan_adapter(path, rel, errors):
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as error:
-        errors.append(f"{rel}: cannot read adapter.ps1: {error}")
+        errors.append(f"{rel}: cannot read script: {error}")
         return
     for category, pattern in ADAPTER_FORBIDDEN:
         match = pattern.search(text)
@@ -255,8 +282,32 @@ def _scan_adapter(path, rel, errors):
             )
 
 
+# Executable script suffixes (compared case-insensitively). PowerShell is
+# executable on Windows regardless of suffix case, so packaging/build.PS1
+# must be rejected exactly like packaging/build.ps1.
+EXECUTABLE_SUFFIXES = (".ps1", ".psm1", ".py", ".sh", ".bat", ".cmd")
+SCRIPT_SUFFIXES = (".ps1", ".psm1")
+
+
+def _adapter_effectively_empty(text):
+    """True when a script holds only blank lines and comments (N-15)."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return False
+    return True
+
+
 def validate_extension_dir(ext_dir, validator=None):
-    """Validate one extensions/<name>/ directory. Returns error strings."""
+    """Validate one extensions/<name>/ directory. Returns error strings.
+
+    Every file and directory is checked recursively: the N-01..N-18
+    non-carry-in classification and the source-lock.json ban apply at any
+    depth (including inside the allowed patches/ tests/ packaging/
+    licenses/ directories), symbolic links are rejected outright, and
+    extension-specific PowerShell (adapter.ps1 and tests/ scripts) is
+    statically scanned for privilege-boundary violations.
+    """
     errors = []
     name = ext_dir.name
     if not NAME_RE.fullmatch(name):
@@ -267,53 +318,87 @@ def validate_extension_dir(ext_dir, validator=None):
     seen_adapter = False
     for path in sorted(ext_dir.rglob("*")):
         rel = path.relative_to(ext_dir).as_posix()
+        if path.is_symlink():
+            errors.append(
+                f"extensions/{name}/{rel}: symbolic links are not allowed "
+                "inside an extension directory."
+            )
+            continue
         if path.is_dir():
             if not any(path.iterdir()):
                 errors.append(f"extensions/{name}/{rel}: empty directory is not allowed (N-15).")
             top = rel.split("/", 1)[0]
             if "/" not in rel and top not in ALLOWED_DIRS:
-                cls = _carry_in_class(rel + "/")
+                cls = _carry_in_class(rel)
                 label = f" ({cls})" if cls else ""
                 errors.append(
                     f"extensions/{name}/{rel}: directory is not part of the standard layout{label}."
                 )
+            else:
+                cls = _carry_in_class(rel)
+                if cls:
+                    errors.append(
+                        f"extensions/{name}/{rel}: directory matches a non-carry-in class ({cls})."
+                    )
             continue
-        if path.stat().st_size == 0:
-            errors.append(f"extensions/{name}/{rel}: empty file is not allowed (N-15).")
+        try:
+            data = path.read_bytes()
+        except OSError as error:
+            errors.append(f"extensions/{name}/{rel}: cannot read file: {error}")
+            continue
+        if not data.strip():
+            errors.append(
+                f"extensions/{name}/{rel}: empty or whitespace-only file is not allowed (N-15)."
+            )
+            continue
+        if _basename(rel).lower() == "source-lock.json":
+            errors.append(
+                f"extensions/{name}/{rel}: source-lock.json duplicates the upstream "
+                "block of extension.json and must not be created."
+            )
+            continue
+        cls = _carry_in_class(rel)
+        if cls:
+            errors.append(
+                f"extensions/{name}/{rel}: non-carry-in asset ({cls})."
+            )
             continue
         top = rel.split("/", 1)[0]
+        suffix = path.suffix.lower()
         if "/" not in rel:
-            if rel == "source-lock.json":
-                errors.append(
-                    f"extensions/{name}/{rel}: source-lock.json duplicates the upstream "
-                    "block of extension.json and must not be created."
-                )
-                continue
             if rel not in ALLOWED_FILES:
-                cls = _carry_in_class(rel)
-                label = f" ({cls} non-carry-in asset)" if cls else ""
                 errors.append(
-                    f"extensions/{name}/{rel}: file is not part of the standard layout{label}."
+                    f"extensions/{name}/{rel}: file is not part of the standard layout."
                 )
                 continue
         else:
             if top not in ALLOWED_DIRS:
-                cls = _carry_in_class(rel)
-                label = f" ({cls} non-carry-in asset)" if cls else ""
                 errors.append(
-                    f"extensions/{name}/{rel}: path is outside the standard layout{label}."
+                    f"extensions/{name}/{rel}: path is outside the standard layout."
                 )
                 continue
-            if top == "patches" and path.suffix not in (".patch", ".diff"):
+            if top == "patches" and suffix not in (".patch", ".diff"):
                 errors.append(
                     f"extensions/{name}/{rel}: patches/ may contain only .patch/.diff files."
                 )
-            if path.suffix == ".ps1" and top not in ("tests",):
+            if top in ("packaging", "licenses") and suffix in EXECUTABLE_SUFFIXES:
+                errors.append(
+                    f"extensions/{name}/{rel}: executable scripts must not be placed under {top}/."
+                )
+            if suffix in SCRIPT_SUFFIXES and top != "tests":
                 errors.append(
                     f"extensions/{name}/{rel}: PowerShell code is allowed only as adapter.ps1 or under tests/."
                 )
         if rel == "adapter.ps1":
             seen_adapter = True
+            text = data.decode("utf-8", errors="replace")
+            if _adapter_effectively_empty(text):
+                errors.append(
+                    f"extensions/{name}/{rel}: adapter.ps1 holds only comments or "
+                    "blank lines and is not a substantive asset (N-15)."
+                )
+            _scan_adapter(path, f"extensions/{name}/{rel}", errors)
+        elif top == "tests" and suffix in SCRIPT_SUFFIXES:
             _scan_adapter(path, f"extensions/{name}/{rel}", errors)
         if rel == "extension.json":
             try:

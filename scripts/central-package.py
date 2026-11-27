@@ -12,8 +12,19 @@ Provides the shared side of:
   * the K4 per-version license original comparison, with the same entry
     semantics as ``scripts/verify-license-bytes.py`` (upstream-origin
     entries must match the upstream bytes at the pinned commit,
-    packaging / build entries must match their pinned SHA-256, and at
-    least one upstream-verified entry is required).
+    packaging / build entries must match their pinned SHA-256, duplicate
+    repository paths / build targets are rejected, and at least one
+    upstream-verified entry is required),
+  * the adapter execution-context boundary: ``build_adapter_environment``
+    builds the only environment the common foundation may pass to
+    extension-specific adapter / test code, and it never carries signing,
+    Publisher, or local-auth credentials (CB70-12).
+
+The ``verify-licenses`` CLI reads the fixed Git commit blobs
+(``git cat-file blob HEAD:<path>``) from the upstream / packaging
+repositories, exactly like ``verify-license-bytes.py``, so untracked or
+modified worktree files and symbolic links cannot leak into the K4
+comparison.
 
 Actual pilot execution of these foundations is F2-2; this module is the
 shared foundation plus its positive / negative tests.
@@ -24,6 +35,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import zipfile
 
@@ -65,8 +77,10 @@ def write_deterministic_zip(entries, out_path):
     out_path = Path(out_path)
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for arcname in sorted(entries):
-            if arcname.startswith("/") or ".." in arcname.split("/"):
-                raise ValueError(f"Invalid ZIP entry name: {arcname!r}")
+            # Same relative-path contract as license paths: backslash
+            # separators (Windows Zip Slip), empty / "." / ".." segments
+            # and absolute names are all rejected.
+            _validate_relative_path(arcname, "ZIP entry name")
             info = zipfile.ZipInfo(arcname, date_time=ZIP_EPOCH)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
@@ -87,14 +101,33 @@ def handoff_record(stage, extension, pg_major, zip_path, previous=None):
     """Record one K2 handoff point (T0..T3) for a packaged ZIP."""
     if stage not in STAGES:
         raise ValueError(f"Unknown handoff stage: {stage!r}")
+    index = STAGES.index(stage)
+    if index == 0 and previous is not None:
+        raise ValueError("The T0 handoff record must not have a previous record.")
+    if index > 0:
+        if previous is None:
+            raise ValueError(
+                f"The {stage} handoff record requires the {STAGES[index - 1]} record as previous."
+            )
+        if not isinstance(previous, dict) or previous.get("stage") != STAGES[index - 1]:
+            raise ValueError(
+                f"The {stage} handoff record's previous record must be stage {STAGES[index - 1]}."
+            )
+    if not isinstance(extension, str) or not extension:
+        raise ValueError("Handoff record requires a nonempty extension name.")
+    if isinstance(pg_major, bool) or not isinstance(pg_major, int) or pg_major < 1:
+        raise ValueError("Handoff record requires a positive integer PostgreSQL major.")
     zip_path = Path(zip_path)
+    size = zip_path.stat().st_size
+    if size <= 0:
+        raise ValueError("Handoff record requires a nonempty packaged ZIP.")
     record = {
         "schemaVersion": 1,
         "stage": stage,
         "extension": extension,
-        "pgMajor": int(pg_major),
+        "pgMajor": pg_major,
         "fileName": zip_path.name,
-        "size": zip_path.stat().st_size,
+        "size": size,
         "sha256": sha256_file(zip_path),
         "previousStage": previous["stage"] if previous else None,
         "previousSha256": previous["sha256"] if previous else None,
@@ -102,24 +135,64 @@ def handoff_record(stage, extension, pg_major, zip_path, previous=None):
     return record
 
 
-def verify_handoff_chain(records):
+def _validate_handoff_record(record, stage):
+    """Fail-closed shape validation for one handoff record (K2).
+
+    A chain of well-linked but empty or malformed records (empty digest,
+    zero size, wrong schema version) must never verify: every field the
+    chain comparison relies on is type- and format-checked first.
+    """
+    if not isinstance(record, dict):
+        raise ValueError(f"Handoff {stage} record is not a JSON object.")
+    if record.get("stage") != stage:
+        raise ValueError(
+            f"Handoff record must be stage {stage}, got {record.get('stage')!r}."
+        )
+    schema_version = record.get("schemaVersion")
+    if isinstance(schema_version, bool) or schema_version != 1:
+        raise ValueError(f"Handoff {stage} schemaVersion must be 1, got {schema_version!r}.")
+    for key in ("extension", "fileName"):
+        value = record.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"Handoff {stage} '{key}' must be a nonempty string.")
+    pg_major = record.get("pgMajor")
+    if isinstance(pg_major, bool) or not isinstance(pg_major, int) or pg_major < 1:
+        raise ValueError(f"Handoff {stage} 'pgMajor' must be a positive integer.")
+    size = record.get("size")
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+        raise ValueError(f"Handoff {stage} 'size' must be a positive integer.")
+    digest = record.get("sha256")
+    if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+        raise ValueError(f"Handoff {stage} 'sha256' must be a 64-digit lowercase hex digest.")
+
+
+def verify_handoff_chain(records, expected_sha256=None, expected_size=None):
     """Verify a complete T0 -> T1 -> T2 -> T3 chain for one ZIP.
 
     Every stage must present the identical bytes (same SHA-256 and size)
     for the same extension / PostgreSQL major / file name, linked in
     order. Any byte tampering between stages changes the digest and is
-    rejected here (K2).
+    rejected here (K2). When ``expected_sha256`` / ``expected_size`` are
+    given (the digest and size measured immediately before packaging),
+    the T0 record must match them, so a chain that is internally
+    consistent but starts from tampered bytes is also rejected.
     """
-    if len(records) != len(STAGES):
+    if not isinstance(records, list) or len(records) != len(STAGES):
+        got = len(records) if isinstance(records, list) else type(records).__name__
         raise ValueError(
-            f"Handoff chain must contain exactly {len(STAGES)} records, got {len(records)}."
+            f"Handoff chain must contain exactly {len(STAGES)} records, got {got}."
         )
+    if expected_sha256 is not None and (
+        not isinstance(expected_sha256, str) or not SHA256_RE.fullmatch(expected_sha256)
+    ):
+        raise ValueError("expected_sha256 must be a 64-digit lowercase hex digest.")
+    if expected_size is not None and (
+        isinstance(expected_size, bool) or not isinstance(expected_size, int) or expected_size <= 0
+    ):
+        raise ValueError("expected_size must be a positive integer.")
     first = records[0]
     for index, (record, stage) in enumerate(zip(records, STAGES)):
-        if record.get("stage") != stage:
-            raise ValueError(
-                f"Handoff record {index} must be stage {stage}, got {record.get('stage')!r}."
-            )
+        _validate_handoff_record(record, stage)
         for key in ("extension", "pgMajor", "fileName", "size", "sha256"):
             if record.get(key) != first.get(key):
                 raise ValueError(
@@ -131,6 +204,16 @@ def verify_handoff_chain(records):
             raise ValueError(f"Handoff {stage} previousStage linkage is broken.")
         if record.get("previousSha256") != (expected_previous["sha256"] if expected_previous else None):
             raise ValueError(f"Handoff {stage} previousSha256 linkage is broken.")
+    if expected_sha256 is not None and first["sha256"] != expected_sha256:
+        raise ValueError(
+            f"Handoff T0 sha256 '{first['sha256']}' does not match the pre-packaging "
+            f"baseline '{expected_sha256}' (K2 byte integrity)."
+        )
+    if expected_size is not None and first["size"] != expected_size:
+        raise ValueError(
+            f"Handoff T0 size {first['size']} does not match the pre-packaging "
+            f"baseline {expected_size} (K2 byte integrity)."
+        )
 
 
 def _validate_relative_path(path, label):
@@ -138,6 +221,61 @@ def _validate_relative_path(path, label):
         raise ValueError(f"Invalid {label} '{path}'.")
     if any(part in ("", ".", "..") for part in path.split("/")):
         raise ValueError(f"Invalid {label} '{path}'.")
+
+
+# Adapter execution-context boundary (DESIGN 1.3, CB70-12). The common
+# foundation invokes extension-specific adapter.ps1 / tests scripts only
+# with an environment built here: a strict allowlist of non-secret build
+# variables. Signing OIDC request tokens, the Actions runtime token,
+# GITHUB_TOKEN / GH_TOKEN, Publisher variables, local-auth credentials,
+# and anything token / secret / key shaped are never passed, so adapter
+# code cannot reach signing, Publisher, or authorization material
+# through the process environment.
+ADAPTER_ENV_ALLOWLIST = frozenset({
+    "PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR",
+    "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "HOMEDRIVE",
+    "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES",
+    "PROGRAMFILES(X86)", "PROGRAMW6432", "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE", "OS", "LANG", "LC_ALL", "TZ",
+})
+ADAPTER_ENV_FORBIDDEN_PREFIXES = (
+    "ACTIONS_ID_TOKEN_REQUEST", "ACTIONS_RUNTIME", "PUBLISHER_", "LOCAL_AUTH_",
+)
+ADAPTER_ENV_FORBIDDEN_MARKERS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "_KEY")
+
+
+def _adapter_env_key_forbidden(key):
+    upper = key.upper()
+    if upper.startswith(ADAPTER_ENV_FORBIDDEN_PREFIXES):
+        return True
+    return any(marker in upper for marker in ADAPTER_ENV_FORBIDDEN_MARKERS)
+
+
+def build_adapter_environment(base_env, extra_allowed=None):
+    """Build the credential-free environment for adapter execution.
+
+    Only allowlisted non-secret variables are copied from ``base_env``.
+    ``extra_allowed`` names additional variables the caller explicitly
+    wants passed; a credential-shaped name is a hard error (fail-closed)
+    instead of a silent drop, so a caller can never smuggle a signing or
+    Publisher credential into the adapter context by naming it.
+    """
+    env = {}
+    for key, value in base_env.items():
+        if key.upper() in ADAPTER_ENV_ALLOWLIST and not _adapter_env_key_forbidden(key):
+            env[key] = value
+    for key in extra_allowed or ():
+        if _adapter_env_key_forbidden(key):
+            raise ValueError(
+                f"Credential-bearing environment variable must not be passed "
+                f"to adapter code: {key}"
+            )
+        if key not in base_env:
+            raise ValueError(
+                f"Extra adapter environment variable is absent from the base environment: {key}"
+            )
+        env[key] = base_env[key]
+    return env
 
 
 def verify_license_entries(entries, upstream, packaging):
@@ -152,23 +290,36 @@ def verify_license_entries(entries, upstream, packaging):
         raise ValueError("License verification requires at least one license entry.")
     verified = []
     upstream_count = 0
+    # Duplicate tracking with the same semantics as
+    # verify-license-bytes.py / resolve-matrix.ps1: repository paths are
+    # compared case-insensitively (Windows paths collide), an upstream
+    # entry and a packaging / build entry may never share one repository
+    # path, two upstream entries for one repository path must carry
+    # identical bytes, and one build target may be generated only once.
+    seen_upstream = {}
+    seen_non_upstream = set()
+    seen_generated = set()
     for entry in entries:
         if not isinstance(entry, dict):
             raise ValueError("Each license entry must be a JSON object.")
         origin = entry.get("origin")
         repository_path = entry.get("repositoryPath")
         _validate_relative_path(repository_path, "repositoryPath")
+        repository_key = repository_path.casefold()
 
         if origin is None:
             unknown = set(entry) - {"repositoryPath", "upstreamPath", "upstreamStartMarker"}
             if unknown:
                 raise ValueError(f"Unsupported license entry fields: {', '.join(sorted(unknown))}")
+            if repository_key in seen_non_upstream:
+                raise ValueError(f"Duplicate license repositoryPath '{repository_path}'.")
             upstream_path = entry.get("upstreamPath")
             _validate_relative_path(upstream_path, "upstreamPath")
             if upstream_path not in upstream:
                 raise ValueError(f"Upstream license file not found at pinned commit: {upstream_path}")
             upstream_blob = upstream[upstream_path]
             expected = upstream_blob
+            provenance = {}
             if "upstreamStartMarker" in entry:
                 marker = entry["upstreamStartMarker"]
                 if not isinstance(marker, str) or not marker:
@@ -177,6 +328,11 @@ def verify_license_entries(entries, upstream, packaging):
                 if offset < 0:
                     raise ValueError(f"License range start not found in upstream '{upstream_path}'.")
                 expected = upstream_blob[offset:]
+                provenance = {
+                    "upstreamOffset": offset,
+                    "upstreamSize": len(upstream_blob),
+                    "upstreamSha256": sha256_bytes(upstream_blob),
+                }
             if repository_path not in packaging:
                 raise ValueError(f"Packaging license file not found: {repository_path}")
             actual = packaging[repository_path]
@@ -185,11 +341,17 @@ def verify_license_entries(entries, upstream, packaging):
                     f"License file '{repository_path}' differs from upstream "
                     f"'{upstream_path}' at the pinned commit (K4)."
                 )
+            if repository_key in seen_upstream and seen_upstream[repository_key] != expected:
+                raise ValueError(
+                    f"Conflicting upstream bytes for license file '{repository_path}'."
+                )
+            seen_upstream[repository_key] = expected
             verified.append({
                 "repositoryPath": repository_path,
                 "upstreamPath": upstream_path,
                 "size": len(expected),
                 "sha256": sha256_bytes(expected),
+                **provenance,
             })
             upstream_count += 1
         elif origin in ("packaging", "build"):
@@ -203,10 +365,24 @@ def verify_license_entries(entries, upstream, packaging):
             expected_sha256 = entry["sha256"]
             if not isinstance(expected_sha256, str) or not SHA256_RE.fullmatch(expected_sha256):
                 raise ValueError(f"Invalid pinned license sha256 for '{repository_path}'.")
+            if repository_key in seen_upstream or repository_key in seen_non_upstream:
+                raise ValueError(f"Duplicate license repositoryPath '{repository_path}'.")
+            extra = {}
             if origin == "build":
                 if entry["generatedSource"] not in GENERATED_SOURCES:
                     raise ValueError(f"Invalid generatedSource for build license '{repository_path}'.")
                 _validate_relative_path(entry["generatedPath"], "generatedPath")
+                generated_key = (entry["generatedSource"], entry["generatedPath"].casefold())
+                if generated_key in seen_generated:
+                    raise ValueError(
+                        f"Duplicate build license target "
+                        f"'{entry['generatedSource']}:{entry['generatedPath']}'."
+                    )
+                seen_generated.add(generated_key)
+                extra = {
+                    "generatedSource": entry["generatedSource"],
+                    "generatedPath": entry["generatedPath"],
+                }
             if repository_path not in packaging:
                 raise ValueError(f"Packaging license file not found: {repository_path}")
             actual = packaging[repository_path]
@@ -216,11 +392,13 @@ def verify_license_entries(entries, upstream, packaging):
                     f"Packaging license file '{repository_path}' sha256 '{digest}' "
                     f"does not match pinned '{expected_sha256}' (K4)."
                 )
+            seen_non_upstream.add(repository_key)
             verified.append({
                 "origin": origin,
                 "repositoryPath": repository_path,
                 "size": len(actual),
                 "sha256": digest,
+                **extra,
             })
         else:
             raise ValueError(f"Unsupported license origin: {origin!r}")
@@ -236,6 +414,11 @@ def license_entries_for_major(license_block, pg_major):
     """Resolve the declaration license block to the entry list for a major."""
     if not isinstance(license_block, dict):
         raise ValueError("license must be an object.")
+    if license_block.get("verifyAgainstUpstream") is not True:
+        raise ValueError(
+            "Central license verification requires verifyAgainstUpstream to be true; "
+            "the central form does not allow opting out of the upstream comparison (K4)."
+        )
     if "perPostgresql" in license_block:
         per_major = license_block["perPostgresql"]
         key = str(pg_major)
@@ -246,7 +429,11 @@ def license_entries_for_major(license_block, pg_major):
         return license_block["files"]
     if "upstreamPath" in license_block:
         upstream_path = license_block["upstreamPath"]
-        return [{"repositoryPath": upstream_path, "upstreamPath": upstream_path}]
+        # Canonical mapping of resolve-matrix.ps1: the single upstreamPath
+        # form is always packaged under the fixed repository path
+        # "LICENSE", whatever the upstream file itself is named (for
+        # example pgtap's README.md / COPYRIGHT originals).
+        return [{"repositoryPath": "LICENSE", "upstreamPath": upstream_path}]
     raise ValueError("license block declares no upstreamPath, files, or perPostgresql form.")
 
 
@@ -256,13 +443,67 @@ def verify_declaration_licenses(license_block, pg_major, upstream, packaging):
     return verify_license_entries(entries, upstream, packaging)
 
 
-def _read_tree(root):
-    root = Path(root)
-    result = {}
-    for path in sorted(root.rglob("*")):
-        if path.is_file():
-            result[path.relative_to(root).as_posix()] = path.read_bytes()
-    return result
+def _git_head_commit(repo):
+    result = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True
+    )
+    if result.returncode:
+        raise ValueError(f"Not a git repository with a HEAD commit: {repo}")
+    return result.stdout.strip()
+
+
+def _git_blob(repo, path, source):
+    """Read one file as the blob recorded at HEAD of ``repo``.
+
+    Mirrors verify-license-bytes.py: the comparison input is the fixed
+    commit's blob, never the worktree file, so untracked files, local
+    modifications, CRLF conversion, and symbolic links cannot leak in.
+    """
+    listing = subprocess.run(
+        ["git", "-C", str(repo), "ls-tree", "HEAD", "--", path],
+        capture_output=True, text=True,
+    )
+    if listing.returncode or not listing.stdout.strip():
+        raise ValueError(f"Configured {source} license file was not found at HEAD: {path}")
+    mode = listing.stdout.split(None, 1)[0]
+    if mode == "120000":
+        raise ValueError(f"Configured {source} license file is a symbolic link at HEAD: {path}")
+    result = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "blob", f"HEAD:{path}"],
+        capture_output=True,
+    )
+    if result.returncode:
+        raise ValueError(f"Configured {source} license file was not found at HEAD: {path}")
+    return result.stdout
+
+
+def verify_declaration_licenses_from_git(license_block, pg_major, upstream_repo, packaging_repo):
+    """K4 check reading both sides from the fixed HEAD commit blobs.
+
+    Returns the verified list plus the two commit SHAs the comparison is
+    bound to (the same record shape as the verify-license-bytes.py
+    verified list).
+    """
+    entries = license_entries_for_major(license_block, pg_major)
+    upstream_paths = {
+        entry["upstreamPath"] for entry in entries
+        if isinstance(entry, dict) and entry.get("origin") is None
+    }
+    packaging_paths = {
+        entry["repositoryPath"] for entry in entries if isinstance(entry, dict)
+    }
+    upstream = {path: _git_blob(upstream_repo, path, "upstream") for path in sorted(upstream_paths)}
+    packaging = {
+        path: _git_blob(packaging_repo, path, "packaging-repository")
+        for path in sorted(packaging_paths)
+    }
+    verified = verify_license_entries(entries, upstream, packaging)
+    return {
+        "schemaVersion": 1,
+        "upstreamCommit": _git_head_commit(upstream_repo),
+        "packagingCommit": _git_head_commit(packaging_repo),
+        "verified": verified,
+    }
 
 
 def main(argv=None):
@@ -276,12 +517,16 @@ def main(argv=None):
     digest = sub.add_parser("sha256", help="print the SHA-256 of a file")
     digest.add_argument("path", type=Path)
 
-    licenses = sub.add_parser("verify-licenses", help="K4 check from two directory trees")
+    licenses = sub.add_parser(
+        "verify-licenses", help="K4 check from the HEAD blobs of two git repositories"
+    )
     licenses.add_argument("--license-json", type=Path, required=True,
                           help="JSON file holding the declaration license block")
     licenses.add_argument("--major", type=int, required=True)
-    licenses.add_argument("--upstream-dir", type=Path, required=True)
-    licenses.add_argument("--packaging-dir", type=Path, required=True)
+    licenses.add_argument("--upstream-dir", type=Path, required=True,
+                          help="upstream git repository (read at HEAD)")
+    licenses.add_argument("--packaging-dir", type=Path, required=True,
+                          help="packaging git repository (read at HEAD)")
 
     args = parser.parse_args(argv)
     try:
@@ -292,11 +537,10 @@ def main(argv=None):
             print(sha256_file(args.path))
         elif args.command == "verify-licenses":
             license_block = json.loads(args.license_json.read_text(encoding="utf-8"))
-            verified = verify_declaration_licenses(
-                license_block, args.major,
-                _read_tree(args.upstream_dir), _read_tree(args.packaging_dir),
+            document = verify_declaration_licenses_from_git(
+                license_block, args.major, args.upstream_dir, args.packaging_dir,
             )
-            print(json.dumps({"verified": verified}, indent=2))
+            print(json.dumps(document, indent=2))
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(error, file=sys.stderr)
         return 1
