@@ -1,0 +1,781 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Central K3 admission verification result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "verified",
+    "publicationAuthorized",
+    "publishableReceipt",
+    "verifierEntrypoint",
+    "verifiedAt",
+    "canonicalReferences",
+    "principal",
+    "admission",
+    "shaBindings",
+    "zipResults"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "status": {
+      "const": "K3_ADMISSION_VERIFIED_NONPUBLISHING"
+    },
+    "verified": {
+      "const": true
+    },
+    "publicationAuthorized": {
+      "const": false
+    },
+    "publishableReceipt": {
+      "const": false
+    },
+    "verifierEntrypoint": {
+      "const": "scripts/verify-central-k3-admission.py"
+    },
+    "verifiedAt": {
+      "$ref": "#/$defs/utcTimestamp"
+    },
+    "canonicalReferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "postgresqlAdmission",
+        "postgresqlLifecycle",
+        "fleetRegistry",
+        "extensionDeclaration",
+        "callerWorkflow",
+        "issuerMain",
+        "issuerClaimRef",
+        "issuerClaimFile"
+      ],
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/authorityFile"
+        },
+        "postgresqlAdmission": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "ref",
+            "commitSha",
+            "path",
+            "blobSha",
+            "contentSha256"
+          ],
+          "properties": {
+            "repository": {
+              "const": "pgextwin/build"
+            },
+            "ref": {
+              "$ref": "#/$defs/sha"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "path": {
+              "const": "metadata/postgresql-admission.json"
+            },
+            "blobSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "contentSha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "postgresqlLifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "ref",
+            "commitSha",
+            "path",
+            "blobSha",
+            "contentSha256"
+          ],
+          "properties": {
+            "repository": {
+              "const": "pgextwin/build"
+            },
+            "ref": {
+              "$ref": "#/$defs/sha"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "path": {
+              "const": "metadata/postgresql.json"
+            },
+            "blobSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "contentSha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "fleetRegistry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "ref",
+            "commitSha",
+            "path",
+            "blobSha",
+            "contentSha256"
+          ],
+          "properties": {
+            "repository": {
+              "const": "pgextwin/build"
+            },
+            "ref": {
+              "$ref": "#/$defs/sha"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "path": {
+              "const": "metadata/automation-fleet.json"
+            },
+            "blobSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "contentSha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "extensionDeclaration": {
+          "$ref": "#/$defs/declarationFile"
+        },
+        "callerWorkflow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "ref",
+            "commitSha",
+            "path",
+            "blobSha",
+            "contentSha256"
+          ],
+          "properties": {
+            "repository": {
+              "const": "pgextwin/build"
+            },
+            "ref": {
+              "$ref": "#/$defs/sha"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "path": {
+              "const": ".github/workflows/central-signed-main.yml"
+            },
+            "blobSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "contentSha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "issuerMain": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "ref",
+            "commitSha"
+          ],
+          "properties": {
+            "repository": {
+              "const": "pgextwin/local-auth-issuer"
+            },
+            "ref": {
+              "const": "refs/heads/main"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/sha"
+            }
+          }
+        },
+        "issuerClaimRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "ref",
+            "commitSha"
+          ],
+          "properties": {
+            "repository": {
+              "const": "pgextwin/local-auth-issuer"
+            },
+            "ref": {
+              "type": "string",
+              "pattern": "^refs/claims/[0-9a-f]{32}$"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/sha"
+            }
+          }
+        },
+        "issuerClaimFile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "ref",
+            "commitSha",
+            "path",
+            "blobSha",
+            "contentSha256"
+          ],
+          "properties": {
+            "repository": {
+              "const": "pgextwin/local-auth-issuer"
+            },
+            "ref": {
+              "$ref": "#/$defs/sha"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "path": {
+              "const": "claim.json"
+            },
+            "blobSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "contentSha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "ticketBaseAuthority": {
+          "$ref": "#/$defs/authorityFile"
+        },
+        "ticketBaseDeclaration": {
+          "$ref": "#/$defs/declarationFile"
+        }
+      },
+      "dependentRequired": {
+        "ticketBaseAuthority": [
+          "ticketBaseDeclaration"
+        ],
+        "ticketBaseDeclaration": [
+          "ticketBaseAuthority"
+        ]
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorityRepository",
+        "issuerRepository",
+        "issuerWorkflowPath",
+        "issuerWorkflowId",
+        "issuerRunId",
+        "issuerRunAttempt",
+        "issuerKeyId",
+        "issuerPublicKey",
+        "policyEpoch",
+        "signingRepository",
+        "signingCallerPath",
+        "signingReusablePath",
+        "signingReusablePinSha",
+        "signingRunId",
+        "signingRunAttempt",
+        "signingRunInvocationUri",
+        "signingEvent",
+        "signingActor"
+      ],
+      "properties": {
+        "authorityRepository": {
+          "const": "pgextwin/build"
+        },
+        "issuerRepository": {
+          "const": "pgextwin/local-auth-issuer"
+        },
+        "issuerWorkflowPath": {
+          "const": ".github/workflows/issue-ticket.yml"
+        },
+        "issuerWorkflowId": {
+          "const": 421122469
+        },
+        "issuerRunId": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "issuerRunAttempt": {
+          "const": 1
+        },
+        "issuerKeyId": {
+          "const": "local-auth-prod-1"
+        },
+        "issuerPublicKey": {
+          "$ref": "#/$defs/digest"
+        },
+        "policyEpoch": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "signingRepository": {
+          "const": "pgextwin/build"
+        },
+        "signingCallerPath": {
+          "const": ".github/workflows/central-signed-main.yml"
+        },
+        "signingReusablePath": {
+          "const": ".github/workflows/central-extension-attested.yml"
+        },
+        "signingReusablePinSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "signingRunId": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "signingRunAttempt": {
+          "const": 1
+        },
+        "signingRunInvocationUri": {
+          "$ref": "#/$defs/signingRunUri"
+        },
+        "signingEvent": {
+          "enum": [
+            "schedule",
+            "issue_comment"
+          ]
+        },
+        "signingActor": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+(?:\\[bot\\])?$"
+        }
+      }
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "extension",
+        "operation",
+        "publication",
+        "branch",
+        "candidateId",
+        "requestId",
+        "ticketSha256",
+        "inputsSha256",
+        "upstreamSourcesSha256",
+        "consumerRunId",
+        "delegationWindow",
+        "ticketWindow",
+        "claimRecordedAt",
+        "admittedMajors",
+        "verifiedMajors"
+      ],
+      "properties": {
+        "extension": {
+          "$ref": "#/$defs/extension"
+        },
+        "operation": {
+          "const": "candidate"
+        },
+        "publication": {
+          "const": false
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^auto-candidate/[a-z][a-z0-9_]{0,63}/[0-9a-f]{20}$"
+        },
+        "candidateId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{20}$"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "ticketSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "inputsSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "upstreamSourcesSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "consumerRunId": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "delegationWindow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "startsAt",
+            "endsAt"
+          ],
+          "properties": {
+            "startsAt": {
+              "$ref": "#/$defs/utcTimestamp"
+            },
+            "endsAt": {
+              "$ref": "#/$defs/utcTimestamp"
+            }
+          }
+        },
+        "ticketWindow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "issuedAt",
+            "notBefore",
+            "expiresAt"
+          ],
+          "properties": {
+            "issuedAt": {
+              "$ref": "#/$defs/utcTimestamp"
+            },
+            "notBefore": {
+              "$ref": "#/$defs/utcTimestamp"
+            },
+            "expiresAt": {
+              "$ref": "#/$defs/utcTimestamp"
+            }
+          }
+        },
+        "claimRecordedAt": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "admittedMajors": {
+          "$ref": "#/$defs/majors"
+        },
+        "verifiedMajors": {
+          "$ref": "#/$defs/majors"
+        }
+      }
+    },
+    "shaBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "centralMainSha",
+        "ticketBaseSha",
+        "policySha",
+        "targetMainSha",
+        "verifierSha",
+        "manifestBlobSha",
+        "extensionSourceSha",
+        "reusablePinSha",
+        "issuerMainSha",
+        "claimCommitSha"
+      ],
+      "properties": {
+        "centralMainSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "ticketBaseSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "policySha": {
+          "$ref": "#/$defs/sha"
+        },
+        "targetMainSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "verifierSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "manifestBlobSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "extensionSourceSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "reusablePinSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "issuerMainSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "claimCommitSha": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "zipResults": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/zipResult"
+      }
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "extension": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
+      "format": "date-time"
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "major": {
+      "type": "integer",
+      "minimum": 14,
+      "maximum": 19
+    },
+    "majors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/major"
+      }
+    },
+    "signingRunUri": {
+      "type": "string",
+      "pattern": "^https://github\\.com/pgextwin/build/actions/runs/[1-9][0-9]*/attempts/1$"
+    },
+    "authorityFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "ref",
+        "commitSha",
+        "path",
+        "blobSha",
+        "contentSha256"
+      ],
+      "properties": {
+        "repository": {
+          "const": "pgextwin/build"
+        },
+        "ref": {
+          "$ref": "#/$defs/sha"
+        },
+        "commitSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "path": {
+          "const": "metadata/local-candidate-authority.json"
+        },
+        "blobSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "contentSha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "declarationFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "ref",
+        "commitSha",
+        "path",
+        "blobSha",
+        "contentSha256"
+      ],
+      "properties": {
+        "repository": {
+          "const": "pgextwin/build"
+        },
+        "ref": {
+          "$ref": "#/$defs/sha"
+        },
+        "commitSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^extensions/[a-z][a-z0-9_]{0,63}/extension\\.json$"
+        },
+        "blobSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "contentSha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "zipResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zipName",
+        "zipSha256",
+        "zipSizeBytes",
+        "extension",
+        "postgresqlMajor",
+        "upstreamRepository",
+        "upstreamRef",
+        "upstreamVersion",
+        "upstreamCommitSha",
+        "upstreamTarballSha256",
+        "packagingCommitSha",
+        "extensionSourceSha",
+        "reusablePinSha",
+        "signingRunId",
+        "signingRunAttempt",
+        "signingRunInvocationUri",
+        "signingAuditVerified",
+        "claimRequestId",
+        "claimCommitSha",
+        "authorityPolicyEpoch",
+        "authorityCommitSha",
+        "postgresqlAdmissionCommitSha",
+        "k3Status",
+        "checks"
+      ],
+      "properties": {
+        "zipName": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*-[A-Za-z0-9][A-Za-z0-9._-]*-pg1[4-9]-windows-x64\\.zip$"
+        },
+        "zipSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "zipSizeBytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "extension": {
+          "$ref": "#/$defs/extension"
+        },
+        "postgresqlMajor": {
+          "$ref": "#/$defs/major"
+        },
+        "upstreamRepository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "upstreamRef": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "upstreamVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"
+        },
+        "upstreamCommitSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "upstreamTarballSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "packagingCommitSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "extensionSourceSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "reusablePinSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "signingRunId": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "signingRunAttempt": {
+          "const": 1
+        },
+        "signingRunInvocationUri": {
+          "$ref": "#/$defs/signingRunUri"
+        },
+        "signingAuditVerified": {
+          "const": true
+        },
+        "claimRequestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "claimCommitSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "authorityPolicyEpoch": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "authorityCommitSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "postgresqlAdmissionCommitSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "k3Status": {
+          "const": "VERIFIED_NONPUBLISHING"
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authorityPresent",
+            "targetExtension",
+            "postgresqlSeries",
+            "operation",
+            "validityWindow",
+            "signature",
+            "targetSha",
+            "signingRunBinding",
+            "nonPublishing"
+          ],
+          "properties": {
+            "authorityPresent": {
+              "const": true
+            },
+            "targetExtension": {
+              "const": true
+            },
+            "postgresqlSeries": {
+              "const": true
+            },
+            "operation": {
+              "const": true
+            },
+            "validityWindow": {
+              "const": true
+            },
+            "signature": {
+              "const": true
+            },
+            "targetSha": {
+              "const": true
+            },
+            "signingRunBinding": {
+              "const": true
+            },
+            "nonPublishing": {
+              "const": true
+            }
+          }
+        }
+      }
+    }
+  }
+}

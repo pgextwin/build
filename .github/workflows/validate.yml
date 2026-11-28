@@ -424,6 +424,11 @@ jobs:
           fi
           python -m unittest -v tests/test-central-signing-boundary.py
 
+      - name: Verify K3 central admission/authority independent entry point and negatives (F21-06 / CB-70)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m unittest -v tests/test-central-k3-admission.py
+
       - name: Route selective CI targets for this change (F21-02)
         id: route
         env:
