@@ -10,6 +10,15 @@ on:
 permissions:
   contents: read
 
+# F21-02 concurrency contract (DESIGN 2.2 / PLAN-F 5.4 / CB-73): the
+# router workflow is its own processing type.  The group is scoped per
+# pull request (or per ref for push / dispatch) so unrelated changes
+# never share a group, and cancel-in-progress stays false like every
+# other processing-type group in this repository.
+concurrency:
+  group: ci-router-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   resolver:
     runs-on: ubuntu-latest
@@ -374,6 +383,47 @@ jobs:
 
       - name: Validate central packaging and K2/K4 verification foundation (F21-04)
         run: python -m unittest -v tests/test-central-package-foundation.py
+
+      - name: Validate selective CI router and concurrency contract (F21-02)
+        run: python -m unittest -v tests/test-ci-router.py
+
+      - name: Route selective CI targets for this change (F21-02)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          files_json="$RUNNER_TEMP/ci-router-files.json"
+          slim='map({filename, status} + (if .previous_filename then {previous_filename} else {} end))'
+          fallback=0
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+              | jq -s "add | $slim" > "$files_json" || fallback=1
+          elif [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/compare/${{ github.event.before }}...$GITHUB_SHA" \
+              | jq ".files | $slim" > "$files_json" || fallback=1
+          else
+            echo '[]' > "$files_json"
+          fi
+          if [ "$fallback" = "1" ] || [ ! -s "$files_json" ]; then
+            # Extraction failure falls back to the safety side (all
+            # registered extensions) instead of stalling the check
+            # (DESIGN 2.1: extraction failure is handled explicitly).
+            echo '[{"filename":"unclassified-fallback","status":"added"}]' > "$files_json"
+            echo "::warning::ci-router: changed-file list unavailable; routing the safety-side fallback"
+          fi
+          if ! python3 scripts/ci-router.py --files "$files_json" > "$RUNNER_TEMP/ci-router-result.json"; then
+            echo "::error::ci-router: failed to route the change list"
+            exit 1
+          fi
+          python3 - "$RUNNER_TEMP/ci-router-result.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          targets = result["targets"]
+          print("### Selective CI router (F21-02)")
+          print(f"- targets ({len(targets)}): {', '.join(targets) if targets else '(none)'}")
+          print(f"- resolver conclusion: {result['resolver_conclusion']} / pending: {result['pending']}")
+          PY
 
       - name: Validate Test Contract v2 schema and semantics
         run: python tests/test-test-contract.py
