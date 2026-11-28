@@ -48,6 +48,22 @@ route step over a real git repository reproducing the audit's
 same-count / different-version pair (an old run's event commits keep
 selecting the extension change even though the pull request's current
 head is documentation-only).
+
+Fix round 5 (Neon audit B2R5-M1 / B2R5-N1) adds: the shallow-checkout
+functional tests (a --depth=1 fetch reproducing the actions/checkout
+shape, for push and pull-request checkouts alike) and the
+truncated-stream / similarity-score rejections in the name-status
+conversion.
+
+Fix round 6 (Sol re-audit B2-SOL-R3-M1, B2R6-N2 carried,
+B2-SOL-R3-N1) adds: the per-run push concurrency groups (the workflow
+group and the extension-ci job group render per pull request, per run
+for pushes, and per ref / plain postmerge otherwise, pinned by an
+expression-rendering helper), the structural pinning of both diff
+ranges (three-dot for pull requests, two-dot for pushes) and of the
+conditional --unshallow fetch in the route step, and the
+similarity-score digit-length rejection that keeps absurdly long
+scores on the RouterError diagnostic path.
 """
 
 import importlib.util
@@ -81,6 +97,51 @@ SMOKE = sorted(router.PILOT_SMOKE_EXTENSIONS)
 
 def route(changes, smoke=router.PILOT_SMOKE_EXTENSIONS):
     return router.route_changes(changes, registered=REGISTERED, smoke=smoke)
+
+
+def render_github_group(template, *, event_name, workflow=None, ref=None,
+                        pr_number=None, run_id=None, extension=None):
+    """Render the subset of GitHub Actions expression syntax the
+    concurrency groups use, so a test can pin the rendered group per
+    event instead of only the expression's shape.  Python truthiness
+    stands in for GitHub's (null, empty string, 0 and false are falsy
+    in both), ``||`` / ``&&`` return the deciding operand in both,
+    and the operator precedence (comparison, then &&, then ||)
+    matches."""
+
+    def gh_format(fmt, *args):
+        rendered = fmt
+        for index, arg in enumerate(args):
+            rendered = rendered.replace("{%d}" % index, str(arg))
+        return rendered
+
+    def evaluate(expression):
+        expression = expression.replace(
+            "github.event.pull_request.number", "pr_number")
+        expression = expression.replace("github.event_name", "event_name")
+        expression = expression.replace("github.workflow", "workflow")
+        expression = expression.replace("github.run_id", "run_id")
+        expression = expression.replace("github.ref", "ref")
+        expression = expression.replace("matrix.extension", "extension")
+        expression = expression.replace("format(", "gh_format(")
+        expression = expression.replace("||", " or ").replace("&&", " and ")
+        namespace = {
+            "event_name": event_name, "workflow": workflow, "ref": ref,
+            "pr_number": pr_number, "run_id": run_id,
+            "extension": extension, "gh_format": gh_format,
+        }
+        return eval(expression, {"__builtins__": {}}, namespace)
+
+    rendered = []
+    rest = template
+    while "${{" in rest:
+        head, rest = rest.split("${{", 1)
+        expression, rest = rest.split("}}", 1)
+        rendered.append(head)
+        value = evaluate(expression.strip())
+        rendered.append("" if value is None else str(value))
+    rendered.append(rest)
+    return "".join(rendered)
 
 
 class RegistryTests(unittest.TestCase):
@@ -535,6 +596,13 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("--name-status", run)
         self.assertNotIn("pulls/", run)
         self.assertNotIn("PR_NUMBER", run)
+        # B2R6-N2: both per-event ranges are pinned -- the three-dot
+        # (merge-base) range for pull requests above, the two-dot
+        # range for pushes -- and so is the conditional --unshallow
+        # completion of a shallow checkout (B2R5-M1).
+        self.assertIn('"$base_sha..$head_sha"', run)
+        self.assertIn("git rev-parse --is-shallow-repository", run)
+        self.assertIn("fetch_args+=(--unshallow)", run)
 
     def test_extension_ci_job_consumes_the_launch_matrix(self):
         job = self.workflow["jobs"]["extension-ci"]
@@ -565,8 +633,11 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("config", router.central.ALLOWED_DIRS)
         # B2R3-N1: the group renders the router contract templates
         # per event -- pr-validation on pull requests, postmerge on
-        # pushes / dispatches -- instead of a pr- group glued to the
-        # ref outside pull requests.
+        # dispatches -- instead of a pr- group glued to the ref
+        # outside pull requests.  Fix round 6 (B2-SOL-R3-M1) adds the
+        # per-run postmerge rendering on pushes; the rendered results
+        # per event are pinned in
+        # test_extension_ci_group_renders_per_run_for_pushes below.
         group = job["concurrency"]["group"]
         self.assertIn("github.event_name == 'pull_request'", group)
         self.assertIn(
@@ -581,6 +652,38 @@ class WorkflowWiringTests(unittest.TestCase):
             router.concurrency_group("postmerge", extension="pg_bigm"),
             "postmerge-pg_bigm")
         self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+
+    def test_extension_ci_group_renders_per_run_for_pushes(self):
+        # B2-SOL-R3-M1 (job side): a waiting job occupies the single
+        # pending slot of its concurrency group, so two pushes that
+        # launch the same extension would displace each other's
+        # queued extension-ci job if pushes shared the plain
+        # postmerge group.  Pushes therefore render a per-run
+        # postmerge group, while pull requests keep the pr-validation
+        # rendering and dispatches the plain postmerge one (both
+        # identical to the Python contract renderings).
+        group = self.workflow["jobs"]["extension-ci"]["concurrency"]["group"]
+        pr = render_github_group(
+            group, event_name="pull_request", pr_number=713,
+            run_id=111, extension="pg_bigm")
+        self.assertEqual(pr, "ci-pg_bigm-pr-713")
+        self.assertEqual(
+            pr, router.concurrency_group(
+                "pr-validation", extension="pg_bigm", pr_number=713))
+        push_first = render_github_group(
+            group, event_name="push", run_id=111, extension="pg_bigm")
+        push_second = render_github_group(
+            group, event_name="push", run_id=222, extension="pg_bigm")
+        self.assertEqual(push_first, "postmerge-pg_bigm-111")
+        self.assertEqual(push_second, "postmerge-pg_bigm-222")
+        self.assertNotEqual(push_first, push_second)
+        dispatch = render_github_group(
+            group, event_name="workflow_dispatch", run_id=333,
+            extension="pg_bigm")
+        self.assertEqual(dispatch, "postmerge-pg_bigm")
+        self.assertEqual(
+            dispatch, router.concurrency_group(
+                "postmerge", extension="pg_bigm"))
 
 
 class ConcurrencyContractTests(unittest.TestCase):
@@ -705,6 +808,48 @@ class ConcurrencyContractTests(unittest.TestCase):
         self.assertEqual(concurrency["group"], router.ROUTER_WORKFLOW_GROUP)
         self.assertIs(concurrency["cancel-in-progress"], False)
 
+    def test_workflow_group_renders_per_run_for_pushes(self):
+        # B2-SOL-R3-M1: GitHub keeps a single pending slot per
+        # concurrency group, so a workflow group keyed only by ref
+        # would let a newer push displace a waiting run and that
+        # push's landing SHA would never be routed.  The rendered
+        # group is therefore stable per pull request (a re-run of the
+        # same run keeps it, and the PR's runs share it), unique per
+        # push run, and per ref for dispatches.
+        group = router.ROUTER_WORKFLOW_GROUP
+        workflow = "Validate build infrastructure"
+        pr_first = render_github_group(
+            group, event_name="pull_request", workflow=workflow,
+            pr_number=713, run_id=111)
+        pr_second = render_github_group(
+            group, event_name="pull_request", workflow=workflow,
+            pr_number=713, run_id=222)
+        self.assertEqual(pr_first, pr_second)
+        self.assertEqual(
+            pr_first, "ci-router-Validate build infrastructure-713")
+        self.assertEqual(
+            pr_first, router.concurrency_group(
+                "router", workflow=workflow, scope="713"))
+        push_first = render_github_group(
+            group, event_name="push", workflow=workflow,
+            ref="refs/heads/main", run_id=111)
+        push_second = render_github_group(
+            group, event_name="push", workflow=workflow,
+            ref="refs/heads/main", run_id=222)
+        self.assertEqual(
+            push_first,
+            "ci-router-Validate build infrastructure-refs/heads/main-111")
+        self.assertNotEqual(push_first, push_second)
+        dispatch = render_github_group(
+            group, event_name="workflow_dispatch", workflow=workflow,
+            ref="refs/heads/main", run_id=333)
+        self.assertEqual(
+            dispatch,
+            "ci-router-Validate build infrastructure-refs/heads/main")
+        self.assertEqual(
+            dispatch, router.concurrency_group(
+                "router", workflow=workflow, scope="refs/heads/main"))
+
     def test_no_workflow_cancels_in_progress(self):
         # B2-N2 / CB-73 fixed value: every concurrency declaration in
         # the live workflows -- top level and job level, *.yml and
@@ -737,10 +882,12 @@ class NameStatusConversionTests(unittest.TestCase):
     """B2-SOL-R2-M1: the git name-status -> GitHub file-list mapping.
 
     validate.yml computes the change list with
-    ``git diff --name-status -z -M -C BASE...HEAD`` over the event's
-    own commits; this conversion is the only bridge between git's
-    status letters and the router's GitHub-shaped input, so the
-    mapping and its failure modes are pinned here.
+    ``git diff --name-status -z -M -C`` over the event's own commits
+    -- the three-dot range ``BASE...HEAD`` for a pull request, the
+    two-dot range ``BEFORE..AFTER`` for a push; this conversion is
+    the only bridge between git's status letters and the router's
+    GitHub-shaped input, so the mapping and its failure modes are
+    pinned here.
     """
 
     def convert(self, *fields):
@@ -816,6 +963,28 @@ class NameStatusConversionTests(unittest.TestCase):
             b"C100", b"docs/source.md", b"docs/copy.md")
         self.assertEqual([change["status"] for change in changes],
                          ["renamed", "copied"])
+
+    def test_extremely_long_similarity_score_is_an_extraction_failure(self):
+        # B2-SOL-R3-N1: a digit string beyond Python's int()
+        # conversion digit limit must take the same RouterError path
+        # as any other malformed score instead of raising ValueError
+        # out of the conversion.
+        data = b"R" + b"9" * 4301 + b"\0a\0b\0"
+        with self.assertRaises(router.RouterError):
+            router.changes_from_name_status(data)
+
+    def test_cli_name_status_rejects_an_extremely_long_score(self):
+        # B2-SOL-R3-N1: the CLI diagnostic path (exit 2, no
+        # traceback) covers the over-long score as well.
+        with TemporaryDirectory() as tmp:
+            stream = Path(tmp) / "name-status.bin"
+            stream.write_bytes(b"C" + b"9" * 4301 + b"\0a\0b\0")
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--name-status", str(stream)],
+                capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("ci-router:", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
 
     def test_cli_name_status_mode(self):
         with TemporaryDirectory() as tmp:

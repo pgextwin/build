@@ -73,11 +73,16 @@ Input is the GitHub pull-request / compare file list shape::
 The workflow computes that list from the event's own commits
 (B2-SOL-R2-M1): ``validate.yml`` pins the diff to the pull request's
 base/head SHAs (or the push before/after SHAs) and runs
-``git diff --name-status -z -M -C BASE...HEAD``, whose output
-``changes_from_name_status()`` converts to the shape above.  A list
-fetched by pull-request number would describe the pull request's
-current state instead, which a re-run -- bound to the original
-event's checkout and payload -- could silently disagree with.
+``git diff --name-status -z -M -C`` over the range the event
+defines -- the three-dot (merge-base) range ``BASE...HEAD`` for a
+pull request, the two-dot range ``BEFORE..AFTER`` for a push --
+after completing the two pinned commits' history with a
+conditional ``--unshallow`` fetch when the checkout is shallow
+(B2R5-M1).  ``changes_from_name_status()`` converts the output to
+the shape above.  A list fetched by pull-request number would
+describe the pull request's current state instead, which a re-run
+-- bound to the original event's checkout and payload -- could
+silently disagree with.
 
 The module also fixes the processing-type ``concurrency`` contract of
 DESIGN 2.2 / PLAN-F 5.4 (see ``CONCURRENCY_CONTRACT``): one group per
@@ -357,11 +362,17 @@ def changes_from_name_status(data):
         if letter not in GIT_NAME_STATUS_MAP:
             raise RouterError(f"unknown git name-status {token!r}")
         if letter in ("R", "C"):
-            if not score or not score.isdigit() or not 0 <= int(score) <= 100:
+            if (not score or len(score) > 3 or not score.isdigit()
+                    or not 0 <= int(score) <= 100):
                 # ``git diff -M -C`` always reports a similarity
                 # score in the range 0-100 for rename / copy
                 # entries; a missing or out-of-range score is a
-                # malformed stream (B2R5-N1).
+                # malformed stream (B2R5-N1).  The length is checked
+                # before the conversion: an absurdly long digit
+                # string would otherwise make int() itself raise
+                # ValueError (Python's conversion digit limit) and
+                # escape the RouterError diagnostic path
+                # (B2-SOL-R3-N1).
                 raise RouterError(
                     f"malformed similarity score in git name-status {token!r}")
         elif score:
@@ -489,15 +500,24 @@ def launchable_targets(targets, extensions_root):
 
 ROUTER_WORKFLOW_GROUP = (
     "ci-router-${{ github.workflow }}-"
-    "${{ github.event.pull_request.number || github.ref }}"
+    "${{ github.event.pull_request.number || "
+    "github.event_name == 'push' && "
+    "format('{0}-{1}', github.ref, github.run_id) || github.ref }}"
 )
 
 # The router entry's template below is the Python-side rendering of
 # ROUTER_WORKFLOW_GROUP: the GitHub Actions expression is kept as the
 # workflow constant above (validate.yml declares it verbatim), while
 # concurrency_group() renders the same shape from the {workflow} and
-# {scope} placeholders (the workflow name and the pull-request number
-# or ref the expression resolves to).
+# {scope} placeholders (the workflow name and the scope the
+# expression resolves to).  The scope is the pull-request number for
+# a pull request and the ref for other events -- except pushes,
+# where it is "<ref>-<run id>": GitHub keeps a single pending slot
+# per concurrency group, so a push group keyed only by ref would let
+# a newer run displace a waiting push run, and that push's landing
+# SHA would never be routed (B2-SOL-R3-M1).  A run id is stable
+# across re-runs of the same run, so re-running a push keeps its
+# group while distinct pushes never share one.
 CONCURRENCY_CONTRACT = {
     "pr-validation": {
         "group": "ci-{extension}-pr-{pr_number}",
