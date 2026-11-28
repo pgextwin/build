@@ -521,6 +521,58 @@ else:
         upload_v7.group(1),
     ))
 
+def central_publisher_errors(raw):
+    from hashlib import sha256
+
+    jobs = (b"  central_publisher_intake_request:", b"  isolated_central_formal_publisher:")
+    owner = b"  isolated_owner_source_formal_publisher:"
+    combo = b"  isolated_external_direct_catalog_pr:"
+    if any(raw.count(marker) != 1 for marker in (*jobs, owner, combo)):
+        return ["central Publisher and existing owner/Combo 6 jobs must occur exactly once"]
+    start, publisher, end, combo_start = (raw.index(marker) for marker in (*jobs, owner, combo))
+    if not start < publisher < end < combo_start:
+        return ["central Publisher jobs must be inserted before the existing owner and Combo 6 jobs"]
+    result = []
+    for name, segment, expected in (
+        ("PREFIX", raw[:start], "b74f8f84c5f0781132b29490f7979fc01b3349b674d3a65c5a6c926c418d6e1b"),
+        ("SUFFIX", raw[end:], "4305bcc14fd603d34f69bcea22f5be8fd255cb7aa399b07680cab8f548b08612"),
+        ("COMBO6", raw[combo_start:], "03a7be885792674048a6f31d8d27297afd34076c759de916cc92f00f8cce657a"),
+    ):
+        if sha256(segment).hexdigest() != expected:
+            result.append(f"publisher-candidate-intake.yml: {name} changed")
+    intake, publish = raw[start:publisher].decode(), raw[publisher:end].decode()
+    for job in (intake, publish):
+        for check in ("github.event_name == 'issue_comment'", "github.ref == 'refs/heads/main'",
+                      "github.repository == 'pgextwin/build'", "!github.event.issue.pull_request",
+                      "github.event.issue.number == 311", "github.run_attempt == '1'",
+                      "startsWith(github.event.comment.body, '/pgextwin publish-central ')",
+                      "ref: ${{ github.sha }}", "persist-credentials: false"):
+            if check not in job:
+                result.append(f"central Publisher trust condition missing: {check}")
+        if re.search(r"^ *\w[\w-]*: (?:write|write-all)$", job, re.M):
+            result.append("central Publisher workflow credentials must be read-only")
+        for use in re.findall(r"^ *-? *uses: (\S+)", job, re.M):
+            if not re.fullmatch(r"actions/(checkout|setup-python|upload-artifact|download-artifact)@[a-f0-9]{40}",
+                                use):
+                result.append("central Publisher actions must be trusted and pinned")
+        if any("${{" in block and "github.event.comment" in block
+               for block in re.findall(r"^ *run:.*(?:\n {10,}[^\n]*)*", job, re.M)):
+            result.append("central Publisher must pass comments through environment variables")
+    if "environment:" in intake or "PUBLISHER_PRIVATE_KEY" in intake or "central-publisher-run.py" in intake:
+        result.append("central intake must be physically read-only")
+    prepare, sep, write = publish.partition("- name: Recheck admission and publish")
+    if ("    environment: publisher\n" not in publish or
+            "    needs: central_publisher_intake_request\n" not in publish or
+            "    concurrency: central-publisher-intake-formal\n" not in publish or not sep or
+            "PUBLISHER_PRIVATE_KEY" in prepare or "--phase prepare" not in prepare or
+            "--phase publish" not in write or write.count("PUBLISHER_PRIVATE_KEY:") != 1 or
+            "CENTRAL_PUBLISHER_PREPARED_SHA256: ${{ steps.prepare.outputs.prepared_sha256 }}" not in write):
+        result.append("central publish must use the isolated environment and same-job prepare gate")
+    return result
+
+
+errors.extend(central_publisher_errors((WORKFLOW_DIR / "publisher-candidate-intake.yml").read_bytes()))
+
 if errors:
     print("GitHub Actions trust policy validation failed:", file=sys.stderr)
     for error in errors:
