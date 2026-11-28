@@ -53,7 +53,7 @@ def runs_endpoint(merged):
 
 def gh(repo, endpoint):
     allow = (endpoint == "branches/main"
-             or re.fullmatch(re.escape(RUNS) + r"&created=%3C%3D[0-9TZ%-]+&per_page=100", endpoint)
+             or re.fullmatch(re.escape(RUNS) + r"&created=%3C%3D[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}%3A[0-9]{2}%3A[0-9]{2}Z&per_page=100", endpoint)
              or re.fullmatch(r"actions/runs/[1-9][0-9]*(/(jobs|artifacts)\?per_page=100)?", endpoint))
     require(repo == CENTRAL and allow, "unallowlisted central schedule GET")
     p = subprocess.run(["gh", "api", "--method", "GET", "repos/" + repo + "/" + endpoint],
