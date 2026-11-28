@@ -701,16 +701,18 @@ def verify_created_regeneration(repository, url, writer, branch, ref, body):
 
 def propose_candidate(record, manifest_path, repository, watch_path, policy_path=None, *,
                       writer=None, fetch=api, origin_body=None, on_created=None,
-                      authority_policy=None, now=None):
+                      authority_policy=None, now=None, auth_binding=None):
     """Apply a proposal after the local or central caller authenticates its context."""
     if repository == candidate_branch.CENTRAL_REPOSITORY:
+        checked_now = datetime.now(timezone.utc) if now is None else now
         style = "central"
         extension = record.get("extension")
         manifest_path = str(manifest_path)
         try:
             if authority_policy is None:
                 authority_policy = local_auth_central.load_policy(BUILD_ROOT)
-            local_auth_central.validate_policy(authority_policy, datetime.now(timezone.utc) if now is None else now)
+            ticket = auth_binding.get("ticket") if type(auth_binding) is dict else None
+            local_auth_central.validate_policy(authority_policy, checked_now, ticket)
         except local_auth_central.TicketRejected as exc:
             raise WatchError(exc.code) from exc
     else:
@@ -737,10 +739,10 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
         def enforce_scope(candidate_branch_name, candidate_id, changes, *, allow_legacy_reuse=False):
             try:
                 local_auth_central.enforce_central_candidate(
-                    policy=authority_policy, now=now, repository=repository, extension=extension,
+                    policy=authority_policy, now=checked_now, repository=repository, extension=extension,
                     registered_extensions=registered, branch=candidate_branch_name,
                     expected_candidate_id=candidate_id, changes=changes,
-                    allow_legacy_reuse=allow_legacy_reuse)
+                    allow_legacy_reuse=allow_legacy_reuse, auth_binding=auth_binding, require_binding=True)
             except local_auth_central.TicketRejected as exc:
                 raise WatchError(exc.code) from exc
 
@@ -815,6 +817,10 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
     record = {**record, "candidateId": candidate_id, "branch": branch}
     if record.get("firstRelease") is True:
         proposal["candidateId"] = candidate_id
+    if style == "central":
+        parsed_effective = candidate_branch.parse_branch(branch)
+        enforce_scope(branch, candidate_id, [{"filename": manifest_path, "status": "modified"}],
+                      allow_legacy_reuse=(bool(prs) and parsed_effective.style == "legacy"))
     remote = execute("git", "ls-remote", "--heads", "origin", "refs/heads/" + branch)
     if remote:
         execute("git", "fetch", "--no-tags", "origin", "refs/heads/" + branch + ":refs/remotes/origin/" + branch)
@@ -833,7 +839,7 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
         if style == "central":
             parsed_remote = candidate_branch.parse_branch(branch)
             check_diff("HEAD", remote_ref, branch, candidate_id,
-                       allow_legacy_reuse=parsed_remote.style == "legacy")
+                       allow_legacy_reuse=(bool(prs) and parsed_remote.style == "legacy"))
         actual = json.loads(execute("git", "show", remote_ref + ":" + proposal_file))
         if actual != proposal:
             raise WatchError("existing branch differs from immutable candidate")

@@ -210,7 +210,7 @@ class ClassificationAndEnforcementTests(unittest.TestCase):
         self.assertIs(result["authorized"], True)
         self.assertIs(result["publication"], False)
 
-    def test_nc43_run_claim_change_evidence_requires_all_bindings(self):
+    def run_claim_binding(self):
         repository = central.CENTRAL_REPOSITORY
         request_id = "b" * 32
         inputs = {"operation": "candidate", "repository": repository, "consumerRunId": 100,
@@ -221,11 +221,15 @@ class ClassificationAndEnforcementTests(unittest.TestCase):
         live = {"authorized": False, "publication": False, "requestId": request_id,
                 "issuerRepository": "pgextwin/local-auth-issuer", "issuerRunId": 120, "issuerRunAttempt": 1,
                 "claimCommitSha": "c" * 40, "ticketSha256": "d" * 64}
-        binding = {"ticket": ticket, "inputs_obj": inputs, "live_evidence": live, "consumer_run_id": 100}
+        return {"ticket": ticket, "inputs_obj": inputs, "live_evidence": live, "consumer_run_id": 100}
+
+    def test_nc43_run_claim_change_evidence_requires_all_bindings(self):
+        binding = self.run_claim_binding()
+        ticket, inputs, live = (binding[key] for key in ("ticket", "inputs_obj", "live_evidence"))
         evidence = self.enforce(auth_binding=binding)
         self.assertEqual(evidence["consumerRun"]["runId"], 100)
         self.assertEqual(evidence["issuerRun"]["runId"], 120)
-        self.assertEqual(evidence["claim"]["requestId"], request_id)
+        self.assertEqual(evidence["claim"]["requestId"], ticket["requestId"])
         for overrides in (
             {"consumer_run_id": 101},
             {"ticket": dict(ticket, inputsSha256="e" * 64)},
@@ -237,6 +241,25 @@ class ClassificationAndEnforcementTests(unittest.TestCase):
         ):
             with self.subTest(overrides=overrides):
                 self.rejected("RUN_CLAIM_CHANGE_BINDING_MISMATCH", auth_binding=binding | overrides)
+
+    def test_required_binding_runs_at_step_eight_after_policy_and_path_checks(self):
+        options = {"require_binding": True, "auth_binding": None}
+        self.rejected("RUN_CLAIM_CHANGE_BINDING_MISMATCH", **options)
+        self.rejected("DENY_MODE", [change("README.md")], policy=dict(POLICY, mode="DENY"), **options)
+        self.rejected("PATH_CLASS_P7_DENIED", [change("README.md")], **options)
+
+    def test_signed_branch_matches_only_same_candidate_on_legacy_reuse(self):
+        options = {"require_binding": True, "auth_binding": self.run_claim_binding()}
+        legacy = f"auto-candidate/{CANDIDATE_ID}"
+        result = self.enforce(branch=legacy, expected_candidate_id=CANDIDATE_ID,
+                              allow_legacy_reuse=True, **options)
+        self.assertEqual(result["target"]["branch"], legacy)
+
+        successor_id = "b" * 20
+        self.rejected("RUN_CLAIM_CHANGE_BINDING_MISMATCH", branch=f"auto-candidate/{successor_id}",
+                      expected_candidate_id=successor_id, allow_legacy_reuse=True, **options)
+        self.rejected("RUN_CLAIM_CHANGE_BINDING_MISMATCH", branch=f"auto-candidate/{EXTENSION}/{successor_id}",
+                      expected_candidate_id=successor_id, allow_legacy_reuse=False, **options)
 
     def test_tc19_checked_in_authority_remains_unactivated_for_central(self):
         authority = import_module("local-auth-candidate")

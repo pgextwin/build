@@ -150,9 +150,11 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
     effective_repo = target_repository or repository
     central = effective_repo == receipt.BUILD
     if central:
+        checked_now = datetime.now(timezone.utc)
         authority_policy = local_auth_central.load_policy(ROOT)
         local_auth_central.need(type(authority_policy) is dict, "INVALID_POLICY")
-        local_auth_central.require_enforce_mode(execution_mode(central_policy=authority_policy))
+        effective_policy = dict(authority_policy, mode=execution_mode(central_policy=authority_policy))
+        local_auth_central.validate_policy(effective_policy, checked_now)
     receipt.need(record.get("status") == "candidate", "a candidate decision is required")
     manifest_path = str(manifest_path)
     watch_path = str(watch_path)
@@ -162,7 +164,7 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
         extension = repository.partition("/")[2]
         planned_changes = [{"filename": manifest_path, "status": "modified"}]
         local_auth_central.enforce_central_candidate(
-            policy=authority_policy, repository=effective_repo, extension=extension,
+            policy=effective_policy, now=checked_now, repository=effective_repo, extension=extension,
             registered_extensions=registered, branch=record.get("branch"),
             expected_candidate_id=record.get("candidateId"), changes=planned_changes)
     fresh = checked_plan(report, context, repository, fetch=fetch, target_repository=target_repository,
@@ -177,6 +179,7 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
     _, branch, _, _ = context
     row, _ = target(report, context, repository)
     base_sha = branch["commit"]["sha"] if central else row["mainSha"]
+    writer_kwargs = {}
     if central or execution_mode() == "ENFORCE":
         run_id = int(os.environ["GITHUB_RUN_ID"])
         # Refuse stale policy and unsupported sources before any issuer dispatch.
@@ -189,11 +192,16 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
             effective_repo, base_sha, run_id, local_auth.verifier)
         current = local_auth.prepare(effective_repo, base_sha, run_id, fetch=fetch, **prepare_scope)
         receipt.need(current == prepared, "candidate authority or source inputs changed during issuance")
+        authorize_now = datetime.now(timezone.utc)
         auth_evidence = local_auth.authorize(ticket, inputs, receipt_policy, current,
-                                            now=datetime.now(timezone.utc), api=issuance.get, **authorize_scope)
-        if auth_evidence_path is not None:
-            evidence = auth_evidence["centralEvidence"] if central else auth_evidence
-            Path(auth_evidence_path).write_bytes(local_auth.verifier.canonical_json(evidence))
+                                            now=authorize_now, api=issuance.get, **authorize_scope)
+        if central:
+            central_binding = auth_evidence.get("centralBinding")
+            local_auth_central.need(type(central_binding) is dict, local_auth_central.BINDING_MISMATCH)
+            writer_kwargs = {"authority_policy": current[0], "auth_binding": central_binding,
+                             "now": authorize_now}
+        elif auth_evidence_path is not None:
+            Path(auth_evidence_path).write_bytes(local_auth.verifier.canonical_json(auth_evidence))
     token = os.environ["PGEXTWIN_SCAN_READ_TOKEN"]
     receipt.need(receipt.api(receipt.HOST + receipt.BUILD + "/branches/main", token) == branch,
                  "central protected main changed before proposal")
@@ -244,7 +252,10 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
         emit("GITHUB_OUTPUT", "origin_artifact=" + origin.artifact_name(effective_repo, origin_record, pr["number"]))
 
     candidate.propose_candidate(record, manifest_path, effective_repo, watch_path, writer=writer, fetch=fetch,
-                                origin_body=origin_body, on_created=on_created)
+                                origin_body=origin_body, on_created=on_created, **writer_kwargs)
+    if central and auth_evidence_path is not None:
+        Path(auth_evidence_path).write_bytes(
+            local_auth.verifier.canonical_json(auth_evidence["centralEvidence"]))
 
 
 def app_writer():

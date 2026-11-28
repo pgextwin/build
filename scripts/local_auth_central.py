@@ -9,7 +9,7 @@ from importlib import import_module
 from pathlib import Path
 import re
 
-from candidate_branch import CENTRAL_REPOSITORY, parse_branch, validate_extension_name
+from candidate_branch import CENTRAL_REPOSITORY, format_branch, parse_branch, validate_extension_name
 
 live_verifier = import_module("local-auth-live")
 verifier = live_verifier.verifier
@@ -253,7 +253,7 @@ def evaluate_central_changes(changes, *, extension, registered_extensions,
     return sorted(paths), sorted(kinds)
 
 
-def _check_binding(binding, policy, extension, branch, changes):
+def _check_binding(binding, policy, extension, branch, changes, *, allow_legacy_reuse=False):
     need(type(binding) is dict, BINDING_MISMATCH)
     ticket, inputs, live = (binding.get(key) for key in ("ticket", "inputs_obj", "live_evidence"))
     need(all(type(obj) is dict for obj in (ticket, inputs, live)), BINDING_MISMATCH)
@@ -277,8 +277,13 @@ def _check_binding(binding, policy, extension, branch, changes):
     verifier._hex(live.get("claimCommitSha"), 40, BINDING_MISMATCH)
     verifier._hex(live.get("ticketSha256"), 64, BINDING_MISMATCH)
 
+    expected_branch = branch
+    if allow_legacy_reuse:
+        parsed = parse_branch(branch)
+        if parsed.style == "legacy":
+            expected_branch = format_branch(extension, parsed.candidate_id, "central")
     scope = inputs.get("centralScope")
-    need(type(scope) is dict and scope == central_scope(extension, branch)
+    need(type(scope) is dict and scope == central_scope(extension, expected_branch)
          and scope["publication"] is False and _manifest_only(changes, extension), BINDING_MISMATCH)
     try:
         inputs_sha = hashlib.sha256(canonical_json(inputs)).hexdigest()
@@ -308,8 +313,9 @@ def build_run_claim_change_evidence(policy, extension, branch, scope_mode, paths
 
 def enforce_central_candidate(*, policy, repository, extension, registered_extensions, branch, changes,
                               now=None, operation="candidate", publication=False, expected_candidate_id=None,
-                              allow_legacy_reuse=False, scope_mode="candidate_manifest", auth_binding=None):
-    """Enforce policy, operation, identity, branch, changes and the optional live binding in order."""
+                              allow_legacy_reuse=False, scope_mode="candidate_manifest", auth_binding=None,
+                              require_binding=False):
+    """Enforce policy, operation, identity, branch, changes and live binding in order."""
     ticket = auth_binding.get("ticket") if type(auth_binding) is dict else None
     validate_policy(policy, datetime.now(timezone.utc) if now is None else now, ticket)
     need(publication is False, "PUBLICATION_DENIED")
@@ -323,6 +329,7 @@ def enforce_central_candidate(*, policy, repository, extension, registered_exten
     paths, kinds = evaluate_central_changes(changes, extension=extension,
                                           registered_extensions=registered_extensions,
                                           scope_mode=scope_mode)
-    if auth_binding is not None:
-        _check_binding(auth_binding, policy, extension, branch, changes)
+    if require_binding or auth_binding is not None:
+        _check_binding(auth_binding, policy, extension, branch, changes,
+                       allow_legacy_reuse=allow_legacy_reuse)
     return build_run_claim_change_evidence(policy, extension, branch, scope_mode, paths, kinds, auth_binding)

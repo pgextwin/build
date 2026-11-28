@@ -153,8 +153,9 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
     central, policy = load_authority(fetch)
     if is_central:
         local_auth_central.validate_policy(policy, now)
-        need(local_auth_central.valid_extension_name(extension), "INVALID_CENTRAL_EXTENSION")
     enforce_policy(policy, now)
+    if is_central:
+        need(local_auth_central.valid_extension_name(extension), "INVALID_CENTRAL_EXTENSION")
     need(candidate.execute("git", "-C", str(ROOT), "rev-parse", "HEAD") == central,
          "CENTRAL_CHECKOUT_CHANGED")
     registry_file = file_at(fetch, BUILD, MANIFEST, central)
@@ -162,6 +163,16 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
     entries = fleet.validate(registry)
     need(repository in entries and entries[repository]["candidateEnabled"] is True,
          "REPO_NOT_IN_FLEET")
+    if is_central:
+        manifest_path = f"extensions/{extension}/extension.json"
+        registered = (local_auth_central.registered_extensions(entries) if registered_extensions is None
+                      else registered_extensions)
+        local_auth_central.need(
+            isinstance(registered, (set, frozenset)) and extension in registered
+            and all(isinstance(name, str) for name in registered), "EXTENSION_NOT_REGISTERED")
+        planned_changes = [{"filename": manifest_path, "status": "modified"}] if changes is None else changes
+        local_auth_central.evaluate_central_changes(
+            planned_changes, extension=extension, registered_extensions=registered)
     need(protected_sha(fetch, repository) == target_sha, "TARGET_MAIN_CHANGED")
     repo = fetch(API + repository)
     need(repo.get("full_name") == repository and repo.get("default_branch") == "main",
@@ -178,12 +189,9 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
 
     legacy_watch = None
     if is_central:
-        manifest_path = f"extensions/{extension}/extension.json"
         manifest_file = file_at(fetch, repository, manifest_path, target_sha)
         extension_obj = github_contents.decode_json_file(manifest_file, manifest_path)
         need(extension_obj.get("name") == extension, "INVALID_CENTRAL_EXTENSION")
-        registered = (local_auth_central.registered_extensions(entries) if registered_extensions is None
-                      else registered_extensions)
     else:
         extension_obj = github_contents.decode_json_file(
             file_at(fetch, repository, EXTENSION, target_sha), EXTENSION)
@@ -205,7 +213,6 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
         not update["pinOnly"] and not update["initialOnly"] for update in plan["updates"]),
         "STABLE_UPDATE_REQUIRED")
     if is_central:
-        planned_changes = [{"filename": manifest_path, "status": "modified"}] if changes is None else changes
         local_auth_central.enforce_central_candidate(
             policy=policy, repository=repository, extension=extension, registered_extensions=registered,
             branch=plan["branch"], expected_candidate_id=plan["candidateId"], changes=planned_changes, now=now)
@@ -234,26 +241,40 @@ def authorize(ticket, inputs, issuance, prepared, *, now, api=live.github_get, c
     policy, repositories, expected, fresh_inputs = prepared
     is_central = expected.get("repository") == BUILD or changes is not None
     if is_central:
-        local_auth_central.validate_policy(policy, now)
+        local_auth_central.validate_policy(policy, now, ticket if type(ticket) is dict else None)
     enforce_policy(policy, now)
+    if is_central:
+        try:
+            inputs_obj = verifier._parse_json(fresh_inputs.decode("utf-8"), verifier.MAX_INPUTS_BYTES)
+        except (AttributeError, UnicodeError, TypeError, verifier.TicketRejected) as exc:
+            raise verifier.TicketRejected(local_auth_central.BINDING_MISMATCH) from exc
+        plan = inputs_obj.get("plan") if type(inputs_obj) is dict else None
+        need(type(plan) is dict, local_auth_central.BINDING_MISMATCH)
+        extension = plan.get("extension")
+        candidate_id = plan.get("candidateId") or ""
+        central_changes = (
+            [{"filename": f"extensions/{extension}/extension.json", "status": "modified"}]
+            if changes is None else changes
+        )
+        registered = local_auth_central.registered_extensions(repositories)
+        local_auth_central.enforce_central_candidate(
+            policy=policy, now=now, repository=expected.get("repository"), extension=extension,
+            registered_extensions=registered, branch=plan.get("branch"),
+            expected_candidate_id=candidate_id, changes=central_changes)
     evidence = live.verify_live_binding(
         ticket, inputs, policy, repositories, now, issuance_policy=issuance, api=api)
     need(all(ticket.get(field) == value for field, value in expected.items())
          and inputs == fresh_inputs, "CANDIDATE_BINDING_MISMATCH")
     if is_central:
-        inputs_obj = verifier._parse_json(fresh_inputs.decode("utf-8"), verifier.MAX_INPUTS_BYTES)
-        plan = inputs_obj["plan"]
-        extension = plan["extension"]
-        if changes is None:
-            changes = [{"filename": f"extensions/{extension}/extension.json", "status": "modified"}]
+        auth_binding = {"ticket": ticket, "inputs_obj": inputs_obj, "live_evidence": evidence,
+                        # prepare verified this consumer Run against protected main.
+                        "consumer_run_id": inputs_obj.get("consumerRunId")}
         central_evidence = local_auth_central.enforce_central_candidate(
             policy=policy, now=now, repository=ticket["repository"], extension=extension,
-            registered_extensions=local_auth_central.registered_extensions(repositories),
-            branch=plan["branch"], expected_candidate_id=plan["candidateId"], changes=changes,
-            auth_binding={"ticket": ticket, "inputs_obj": inputs_obj, "live_evidence": evidence,
-                          # prepare verified this consumer Run against protected main.
-                          "consumer_run_id": inputs_obj.get("consumerRunId")})
-        return dict(evidence, status="AUTHORIZED_CANDIDATE", authorized=True, centralEvidence=central_evidence)
+            registered_extensions=registered, branch=plan["branch"], expected_candidate_id=candidate_id,
+            changes=central_changes, auth_binding=auth_binding, require_binding=True)
+        return dict(evidence, status="AUTHORIZED_CANDIDATE", authorized=True,
+                    centralEvidence=central_evidence, centralBinding=auth_binding)
     return dict(evidence, status="AUTHORIZED_CANDIDATE", authorized=True)
 
 

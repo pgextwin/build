@@ -126,11 +126,15 @@ class FleetCandidate(TestCase):
 
     def test_tc14_central_plan_and_created_origin_agree_with_local_auth(self):
         with patch.object(direct, "execution_mode", return_value="ENFORCE"), \
-                patch.object(direct.local_auth_central, "load_policy", return_value=AUTHORITY_POLICY), \
-                patch.object(direct.candidate.local_auth_central, "load_policy", return_value=AUTHORITY_POLICY):
+                patch.object(direct.local_auth_central, "load_policy", return_value=AUTHORITY_POLICY):
             self.exercise_plan_to_proposal(direct.receipt.BUILD)
 
-    def exercise_plan_to_proposal(self, target_repository):
+    def test_tc16_unsigned_successor_stops_before_writes_and_authorization_evidence(self):
+        with patch.object(direct, "execution_mode", return_value="ENFORCE"), \
+                patch.object(direct.local_auth_central, "load_policy", return_value=AUTHORITY_POLICY):
+            self.exercise_plan_to_proposal(direct.receipt.BUILD, closed_predecessor=True)
+
+    def exercise_plan_to_proposal(self, target_repository, *, closed_predecessor=False):
         report, context = fixture()
         repo_name = target_repository or REPO
         base_sha = BUILD_SHA if target_repository else TARGET_SHA
@@ -142,14 +146,18 @@ class FleetCandidate(TestCase):
         blob = "a" * 40
         body = ""
 
+        def closed_pr_marker():
+            return f"<!-- pgextwin-candidate:v1:{plan['candidateId']} -->"
+
         def fetch_with_pr(url):
             if url == direct.receipt.HOST + repo_name:
                 return {"full_name": repo_name, "id": repo_id}
             if url.endswith("/pulls/123"):
                 repo = {"full_name": repo_name, "id": repo_id}
-                return {"number": 123, "state": "open", "merged": False,
+                return {"number": 123, "state": "closed" if closed_predecessor else "open", "merged": False,
                         "user": {"login": WRITER[0], "id": WRITER[1], "type": "Bot"},
-                        "body": body, "head": {"ref": plan["branch"], "sha": branch_head, "repo": repo},
+                        "body": closed_pr_marker() if closed_predecessor else body,
+                        "head": {"ref": plan["branch"], "sha": branch_head, "repo": repo},
                         "base": {"ref": "main", "sha": base_sha, "repo": repo}}
             return fetch(url)
 
@@ -165,6 +173,12 @@ class FleetCandidate(TestCase):
             if args == ("git", "diff", "--name-status", "-z", "-M", "-C", "HEAD~1", "HEAD"):
                 self.assertIsNotNone(target_repository)
                 return f"M\0{manifest_path}\0"
+            if closed_predecessor and args[:3] == ("gh", "pr", "list") and plan["branch"] in args:
+                return json.dumps([{"number": 123, "state": "CLOSED", "body": closed_pr_marker(),
+                                    "url": f"https://github.com/{repo_name}/pull/123", "headRefOid": branch_head,
+                                    "headRefName": plan["branch"], "baseRefName": "main", "isCrossRepository": False}])
+            if args == ("gh", "api", f"repos/{repo_name}/pulls/123"):
+                return json.dumps(fetch_with_pr(direct.receipt.HOST + repo_name + "/pulls/123"))
             if args[:3] in (("gh", "pr", "list"), ("gh", "run", "list")):
                 return "[]"
             if args[:3] == ("gh", "pr", "create"):
@@ -204,7 +218,18 @@ class FleetCandidate(TestCase):
                     if target_repository:
                         evidence_path = Path(tmp) / "authorization.json"
                         proposal_paths["auth_evidence_path"] = evidence_path
-                        ticket, inputs, issuance = {"ticket": "fixture"}, prepared[3], {"receipt": "fixture"}
+                        inputs, issuance = prepared[3], {"receipt": "fixture"}
+                        inputs_obj = json.loads(inputs)
+                        ticket = dict(prepared[2], requestId="d" * 32,
+                                      inputsSha256=hashlib.sha256(inputs).hexdigest())
+                        central_binding = {
+                            "ticket": ticket, "inputs_obj": inputs_obj, "consumer_run_id": 100,
+                            "live_evidence": {"authorized": False, "publication": False,
+                                              "requestId": ticket["requestId"],
+                                              "issuerRepository": direct.local_auth.live.ISSUER_REPOSITORY,
+                                              "issuerRunId": 120, "issuerRunAttempt": 1,
+                                              "claimCommitSha": "e" * 40, "ticketSha256": "f" * 64},
+                        }
                         central_evidence = {
                             "schemaVersion": 1, "status": "AUTHORIZED_CENTRAL_CANDIDATE",
                             "publication": False, "authorized": True,
@@ -214,7 +239,27 @@ class FleetCandidate(TestCase):
                         receive = stack.enter_context(patch.object(direct.issuance, "receive",
                                                                    return_value=(ticket, inputs, issuance)))
                         authorize = stack.enter_context(patch.object(
-                            direct.local_auth, "authorize", return_value={"centralEvidence": central_evidence}))
+                            direct.local_auth, "authorize",
+                            return_value={"centralEvidence": central_evidence, "centralBinding": central_binding}))
+                    if closed_predecessor:
+                        original_manifest = manifest.read_bytes()
+                        with self.assertRaisesRegex(direct.candidate.WatchError,
+                                                    "^RUN_CLAIM_CHANGE_BINDING_MISMATCH$"):
+                            direct.propose(report, context, REPO, plan, WRITER, fetch=fetch_with_pr,
+                                           origin_path=origin, decision_id=45, **proposal_paths)
+                        authorize.assert_called_once()
+                        successor = direct.candidate.regenerated_candidate_id(plan["candidateId"], 123)
+                        successor_branch = f"auto-candidate/pg_ivm/{successor}"
+                        self.assertTrue(any(call[:3] == ("gh", "pr", "list") and successor_branch in call
+                                            for call in commands))
+                        blocked_git = {"ls-remote", "checkout", "add", "commit", "push"}
+                        self.assertFalse(any((call[0] == "git" and call[1] in blocked_git)
+                                             or call[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")}
+                                             for call in commands), commands)
+                        self.assertEqual(manifest.read_bytes(), original_manifest)
+                        self.assertFalse(evidence_path.exists())
+                        self.assertFalse(origin.exists())
+                        return
                     direct.propose(report, context, REPO, plan, WRITER, fetch=fetch_with_pr,
                                    origin_path=origin, decision_id=45, **proposal_paths)
                     if target_repository:
@@ -302,16 +347,18 @@ class FleetCandidate(TestCase):
                          canonical({k: v for k, v in record.items() if k != "detectedAt"}))
         return prepared
 
-    def assert_central_preflight_denied(self, code, *, mode="ENFORCE",
+    def assert_central_preflight_denied(self, code, *, mode="ENFORCE", policy=AUTHORITY_POLICY, invalid_fleet=False,
                                         manifest_path="extensions/pg_ivm/extension.json", branch_extension="pg_ivm"):
         report, context = fixture()
+        if invalid_fleet:
+            context = (*context[:3], {})
         record = direct.candidate.plan(
             MANIFEST, None, direct.candidate.publication_policy.load_candidate_policy(ROOT),
             fetch=fetch, branch_style="central")
         record["branch"] = f"auto-candidate/{branch_extension}/{record['candidateId']}"
         with TemporaryDirectory() as tmp, \
                 patch.object(direct, "execution_mode", return_value=mode), \
-                patch.object(direct.local_auth_central, "load_policy", return_value=AUTHORITY_POLICY), \
+                patch.object(direct.local_auth_central, "load_policy", return_value=policy), \
                 patch.object(direct.issuance, "receive") as receive, \
                 patch.object(direct.local_auth, "prepare") as prepare, \
                 patch.object(direct.candidate, "propose_candidate") as write, \
@@ -343,6 +390,10 @@ class FleetCandidate(TestCase):
 
     def test_pr_b4_central_enforcement_unsupported_mode(self):
         self.assert_central_preflight_denied("MODE_NOT_IMPLEMENTED", mode="OBSERVE")
+
+    def test_tc16_revoked_epoch_precedes_invalid_fleet(self):
+        revoked = dict(AUTHORITY_POLICY, revokedPolicyEpochs=[AUTHORITY_POLICY["policyEpoch"]])
+        self.assert_central_preflight_denied("EPOCH_REVOKED", policy=revoked, invalid_fleet=True)
 
     def test_workflow_passes_environment_app_key_through_both_calls(self):
         workflow_dir = ROOT / ".github/workflows"

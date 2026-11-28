@@ -514,6 +514,7 @@ class CentralCandidateBindingTests(unittest.TestCase):
         self.sources = [{"major": 17, "ref": "v1.18", "version": "1.18", "commit": self.upstream_sha,
                          "licenses": [dict(self.license_mapping, sha256=hashlib.sha256(self.license_bytes).hexdigest())]}]
         self.run_id = 100
+        self.consumer_run_status = "in_progress"
         self.calls = []
         self.enterContext(patch.object(authority.candidate, "execute", return_value=self.sha))
         self.matrix = self.enterContext(patch.object(authority, "build_matrix", return_value=(
@@ -538,7 +539,7 @@ class CentralCandidateBindingTests(unittest.TestCase):
         if url == f"{api}{authority.BUILD}/actions/runs/{self.run_id}":
             identity = {"full_name": authority.BUILD}
             return {"id": self.run_id, "head_sha": self.sha, "head_branch": "main", "event": "schedule",
-                    "path": authority.WATCH_WORKFLOW, "run_attempt": 1, "status": "in_progress",
+                    "path": authority.WATCH_WORKFLOW, "run_attempt": 1, "status": self.consumer_run_status,
                     "repository": identity, "head_repository": identity}
         upstream = api + self.config["upstream"]["repository"]
         if url == upstream + "/releases?per_page=100":
@@ -598,6 +599,11 @@ class CentralCandidateBindingTests(unittest.TestCase):
         self.assertEqual(result["status"], "AUTHORIZED_CANDIDATE")
         self.assertIs(result["authorized"], True)
         self.assertIs(result["publication"], False)
+        binding = result["centralBinding"]
+        self.assertIs(binding["ticket"], self.ticket)
+        self.assertEqual(binding["inputs_obj"], inputs)
+        self.assertEqual(binding["consumer_run_id"], self.run_id)
+        self.assertIs(binding["live_evidence"]["authorized"], False)
         central = result["centralEvidence"]
         self.assertEqual(central, {
             "schemaVersion": 1, "status": "AUTHORIZED_CENTRAL_CANDIDATE", "authorized": True,
@@ -623,6 +629,33 @@ class CentralCandidateBindingTests(unittest.TestCase):
         for extension in (None, "COM1", "../pg_ivm"):
             self.rejected("INVALID_CENTRAL_EXTENSION", lambda: authority.prepare(
                 authority.BUILD, self.sha, self.run_id, fetch=self.fetch, now=self.now, extension=extension))
+
+    def test_tc15_prepare_p7_precedes_invalid_consumer_run(self):
+        self.consumer_run_status = "completed"
+        consumer_run_url = f"{authority.API}{authority.BUILD}/actions/runs/{self.run_id}"
+        self.rejected("PATH_CLASS_P7_DENIED", lambda: self.prepare(changes=[
+            {"filename": "README.md", "status": "modified"}]))
+        self.assertEqual(self.calls.count(consumer_run_url), 0)
+        self.matrix.assert_not_called()
+
+    def test_tc15_authorize_epoch_then_p7_precede_tampered_claim_ref(self):
+        prepared = self.prepare()
+        self.sign(prepared[2], prepared[3])
+        changes = [{"filename": "README.md", "status": "modified"}]
+        revoked = (dict(self.policy, policyEpoch=2, revokedPolicyEpochs=[1]), *prepared[1:])
+        with patch.dict(self.facts["claimRef"]["object"], {"sha": "f" * 40}):
+            self.rejected("PATH_CLASS_P7_DENIED", lambda: self.authorize(prepared, changes=changes))
+            self.rejected("EPOCH_REVOKED", lambda: self.authorize(revoked, changes=changes))
+        self.fetch_live.assert_not_called()
+
+    def test_tc15_authorize_missing_prepared_plan_rejects_before_live_fetch(self):
+        prepared = self.prepare()
+        inputs = json.loads(prepared[3])
+        del inputs["plan"]
+        raw = authority.verifier.canonical_json(inputs)
+        self.sign(prepared[2], raw)
+        self.rejected("RUN_CLAIM_CHANGE_BINDING_MISMATCH", lambda: self.authorize((*prepared[:3], raw)))
+        self.fetch_live.assert_not_called()
 
     def test_tc15_bad_epoch_claim_ref_or_issuer_run_is_rejected(self):
         prepared = self.prepare()
@@ -688,6 +721,7 @@ class CentralCandidateBindingTests(unittest.TestCase):
         self.sign(bindings, raw)
         result = self.authorize(prepared)
         self.assertNotIn("centralEvidence", result)
+        self.assertNotIn("centralBinding", result)
         self.assertEqual(result["status"], "AUTHORIZED_CANDIDATE")
 
 

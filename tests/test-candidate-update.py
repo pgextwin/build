@@ -3,6 +3,7 @@ import base64
 from contextlib import chdir
 import copy
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import tempfile
@@ -30,10 +31,26 @@ LOCAL_REPO = "pgextwin/plpgsql_check"
 CENTRAL_REPO = "pgextwin/build"
 CENTRAL_MANIFEST = Path("extensions/plpgsql_check/extension.json")
 CENTRAL_TIME = datetime(2026, 11, 28, tzinfo=timezone.utc)
+CENTRAL_AUTHORITY = c.local_auth_central.load_policy(ROOT)
 PR_HEAD = "b" * 40
 INVALID_FETCHED_HEADS = {"fetched-head-mismatch": "0" * 40, "fetched-head-malformed": "not-a-sha"}
 REGISTRY_RESPONSE = {"encoding": "base64", "content": base64.b64encode(
     (ROOT / "metadata/automation-fleet.json").read_bytes()).decode()}
+
+
+def central_auth_binding(record, *, policy=CENTRAL_AUTHORITY):
+    central = c.local_auth_central
+    run_id = 100
+    inputs = {"operation": "candidate", "repository": CENTRAL_REPO, "consumerRunId": run_id,
+              "centralScope": central.central_scope(record["extension"], record["branch"])}
+    ticket = {"operation": "candidate", "repository": CENTRAL_REPO, "requestId": "b" * 32,
+              "policyEpoch": policy["policyEpoch"], "issuerKeyId": policy["issuerKeyId"],
+              "inputsSha256": hashlib.sha256(central.canonical_json(inputs)).hexdigest()}
+    live = {"authorized": False, "publication": False, "requestId": ticket["requestId"],
+            "issuerRepository": central.live_verifier.ISSUER_REPOSITORY, "issuerRunId": 120,
+            "issuerRunAttempt": 1, "claimCommitSha": "c" * 40, "ticketSha256": "d" * 64}
+    return {"ticket": ticket, "inputs_obj": inputs, "live_evidence": live, "consumer_run_id": run_id}
+
 
 def fixture(url):
     if url.endswith("/releases?per_page=100"):
@@ -243,7 +260,7 @@ def exercise_upstream_and_pr_lookup_outages():
                     if writer is None:
                         return c.propose(record, str(manifest), repo, str(watch))
                     return c.propose_candidate(record, str(manifest), repo, str(watch), writer=writer,
-                                               fetch=fetch, now=CENTRAL_TIME)
+                                               fetch=fetch, now=CENTRAL_TIME, auth_binding=central_auth_binding(record))
 
                 with patch.dict(os.environ, {"GITHUB_REPOSITORY": repo, "GITHUB_REF": "refs/heads/main",
                                             "GH_TOKEN": "fixture", "RUNNER_TEMP": temp}), \
@@ -348,7 +365,7 @@ def exercise_writer_identity_normalization():
                 def task():
                     return c.propose_candidate(record, str(manifest), CENTRAL_REPO, str(watch),
                                                writer=APP_WRITER, fetch=lambda url: REGISTRY_RESPONSE,
-                                               now=CENTRAL_TIME)
+                                               now=CENTRAL_TIME, auth_binding=central_auth_binding(record))
 
                 if name in INVALID_FETCHED_HEADS:
                     expect_fail(task, "fetched candidate branch head differs from candidate PR")
@@ -433,7 +450,7 @@ def exercise_central_proposal_guards():
 
         def task(candidate_record):
             return c.propose_candidate(candidate_record, str(manifest), CENTRAL_REPO, str(watch), fetch=fixture,
-                                       now=CENTRAL_TIME)
+                                       now=CENTRAL_TIME, auth_binding=central_auth_binding(record))
 
         with patch.object(c, "execute", execute), \
              patch.object(update_watch_lib, "github_get_json", return_value=REGISTRY_RESPONSE), \
@@ -560,9 +577,10 @@ def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
             calls.clear()
             current_branch = None
             manifest.write_bytes(original_manifest)
+            binding = {"auth_binding": central_auth_binding(record)} if style == "central" else {}
             c.propose_candidate(record, str(manifest), repository, str(watch), str(policy),
                                 writer=writer, fetch=lambda url: REGISTRY_RESPONSE,
-                                origin_body=origin, on_created=created, now=CENTRAL_TIME)
+                                origin_body=origin, on_created=created, now=CENTRAL_TIME, **binding)
 
         def assert_new_proposal(predecessor, branch):
             parsed = parse_branch(branch, expected_extension=EXT["name"])
@@ -630,35 +648,47 @@ def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
                 del prs[alternate]
                 dispatched.clear()
                 prs[base_branch]["state"] = "CLOSED"
+                successor_id = c.regenerated_candidate_id(record["candidateId"], prs[base_branch]["number"])
+                successor = format_branch(EXT["name"], successor_id, "central")
+                expect_fail(task, "RUN_CLAIM_CHANGE_BINDING_MISMATCH")
+                assert_scanned(base_branch, successor)
+                assert_no_writes_or_dispatch(calls)
+                assert all(args[0] == "gh" for args in calls), calls
+                assert manifest.read_bytes() == original_manifest
+                assert branches == set() and dispatched == set()
+                origin.assert_not_called()
+                created.assert_not_called()
+                print(f"TC-17 {predecessor_style} CLOSED unsigned successor rejected before writes: PASS")
 
-            task()
-            first, = branches
-            assert first != base_branch
-            assert_new_proposal(base_branch, first)
+            else:
+                task()
+                first, = branches
+                assert first != base_branch
+                assert_new_proposal(base_branch, first)
 
-            task()
-            assert_scanned(base_branch, first)
-            assert ("gh", "api", f"repos/{repository}/pulls/115") in calls
-            assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")} for args in calls)
-            assert not any(args[:2] == ("git", "push") for args in calls)
+                task()
+                assert_scanned(base_branch, first)
+                assert ("gh", "api", f"repos/{repository}/pulls/115") in calls
+                assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")} for args in calls)
+                assert not any(args[:2] == ("git", "push") for args in calls)
 
-            rest_users[115] = dict(actor, login="other-app[bot]")
-            expect_fail(task)
-            assert not any(args[0] == "git" or args[:3] == ("gh", "workflow", "run") for args in calls)
-            del rest_users[115]
+                rest_users[115] = dict(actor, login="other-app[bot]")
+                expect_fail(task)
+                assert not any(args[0] == "git" or args[:3] == ("gh", "workflow", "run") for args in calls)
+                del rest_users[115]
 
-            prs[first]["state"] = "CLOSED"
-            task()
-            second, = branches - {first}
-            assert second not in {base_branch, first}
-            assert_new_proposal(first, second)
-            assert dispatched == {first, second}
+                prs[first]["state"] = "CLOSED"
+                task()
+                second, = branches - {first}
+                assert second not in {base_branch, first}
+                assert_new_proposal(first, second)
+                assert dispatched == {first, second}
 
-            prs[second]["state"] = "MERGED"
-            task()
-            assert_scanned(base_branch, first, second)
-            assert all(args[:3] == ("gh", "pr", "list") or args[:2] == ("gh", "api") for args in calls)
-            assert origin.call_count == 2 and created.call_count == 2
+                prs[second]["state"] = "MERGED"
+                task()
+                assert_scanned(base_branch, first, second)
+                assert all(args[:3] == ("gh", "pr", "list") or args[:2] == ("gh", "api") for args in calls)
+                assert origin.call_count == 2 and created.call_count == 2
 
             # The base candidate still gets the same origin callback contract,
             # with its unchanged decision and no regeneration field.
@@ -708,8 +738,34 @@ def exercise_central_enforcement_before_write():
             expect_fail(lambda: c.propose_candidate(
                 decision, manifest_path, CENTRAL_REPO, "watch.json", writer=APP_WRITER,
                 fetch=lambda url: REGISTRY_RESPONSE, now=CENTRAL_TIME), code)
+        expect_fail(lambda: c.propose_candidate(
+            record, str(CENTRAL_MANIFEST), CENTRAL_REPO, "watch.json", writer=APP_WRITER,
+            fetch=lambda url: REGISTRY_RESPONSE, now=CENTRAL_TIME, auth_binding=None),
+            "RUN_CLAIM_CHANGE_BINDING_MISMATCH")
+        print("TC-17 missing writer binding rejected before writes: PASS")
+
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": CENTRAL_REPO, "GITHUB_REF": "refs/heads/main",
+                                     "GH_TOKEN": "fixture"}), \
+             patch.object(c, "datetime", wraps=datetime) as clock, \
+             patch.object(update_watch_lib, "github_get_json", return_value=REGISTRY_RESPONSE):
+            clock.now.return_value = CENTRAL_TIME
+            expect_fail(lambda: c.propose(record, str(CENTRAL_MANIFEST), CENTRAL_REPO, "watch.json"),
+                        "RUN_CLAIM_CHANGE_BINDING_MISMATCH")
+        print("TC-17 direct central propose rejected before writes: PASS")
+
+        revoked_epoch = CENTRAL_AUTHORITY["policyEpoch"]
+        current_policy = dict(CENTRAL_AUTHORITY, policyEpoch=revoked_epoch + 1, revokedPolicyEpochs=[revoked_epoch])
+        fleet_fetch = Mock(side_effect=WatchError("fleet get_live outage"))
+        with patch.object(importlib.util, "spec_from_file_location", wraps=importlib.util.spec_from_file_location) as load:
+            expect_fail(lambda: c.propose_candidate(
+                record, str(CENTRAL_MANIFEST), CENTRAL_REPO, "watch.json", writer=APP_WRITER,
+                fetch=fleet_fetch, authority_policy=current_policy, now=CENTRAL_TIME,
+                auth_binding=central_auth_binding(record)), "EPOCH_REVOKED")
+        load.assert_not_called()
+        fleet_fetch.assert_not_called()
         execute.assert_not_called()
         assert not list(Path(temp).iterdir())
+        print("TC-17 revoked writer ticket takes precedence over fleet outage: PASS")
 
 
 def exercise_central_enforcement_diff(*, reuse):
@@ -767,7 +823,8 @@ def exercise_central_enforcement_diff(*, reuse):
             CENTRAL_MANIFEST.write_bytes(original)
             expect_fail(lambda: c.propose_candidate(
                 record, own, CENTRAL_REPO, "watch.json", writer=APP_WRITER,
-                fetch=lambda url: REGISTRY_RESPONSE, now=CENTRAL_TIME), code)
+                fetch=lambda url: REGISTRY_RESPONSE, now=CENTRAL_TIME,
+                auth_binding=central_auth_binding(record)), code)
             assert calls.count(diff) == 1 and calls[-1] == diff
             if reuse:
                 assert_no_writes_or_dispatch(calls)
