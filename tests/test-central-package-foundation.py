@@ -159,6 +159,118 @@ class ZipTests(unittest.TestCase):
                     Path(tmp) / "evil.zip",
                 )
 
+    def test_zip_ordinal_ignore_case_measured_pairs(self):
+        # SOL-B1-R3-04: the fold is the measured OrdinalIgnoreCase
+        # one, not str.upper(). The Greek ypogegrammeni letters fold
+        # to their single-character simple uppercase forms, so the
+        # U+1F80 / U+1F88 pairs collide exactly as the existing
+        # entrance judges them; U+0131 (dotless i) and U+017F (long
+        # s) do NOT fold to I / S under OrdinalIgnoreCase, so those
+        # pairs stay accepted; cased astral letters (Deseret) fold
+        # like any other cased character.
+        rejected = (
+            {"docs/\u1f80": b"x", "docs/\u1f88/b.txt": b"y"},
+            {"lib/\u1f80.dll": b"x", "lib/\u1f88.dll": b"y"},
+            {"docs/\u1fb3": b"x", "docs/\u1fbc/b.txt": b"y"},
+            {"docs/\U00010428": b"x", "docs/\U00010400/b.txt": b"y"},
+        )
+        accepted = (
+            {"docs/\u0131": b"x", "docs/I/b.txt": b"y"},
+            {"docs/\u017f": b"x", "docs/S/b.txt": b"y"},
+        )
+        with TemporaryDirectory() as tmp:
+            for entries in rejected:
+                with self.subTest(entries=sorted(entries)):
+                    with self.assertRaises(ValueError):
+                        package.write_deterministic_zip(
+                            entries, Path(tmp) / "evil.zip"
+                        )
+            for entries in accepted:
+                with self.subTest(entries=sorted(entries)):
+                    info = package.write_deterministic_zip(
+                        entries, Path(tmp) / "ok.zip"
+                    )
+                    self.assertEqual(info["fileName"], "ok.zip")
+
+    def test_zip_fold_matches_powershell_ordinal_ignore_case(self):
+        # SOL-B1-R3-04 differential check: the Python conflict
+        # predicate must agree with the reference implementation
+        # (PowerShell's [StringComparer]::OrdinalIgnoreCase, the
+        # comparison windows-package.ps1's destination check uses)
+        # on every candidate pair -- fold-group members, upper /
+        # lower neighbours, and the pairs the audits raised.
+        pwsh = shutil.which("pwsh")
+        if pwsh is None:
+            self.skipTest("PowerShell 7 host not available")
+        chars = set("ßẞKKıIſS")
+        for code, target in package._ORDINAL_IGNORE_CASE_OVERRIDES.items():
+            chars.add(chr(code))
+            chars.add(chr(target))
+        for code in range(0x1F00, 0x2000):
+            chars.add(chr(code))
+        for code in range(0x10400, 0x10450):
+            chars.add(chr(code))
+        by_fold = {}
+        for char in chars:
+            by_fold.setdefault(package._ordinal_ignore_case_key(char), set()).add(char)
+        pairs = set()
+
+        def conflict(a, b):
+            ka = package._ordinal_ignore_case_key(a)
+            kb = package._ordinal_ignore_case_key(b)
+            return ka == kb or ka.startswith(kb + "/") or kb.startswith(ka + "/")
+
+        for char in chars:
+            candidates = set(by_fold[package._ordinal_ignore_case_key(char)])
+            for form in (char.upper(), char.lower()):
+                if len(form) == 1:
+                    candidates.add(form)
+            candidates.add(char)
+            for other in candidates:
+                pairs.add((f"d/{char}", f"d/{other}"))
+                pairs.add((f"d/{char}", f"d/{other}/f.txt"))
+        pairs = sorted(pairs)
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "pairs.json").write_text(
+                json.dumps(pairs), encoding="utf-8"
+            )
+            script = tmp_path / "probe.ps1"
+            script.write_text(
+                "$pairs = [System.IO.File]::ReadAllText('"
+                + str(tmp_path / "pairs.json").replace("'", "''")
+                + "') | ConvertFrom-Json\n"
+                "$out = New-Object System.Collections.Generic.List[string]\n"
+                "foreach ($pair in $pairs) {\n"
+                "    $a = [string]$pair[0]; $b = [string]$pair[1]\n"
+                "    $c = [string]::Equals($a, $b, [System.StringComparison]::OrdinalIgnoreCase) -or\n"
+                "        $a.StartsWith(\"$b/\", [System.StringComparison]::OrdinalIgnoreCase) -or\n"
+                "        $b.StartsWith(\"$a/\", [System.StringComparison]::OrdinalIgnoreCase)\n"
+                "    $out.Add([int]$c)\n"
+                "}\n"
+                "[System.IO.File]::WriteAllLines('"
+                + str(tmp_path / "result.txt").replace("'", "''")
+                + "', $out)\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(script)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            reference = [
+                int(line)
+                for line in (tmp_path / "result.txt").read_text().split()
+            ]
+        self.assertEqual(len(reference), len(pairs))
+        mismatches = [
+            (a, b)
+            for (a, b), ref in zip(pairs, reference)
+            if conflict(a, b) != bool(ref)
+        ]
+        self.assertEqual(mismatches, [])
+
 
 class HandoffChainTests(unittest.TestCase):
     def make_chain(self, tmp, tamper_stage=None):
@@ -608,13 +720,58 @@ class AdapterExecutionTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertTrue(run.called)
 
+    def test_pwsh_required_no_windows_powershell_fallback(self):
+        # SOL-B1-R3-02: the common entry requires PowerShell 7.
+        # Windows PowerShell 5.1 decodes BOM-less sources with the
+        # legacy ANSI code page, so under 5.1 the executed text
+        # would differ from the text the static scan inspected; the
+        # entry fails closed instead of falling back to it.
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            script = ext / "tests" / "plain.ps1"
+            script.write_text("Write-Host 'x'\n", encoding="utf-8")
+            with mock.patch.object(package.shutil, "which", return_value=None):
+                with self.assertRaises(RuntimeError):
+                    package.run_adapter_script(script, extension_root=ext)
+            with mock.patch.object(
+                package.shutil,
+                "which",
+                side_effect=lambda name: (
+                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+                    if name == "powershell"
+                    else None
+                ),
+            ):
+                with self.assertRaises(RuntimeError):
+                    package.run_adapter_script(script, extension_root=ext)
+
+    def test_entry_rejects_double_bom_and_nul_scripts(self):
+        # SOL-B1-R3-03: the byte forms under which the host reports
+        # an error yet exits 0 never reach the host through the
+        # common entry -- the encoding gate refuses them first.
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            for data in (
+                b"\xef\xbb\xbf\xef\xbb\xbfWrite-Host 'x'\n",
+                b"# comment\x00\nWrite-Host 'x'\n",
+            ):
+                script = ext / "tests" / "bad.ps1"
+                script.write_bytes(data)
+                with self.subTest(data=data[:8]):
+                    with self.assertRaises(ValueError):
+                        package.run_adapter_script(
+                            script,
+                            extension_root=ext,
+                            executable=sys.executable,
+                        )
+
     def test_utf16_bom_script_executes_under_real_powershell(self):
         # The permitted form really executes: a substantive UTF-16
         # (BOM) script runs under the PowerShell host through the
         # common entry and produces its output.
-        pwsh = shutil.which("pwsh") or shutil.which("powershell")
+        pwsh = shutil.which("pwsh")
         if pwsh is None:
-            self.skipTest("PowerShell host not available")
+            self.skipTest("PowerShell 7 host not available")
         with TemporaryDirectory() as tmp:
             ext = self.make_tree(Path(tmp))
             script = ext / "tests" / "bom.ps1"

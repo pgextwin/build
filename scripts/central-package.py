@@ -82,23 +82,67 @@ def verify_pinned_commit(declared_commit, actual_commit):
         )
 
 
+# The OrdinalIgnoreCase fold, measured against the reference
+# implementation (PowerShell 7.4.16, [StringComparer]::OrdinalIgnoreCase)
+# over the whole Unicode range -- the Basic Multilingual Plane
+# exhaustively, and every cased astral character (Deseret, Osage,
+# and the other cased astral blocks, whose simple case mappings
+# Python and .NET agree on exactly): two characters collide under
+# OrdinalIgnoreCase exactly when they belong to one measured
+# equivalence class. Python's str.upper() reproduces those classes
+# except at the code points below (SOL-B1-R3-04):
+#   * U+0131 (LATIN SMALL LETTER DOTLESS I) and U+017F (LATIN SMALL
+#     LETTER LONG S): str.upper() folds them to I / S, but
+#     OrdinalIgnoreCase keeps them distinct, so the fold must not
+#     map them at all.
+#   * The Greek ypogegrammeni letters (U+1F80..U+1F87, U+1F90..
+#     U+1F97, U+1FA0..U+1FA7, U+1FB3, U+1FC3, U+1FF3): their full
+#     uppercase mapping expands to two characters, so a length-based
+#     str.upper() rule keeps them unfolded, while OrdinalIgnoreCase
+#     maps them to their single-character simple uppercase forms
+#     (U+1F88.., U+1FBC, U+1FCC, U+1FFC).
+# With these overrides the fold's equality classes match the
+# measured OrdinalIgnoreCase classes on every BMP code point.
+_ORDINAL_IGNORE_CASE_OVERRIDES = {
+    0x0131: 0x0131,
+    0x017F: 0x017F,
+    0x1F80: 0x1F88, 0x1F81: 0x1F89, 0x1F82: 0x1F8A, 0x1F83: 0x1F8B,
+    0x1F84: 0x1F8C, 0x1F85: 0x1F8D, 0x1F86: 0x1F8E, 0x1F87: 0x1F8F,
+    0x1F90: 0x1F98, 0x1F91: 0x1F99, 0x1F92: 0x1F9A, 0x1F93: 0x1F9B,
+    0x1F94: 0x1F9C, 0x1F95: 0x1F9D, 0x1F96: 0x1F9E, 0x1F97: 0x1F9F,
+    0x1FA0: 0x1FA8, 0x1FA1: 0x1FA9, 0x1FA2: 0x1FAA, 0x1FA3: 0x1FAB,
+    0x1FA4: 0x1FAC, 0x1FA5: 0x1FAD, 0x1FA6: 0x1FAE, 0x1FA7: 0x1FAF,
+    0x1FB3: 0x1FBC, 0x1FC3: 0x1FCC, 0x1FF3: 0x1FFC,
+}
+
+
 def _ordinal_ignore_case_key(name):
     """Fold a ZIP entry name the way windows-package.ps1 compares it.
 
     Resolve-WindowsPackage compares install destinations with
-    [StringComparison]::OrdinalIgnoreCase: a simple per-character
-    case mapping, under which a character whose uppercase form is
-    not a single character (ß, whose full mapping is "SS") keeps its
-    original form. str.casefold() applies the full Unicode mapping
-    and expands ß to "ss", which made this entrance reject pairs
-    the existing contract accepts (docs/straße next to
-    docs/STRASSE/a.txt, SOL-B1-R2-N1). The packaging contract is
-    the existing one, so the fold here matches it exactly: ß stays
-    ß, and ASCII case variants still fold together.
+    [StringComparison]::OrdinalIgnoreCase. That comparison is a
+    per-character simple case mapping: a character whose full
+    uppercase mapping is not a single character (ß, whose full
+    mapping is "SS") keeps its original form. str.casefold()
+    applies the full Unicode mapping and expands ß to "ss", which
+    made this entrance reject pairs the existing contract accepts
+    (docs/straße next to docs/STRASSE/a.txt, SOL-B1-R2-N1); a plain
+    str.upper() fold diverges from the measured OrdinalIgnoreCase
+    classes at the code points in _ORDINAL_IGNORE_CASE_OVERRIDES
+    (SOL-B1-R3-04). The fold here is the measured one: ß stays ß,
+    ASCII case variants fold together, and the Greek ypogegrammeni
+    letters fold to their simple uppercase forms exactly as the
+    reference implementation does.
     """
-    return "".join(
-        char.upper() if len(char.upper()) == 1 else char for char in name
-    )
+    folded = []
+    for char in name:
+        override = _ORDINAL_IGNORE_CASE_OVERRIDES.get(ord(char))
+        if override is not None:
+            folded.append(chr(override))
+            continue
+        upper = char.upper()
+        folded.append(upper if len(upper) == 1 else char)
+    return "".join(folded)
 
 
 def write_deterministic_zip(entries, out_path):
@@ -459,31 +503,47 @@ ADAPTER_SCRIPT_SUFFIXES = (".ps1", ".psm1")
 
 
 def decode_powershell_script(data):
-    """Decode a PowerShell script exactly as the PowerShell host does.
+    """Decode a PowerShell script exactly as the supported host does.
 
     This is the same encoding contract the static scan enforces in
-    central-extension.py (decode_powershell_script there): the host
-    selects the encoding from the byte-order mark (UTF-8, UTF-16
-    LE/BE, UTF-32 LE/BE) and reads BOM-less files as UTF-8
-    (PowerShell 7). BOM-less bytes that are not valid UTF-8 are
-    outside the contract -- Windows PowerShell 5.1 would read them
-    as the legacy ANSI code page, so the executed text would differ
-    from the inspected text -- and raise ValueError.
+    central-extension.py (decode_powershell_script there): the
+    supported host is PowerShell 7, which selects the encoding from
+    the byte-order mark (UTF-8, UTF-16 LE/BE, UTF-32 LE/BE) and
+    reads BOM-less files as UTF-8. Outside the contract, raising
+    ValueError: BOM-less bytes that are not valid UTF-8 (Windows
+    PowerShell 5.1 would read them as the legacy ANSI code page,
+    so the executed text would differ from the inspected text --
+    and 5.1 is not a supported host at this entry at all,
+    SOL-B1-R3-02), a doubled byte-order mark, and an embedded NUL
+    character (SOL-B1-R3-03).
     """
     try:
         if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
-            return data.decode("utf-32")
-        if data.startswith(b"\xef\xbb\xbf"):
-            return data.decode("utf-8-sig")
-        if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-            return data.decode("utf-16")
-        return data.decode("utf-8")
+            text = data.decode("utf-32")
+        elif data.startswith(b"\xef\xbb\xbf"):
+            text = data.decode("utf-8-sig")
+        elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
+            text = data.decode("utf-16")
+        else:
+            text = data.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ValueError(
             "script encoding is outside the supported contract "
             "(UTF-8, or UTF-16/UTF-32 with a byte-order mark): "
             f"{error}"
         ) from None
+    if text.startswith("\ufeff"):
+        raise ValueError(
+            "script carries more than one byte-order mark; the "
+            "residual U+FEFF is not part of the executed text the "
+            "scan inspects."
+        )
+    if "\x00" in text:
+        raise ValueError(
+            "script contains an embedded NUL character, which the "
+            "host does not execute as inspected text."
+        )
+    return text
 
 
 def assert_adapter_script_encoding(script_path):
@@ -494,7 +554,11 @@ def assert_adapter_script_encoding(script_path):
     decode_powershell_script, and this gate applies the same
     decoding to the resolved script before the host is invoked, so
     a script the scan cannot interpret the way the host does never
-    executes through the common entry.
+    executes through the common entry. The shared decoding also
+    refuses a doubled byte-order mark and an embedded NUL, the two
+    byte forms under which the host reports an error yet exits 0
+    (SOL-B1-R3-03): they never reach the host through this entry,
+    so that silent-success path is closed here.
     """
     decode_powershell_script(Path(script_path).read_bytes())
 
@@ -585,8 +649,15 @@ def run_adapter_script(script_path, script_args=(), *, extension_root,
     path -- so settings or credential files sitting in the caller's
     workspace, or in the parent account's home, are not part of the
     execution context. ``executable`` is a test seam for the
-    PowerShell executable; by default pwsh / powershell is resolved
-    from PATH and invoked with -NoProfile -File.
+    PowerShell executable; by default pwsh (PowerShell 7) is resolved
+    from PATH and invoked with -NoProfile -File. PowerShell 7 is
+    required: Windows PowerShell 5.1 reads BOM-less sources with the
+    legacy ANSI code page, so under 5.1 the executed text of a
+    BOM-less UTF-8 script differs from the text the static scan
+    inspected, and the entry fails closed instead of falling back
+    (SOL-B1-R3-02). The supported CI hosts (GitHub windows-latest
+    and ubuntu-latest runners) ship pwsh, so the requirement does
+    not change any existing execution path.
     """
     _kind, resolved_script, resolved_root = adapter_script_kind(
         script_path, extension_root
@@ -595,9 +666,14 @@ def run_adapter_script(script_path, script_args=(), *, extension_root,
     env = build_adapter_environment(
         dict(os.environ) if base_env is None else base_env, extra_values
     )
-    exe = executable or shutil.which("pwsh") or shutil.which("powershell")
+    exe = executable or shutil.which("pwsh")
     if exe is None:
-        raise RuntimeError("No PowerShell executable (pwsh / powershell) is available.")
+        raise RuntimeError(
+            "No PowerShell 7 executable (pwsh) is available; the common "
+            "entry does not fall back to Windows PowerShell 5.1, whose "
+            "ANSI decoding of BOM-less sources would execute text the "
+            "static scan did not inspect."
+        )
     if executable is None:
         argv = [exe, "-NoProfile", "-File", str(resolved_script), *script_args]
     else:

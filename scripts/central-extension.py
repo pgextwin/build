@@ -16,8 +16,10 @@ Central form (F1 DESIGN chapter 1):
     (no duplicate ``source-lock.json`` is created).
 
 The tree validator rejects the N-01..N-18 non-carry-in asset classes,
-empty directories / files, and any signing / Publisher / authorization
-material inside the adapter area (DESIGN 1.3 permission boundary).
+empty directories / files, path components Windows cannot carry
+(trailing spaces / dots, reserved device names, invalid characters),
+and any signing / Publisher / authorization material inside the
+adapter area (DESIGN 1.3 permission boundary).
 """
 
 import argparse
@@ -101,6 +103,34 @@ def _carry_in_class(rel):
     # operational document (N-18).
     if lower.endswith(".md") and rel != "README.md":
         return "N-18"
+    return None
+
+
+# Windows file-name rules (SOL-B1-R3-01): a central tree is checked
+# out and built on Windows, so every path component -- the extension
+# root name included -- must be a name Windows can carry as-is. A
+# trailing space or dot is stripped by Windows (two distinct Linux
+# names become one Windows name), the reserved device names are
+# unavailable with any extension, and the Win32-invalid characters
+# cannot appear at all. The reserved-name set mirrors
+# Assert-PackagePath in scripts/windows-package.ps1.
+WINDOWS_RESERVED_SEGMENT = re.compile(
+    r"^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]|CONIN\$|CONOUT\$)(?:\.|$)",
+    re.IGNORECASE,
+)
+WINDOWS_INVALID_NAME_CHARS = re.compile(r'[<>:"\\|?*\x00-\x1f]')
+
+
+def windows_name_error(component):
+    """Why a single path component is unusable on Windows, or None."""
+    if not component:
+        return "the component is empty"
+    if WINDOWS_INVALID_NAME_CHARS.search(component):
+        return "it carries characters a Windows file name cannot hold"
+    if component.endswith((" ", ".")):
+        return "it ends in a space or dot, which Windows strips"
+    if WINDOWS_RESERVED_SEGMENT.match(component):
+        return "it is a reserved Windows device name"
     return None
 
 
@@ -224,6 +254,11 @@ def validate_declaration(declaration, expected_name=None, validator=None):
     name = declaration["name"]
     if expected_name is not None and name != expected_name:
         errors.append(f"name '{name}' does not match directory '{expected_name}'.")
+    name_reason = windows_name_error(name)
+    if name_reason:
+        errors.append(
+            f"name '{name}' cannot be used as a Windows directory name: {name_reason}."
+        )
 
     schema_version = declaration["schemaVersion"]
     if (
@@ -298,40 +333,59 @@ def validate_declaration(declaration, expected_name=None, validator=None):
 
 
 def decode_powershell_script(data):
-    """Decode a PowerShell script exactly as the PowerShell host does.
+    """Decode a PowerShell script exactly as the supported host does.
 
-    The host (Windows PowerShell 5.1 and PowerShell 7 alike) selects
-    the script encoding from its byte-order mark -- UTF-8, UTF-16
-    LE/BE, or UTF-32 LE/BE when a BOM is present -- and reads BOM-less
-    files as UTF-8 (PowerShell 7). The static scan and the N-15
-    substance judgement use this one decoding, so the inspected text
-    is the executed text: a UTF-16 (BOM) script can no longer slip
-    Publisher / credential material past the scan as
-    replacement-decoded garbage, and a BOM cannot make a
-    comment-only script look substantive (SOL-B1-R2-02). The common
-    execution entry in central-package.py enforces the same contract
-    before anything runs.
+    The supported host is PowerShell 7 (pwsh): the common execution
+    entry in central-package.py requires it and never falls back to
+    Windows PowerShell 5.1, which reads BOM-less sources with the
+    legacy ANSI code page and would execute text the static scan did
+    not inspect (SOL-B1-R3-02). PowerShell 7 selects the script
+    encoding from its byte-order mark -- UTF-8, UTF-16 LE/BE, or
+    UTF-32 LE/BE when a BOM is present -- and reads BOM-less files
+    as UTF-8. The static scan and the N-15 substance judgement use
+    this one decoding, so the inspected text is the executed text:
+    a UTF-16 (BOM) script can no longer slip Publisher / credential
+    material past the scan as replacement-decoded garbage, and a
+    BOM cannot make a comment-only script look substantive
+    (SOL-B1-R2-02).
 
-    BOM-less bytes that are not valid UTF-8 are outside the
-    contract: Windows PowerShell 5.1 would read them as the legacy
-    ANSI code page while PowerShell 7 reads UTF-8, so no single
-    inspected text corresponds to the executed text. They raise
-    ValueError here and are refused at the execution entry too.
+    Three byte forms are outside the contract and raise ValueError
+    here (and are refused at the execution entry too): BOM-less
+    bytes that are not valid UTF-8 (no single inspected text
+    corresponds to the executed text), a doubled byte-order mark
+    (a second BOM survives decoding as a U+FEFF character the host
+    does not treat as a signature), and an embedded NUL character
+    (the host reports an error yet exits 0, so a substance or
+    privilege judgement on such bytes is meaningless) -- the last
+    two are SOL-B1-R3-03.
     """
     try:
         if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
-            return data.decode("utf-32")
-        if data.startswith(b"\xef\xbb\xbf"):
-            return data.decode("utf-8-sig")
-        if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-            return data.decode("utf-16")
-        return data.decode("utf-8")
+            text = data.decode("utf-32")
+        elif data.startswith(b"\xef\xbb\xbf"):
+            text = data.decode("utf-8-sig")
+        elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
+            text = data.decode("utf-16")
+        else:
+            text = data.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ValueError(
             "script encoding is outside the supported contract "
             "(UTF-8, or UTF-16/UTF-32 with a byte-order mark): "
             f"{error}"
         ) from None
+    if text.startswith("\ufeff"):
+        raise ValueError(
+            "script carries more than one byte-order mark; the "
+            "residual U+FEFF is not part of the executed text the "
+            "scan inspects."
+        )
+    if "\x00" in text:
+        raise ValueError(
+            "script contains an embedded NUL character, which the "
+            "host does not execute as inspected text."
+        )
+    return text
 
 
 def _scan_adapter_text(text, rel, errors):
@@ -382,15 +436,56 @@ def _readme_effectively_empty(text):
     return True
 
 
+def _decode_json_text(data):
+    """Decode JSON bytes the way a BOM-aware JSON reader does.
+
+    A byte-order mark is a signature, not content: decoding must
+    honour it (UTF-8 / UTF-16 / UTF-32) instead of leaving U+FEFF
+    in front of the document, where it makes the parse fail and an
+    empty {} / [] slips past the N-15 judgement as "not JSON at
+    all" (SOL-B1-R3-03, Neon B1R5-O1).
+    """
+    if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        return data.decode("utf-32", errors="replace")
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", errors="replace")
+    return data.decode("utf-8-sig", errors="replace")
+
+
 def _json_effectively_empty(data):
     """True when bytes parse as JSON with no content ({} / [] / "" / null)."""
     try:
-        value = json.loads(data.decode("utf-8", errors="replace"))
+        value = json.loads(_decode_json_text(data).lstrip("\ufeff"))
     except json.JSONDecodeError:
         return False
     if isinstance(value, (dict, list, str)):
         return len(value) == 0
     return value is None
+
+
+def _declared_contract_format_error(data):
+    """Why declared test-contract bytes are an invalid contract, or None.
+
+    The declared contract is held to the existing Test Contract
+    loader's format (scripts/validate-test-contract.py): plain
+    UTF-8 with no byte-order mark, parsing as one JSON object. The
+    loader rejects a BOM-carrying contract outright (its UTF-8 read
+    keeps U+FEFF and the parse fails), so the central layout check
+    rejects the same bytes instead of accepting a contract the
+    existing entrance cannot read (SOL-B1-R3-03).
+    """
+    if data.startswith(b"\xef\xbb\xbf"):
+        return (
+            "it carries a UTF-8 byte-order mark; the Test Contract "
+            "loader reads plain UTF-8 and rejects it"
+        )
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return "it is not valid UTF-8 JSON"
+    if not isinstance(value, dict):
+        return "it is not a JSON object"
+    return None
 
 
 # Sentinel for "extension.json was not (successfully) parsed". A parsed
@@ -425,6 +520,12 @@ def validate_extension_dir(ext_dir, validator=None):
     if not NAME_RE.fullmatch(name):
         errors.append(f"extensions/{name}: invalid extension directory name.")
         return errors
+    name_reason = windows_name_error(name)
+    if name_reason:
+        errors.append(
+            f"extensions/{name}: the extension directory name cannot be "
+            f"used on Windows: {name_reason}."
+        )
     if ext_dir.is_symlink():
         errors.append(
             f"extensions/{name}: the extension root must not be a symbolic "
@@ -444,6 +545,20 @@ def validate_extension_dir(ext_dir, validator=None):
                 "inside an extension directory."
             )
             continue
+        # Every component of every path is itself an entry in this
+        # walk (each directory is yielded before its contents), so
+        # judging each entry's own name covers the whole path: a
+        # component Windows cannot carry (trailing dot / space,
+        # reserved device name, invalid characters) makes the whole
+        # tree unusable as the same structure on Windows
+        # (SOL-B1-R3-01).
+        component_reason = windows_name_error(_basename(rel))
+        if component_reason:
+            errors.append(
+                f"extensions/{name}/{rel}: path component "
+                f"'{_basename(rel)}' cannot be used on Windows: "
+                f"{component_reason}."
+            )
         folded_rel = rel.casefold()
         if folded_rel in seen_folded and seen_folded[folded_rel] != rel:
             errors.append(
@@ -620,6 +735,26 @@ def validate_extension_dir(ext_dir, validator=None):
                             f"extensions/{name}: declared tests.{key} file "
                             f"'{target_name}' is missing."
                         )
+                    elif key == "contract":
+                        # The declared contract must also be a
+                        # contract the existing Test Contract loader
+                        # can read: an asset that merely exists is
+                        # not a test contract (SOL-B1-R3-03).
+                        try:
+                            contract_data = target.read_bytes()
+                        except OSError as error:
+                            errors.append(
+                                f"extensions/{name}: cannot read declared "
+                                f"tests.contract file '{target_name}': {error}"
+                            )
+                            continue
+                        format_error = _declared_contract_format_error(contract_data)
+                        if format_error:
+                            errors.append(
+                                f"extensions/{name}: declared tests.contract "
+                                f"file '{target_name}' is not a valid test "
+                                f"contract: {format_error}."
+                            )
     return errors
 
 

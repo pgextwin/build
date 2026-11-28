@@ -782,6 +782,133 @@ class TreeValidationTests(unittest.TestCase):
         errors = self.errors_for(build)
         self.assertTrue(any("N-17" in e for e in errors), errors)
 
+    def test_windows_unusable_extension_names_rejected(self):
+        # SOL-B1-R3-01: a name Windows strips or reserves cannot be
+        # an extension root -- the audit's real-CLI reproductions
+        # (pg_permissions. and aux) both exited 0 before this check.
+        for bad_name in ("pg_permissions.", "aux"):
+            with self.subTest(name=bad_name):
+                def build(root, bad_name=bad_name):
+                    decl = convert("pg_permissions")
+                    decl["name"] = bad_name
+                    ext = root / "extensions" / bad_name
+                    ext.mkdir(parents=True)
+                    write_file(ext, "extension.json", json.dumps(decl, indent=2) + "\n")
+                    write_file(
+                        ext, "tests/test-contract.json",
+                        '{"version": 1, "checks": ["smoke"]}\n',
+                    )
+                    write_file(ext, "tests/smoke-test.ps1", "Write-Host 'smoke'\n")
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("cannot be used" in e and "Windows" in e for e in errors),
+                    (bad_name, errors),
+                )
+
+    def test_windows_unusable_path_components_rejected(self):
+        # SOL-B1-R3-01: the same Windows name rules bind every path
+        # component under the root -- reserved device names with any
+        # extension, trailing dots / spaces, invalid characters.
+        for rel in (
+            "tests/aux.txt",
+            "tests/COM1.txt",
+            "packaging/notes.",
+            "packaging/name /a.txt",
+            "tests/a<b.txt",
+        ):
+            with self.subTest(rel=rel):
+                def build(root, rel=rel):
+                    ext = valid_tree(root)
+                    write_file(ext, rel, "x\n")
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("cannot be used on Windows" in e for e in errors),
+                    (rel, errors),
+                )
+
+    def test_bom_coded_empty_json_assets_rejected(self):
+        # SOL-B1-R3-03 / Neon B1R5-O1: a byte-order mark is a
+        # signature, not content -- a BOM-coded empty {} / [] is
+        # still an empty asset under N-15, in UTF-8 and UTF-16 form.
+        cases = {
+            "declared contract": (
+                "tests/test-contract.json", b"\xef\xbb\xbf{}\n"
+            ),
+            "unreferenced sample": (
+                "tests/samples/example.json", b"\xef\xbb\xbf[]\n"
+            ),
+            "utf-16 sample": (
+                "tests/samples/example.json", "[]\n".encode("utf-16")
+            ),
+        }
+        for label, (rel, data) in cases.items():
+            with self.subTest(label=label):
+                def build(root, rel=rel, data=data):
+                    ext = valid_tree(root)
+                    write_file(ext, rel, data)
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("empty" in e for e in errors), (label, errors)
+                )
+
+    def test_bom_substantive_unreferenced_json_accepted(self):
+        # The BOM-aware N-15 judgement rejects emptiness, not the
+        # byte-order mark itself: a substantive BOM-coded sample
+        # asset keeps passing.
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "tests/samples/example.json", b'\xef\xbb\xbf{"a": 1}\n')
+        self.assertEqual(self.errors_for(build), [])
+
+    def test_declared_contract_format_rejected(self):
+        # SOL-B1-R3-03: the declared contract must be readable by
+        # the existing Test Contract loader (plain UTF-8, one JSON
+        # object) -- a merely existing file is not a test contract.
+        for content in ("not json {\n", '["x"]\n'):
+            with self.subTest(content=content.strip()):
+                def build(root, content=content):
+                    ext = valid_tree(root)
+                    write_file(ext, "tests/test-contract.json", content)
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("not a valid test contract" in e for e in errors),
+                    (content, errors),
+                )
+
+        def build_bom(root):
+            ext = valid_tree(root)
+            write_file(
+                ext,
+                "tests/test-contract.json",
+                b'\xef\xbb\xbf{"version": 1, "checks": ["smoke"]}\n',
+            )
+        errors = self.errors_for(build_bom)
+        self.assertTrue(
+            any("not a valid test contract" in e for e in errors), errors
+        )
+
+    def test_double_bom_and_nul_scripts_rejected(self):
+        # SOL-B1-R3-03 / Neon B1R5-O3: a doubled byte-order mark or
+        # an embedded NUL makes the host report an error yet exit 0,
+        # so both byte forms are outside the script contract for
+        # the adapter and the smoke test alike.
+        def build_double_bom(root):
+            valid_tree(
+                root,
+                "pg_bigm",
+                adapter_content=b"\xef\xbb\xbf\xef\xbb\xbf# c\nWrite-Host 'x'\n",
+            )
+        errors = self.errors_for(build_double_bom)
+        self.assertTrue(
+            any("more than one byte-order mark" in e for e in errors), errors
+        )
+
+        def build_nul(root):
+            ext = valid_tree(root)
+            write_file(ext, "tests/smoke-test.ps1", b"# comment\x00\nWrite-Host 'smoke'\n")
+        errors = self.errors_for(build_nul)
+        self.assertTrue(any("embedded NUL" in e for e in errors), errors)
+
 
 class CliTests(unittest.TestCase):
     def run_cli(self, *args):
