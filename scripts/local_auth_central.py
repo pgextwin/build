@@ -26,7 +26,7 @@ CHANGE_STATUSES = frozenset(GIT_STATUSES.values()) | {"unchanged"}
 PAIRED_STATUSES = frozenset({"renamed", "copied"})
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 P5_ROOTS = frozenset({"metadata"})
-P5_FILES = frozenset({"schema/local-candidate-authority.schema.json"})
+P5_FILES = frozenset({"schema/local-candidate-authority.schema.json", "schema/central-k3-admission-result.schema.json"})
 P5_WORKFLOWS = frozenset({
     "central-signed-main.yml",
     "central-extension-attested.yml",
