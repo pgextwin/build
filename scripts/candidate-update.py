@@ -775,6 +775,10 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
     if remote:
         execute("git", "fetch", "--no-tags", "origin", "refs/heads/" + branch + ":refs/remotes/origin/" + branch)
         remote_ref = "refs/remotes/origin/" + branch
+        if prs:
+            fetched_head = execute("git", "rev-parse", remote_ref)
+            if not HEX_SHA.fullmatch(fetched_head) or fetched_head != prs[0]["headRefOid"]:
+                raise WatchError("fetched candidate branch head differs from candidate PR")
         message = execute("git", "log", "-1", "--format=%B", remote_ref)
         if marker not in message:
             if style == "central" or writer is not None:
@@ -792,6 +796,8 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
     elif prs:
         raise WatchError("open candidate PR has no existing remote branch")
     else:
+        if lookup(candidate_id, marker)[1]:
+            raise WatchError("candidate PR appeared before creating its branch")
         execute("git", "checkout", "-b", branch)
         Path(proposal_file).write_text(json.dumps(proposal, indent=2) + "\n", encoding="utf-8")
         login, user_id = DEFAULT_LOCAL_WRITER if writer is None else writer
