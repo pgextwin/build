@@ -33,9 +33,12 @@ candidate = load_script("candidate-update")
 fleet = load_script("fleet-control")
 local_auth = load_script("local-auth-candidate")
 issuance = load_script("local-auth-issuance")
+local_auth_central = load_script("local_auth_central")
 
 
-def execution_mode():
+def execution_mode(*, central_policy=None):
+    if central_policy is not None:
+        return central_policy.get("mode")
     mode = candidate.read(ROOT / local_auth.AUTHORITY)["mode"]
     receipt.need(mode in ("DENY", "ENFORCE"), "unsupported local authorization mode")
     return mode
@@ -142,33 +145,55 @@ def checked_plan(report, context, repository, fetch=candidate.api, *,
 
 
 def propose(report, context, repository, record, writer, fetch=candidate.api, *,
-            origin_path, decision_id, target_repository=None, manifest_path=MANIFEST, watch_path=WATCH):
-    receipt.need(record.get("status") == "candidate", "a candidate decision is required")
+            origin_path, decision_id, target_repository=None, manifest_path=MANIFEST, watch_path=WATCH,
+            auth_evidence_path=None):
     effective_repo = target_repository or repository
+    central = effective_repo == receipt.BUILD
+    if central:
+        authority_policy = local_auth_central.load_policy(ROOT)
+        local_auth_central.need(type(authority_policy) is dict, "INVALID_POLICY")
+        local_auth_central.require_enforce_mode(execution_mode(central_policy=authority_policy))
+    receipt.need(record.get("status") == "candidate", "a candidate decision is required")
     manifest_path = str(manifest_path)
     watch_path = str(watch_path)
+    prepare_scope, authorize_scope = {}, {}
+    if central:
+        registered = local_auth_central.registered_extensions(fleet.validate(context[3]))
+        extension = repository.partition("/")[2]
+        planned_changes = [{"filename": manifest_path, "status": "modified"}]
+        local_auth_central.enforce_central_candidate(
+            policy=authority_policy, repository=effective_repo, extension=extension,
+            registered_extensions=registered, branch=record.get("branch"),
+            expected_candidate_id=record.get("candidateId"), changes=planned_changes)
     fresh = checked_plan(report, context, repository, fetch=fetch, target_repository=target_repository,
                          manifest_path=manifest_path, watch_path=watch_path)
     receipt.need({k: v for k, v in fresh.items() if k != "detectedAt"} ==
                  {k: v for k, v in record.items() if k != "detectedAt"},
                  "candidate plan changed before proposal")
+    if central:
+        prepare_scope = {"extension": fresh["extension"], "registered_extensions": registered,
+                         "changes": planned_changes}
+        authorize_scope = {"changes": planned_changes}
     _, branch, _, _ = context
     row, _ = target(report, context, repository)
-    base_sha = branch["commit"]["sha"] if effective_repo == receipt.BUILD else row["mainSha"]
-    if execution_mode() == "ENFORCE":
+    base_sha = branch["commit"]["sha"] if central else row["mainSha"]
+    if central or execution_mode() == "ENFORCE":
         run_id = int(os.environ["GITHUB_RUN_ID"])
         # Refuse stale policy and unsupported sources before any issuer dispatch.
-        prepared = local_auth.prepare(effective_repo, base_sha, run_id, fetch=fetch)
+        prepared = local_auth.prepare(effective_repo, base_sha, run_id, fetch=fetch, **prepare_scope)
         receipt.need(local_auth.verifier._parse_json(
             prepared[3].decode("utf-8"), local_auth.verifier.MAX_INPUTS_BYTES)["plan"] ==
             {k: v for k, v in fresh.items() if k != "detectedAt"},
             "candidate plan differs from the independently verified sources")
         ticket, inputs, receipt_policy = issuance.receive(
             effective_repo, base_sha, run_id, local_auth.verifier)
-        current = local_auth.prepare(effective_repo, base_sha, run_id, fetch=fetch)
+        current = local_auth.prepare(effective_repo, base_sha, run_id, fetch=fetch, **prepare_scope)
         receipt.need(current == prepared, "candidate authority or source inputs changed during issuance")
-        local_auth.authorize(ticket, inputs, receipt_policy, current,
-                             now=datetime.now(timezone.utc), api=issuance.get)
+        auth_evidence = local_auth.authorize(ticket, inputs, receipt_policy, current,
+                                            now=datetime.now(timezone.utc), api=issuance.get, **authorize_scope)
+        if auth_evidence_path is not None:
+            evidence = auth_evidence["centralEvidence"] if central else auth_evidence
+            Path(auth_evidence_path).write_bytes(local_auth.verifier.canonical_json(evidence))
     token = os.environ["PGEXTWIN_SCAN_READ_TOKEN"]
     receipt.need(receipt.api(receipt.HOST + receipt.BUILD + "/branches/main", token) == branch,
                  "central protected main changed before proposal")
@@ -253,6 +278,7 @@ def main():
     parser.add_argument("--record", type=Path)
     parser.add_argument("--decision-id", type=int)
     parser.add_argument("--origin", type=Path)
+    parser.add_argument("--auth-evidence", type=Path)
     args = parser.parse_args()
     if args.action != "select" and (not args.repository or args.record is None):
         parser.error("plan and propose require an enabled repository and decision file")
@@ -279,7 +305,7 @@ def main():
             emit("GITHUB_STEP_SUMMARY", f"`{args.repository}` candidate decision: {record['status']}")
         else:
             propose(report, context, args.repository, candidate.read(args.record), app_writer(), fetch=read_api,
-                    origin_path=args.origin, decision_id=args.decision_id)
+                    origin_path=args.origin, decision_id=args.decision_id, auth_evidence_path=args.auth_evidence)
         return 0
     except (candidate.WatchError, OSError, ValueError, KeyError, TypeError,
             local_auth.subprocess.SubprocessError) as exc:

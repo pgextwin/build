@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import copy
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
@@ -14,6 +15,7 @@ import sys
 from urllib.parse import quote
 
 import candidate_branch
+import local_auth_central
 from update_watch_lib import (
     WatchError, detect_extension_update, github_get_json, load_watch, natural_key,
     resolve_watch, utc_now, validate_watch_semantics,
@@ -698,19 +700,29 @@ def verify_created_regeneration(repository, url, writer, branch, ref, body):
 
 
 def propose_candidate(record, manifest_path, repository, watch_path, policy_path=None, *,
-                      writer=None, fetch=api, origin_body=None, on_created=None):
+                      writer=None, fetch=api, origin_body=None, on_created=None,
+                      authority_policy=None, now=None):
     """Apply a proposal after the local or central caller authenticates its context."""
-    config = read(manifest_path)
-    extension = config["name"]
-    try:
-        style = candidate_branch.branch_style_for_repository(repository, extension)
-        parsed = candidate_branch.parse_branch(record.get("branch"), expected_extension=extension)
-    except ValueError as exc:
-        raise WatchError("invalid immutable candidate branch") from exc
-    if parsed.style != style or parsed.candidate_id != record.get("candidateId"):
-        raise WatchError("invalid immutable candidate branch")
-    if style == "central" and record.get("firstRelease") is True:
-        raise WatchError("central repository does not accept first-release candidates")
+    if repository == candidate_branch.CENTRAL_REPOSITORY:
+        style = "central"
+        extension = record.get("extension")
+        manifest_path = str(manifest_path)
+        try:
+            if authority_policy is None:
+                authority_policy = local_auth_central.load_policy(BUILD_ROOT)
+            local_auth_central.validate_policy(authority_policy, datetime.now(timezone.utc) if now is None else now)
+        except local_auth_central.TicketRejected as exc:
+            raise WatchError(exc.code) from exc
+    else:
+        config = read(manifest_path)
+        extension = config["name"]
+        try:
+            style = candidate_branch.branch_style_for_repository(repository, extension)
+            parsed = candidate_branch.parse_branch(record.get("branch"), expected_extension=extension)
+        except ValueError as exc:
+            raise WatchError("invalid immutable candidate branch") from exc
+        if parsed.style != style or parsed.candidate_id != record.get("candidateId"):
+            raise WatchError("invalid immutable candidate branch")
     # Enforce the live central authority again immediately before any mutation.
     import importlib.util
     fleet_path = Path(__file__).with_name("fleet-control.py")
@@ -719,6 +731,38 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
     spec.loader.exec_module(fleet)
     policy = publication_policy.load_candidate_policy(BUILD_ROOT) if policy_path is None else read(policy_path)
     registry = fleet.get_live() if writer is None else fleet.get_live(lambda url, token: fetch(url))
+    if style == "central":
+        registered = local_auth_central.registered_extensions(fleet.validate(registry))
+
+        def enforce_scope(candidate_branch_name, candidate_id, changes, *, allow_legacy_reuse=False):
+            try:
+                local_auth_central.enforce_central_candidate(
+                    policy=authority_policy, now=now, repository=repository, extension=extension,
+                    registered_extensions=registered, branch=candidate_branch_name,
+                    expected_candidate_id=candidate_id, changes=changes,
+                    allow_legacy_reuse=allow_legacy_reuse)
+            except local_auth_central.TicketRejected as exc:
+                raise WatchError(exc.code) from exc
+
+        def check_diff(base, head, branch, candidate_id, *, allow_legacy_reuse=False):
+            try:
+                changes = local_auth_central.changes_from_name_status(
+                    execute("git", "diff", "--name-status", "-z", "-M", "-C", base, head))
+            except local_auth_central.TicketRejected as exc:
+                raise WatchError(exc.code) from exc
+            except UnicodeError as exc:
+                raise WatchError("MALFORMED_CHANGE") from exc
+            enforce_scope(branch, candidate_id, changes, allow_legacy_reuse=allow_legacy_reuse)
+
+        enforce_scope(record.get("branch"), record.get("candidateId"),
+                      [{"filename": manifest_path, "status": "modified"}])
+        parsed = candidate_branch.parse_branch(record["branch"], allow_legacy=False)
+        if parsed.candidate_id != record.get("candidateId"):
+            raise WatchError("BRANCH_CANDIDATE_ID_MISMATCH")
+        if record.get("firstRelease") is True:
+            raise WatchError("central repository does not accept first-release candidates")
+        config = read(manifest_path)
+
     allowed, mode = fleet.decide(registry, "pgextwin/" + extension, config,
                                  load_watch(config, watch_path), "candidate", policy)
     if not allowed:
@@ -786,12 +830,16 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
             repair_exact_bot_candidate_base_sync(
                 record, repository, proposal_file, proposal, marker, branch)
             return
+        if style == "central":
+            parsed_remote = candidate_branch.parse_branch(branch)
+            check_diff("HEAD", remote_ref, branch, candidate_id,
+                       allow_legacy_reuse=parsed_remote.style == "legacy")
         actual = json.loads(execute("git", "show", remote_ref + ":" + proposal_file))
         if actual != proposal:
             raise WatchError("existing branch differs from immutable candidate")
         if writer is not None and (
                 execute("git", "log", "-1", "--format=%P", remote_ref) != execute("git", "rev-parse", "HEAD")
-                or execute("git", "diff", "--name-only", "HEAD", remote_ref) != proposal_file):
+                or style == "legacy" and execute("git", "diff", "--name-only", "HEAD", remote_ref) != proposal_file):
             raise WatchError("central writer cannot reuse a branch with a changed base or extra files")
     elif prs:
         raise WatchError("open candidate PR has no existing remote branch")
@@ -805,6 +853,8 @@ def propose_candidate(record, manifest_path, repository, watch_path, policy_path
         execute("git", "config", "user.email", f"{user_id}+{login}@users.noreply.github.com")
         execute("git", "add", "--", proposal_file)
         execute("git", "commit", "-m", "chore: propose upstream candidate\n\n" + marker)
+        if style == "central":
+            check_diff("HEAD~1", "HEAD", branch, candidate_id)
         execute("git", "push", "--set-upstream", "origin", branch)
     if prs:
         url = prs[0]["url"]
