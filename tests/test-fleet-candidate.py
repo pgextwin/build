@@ -3,6 +3,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -118,7 +119,17 @@ class FleetCandidate(TestCase):
                 direct.select(report, context)
 
     def test_update_plan_to_proposal_uses_real_engine_with_stubbed_git_and_gh(self):
+        self.exercise_plan_to_proposal(None)
+
+    def test_tc14_central_plan_and_created_origin_agree_with_local_auth(self):
+        self.exercise_plan_to_proposal(direct.receipt.BUILD)
+
+    def exercise_plan_to_proposal(self, target_repository):
         report, context = fixture()
+        repo_name = target_repository or REPO
+        base_sha = BUILD_SHA if target_repository else TARGET_SHA
+        manifest_path = "extensions/pg_ivm/extension.json" if target_repository else direct.MANIFEST
+        proposal_paths = {"target_repository": target_repository, "manifest_path": manifest_path}
         commands = []
         repo_id = 1406488805
         branch_head = "f" * 40
@@ -126,30 +137,30 @@ class FleetCandidate(TestCase):
         body = ""
 
         def fetch_with_pr(url):
-            if url == direct.receipt.HOST + REPO:
-                return {"full_name": REPO, "id": repo_id}
+            if url == direct.receipt.HOST + repo_name:
+                return {"full_name": repo_name, "id": repo_id}
             if url.endswith("/pulls/123"):
-                repo = {"full_name": REPO, "id": repo_id}
+                repo = {"full_name": repo_name, "id": repo_id}
                 return {"number": 123, "state": "open", "merged": False,
                         "user": {"login": WRITER[0], "id": WRITER[1], "type": "Bot"},
                         "body": body, "head": {"ref": plan["branch"], "sha": branch_head, "repo": repo},
-                        "base": {"ref": "main", "sha": TARGET_SHA, "repo": repo}}
+                        "base": {"ref": "main", "sha": base_sha, "repo": repo}}
             return fetch(url)
 
         def execute(*args):
             nonlocal body
             commands.append(args)
-            if args == ("git", "rev-parse", "HEAD:" + direct.MANIFEST):
+            if args == ("git", "rev-parse", "HEAD:" + manifest_path):
                 return blob
             if args[:2] == ("git", "rev-parse"):
-                return branch_head if ("git", "commit") in [call[:2] for call in commands] else TARGET_SHA
+                return branch_head if ("git", "commit") in [call[:2] for call in commands] else base_sha
             if args[:3] == ("git", "remote", "get-url"):
-                return "https://github.com/" + REPO
+                return "https://github.com/" + repo_name
             if args[:3] in (("gh", "pr", "list"), ("gh", "run", "list")):
                 return "[]"
             if args[:3] == ("gh", "pr", "create"):
                 body = Path(args[args.index("--body-file") + 1]).read_text("utf-8")
-                return "https://github.com/" + REPO + "/pull/123"
+                return "https://github.com/" + repo_name + "/pull/123"
             return ""
 
         matrix, _ = direct.select(report, context)
@@ -159,37 +170,97 @@ class FleetCandidate(TestCase):
                 patch.object(direct.candidate, "execute", execute):
             try:
                 os.chdir(tmp)
-                manifest = Path(direct.MANIFEST)
-                manifest.parent.mkdir()
+                manifest = Path(manifest_path)
+                manifest.parent.mkdir(parents=True)
                 manifest.write_text(json.dumps(MANIFEST), encoding="utf-8")
-                plan = direct.checked_plan(report, context, REPO, fetch=fetch)
+                plan = direct.checked_plan(report, context, REPO, fetch=fetch, **proposal_paths)
+                legacy = direct.candidate.plan(
+                    MANIFEST, None, direct.candidate.publication_policy.load_candidate_policy(ROOT), fetch=fetch)
+                prefix = "auto-candidate/pg_ivm/" if target_repository else "auto-candidate/"
+                self.assertEqual(plan["branch"], prefix + legacy["candidateId"])
+                self.assertEqual(plan["candidateId"], legacy["candidateId"])
+                self.assert_issuer_plan_matches(plan, repo_name, base_sha)
                 self.assertEqual(plan["updates"][0]["commit"], UPDATE_SHA)
                 self.assertEqual(plan["releasePolicy"], "manual-only")
                 altered = deepcopy(plan)
                 altered["updates"][0]["commit"] = "0" * 40
                 with self.assertRaises(direct.receipt.Denied):
                     direct.propose(report, context, REPO, altered, WRITER, fetch=fetch,
-                                   origin_path=Path(tmp) / "origin.json", decision_id=45)
+                                   origin_path=Path(tmp) / "origin.json", decision_id=45, **proposal_paths)
                 self.assertFalse(any(call[:2] == ("git", "push") for call in commands))
                 origin = Path(tmp) / "origin.json"
                 output = Path(tmp) / "output"
                 with patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
                     direct.propose(report, context, REPO, plan, WRITER, fetch=fetch_with_pr,
-                                   origin_path=origin, decision_id=45)
+                                   origin_path=origin, decision_id=45, **proposal_paths)
                 expected = direct.origin.parse_marker(body)
+                self.assertEqual(body.count(f"<!-- pgextwin-candidate:v1:{plan['candidateId']} -->"), 1)
                 self.assertEqual(json.loads(origin.read_bytes()), {"origin": expected, "pullRequest": 123})
                 self.assertEqual(expected["decision"], plan)
+                self.assertEqual((expected["repository"], expected["baseSha"]), (repo_name, base_sha))
+                pr = fetch_with_pr(direct.receipt.HOST + repo_name + "/pulls/123")
+                if target_repository:
+                    for branch_name in (legacy["branch"], "auto-candidate/pgaudit/" + plan["candidateId"]):
+                        invalid = deepcopy(expected)
+                        invalid["decision"]["branch"] = branch_name
+                        with self.assertRaises(direct.origin.Denied):
+                            direct.origin.validate_pr(repo_name, {**pr, "head": {**pr["head"], "ref": branch_name}}, invalid)
                 self.assertEqual(expected["headSha"], branch_head)
                 self.assertEqual(expected["manifestBlob"], blob)
                 self.assertEqual(expected["decisionArtifactId"], 45)
                 self.assertEqual(output.read_text(), "origin_artifact=" +
-                                 direct.origin.artifact_name(REPO, expected, 123) + "\n")
+                                 direct.origin.artifact_name(repo_name, expected, 123) + "\n")
                 self.assertEqual(json.loads(manifest.read_text())["upstream"]["commit"], UPDATE_SHA)
             finally:
                 os.chdir(previous)
         self.assertIn(("git", "push", "--set-upstream", "origin", plan["branch"]), commands)
         self.assertTrue(any(call[:3] == ("gh", "pr", "create") and "--draft" in call for call in commands))
-        self.assertIn(("gh", "workflow", "run", "windows.yml", "--repo", REPO, "--ref", plan["branch"]), commands)
+        self.assertIn(("gh", "workflow", "run", "windows.yml", "--repo", repo_name, "--ref", plan["branch"]), commands)
+
+    def assert_issuer_plan_matches(self, record, repository, base_sha):
+        auth = direct.local_auth
+        registry = deepcopy(REGISTRY)
+        if repository == auth.BUILD:
+            # Simulate a future admitted central target only in this fixture.
+            # The real targetSet still rejects the central repository.
+            row = next(row for row in registry["entries"] if row["repository"] == REPO)
+            registry["entries"].append(dict(row, repository=repository))
+
+        def issuer_file(fetch_api, repo, path, sha):
+            payloads = {auth.MANIFEST: registry, auth.EXTENSION: MANIFEST}
+            if path == auth.LEGACY_WATCH:
+                # A real legacy watch alongside the embedded one must agree with it.
+                payloads[path] = dict(MANIFEST["watch"], schemaVersion=1, repository=UPSTREAM)
+            raw = json.dumps(payloads[path]).encode()
+            return {"path": path, "encoding": "base64", "content": base64.b64encode(raw).decode(),
+                    "sha": hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()}
+
+        def issuer_fetch(url):
+            if url == auth.API + repository:
+                return {"full_name": repository, "default_branch": "main", "id": 1406488805}
+            if url.endswith("/branches/main"):
+                sha = BUILD_SHA if url == auth.API + auth.BUILD + "/branches/main" else base_sha
+                return dict(branch(sha), name="main")
+            if url == f"{auth.API}{auth.BUILD}/actions/runs/100":
+                identity = {"full_name": auth.BUILD}
+                return {"id": 100, "head_sha": BUILD_SHA, "head_branch": "main", "event": "schedule",
+                        "path": auth.WATCH_WORKFLOW, "run_attempt": 1, "status": "in_progress",
+                        "repository": identity, "head_repository": identity}
+            return fetch(url)
+
+        policy = {"issuerKeyId": "fixture", "policyEpoch": 1}
+        with patch.object(auth, "load_authority", return_value=(BUILD_SHA, policy)), \
+             patch.object(auth, "enforce_policy"), patch.object(auth, "file_at", issuer_file), \
+             patch.object(auth, "versioned_sources", return_value=[]), \
+             patch.object(auth.candidate, "execute", return_value=BUILD_SHA):
+            if repository == auth.BUILD:
+                with patch.object(auth.fleet, "validate", return_value=direct.fleet.validate(REGISTRY)):
+                    with self.assertRaisesRegex(auth.verifier.TicketRejected, "REPO_NOT_IN_FLEET"):
+                        auth.prepare(repository, base_sha, 100, fetch=issuer_fetch)
+            _, _, _, inputs = auth.prepare(repository, base_sha, 100, fetch=issuer_fetch)
+        canonical = auth.verifier.canonical_json
+        self.assertEqual(canonical(json.loads(inputs)["plan"]),
+                         canonical({k: v for k, v in record.items() if k != "detectedAt"}))
 
     def test_workflow_passes_environment_app_key_through_both_calls(self):
         workflow_dir = ROOT / ".github/workflows"

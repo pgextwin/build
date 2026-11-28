@@ -18,7 +18,6 @@ import sys
 
 SHA=re.compile(r"^[0-9a-f]{40}$")
 REPO=re.compile(r"^pgextwin/[a-z][a-z0-9_]*$")
-OWNED=re.compile(r"^auto-candidate/([0-9a-f]{20})$")
 _spec=importlib.util.spec_from_file_location("native_required_check",
     Path(__file__).resolve().parent/"native-required-check.py")
 required_check=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(required_check)
@@ -26,6 +25,7 @@ required_check=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(r
 _origin_spec = importlib.util.spec_from_file_location("fleet_candidate_origin", Path(__file__).resolve().parent / "fleet_candidate_origin.py")
 origin = importlib.util.module_from_spec(_origin_spec)
 _origin_spec.loader.exec_module(origin)
+candidate_branch = origin.candidate_branch
 
 class Denied(ValueError): pass
 
@@ -33,6 +33,16 @@ class Unavailable(Denied): pass
 
 def require(x,msg):
     if not x: raise Denied(msg)
+
+def parse_candidate_branch(repo, branch):
+    require(type(repo) is str and REPO.fullmatch(repo), "unsafe target repository")
+    central = repo == candidate_branch.CENTRAL_REPOSITORY
+    try:
+        return candidate_branch.parse_branch(
+            branch, expected_extension=None if central else repo.removeprefix("pgextwin/"),
+            allow_legacy=not central)
+    except ValueError as exc:
+        raise Denied("Windows run does not belong to a candidate for this repository") from exc
 
 def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=None, *, verify_origin=None):
     require(type(repo) is str and REPO.fullmatch(repo), "unsafe target repository")
@@ -47,8 +57,7 @@ def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=
             and SHA.fullmatch(run.get("head_sha","")),
             "not an exact completed authenticated native PR Windows workflow")
     head, branch = run["head_sha"], run["head_branch"]
-    owned=OWNED.fullmatch(branch)
-    require(owned is not None, "Windows run does not belong to an auto-candidate")
+    owned = parse_candidate_branch(repo, branch)
     require(type(pr) is dict and pr.get("state")=="open"
             and pr.get("merged") is False
             and (pr.get("head") or {}).get("ref")==branch
@@ -57,7 +66,7 @@ def validate(repo, run, pr, pr_files, merge_ref, main, checks, associated_pulls=
             and (pr.get("base") or {}).get("ref")=="main"
             and (pr.get("base") or {}).get("repo",{}).get("full_name")==repo
             and type(pr.get("number")) is int and pr["number"]>0
-            and "<!-- pgextwin-candidate:v1:"+owned.group(1)+" -->" in (pr.get("body") or ""),
+            and "<!-- pgextwin-candidate:v1:"+owned.candidate_id+" -->" in (pr.get("body") or ""),
             "candidate not owned or exact head/target moved")
     # GitHub can return [] in workflow_run.pull_requests even for a real
     # pull_request run (observed on actual HypoPG Windows Run40185975511).

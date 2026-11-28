@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import json
 import sys
+from urllib.parse import quote
 r=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(r/"scripts"))
 spec=importlib.util.spec_from_file_location("fleet_status",r/"scripts/fleet-status.py")
@@ -228,5 +229,44 @@ assert row["candidateCiMode"]=="ACTIVE_DISPATCH"
 assert row["lastCandidateStatus"]=="DISPATCH_CI_SUCCESS_UNVERIFIED"
 assert row["lastSuccessfulCandidate"] is None
 
+for head_branch, accepted in (
+    ("auto-candidate/pgtap/" + "a" * 20, True),
+    ("auto-candidate/123", False),
+    ("auto-candidate/pgaudit/" + "a" * 20, False),
+):
+    repo = "pgextwin/pgtap"
+    scoped = {**candidate_pr, "head": {**candidate_pr["head"], "ref": head_branch}}
+    scoped_run = {**native_run, "head_branch": head_branch}
+    scoped_page = {"total_count": 1, "workflow_runs": [scoped_run]}
+    if accepted:
+        assert "&branch=" + quote(head_branch, safe="") in m.candidate_run_url(repo, head_branch, "pull_request")
+        assert m.native_candidate_ci(scoped_page, scoped, repo) == (scoped_run, "NATIVE_CI_SUCCESS_UNVERIFIED")
+    else:
+        for check in (lambda: m.candidate_run_url(repo, head_branch, "pull_request"),
+                      lambda: m.native_candidate_ci(scoped_page, scoped, repo)):
+            try:
+                check()
+            except m.WatchError:
+                pass
+            else:
+                raise AssertionError(f"TC-18: accepted invalid candidate branch {head_branch}")
+
+    def scoped_request(url):
+        if "/pulls?" in url:
+            return [scoped]
+        if "windows.yml/runs?event=pull_request" in url:
+            assert accepted and "&branch=" + quote(head_branch, safe="") in url
+            return scoped_page
+        if "windows.yml/runs?event=workflow_dispatch" in url:
+            assert not accepted and "&branch=" not in url
+            return {"workflow_runs": [{**scoped_run, "event": "workflow_dispatch"}]}
+        return fixture_request(url)
+
+    m.request = scoped_request
+    row = m.one({"repository": repo, "mode": "BUILD"}, {})
+    assert not row["errors"]
+    assert row["candidatePrUrl"] == (scoped["html_url"] if accepted else None)
+    assert row["lastWindowsCi"] == (m.compact_run(scoped_run) if accepted else None)
+    assert row["lastCandidateStatus"] == ("NATIVE_CI_SUCCESS_UNVERIFIED" if accepted else "NOT_RUN")
 
 print("17-extension genuine protected-current-main schedule and native PR CI status fixtures passed")

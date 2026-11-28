@@ -29,6 +29,7 @@ binder_fixture = load("tests/test-bind-native-candidate-audit-live.py")
 sys.path.insert(0, str(ROOT / "scripts"))
 fleet_status = load("scripts/fleet-status.py")
 REPO = "pgextwin/pg_ivm"
+CENTRAL_REPO = "pgextwin/build"
 BUILD = "repos/pgextwin/build/"
 RUN = BUILD + "actions/runs/100"
 JOBS = RUN + "/attempts/1/jobs?per_page=100"
@@ -69,9 +70,9 @@ class Evidence:
                        "appId": origin.APP["appId"], "botUserId": origin.APP["botUserId"],
                        "runId": 100, "runAttempt": 1, "runSha": BUILD_SHA, "decisionArtifactId": 44,
                        "baseSha": base, "headSha": head, "manifestBlob": self.blob,
-                       "decision": {"schemaVersion": 1, "extension": slug, "status": "candidate",
+                       "decision": {"schemaVersion": 1, "extension": extension["name"], "status": "candidate",
                                     "repository": upstream["repository"], "releasePolicy": "manual-only",
-                                    "candidateId": pr["head"]["ref"].split("/")[1],
+                                    "candidateId": origin.candidate_branch.parse_branch(pr["head"]["ref"]).candidate_id,
                                     "branch": pr["head"]["ref"],
                                     "updates": [{"major": None, "ref": upstream["ref"],
                                                  "version": upstream["version"], "commit": upstream["commit"],
@@ -124,33 +125,36 @@ class Evidence:
         return origin.verify(repo or self.repo, pr or self.pr, api=self.reads.__getitem__)
 
 
-def regenerated_evidence():
+def regenerated_evidence(repo=REPO, predecessor_style="legacy", successor_style="legacy"):
     predecessor_id, successor_id, predecessor_number = "2" * 20, "3" * 20, 77
-    evidence = Evidence(native_fixture.fixture()["pr"])
+    evidence = Evidence(native_fixture.fixture()["pr"], repo)
+    format_branch = origin.candidate_branch.format_branch
+    predecessor_branch = format_branch(EXTENSION["name"], predecessor_id, predecessor_style)
+    successor_branch = format_branch(EXTENSION["name"], successor_id, successor_style)
     predecessor_record = deepcopy(evidence.record)
     predecessor_record["decision"]["candidateId"] = predecessor_id
-    predecessor_record["decision"]["branch"] = "auto-candidate/" + predecessor_id
+    predecessor_record["decision"]["branch"] = predecessor_branch
     evidence.record["decision"]["candidateId"] = successor_id
-    evidence.record["decision"]["branch"] = "auto-candidate/" + successor_id
+    evidence.record["decision"]["branch"] = successor_branch
     evidence.record["regeneration"] = {"predecessorCandidateId": predecessor_id,
                                         "predecessorPrNumber": predecessor_number}
-    evidence.pr["head"]["ref"] = "auto-candidate/" + successor_id
+    evidence.pr["head"]["ref"] = successor_branch
     evidence.legacy_marker = f"<!-- pgextwin-candidate:v1:{successor_id} -->"
     predecessor = {
         "number": predecessor_number, "state": "closed", "merged": False,
         "user": {"type": "Bot", "id": origin.APP["botUserId"], "login": origin.BOT},
-        "head": {"ref": "auto-candidate/" + predecessor_id, "sha": "7" * 40},
+        "head": {"ref": predecessor_branch, "sha": "7" * 40},
         "base": {"ref": "main"},
         "body": (f"<!-- pgextwin-candidate:v1:{predecessor_id} -->\n" +
                  origin.marker(predecessor_record)),
     }
-    evidence.reads["repos/" + REPO + "/pulls/" + str(predecessor_number)] = predecessor
+    evidence.reads["repos/" + repo + "/pulls/" + str(predecessor_number)] = predecessor
     evidence.propose()
     return evidence
 
 
 def replace_predecessor_record(evidence, record):
-    predecessor = evidence.reads["repos/" + REPO + "/pulls/77"]
+    predecessor = evidence.reads["repos/" + evidence.repo + "/pulls/77"]
     marker_text = f"<!-- pgextwin-candidate:v1:{'2' * 20} -->"
     predecessor["body"] = marker_text + "\n" + origin.marker(record)
 
@@ -230,6 +234,40 @@ class FleetCandidateOrigin(TestCase):
         evidence = regenerated_evidence()
         self.assertEqual(evidence.verify()["record"]["regeneration"],
                          {"predecessorCandidateId": "2" * 20, "predecessorPrNumber": 77})
+
+    def test_tc15_origin_binds_exact_repository_branch_style_and_extension(self):
+        for repo, style, name, accepted in (
+            (REPO, "legacy", "pg_ivm", True),
+            (REPO, "central", "pg_ivm", False),
+            (CENTRAL_REPO, "central", "pg_ivm", True),
+            (CENTRAL_REPO, "legacy", "pg_ivm", False),
+            (CENTRAL_REPO, "central", "pgaudit", False),
+        ):
+            with self.subTest(repo=repo, style=style, name=name):
+                pr = native_fixture.fixture()["pr"]
+                pr["head"]["ref"] = origin.candidate_branch.format_branch(name, "d" * 20, style)
+                evidence = Evidence(pr, repo)
+                if accepted:
+                    self.assertEqual(origin.validate_pr(repo, pr, evidence.record), evidence.record["decision"])
+                else:
+                    with self.assertRaises(origin.Denied):
+                        origin.validate_pr(repo, pr, evidence.record)
+
+    def test_tc15_regeneration_accepts_both_central_predecessor_formats(self):
+        for predecessor_style in ("central", "legacy"):
+            with self.subTest(style=predecessor_style):
+                evidence = regenerated_evidence(CENTRAL_REPO, predecessor_style, "central")
+                self.assertEqual(origin.validate_pr(CENTRAL_REPO, evidence.pr, evidence.record),
+                                 evidence.record["decision"])
+                origin.verify_regeneration_chain(evidence.reads.__getitem__, CENTRAL_REPO, evidence.record)
+                predecessor = evidence.reads[f"repos/{CENTRAL_REPO}/pulls/77"]
+                record = origin.parse_marker(predecessor["body"])
+                wrong_branch = origin.candidate_branch.format_branch("pgaudit", "2" * 20, "central")
+                predecessor["head"]["ref"] = wrong_branch
+                record["decision"]["branch"] = wrong_branch
+                replace_predecessor_record(evidence, record)
+                with self.assertRaisesRegex(origin.Denied, "predecessor branch differs"):
+                    origin.verify_regeneration_chain(evidence.reads.__getitem__, CENTRAL_REPO, evidence.record)
 
     def test_regeneration_chain_mismatches_fail_closed(self):
         changes = (

@@ -18,7 +18,6 @@ WATCH = ".github/workflows/fleet-upstream-watch.yml"
 MANIFEST = "config/extension.json"
 SHA = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"pgextwin/[a-z][a-z0-9_]*")
-BRANCH = re.compile(r"auto-candidate/([0-9a-f]{20})")
 MARKER = "<!-- pgextwin-fleet-origin:v1:"
 UPLOAD_STEP = "Preserve exact App candidate origin"
 MAX_RECORD = 32000
@@ -33,6 +32,7 @@ def load(name):
 
 scheduled = load("verify-scheduled-fleet-candidate")
 contents = load("github_contents")
+candidate_branch = load("candidate_branch")
 APP = json.loads((ROOT / "metadata/fleet-candidate-app.json").read_text(encoding="utf-8"))
 BOT = APP["slug"] + "[bot]"
 LEGACY = "github-actions[bot]"
@@ -147,7 +147,15 @@ def validate_pr(repository, pr, record):
     base = pr.get("base") or {}
     repo_id = record.get("repositoryId")
     branch = head.get("ref", "")
-    candidate = BRANCH.fullmatch(branch)
+    decision = record.get("decision")
+    require(type(decision) is dict, "candidate origin decision is missing")
+    extension = decision.get("extension")
+    try:
+        central = candidate_branch.branch_style_for_repository(repository, extension) == "central"
+        candidate = candidate_branch.parse_branch(branch, expected_extension=extension,
+                                                  allow_legacy=not central, allow_central=central)
+    except ValueError as exc:
+        raise Denied("candidate origin branch does not match the repository and extension") from exc
     require(record.get("schemaVersion") == 1 and record.get("repository") == repository
             and positive(repo_id) and record.get("appId") == APP["appId"]
             and record.get("botUserId") == APP["botUserId"]
@@ -156,13 +164,11 @@ def validate_pr(repository, pr, record):
             and all((info.get("repo") or {}).get("id") == repo_id
                     and (info.get("repo") or {}).get("full_name") == repository
                     for info in (head, base))
-            and candidate and "<!-- pgextwin-candidate:v1:" + candidate[1] + " -->" in pr["body"],
+            and "<!-- pgextwin-candidate:v1:" + candidate.candidate_id + " -->" in pr["body"],
             "candidate origin does not match exact PR, repository, head or base ref")
-    decision = record.get("decision")
-    require(type(decision) is dict and decision.get("schemaVersion") == 1
+    require(decision.get("schemaVersion") == 1
             and decision.get("status") == "candidate" and decision.get("releasePolicy") == "manual-only"
-            and decision.get("extension") == repository.split("/")[1]
-            and decision.get("candidateId") == candidate[1] and decision.get("branch") == branch
+            and decision.get("candidateId") == candidate.candidate_id and decision.get("branch") == branch
             and decision.get("firstRelease") is not True and sha(record.get("manifestBlob")),
             "original decision does not identify the exact stable candidate")
     return decision
@@ -255,6 +261,11 @@ def validate_run(api, repository, pr, record):
 def verify_regeneration_chain(api, repository, record):
     """Bind a regenerated decision to the exact closed App PR it supersedes."""
     visited = {record["decision"]["candidateId"]}
+    extension = record["decision"].get("extension")
+    try:
+        style = candidate_branch.branch_style_for_repository(repository, extension)
+    except ValueError as exc:
+        raise Denied("invalid regeneration repository or extension") from exc
 
     def walk(current, depth):
         if "regeneration" not in current:
@@ -276,8 +287,12 @@ def verify_regeneration_chain(api, repository, record):
                 and pr.get("merged") is False,
                 "regeneration predecessor is not a closed, unmerged App PR")
         head, base = pr.get("head") or {}, pr.get("base") or {}
-        require(head.get("ref") == "auto-candidate/" + predecessor_id
-                and base.get("ref") == "main",
+        try:
+            predecessor = candidate_branch.parse_branch(head.get("ref"), expected_extension=extension,
+                                                        allow_central=style == "central")
+        except ValueError as exc:
+            raise Denied("regeneration predecessor branch differs") from exc
+        require(predecessor.candidate_id == predecessor_id and base.get("ref") == "main",
                 "regeneration predecessor branch or base differs")
         body = pr.get("body")
         markers = re.findall(r"<!-- pgextwin-candidate:v1:([0-9a-f]{20}) -->", body or "")
@@ -293,7 +308,7 @@ def verify_regeneration_chain(api, repository, record):
         new_decision = current.get("decision")
         require(type(old_decision) is dict and type(new_decision) is dict
                 and old_decision.get("candidateId") == predecessor_id
-                and old_decision.get("branch") == "auto-candidate/" + predecessor_id
+                and old_decision.get("branch") == predecessor.branch
                 and {k: v for k, v in old_decision.items() if k not in ("candidateId", "branch")} ==
                 {k: v for k, v in new_decision.items() if k not in ("candidateId", "branch")},
                 "regeneration predecessor decision differs from successor")

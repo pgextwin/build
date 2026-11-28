@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from urllib.parse import quote
 
+import candidate_branch
 import fleet_candidate_origin as origin
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +82,7 @@ def same_run():
 
 def target(report, context, repository):
     receipt.need(repository in repositories(context), "repository is outside the direct candidate rollout")
+    receipt.need(report.get("indeterminate") == 0, "indeterminate fleet scan cannot select candidates")
     run, branch, scan, registry = context
     rows = [row for row in report["extensions"] if row.get("repository") == repository]
     receipt.need(len(rows) == 1, "unique target scan row required")
@@ -107,22 +109,27 @@ def select(report, context):
     return matrix, lines
 
 
-def checked_plan(report, context, repository, fetch=candidate.api):
+def checked_plan(report, context, repository, fetch=candidate.api, *,
+                 target_repository=None, manifest_path=MANIFEST, watch_path=WATCH):
     row, mode = target(report, context, repository)
     receipt.need(mode == "candidate", "proposals require a detected update in this run")
-    receipt.need(candidate.execute("git", "rev-parse", "HEAD") == row["mainSha"]
+    effective_repo = target_repository or repository
+    base_sha = context[1]["commit"]["sha"] if effective_repo == receipt.BUILD else row["mainSha"]
+    receipt.need(candidate.execute("git", "rev-parse", "HEAD") == base_sha
                  and candidate.execute("git", "remote", "get-url", "origin") ==
-                 "https://github.com/" + repository
-                 and not candidate.execute("git", "status", "--porcelain", "--", MANIFEST, WATCH),
+                 "https://github.com/" + effective_repo
+                 and not candidate.execute("git", "status", "--porcelain", "--", manifest_path, watch_path),
                  "target checkout differs from scanned protected main")
-    extension = candidate.read(MANIFEST)
-    watch = candidate.load_watch(extension, WATCH)
+    extension = candidate.read(manifest_path)
+    branch_style = candidate_branch.branch_style_for_repository(effective_repo, extension["name"])
+    watch = candidate.load_watch(extension, watch_path)
     policy = candidate.publication_policy.load_candidate_policy(ROOT)
     allowed, mode = fleet.decide(context[3], repository, extension, watch, "candidate", policy)
     if not allowed:
         return candidate.suppressed(extension, mode)
     record = candidate.plan(extension, watch, policy, fetch=fetch,
-                            lifecycle=candidate.read(ROOT / "metadata/postgresql.json"))
+                            lifecycle=candidate.read(ROOT / "metadata/postgresql.json"),
+                            branch_style=branch_style)
     observed = {(item.get("postgresqlMajor"), item["current"]["ref"],
                  str(item["current"]["version"]), item["candidate"]["ref"],
                  str(item["candidate"]["version"])) for item in row["updates"]}
@@ -135,41 +142,45 @@ def checked_plan(report, context, repository, fetch=candidate.api):
 
 
 def propose(report, context, repository, record, writer, fetch=candidate.api, *,
-            origin_path, decision_id):
+            origin_path, decision_id, target_repository=None, manifest_path=MANIFEST, watch_path=WATCH):
     receipt.need(record.get("status") == "candidate", "a candidate decision is required")
-    fresh = checked_plan(report, context, repository, fetch=fetch)
+    effective_repo = target_repository or repository
+    manifest_path = str(manifest_path)
+    watch_path = str(watch_path)
+    fresh = checked_plan(report, context, repository, fetch=fetch, target_repository=target_repository,
+                         manifest_path=manifest_path, watch_path=watch_path)
     receipt.need({k: v for k, v in fresh.items() if k != "detectedAt"} ==
                  {k: v for k, v in record.items() if k != "detectedAt"},
                  "candidate plan changed before proposal")
     _, branch, _, _ = context
     row, _ = target(report, context, repository)
+    base_sha = branch["commit"]["sha"] if effective_repo == receipt.BUILD else row["mainSha"]
     if execution_mode() == "ENFORCE":
-        repository_sha = row["mainSha"]
         run_id = int(os.environ["GITHUB_RUN_ID"])
         # Refuse stale policy and unsupported sources before any issuer dispatch.
-        prepared = local_auth.prepare(repository, repository_sha, run_id, fetch=fetch)
+        prepared = local_auth.prepare(effective_repo, base_sha, run_id, fetch=fetch)
         receipt.need(local_auth.verifier._parse_json(
             prepared[3].decode("utf-8"), local_auth.verifier.MAX_INPUTS_BYTES)["plan"] ==
             {k: v for k, v in fresh.items() if k != "detectedAt"},
             "candidate plan differs from the independently verified sources")
         ticket, inputs, receipt_policy = issuance.receive(
-            repository, repository_sha, run_id, local_auth.verifier)
-        current = local_auth.prepare(repository, repository_sha, run_id, fetch=fetch)
+            effective_repo, base_sha, run_id, local_auth.verifier)
+        current = local_auth.prepare(effective_repo, base_sha, run_id, fetch=fetch)
         receipt.need(current == prepared, "candidate authority or source inputs changed during issuance")
         local_auth.authorize(ticket, inputs, receipt_policy, current,
                              now=datetime.now(timezone.utc), api=issuance.get)
     token = os.environ["PGEXTWIN_SCAN_READ_TOKEN"]
     receipt.need(receipt.api(receipt.HOST + receipt.BUILD + "/branches/main", token) == branch,
                  "central protected main changed before proposal")
-    repo = fetch(receipt.HOST + repository)
-    receipt.need(repo.get("full_name") == repository and origin.positive(repo.get("id"))
+    repo = fetch(receipt.HOST + effective_repo)
+    receipt.need(repo.get("full_name") == effective_repo and origin.positive(repo.get("id"))
                  and origin.positive(decision_id), "target repository or decision artifact ID missing")
     origin_base = {
-        "schemaVersion": 1, "repository": repository, "repositoryId": repo["id"],
+        "schemaVersion": 1, "repository": effective_repo, "repositoryId": repo["id"],
         "appId": origin.APP["appId"], "botUserId": origin.APP["botUserId"],
         "runId": context[0]["id"], "runAttempt": context[0]["run_attempt"],
         "runSha": context[0]["head_sha"], "decisionArtifactId": decision_id,
-        "baseSha": row["mainSha"],
+        "baseSha": base_sha,
     }
     origin_holder = {}
 
@@ -182,12 +193,12 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
                 "predecessorPrNumber": predecessor_number,
             }
         origin_record["headSha"] = candidate.execute("git", "rev-parse", ref)
-        origin_record["manifestBlob"] = candidate.execute("git", "rev-parse", ref + ":" + MANIFEST)
+        origin_record["manifestBlob"] = candidate.execute("git", "rev-parse", ref + ":" + manifest_path)
         origin_holder["record"] = origin_record
         return origin.marker(origin_record)
 
     def on_created(url, effective_record, predecessor):
-        prefix = "https://github.com/" + repository + "/pull/"
+        prefix = "https://github.com/" + effective_repo + "/pull/"
         number = url.removeprefix(prefix)
         receipt.need(url.startswith(prefix) and number.isascii() and number.isdecimal()
                      and int(number) > 0, "created candidate PR URL is invalid")
@@ -198,16 +209,16 @@ def propose(report, context, repository, record, writer, fetch=candidate.api, *,
                               "predecessorCandidateId": predecessor[0],
                               "predecessorPrNumber": predecessor[1]})),
                      "created candidate origin does not match its effective decision")
-        pr = fetch(receipt.HOST + repository + "/pulls/" + number)
-        origin.validate_pr(repository, pr, origin_record)
+        pr = fetch(receipt.HOST + effective_repo + "/pulls/" + number)
+        origin.validate_pr(effective_repo, pr, origin_record)
         receipt.need(pr["number"] == int(number) and pr.get("state") == "open"
-                     and pr.get("merged") is False and pr["base"].get("sha") == row["mainSha"]
+                     and pr.get("merged") is False and pr["base"].get("sha") == base_sha
                      and origin.parse_marker(pr["body"]) == origin_record,
                      "created candidate PR differs from the exact protected proposal")
         origin_path.write_bytes(origin.proof_bytes(origin_record, pr["number"]))
-        emit("GITHUB_OUTPUT", "origin_artifact=" + origin.artifact_name(repository, origin_record, pr["number"]))
+        emit("GITHUB_OUTPUT", "origin_artifact=" + origin.artifact_name(effective_repo, origin_record, pr["number"]))
 
-    candidate.propose_candidate(record, MANIFEST, repository, WATCH, writer=writer, fetch=fetch,
+    candidate.propose_candidate(record, manifest_path, effective_repo, watch_path, writer=writer, fetch=fetch,
                                 origin_body=origin_body, on_created=on_created)
 
 

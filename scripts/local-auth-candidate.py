@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 from urllib.parse import quote
 
+import candidate_branch
 import github_contents
 
 
@@ -179,10 +180,12 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
         legacy_watch = None
     watch = candidate.resolve_watch(extension, legacy_watch)
     candidate_policy = candidate.publication_policy.load_candidate_policy(ROOT)
-    allowed, _ = fleet.decide(registry, repository, extension, watch, "candidate", candidate_policy)
+    branch_style = candidate_branch.branch_style_for_repository(repository, extension["name"])
+    allowed, _ = fleet.decide(registry, "pgextwin/" + extension["name"], extension, watch,
+                              "candidate", candidate_policy)
     need(allowed, "CANDIDATE_DISABLED")
     plan = candidate.plan(extension, watch, candidate_policy, fetch=fetch,
-                          lifecycle=candidate.read(ROOT / LIFECYCLE))
+                          lifecycle=candidate.read(ROOT / LIFECYCLE), branch_style=branch_style)
     need(plan["status"] == "candidate" and plan["updates"] and all(
         not update["pinOnly"] and not update["initialOnly"] for update in plan["updates"]),
         "STABLE_UPDATE_REQUIRED")

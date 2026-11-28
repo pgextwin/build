@@ -144,6 +144,11 @@ jobs:
       - name: Validate shared 17-extension operator UPDATE and read-only security gate
         run: python tests/test-operator-update-readonly.py
 
+      - name: Validate candidate branch naming contract (F21-03)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m unittest -v tests/test-candidate-branch.py
+
       - name: Validate Step 19 candidate update fixtures
         run: python tests/test-candidate-update.py
 

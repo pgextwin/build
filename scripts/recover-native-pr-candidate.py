@@ -41,14 +41,22 @@ def get_json(repo, resource):
     return json.loads(p.stdout)
 
 
-def open_candidate(pulls):
+def open_candidate(pulls, repo=None):
     if type(pulls) is not list or len(pulls) >= 100:
         raise native.Unavailable("candidate PR list truncated")
-    owned = [p for p in pulls if type(p) is dict
-             and p.get("state") == "open"
-             and ((p.get("user") or {}).get("login") == native.origin.LEGACY
-                  or native.origin.is_app(p))
-             and native.OWNED.fullmatch((p.get("head") or {}).get("ref", ""))]
+    owned = []
+    for pr in pulls:
+        if (type(pr) is not dict or pr.get("state") != "open"
+                or not ((pr.get("user") or {}).get("login") == native.origin.LEGACY
+                        or native.origin.is_app(pr))):
+            continue
+        # Fleet recovery uses the REST PR's target repository for discovery.
+        target = repo if repo is not None else ((pr.get("base") or {}).get("repo") or {}).get("full_name")
+        try:
+            native.parse_candidate_branch(target, (pr.get("head") or {}).get("ref"))
+        except Denied:
+            continue
+        owned.append(pr)
     require(len(owned) <= 1, "ambiguous bot candidates; no automatic selection")
     return owned[0] if owned else None
 
@@ -84,7 +92,7 @@ def successful_run_id(run):
 
 
 def choose_candidate(repo, pulls, inventory, *, verify_origin=None):
-    pr = open_candidate(pulls)
+    pr = open_candidate(pulls, repo)
     if pr is None:
         return None
     native.origin.author(repo, pr, verify_origin=verify_origin, denied=Denied)
@@ -96,7 +104,7 @@ def reconcile(repo, event_name, ref, github_sha, pulls, inventory, fetch):
             and native.REPO.fullmatch(repo or "") is not None
             and native.SHA.fullmatch(github_sha or ""),
             "not genuine trusted main schedule")
-    pr = open_candidate(pulls)
+    pr = open_candidate(pulls, repo)
     if pr is None:
         return None
     context, _ = authenticate(pr, exact_native_run(repo, pr, inventory), fetch,
@@ -146,7 +154,7 @@ def main():
         require(bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")),
                 "authenticated read-only token unavailable")
         pulls = get_json(repo, "pulls?state=open&per_page=100")
-        selected = open_candidate(pulls)
+        selected = open_candidate(pulls, repo)
         sha = (selected.get("head") or {}).get("sha") if selected else None
         require(sha is None or native.SHA.fullmatch(sha), "invalid candidate HEAD")
         inventory = (get_json(repo, "actions/runs?event=pull_request&head_sha=" + sha + "&per_page=100")
