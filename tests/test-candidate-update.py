@@ -3,7 +3,6 @@ import base64
 import copy
 import json
 import os
-import re
 import tempfile
 from unittest.mock import Mock, patch
 import importlib.util
@@ -12,6 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/"scripts"))
 import update_watch_lib
+from candidate_branch import format_branch, parse_branch
 from update_watch_lib import WatchError
 import fleet_candidate_origin as origin_module
 spec = importlib.util.spec_from_file_location("candidate_update", ROOT/"scripts/candidate-update.py")
@@ -22,6 +22,13 @@ TAG_SHA = "2"*40
 EXT={"schemaVersion":1,"name":"plpgsql_check","upstream":{"repository":"test/ext","ref":"v2.10.13","version":"2.10.13"},"postgresql":{"majors":[15,16,17,18]}}
 WATCH={"schemaVersion":1,"source":"github","repository":"test/ext","strategy":"github-releases","prereleases":False,"stableTagPattern":r"^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$"}
 POLICY={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow":"windows.yml"}
+
+APP_WRITER = ("pgextwin-fleet-candidate[bot]", 999001)
+LOCAL_REPO = "pgextwin/plpgsql_check"
+CENTRAL_REPO = "pgextwin/build"
+PR_HEAD = "b" * 40
+REGISTRY_RESPONSE = {"encoding": "base64", "content": base64.b64encode(
+    (ROOT / "metadata/automation-fleet.json").read_bytes()).decode()}
 
 def fixture(url):
     if url.endswith("/releases?per_page=100"):
@@ -37,6 +44,32 @@ def expect_fail(f):
     except WatchError: return
     raise AssertionError("expected fail-closed WatchError")
 
+def candidate_marker(branch):
+    return "<!-- " + c.MARKER_PREFIX + ":" + parse_branch(branch).candidate_id + " -->"
+
+
+def list_pr(repo, branch, number=114, state="OPEN"):
+    return {"number": number, "body": candidate_marker(branch), "state": state,
+            "url": f"https://github.com/{repo}/pull/{number}", "headRefOid": PR_HEAD,
+            "headRefName": branch, "baseRefName": "main", "isCrossRepository": False}
+
+
+def rest_pr(repo, listed, writer):
+    return {"number": listed["number"], "body": listed["body"],
+            "state": "open" if listed["state"] == "OPEN" else "closed",
+            "merged": listed["state"] == "MERGED", "draft": True,
+            "user": {"type": "Bot", "login": writer[0], "id": writer[1]},
+            "head": {"ref": listed["headRefName"], "sha": listed["headRefOid"], "repo": {"full_name": repo}},
+            "base": {"ref": "main", "sha": "a" * 40, "repo": {"full_name": repo}}}
+
+
+def assert_no_writes_or_dispatch(calls):
+    writes = {("git", "checkout"), ("git", "add"), ("git", "commit"), ("git", "push"),
+              ("git", "config"), ("gh", "release")}
+    assert not any(args[:2] in writes or args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")}
+                   for args in calls), calls
+
+
 def exercise_proposer_safety():
     """Simulate existing branches/PRs and GitHub API failures; never make network writes."""
     record=c.plan(EXT,WATCH,POLICY,fixture)
@@ -45,7 +78,9 @@ def exercise_proposer_safety():
     response={"encoding":"base64","content":base64.b64encode(json.dumps(central).encode()).decode()}
     with tempfile.TemporaryDirectory() as temp:
         root=Path(temp)
-        (root/"extension.json").write_text(json.dumps(EXT))
+        manifest = root / "extension.json"
+        manifest.write_text(json.dumps(EXT))
+        original_manifest = manifest.read_bytes()
         (root/"watch.json").write_text(json.dumps(WATCH))
         (root/"policy.json").write_text(json.dumps(POLICY))
         scenarios=[
@@ -68,7 +103,10 @@ def exercise_proposer_safety():
                 if args[:2]==("git","show"): return json.dumps(c.apply(EXT,record))
                 if args[:3]==("gh","pr","list"):
                     return json.dumps([dict(pr, headRefName=record["branch"], baseRefName="main",
-                                            isCrossRepository=False) for pr in prs])
+                                            isCrossRepository=False, headRefOid=PR_HEAD) for pr in prs])
+                if args == ("gh", "api", f"repos/{LOCAL_REPO}/pulls/1"):
+                    listed = list_pr(LOCAL_REPO, record["branch"], 1, prs[0]["state"])
+                    return json.dumps(rest_pr(LOCAL_REPO, listed, ("github-actions[bot]", 41898282)))
                 if args[:3]==("gh","run","list"): return json.dumps(runs)
                 raise AssertionError("unexpected or mutating command: "+repr(args))
             with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
@@ -79,92 +117,149 @@ def exercise_proposer_safety():
                                       str(root/"watch.json"),str(root/"policy.json"))
                 if must_fail: expect_fail(task)
                 else: assert task() is None
-            assert not any(x[:3]==("gh","workflow","run") for x in calls),name
-            if name=="merged":
-                assert len(calls)==1 and calls[0][:3]==("gh","pr","list")
-        with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
-                                    "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token"}), \
-             patch.object(update_watch_lib,"github_get_json",
-                          lambda url,token: (_ for _ in ()).throw(WatchError("API outage"))):
-            expect_fail(lambda:c.propose(record,str(root/"extension.json"),"pgextwin/plpgsql_check",
-                                         str(root/"watch.json"),str(root/"policy.json")))
+            assert_no_writes_or_dispatch(calls)
+            if name in ("prior-run", "merged"):
+                assert calls[0][:3] == ("gh", "pr", "list")
+                assert calls[0][calls[0].index("--state") + 1] == "all"
+                assert calls[1] == ("gh", "api", f"repos/{LOCAL_REPO}/pulls/1")
+            if name == "merged":
+                assert len(calls) == 2
+        calls = []
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": LOCAL_REPO,
+                                     "GITHUB_REF": "refs/heads/main", "GH_TOKEN": "fixture-token"}), \
+             patch.object(update_watch_lib, "github_get_json", side_effect=WatchError("API outage")), \
+             patch.object(c, "execute", side_effect=lambda *args: calls.append(args)):
+            expect_fail(lambda: c.propose(record, str(manifest), LOCAL_REPO,
+                                          str(root / "watch.json"), str(root / "policy.json")))
+        assert calls == []
+        assert_no_writes_or_dispatch(calls)
+        assert manifest.read_bytes() == original_manifest
 
+
+def exercise_upstream_and_pr_lookup_outages():
+    """TC-07 covers the local entry point and central/App writer."""
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        manifest, watch = root / "extension.json", root / "watch.json"
+        manifest.write_text(json.dumps(EXT), encoding="utf-8")
+        watch.write_text(json.dumps(WATCH), encoding="utf-8")
+        original = manifest.read_bytes()
+        for repo, style, writer in ((LOCAL_REPO, "legacy", None), (CENTRAL_REPO, "central", APP_WRITER)):
+            record = c.plan(EXT, WATCH, POLICY, fixture, branch_style=style)
+            for outage in ("tag", "list", "rest"):
+                reads, calls = [], []
+
+                def fetch(url):
+                    reads.append(url)
+                    if url.endswith("/contents/metadata/automation-fleet.json?ref=main"):
+                        return REGISTRY_RESPONSE
+                    if outage == "tag" and "/git/ref/tags/" in url:
+                        raise WatchError("tag API outage")
+                    return fixture(url)
+
+                def execute(*args):
+                    calls.append(args)
+                    if args[:3] == ("gh", "pr", "list"):
+                        if outage == "list":
+                            raise WatchError("listing API outage")
+                        return json.dumps([list_pr(repo, record["branch"])])
+                    if args == ("gh", "api", f"repos/{repo}/pulls/114") and outage == "rest":
+                        raise WatchError("REST PR API outage")
+                    raise AssertionError(args)
+
+                with patch.dict(os.environ, {"GITHUB_REPOSITORY": repo, "GITHUB_REF": "refs/heads/main",
+                                            "GH_TOKEN": "fixture", "RUNNER_TEMP": temp}), \
+                     patch.object(c, "github_get_json", side_effect=lambda url, token: fetch(url)), \
+                     patch.object(update_watch_lib, "github_get_json", side_effect=lambda url, token: fetch(url)), \
+                     patch.object(c, "execute", execute):
+                    if writer is None:
+                        expect_fail(lambda: c.propose(record, str(manifest), repo, str(watch)))
+                    else:
+                        expect_fail(lambda: c.propose_candidate(
+                            record, str(manifest), repo, str(watch), writer=writer, fetch=fetch))
+                assert any("/git/ref/tags/" in url for url in reads), (repo, outage)
+                assert len(calls) == {"tag": 0, "list": 1, "rest": 2}[outage], (repo, outage, calls)
+                assert_no_writes_or_dispatch(calls)
+                assert manifest.read_bytes() == original
 
 
 def exercise_writer_identity_normalization():
-    """Run 45757757650: a fleet-App candidate PR must pass the writer check.
-
-    gh pr list author.login is the GraphQL Actor login
-    (app/pgextwin-fleet-candidate) while the configured writer is the REST
-    bot login (pgextwin-fleet-candidate[bot]); the check must verify the
-    writer via the REST PR user, not the GraphQL display field. A PR owned
-    by any other identity must still fail closed.
-    """
-    record=c.plan(EXT,WATCH,POLICY,fixture)
-    marker="<!-- "+c.MARKER_PREFIX+":"+record["candidateId"]+" -->"
-    central=json.loads((ROOT/"metadata/automation-fleet.json").read_text(encoding="utf-8"))
-    response={"encoding":"base64","content":base64.b64encode(json.dumps(central).encode()).decode()}
-    writer=("pgextwin-fleet-candidate[bot]", 999001)
-    parent="a"*40
-    scenarios=[
-        ("graphql-app-author-accepted",
-         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
-          "author":{"login":"app/pgextwin-fleet-candidate"}},
-         {"number":114,"state":"open","user":{"type":"Bot","login":"pgextwin-fleet-candidate[bot]"}}, False),
-        ("other-app-rejected",
-         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
-          "author":{"login":"app/pgextwin-fleet-candidate"}},
-         {"number":114,"state":"open","user":{"type":"Bot","login":"other-app[bot]"}}, True),
-        ("human-author-rejected",
-         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
-          "author":{"login":"app/pgextwin-fleet-candidate"}},
-         {"number":114,"state":"open","user":{"type":"User","login":"ShutenOishi"}}, True),
-        ("rest-number-mismatch-rejected",
-         {"number":114,"body":marker,"state":"OPEN","url":"https://example/114",
-          "author":{"login":"app/pgextwin-fleet-candidate"}},
-         {"number":999,"state":"open","user":{"type":"Bot","login":"pgextwin-fleet-candidate[bot]"}}, True),
+    """TC-10 authenticates the GraphQL App author via the independent REST bot user."""
+    record = c.plan(EXT, WATCH, POLICY, fixture, branch_style="central")
+    branch = record["branch"]
+    marker = candidate_marker(branch)
+    scenarios = [
+        ("graphql-app-author-accepted", "OPEN", None),
+        ("rest-type", "OPEN", lambda pr: pr["user"].update(type="User")),
+        ("rest-login", "OPEN", lambda pr: pr["user"].update(login="other-app[bot]")),
+        ("rest-id", "OPEN", lambda pr: pr["user"].update(id=999002)),
+        ("rest-id-type", "OPEN", lambda pr: pr["user"].update(id=str(APP_WRITER[1]))),
+        ("rest-number", "OPEN", lambda pr: pr.update(number=999)),
+        ("rest-state", "OPEN", lambda pr: pr.update(state="closed")),
+        ("closed-is-merged", "CLOSED", lambda pr: pr.update(merged=True)),
+        ("open-is-merged", "OPEN", lambda pr: pr.update(merged=True)),
+        ("merged-is-unmerged", "MERGED", lambda pr: pr.update(merged=False)),
+        ("rest-head-ref", "OPEN", lambda pr: pr["head"].update(ref="main")),
+        ("rest-base-ref", "OPEN", lambda pr: pr["base"].update(ref="other")),
+        ("rest-head-repo", "OPEN", lambda pr: pr["head"]["repo"].update(full_name=LOCAL_REPO)),
+        ("rest-base-repo", "OPEN", lambda pr: pr["base"]["repo"].update(full_name=LOCAL_REPO)),
+        ("rest-head-sha", "OPEN", lambda pr: pr["head"].update(sha="0" * 40)),
+        ("rest-marker-missing", "OPEN", lambda pr: pr.update(body="missing")),
+        ("rest-marker-duplicate", "OPEN", lambda pr: pr.update(body=f"{marker}\n{marker}")),
     ]
-    for name, listed, rest_pr, must_fail in scenarios:
-        with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp)
-            manifest=root/"extension.json"
-            manifest.write_text(json.dumps(EXT),encoding="utf-8")
-            (root/"watch.json").write_text(json.dumps(WATCH),encoding="utf-8")
-            (root/"policy.json").write_text(json.dumps(POLICY),encoding="utf-8")
-            calls=[]
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        manifest, watch = root / "extension.json", root / "watch.json"
+        manifest.write_text(json.dumps(EXT), encoding="utf-8")
+        watch.write_text(json.dumps(WATCH), encoding="utf-8")
+        original = manifest.read_bytes()
+        for name, state, mutate in scenarios:
+            listed = list_pr(CENTRAL_REPO, branch, state=state)
+            listed["author"] = {"login": "app/pgextwin-fleet-candidate"}
+            rest = rest_pr(CENTRAL_REPO, listed, APP_WRITER)
+            if mutate:
+                mutate(rest)
+            calls = []
+
             def execute(*args):
                 calls.append(args)
-                if args[:2]==("git","ls-remote"): return "ab refs/heads/"+record["branch"]
-                if args[:2]==("git","fetch"): return ""
-                if args[:2]==("git","log"):
-                    if "--format=%P" in args: return parent
-                    return "candidate branch\n"+marker
-                if args[:2]==("git","rev-parse"): return parent
-                if args[:2]==("git","show"): return json.dumps(c.apply(EXT,record))
-                if args[:2]==("git","diff"): return str(manifest)
-                if args[:3]==("gh","pr","list"):
-                    return json.dumps([dict(listed, headRefName=record["branch"], baseRefName="main",
-                                            isCrossRepository=False)])
-                if args[:2]==("gh","api"): return json.dumps(rest_pr)
-                if args[:3]==("gh","run","list"): return "[]"
-                if args[:3]==("gh","workflow","run"): return ""
-                raise AssertionError("unexpected or mutating command: "+repr(args))
-            with patch.dict(os.environ,{"GITHUB_REPOSITORY":"pgextwin/plpgsql_check",
-                                      "GITHUB_REF":"refs/heads/main","GH_TOKEN":"fixture-token",
-                                      "RUNNER_TEMP":temp}), \
-                 patch.object(update_watch_lib,"github_get_json",lambda url,token:response), \
-                 patch.object(c,"github_get_json",lambda url,token:response), \
-                 patch.object(c,"execute",execute),patch.object(c,"peel_tag",lambda *args,**kwargs:SHA):
-                task=lambda:c.propose_candidate(record,str(manifest),"pgextwin/plpgsql_check",
-                                               str(root/"watch.json"),str(root/"policy.json"),
-                                               writer=writer)
-                if must_fail: expect_fail(task)
-                else: assert task() is None
-            assert any(x[:2]==("gh","api") for x in calls),name
-            if must_fail:
-                assert not any(x[:3]==("gh","workflow","run") for x in calls),name
+                if args[:3] == ("gh", "pr", "list"):
+                    return json.dumps([listed] if branch in args else [])
+                if args == ("gh", "api", f"repos/{CENTRAL_REPO}/pulls/114"):
+                    return json.dumps(rest)
+                if args[:2] == ("git", "ls-remote"):
+                    return f"{PR_HEAD} refs/heads/{branch}"
+                if args[:2] == ("git", "fetch"):
+                    return ""
+                if args[:2] == ("git", "log"):
+                    return rest["base"]["sha"] if "--format=%P" in args else marker
+                if args[:2] == ("git", "rev-parse"):
+                    return rest["base"]["sha"]
+                if args[:2] == ("git", "show"):
+                    return json.dumps(c.apply(EXT, record))
+                if args[:2] == ("git", "diff"):
+                    return str(manifest)
+                if args[:3] == ("gh", "run", "list"):
+                    return "[]"
+                if args[:3] == ("gh", "workflow", "run"):
+                    return ""
+                raise AssertionError(args)
+
+            with patch.object(c, "execute", execute), patch.object(c, "peel_tag", return_value=SHA):
+                def task():
+                    return c.propose_candidate(record, str(manifest), CENTRAL_REPO, str(watch),
+                                               writer=APP_WRITER, fetch=lambda url: REGISTRY_RESPONSE)
+
+                if mutate:
+                    expect_fail(task)
+                else:
+                    assert task() is None
+            assert calls[1] == ("gh", "api", f"repos/{CENTRAL_REPO}/pulls/114"), name
+            if mutate:
+                assert_no_writes_or_dispatch(calls)
+                assert manifest.read_bytes() == original, name
             else:
-                assert sum(x[:3]==("gh","workflow","run") for x in calls)==1,name
+                assert sum(args[:3] == ("gh", "workflow", "run") for args in calls) == 1, name
 
 
 def exercise_new_candidate_positive():
@@ -209,27 +304,60 @@ def exercise_new_candidate_positive():
         assert not any(x[:2]==("gh","release") for x in commands)
 
 
-def exercise_candidate_regeneration():
+def exercise_central_proposal_guards():
+    record = c.plan(EXT, WATCH, POLICY, fixture, branch_style="central")
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        manifest, watch = root / "extension.json", root / "watch.json"
+        manifest.write_text(json.dumps(EXT), encoding="utf-8")
+        watch.write_text(json.dumps(WATCH), encoding="utf-8")
+        original = manifest.read_bytes()
+        calls = []
+
+        def execute(*args):
+            calls.append(args)
+            if args[:3] == ("gh", "pr", "list"):
+                return "[]"
+            if args[:2] == ("git", "ls-remote"):
+                return f"{PR_HEAD} {args[-1]}"
+            if args[:2] == ("git", "fetch"):
+                return ""
+            if args[:2] == ("git", "log"):
+                return "candidate without an immutable marker"
+            raise AssertionError(args)
+
+        def task(candidate_record):
+            return c.propose_candidate(candidate_record, str(manifest), CENTRAL_REPO, str(watch), fetch=fixture)
+
+        with patch.object(c, "execute", execute), \
+             patch.object(update_watch_lib, "github_get_json", return_value=REGISTRY_RESPONSE), \
+             patch.object(c, "repair_exact_bot_candidate_base_sync") as repair:
+            for invalid in (dict(record, firstRelease=True),
+                            dict(record, branch=format_branch(EXT["name"], record["candidateId"], "legacy")),
+                            dict(record, branch=format_branch("pg_bigm", record["candidateId"], "central"))):
+                expect_fail(lambda: task(invalid))
+            assert calls == []
+            expect_fail(lambda: task(record))
+            assert any(args[:2] == ("git", "log") for args in calls)
+            repair.assert_not_called()
+        assert_no_writes_or_dispatch(calls)
+        assert manifest.read_bytes() == original
+
+
+def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
     """Drive a closed base, an open successor, and a second closed predecessor."""
-    record = c.plan(EXT, WATCH, POLICY, fixture)
+    record = c.plan(EXT, WATCH, POLICY, fixture, branch_style=style)
     original = copy.deepcopy(record)
-    repository = "pgextwin/plpgsql_check"
-    writer = ("pgextwin-fleet-candidate[bot]", 999001)
+    repository = CENTRAL_REPO if style == "central" else LOCAL_REPO
+    writer = APP_WRITER
     parent, head = "a"*40, "b"*40
     actor = {"type": "Bot", "login": writer[0], "id": writer[1]}
-    central = (ROOT/"metadata/automation-fleet.json").read_bytes()
-    response = {"encoding": "base64", "content": base64.b64encode(central).decode()}
 
-    def marker_for(branch):
-        return "<!-- " + c.MARKER_PREFIX + ":" + branch.split("/")[1] + " -->"
+    def listed_pr(branch, number, state):
+        return list_pr(repository, branch, number, state)
 
-    def pr_for(branch, number, state, body):
-        return {"number": number, "state": state, "body": body, "headRefName": branch,
-                "baseRefName": "main", "isCrossRepository": False,
-                "url": f"https://github.com/{repository}/pull/{number}"}
-
-    base_branch = record["branch"]
-    prs = {base_branch: pr_for(base_branch, 114, "CLOSED", marker_for(base_branch))}
+    base_branch = format_branch(EXT["name"], record["candidateId"], predecessor_style)
+    prs = {base_branch: listed_pr(base_branch, 114, "CLOSED")}
     branches = set()
     dispatched = set()
     rest_users = {}
@@ -244,6 +372,7 @@ def exercise_candidate_regeneration():
     origin.side_effect = build_origin
     calls = []
     current_branch = None
+    race = False
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         manifest = root/"extension.json"
@@ -261,13 +390,9 @@ def exercise_candidate_regeneration():
             if args[:2] == ("gh", "api"):
                 number = int(args[2].rsplit("/", 1)[1])
                 pr = next(pr for pr in prs.values() if pr["number"] == number)
-                return json.dumps({
-                    "number": number, "state": "open" if pr["state"] == "OPEN" else "closed",
-                    "user": rest_users.get(number, actor), "body": pr["body"], "draft": True,
-                    "merged": pr["state"] == "MERGED",
-                    "head": {"ref": pr["headRefName"], "sha": head, "repo": {"full_name": repository}},
-                    "base": {"ref": "main", "sha": parent, "repo": {"full_name": repository}},
-                })
+                rest = rest_pr(repository, pr, writer)
+                rest["user"] = rest_users.get(number, actor)
+                return json.dumps(rest)
             if args[:2] == ("git", "ls-remote"):
                 branch = args[-1].removeprefix("refs/heads/")
                 return f"{head} {args[-1]}" if branch in branches else ""
@@ -276,11 +401,15 @@ def exercise_candidate_regeneration():
                 return ""
             if args[:2] == ("git", "push"):
                 branches.add(args[-1])
+                if race:
+                    parsed = parse_branch(args[-1])
+                    other_branch = format_branch(EXT["name"], parsed.candidate_id, "legacy")
+                    prs[other_branch] = listed_pr(other_branch, 999, "OPEN")
                 return ""
             if args[:3] == ("git", "rev-parse", "HEAD"):
                 return head if current_branch else parent
             if args[:2] == ("git", "log"):
-                return parent if "--format=%P" in args else marker_for(args[-1].removeprefix("refs/remotes/origin/"))
+                return parent if "--format=%P" in args else candidate_marker(args[-1].removeprefix("refs/remotes/origin/"))
             if args[:2] == ("git", "show"):
                 return json.dumps(c.apply(EXT, record))
             if args[:2] == ("git", "diff"):
@@ -289,7 +418,7 @@ def exercise_candidate_regeneration():
                 branch = args[args.index("--head") + 1]
                 assert branch in branches and branch not in prs and "--draft" in args
                 body = Path(args[args.index("--body-file") + 1]).read_text(encoding="utf-8")
-                prs[branch] = pr_for(branch, 114 + len(prs), "OPEN", body)
+                prs[branch] = dict(listed_pr(branch, 114 + len(prs), "OPEN"), body=body)
                 return prs[branch]["url"]
             if args[:3] == ("gh", "run", "list"):
                 branch = args[args.index("--branch") + 1]
@@ -309,41 +438,83 @@ def exercise_candidate_regeneration():
             current_branch = None
             manifest.write_text(json.dumps(EXT), encoding="utf-8")
             c.propose_candidate(record, str(manifest), repository, str(watch), str(policy),
-                                writer=writer, fetch=lambda url: response,
+                                writer=writer, fetch=lambda url: REGISTRY_RESPONSE,
                                 origin_body=origin, on_created=created)
 
         def assert_new_proposal(predecessor, branch):
-            assert re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch)
+            parsed = parse_branch(branch, expected_extension=EXT["name"])
+            predecessor_id = parse_branch(predecessor).candidate_id
+            number = prs[predecessor]["number"]
+            assert parsed.style == style
+            assert parsed.candidate_id == c.regenerated_candidate_id(predecessor_id, number)
             assert [args[-1] for args in calls if args[:2] == ("git", "ls-remote")] == ["refs/heads/" + branch]
             assert [args[-1] for args in calls if args[:2] == ("git", "push")] == [branch]
             assert sum(args[:3] == ("gh", "pr", "create") for args in calls) == 1
             assert [args[-1] for args in calls if args[:3] == ("gh", "workflow", "run")] == [branch]
-            assert any(args[:2] == ("git", "commit") and marker_for(branch) in args[-1] for args in calls)
-            assert prs[branch]["body"].startswith(marker_for(branch) + "\n")
+            assert any(args[:2] == ("git", "commit") and candidate_marker(branch) in args[-1] for args in calls)
+            assert prs[branch]["body"].startswith(candidate_marker(branch) + "\n")
             attested = origin_module.parse_marker(prs[branch]["body"])
-            assert attested["decision"]["candidateId"] == branch.split("/")[1]
+            assert attested["decision"]["candidateId"] == parsed.candidate_id
             assert attested["regeneration"] == {
-                "predecessorCandidateId": predecessor.split("/")[1],
-                "predecessorPrNumber": prs[predecessor]["number"]}
-            assert origin.call_args.args[1]["candidateId"] == branch.split("/")[1]
-            assert origin.call_args.args[2] == (predecessor.split("/")[1], prs[predecessor]["number"])
-            assert created.call_args.args[1]["candidateId"] == branch.split("/")[1]
-            assert created.call_args.args[2] == (predecessor.split("/")[1], prs[predecessor]["number"])
+                "predecessorCandidateId": predecessor_id, "predecessorPrNumber": number}
+            assert origin.call_args.args[1]["candidateId"] == parsed.candidate_id
+            assert origin.call_args.args[2] == (predecessor_id, number)
+            assert created.call_args.args[1]["candidateId"] == parsed.candidate_id
+            assert created.call_args.args[2] == (predecessor_id, number)
             assert prs[predecessor]["url"] in prs[branch]["body"]
-            assert predecessor.split("/")[1] in prs[branch]["body"]
+            assert predecessor_id in prs[branch]["body"]
             assert prs[predecessor]["state"] == "CLOSED"
             assert record == original
 
+        def assert_scanned(*candidate_branches):
+            expected = []
+            for candidate_branch in candidate_branches:
+                candidate_id = parse_branch(candidate_branch).candidate_id
+                expected.append(format_branch(EXT["name"], candidate_id, style))
+                if style == "central":
+                    expected.append(format_branch(EXT["name"], candidate_id, "legacy"))
+            assert [args[args.index("--head") + 1] for args in calls
+                    if args[:3] == ("gh", "pr", "list")] == expected
+
         with patch.dict(os.environ, {"RUNNER_TEMP": temp}), \
              patch.object(c, "execute", execute), patch.object(c, "peel_tag", return_value=SHA):
+            if style == "central":
+                alternate_style = "legacy" if predecessor_style == "central" else "central"
+                alternate = format_branch(EXT["name"], record["candidateId"], alternate_style)
+                prs[base_branch]["state"] = "OPEN"
+                branches.add(base_branch)
+                dispatched.add(base_branch)
+                task()
+                assert_scanned(base_branch)
+                assert_no_writes_or_dispatch(calls)
+                assert any(args[:3] == ("gh", "run", "list") and base_branch in args for args in calls)
+                assert alternate not in branches
+
+                branches.clear()
+                expect_fail(task)
+                assert_no_writes_or_dispatch(calls)
+
+                prs[base_branch]["state"] = "MERGED"
+                task()
+                assert_scanned(base_branch)
+                assert_no_writes_or_dispatch(calls)
+                assert all(args[0] == "gh" for args in calls) and len(calls) == 3
+
+                prs[alternate] = listed_pr(alternate, 999, "OPEN")
+                expect_fail(task)
+                assert_scanned(base_branch)
+                assert_no_writes_or_dispatch(calls)
+                del prs[alternate]
+                dispatched.clear()
+                prs[base_branch]["state"] = "CLOSED"
+
             task()
             first, = branches
             assert first != base_branch
             assert_new_proposal(base_branch, first)
 
             task()
-            assert [args[args.index("--head") + 1] for args in calls
-                    if args[:3] == ("gh", "pr", "list")] == [base_branch, first]
+            assert_scanned(base_branch, first)
             assert ("gh", "api", f"repos/{repository}/pulls/115") in calls
             assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")} for args in calls)
             assert not any(args[:2] == ("git", "push") for args in calls)
@@ -362,8 +533,7 @@ def exercise_candidate_regeneration():
 
             prs[second]["state"] = "MERGED"
             task()
-            assert [args[args.index("--head") + 1] for args in calls
-                    if args[:3] == ("gh", "pr", "list")] == [base_branch, first, second]
+            assert_scanned(base_branch, first, second)
             assert all(args[:3] == ("gh", "pr", "list") or args[:2] == ("gh", "api") for args in calls)
             assert origin.call_count == 2 and created.call_count == 2
 
@@ -371,10 +541,20 @@ def exercise_candidate_regeneration():
             # with its unchanged decision and no regeneration field.
             prs.clear()
             task()
-            base_attestation = origin_module.parse_marker(prs[base_branch]["body"])
+            base_attestation = origin_module.parse_marker(prs[record["branch"]]["body"])
             assert base_attestation["decision"] == original
             assert "regeneration" not in base_attestation
             assert origin.call_args.args[2] is None and created.call_args.args[2] is None
+
+            if style == "central":
+                # A legacy PR appearing during branch preparation must stop PR creation and dispatch.
+                prs.clear()
+                branches.clear()
+                race = True
+                expect_fail(task)
+                assert_scanned(record["branch"], record["branch"])
+                assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")}
+                               for args in calls)
 
 
 def main():
@@ -390,6 +570,9 @@ def main():
     assert p["status"]=="candidate" and p["updates"][0]["commit"]==SHA and p["updates"][0]["version"]=="2.10.14"
     assert len(p["candidateId"])==20 and p["branch"].startswith("auto-candidate/")
     assert c.plan(EXT,WATCH,POLICY,fixture)["candidateId"]==p["candidateId"]
+    central = c.plan(EXT, WATCH, POLICY, fixture, branch_style="central")
+    assert central["candidateId"] == p["candidateId"]
+    assert central["branch"] == f"auto-candidate/{EXT['name']}/{p['candidateId']}"
     upgraded=c.apply(EXT,p)
     assert upgraded["upstream"]["commit"]==SHA and upgraded["upstream"]["ref"]=="v2.10.14"
     expect_fail(lambda:c.apply(upgraded,p))
@@ -459,9 +642,13 @@ def main():
     pinned_pg=c.apply(per,baseline_pg)
     assert all(v["commit"]==SHA for v in pinned_pg["upstream"]["perPostgresql"].values())
     exercise_proposer_safety()
+    exercise_upstream_and_pr_lookup_outages()
     exercise_writer_identity_normalization()
     exercise_new_candidate_positive()
+    exercise_central_proposal_guards()
     exercise_candidate_regeneration()
+    exercise_candidate_regeneration("central", "central")
+    exercise_candidate_regeneration("central", "legacy")
     print("Step 19/20 candidate and proposer-safety fixture tests passed")
 
 if __name__=="__main__":main()

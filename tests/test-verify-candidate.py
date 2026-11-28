@@ -26,8 +26,25 @@ with tempfile.TemporaryDirectory() as d:
  r=v.audit(root,ext,life,100,"a"*40,"auto-candidate/"+"1"*20,"success",date(2026,10,9))
  assert r["status"]=="VERIFIED" and len(r["majors"])==2
  assert v.audit(root,ext,life,100,"a"*40,"auto-candidate/"+"1"*20,"failed",date(2026,10,9))["status"]=="FAILED"
+ central_branch = "auto-candidate/test/" + "1" * 20
+ for major in (14, 15):
+  output = root / f"test-pg{major}-windows-x64/output.zip"
+  with ZipFile(output) as z:
+   metadata = json.loads(z.read("PACKAGE-INFO.json"))
+  metadata["workflowRun"]["ref"] = "refs/heads/" + central_branch
+  with ZipFile(output, "w") as z:
+   z.writestr("PACKAGE-INFO.json", json.dumps(metadata))
+ assert v.audit(root, ext, life, 100, "a" * 40, central_branch, "success",
+                date(2026, 10, 9))["status"] == "VERIFIED"
+ try:
+  v.audit(root, ext, life, 100, "a" * 40, "auto-candidate/other/" + "1" * 20,
+          "success", date(2026, 10, 9))
+ except ValueError:
+  pass
+ else:
+  raise AssertionError("TC-16: candidate from another extension was accepted")
  (root/"test-pg14-windows-x64"/"output.spdx.json").unlink()
- assert v.audit(root,ext,life,100,"a"*40,"auto-candidate/"+"1"*20,"success",date(2026,10,9))["status"]=="FAILED"
+ assert v.audit(root,ext,life,100,"a"*40,central_branch,"success",date(2026,10,9))["status"]=="FAILED"
 # Candidate audit comments use the scoped issues REST endpoint instead of
 # GraphQL addComment, which does not accept this workflow's issues:write token.
 with tempfile.TemporaryDirectory() as d:
@@ -48,6 +65,20 @@ with tempfile.TemporaryDirectory() as d:
  assert calls[1][4]=="-f" and calls[1][5].startswith("body=<!-- pgextwin-candidate-run:100 -->")
 
  assert Path(d,"candidate-comment.md").is_file()
+ calls.clear()
+ central_report = dict(report, branch=central_branch)
+ assert v.comment(central_report, "pgextwin/test", Path(d) / "central-comment.md") == "COMMENTED"
+ assert calls[0][calls[0].index("--head") + 1] == central_branch
+ assert calls[1][3] == "repos/pgextwin/test/issues/12/comments"
+ calls.clear()
+ try:
+  v.comment(dict(report, branch="auto-candidate/other/" + "1" * 20),
+            "pgextwin/test", Path(d) / "other-comment.md")
+ except ValueError:
+  pass
+ else:
+  raise AssertionError("TC-16: comment accepted a branch from another extension")
+ assert calls == []
  # Only the known comment-only 403 is nonfatal. It must remain visible and
  # must never turn a FAILED audit into a VERIFIED artifact.
  def denied_403(*args):

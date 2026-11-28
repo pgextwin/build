@@ -34,6 +34,23 @@ class CandidateNativeRecoveryTests(unittest.TestCase):
         prs,runs=data()
         self.assertIsNone(m.choose_candidate(REPO,[],runs))
 
+    def test_tc17_discovery_is_bound_to_the_target_repository(self):
+        for repo, branch, accepted in (
+            (REPO, BRANCH, True),
+            (REPO, "auto-candidate/hypopg/" + "c" * 20, True),
+            (REPO, "auto-candidate/pgaudit/" + "c" * 20, False),
+            ("pgextwin/build", "auto-candidate/hypopg/" + "c" * 20, True),
+            ("pgextwin/build", BRANCH, False),
+        ):
+            with self.subTest(repo=repo, branch=branch):
+                pulls, inventory = data()
+                pr = pulls[0]
+                pr["head"].update(ref=branch, repo={"full_name": repo})
+                pr["base"]["repo"] = {"full_name": repo}
+                inventory["workflow_runs"][0].update(head_branch=branch, head_repository={"full_name": repo})
+                self.assertEqual(m.open_candidate(pulls), pr if accepted else None)
+                self.assertEqual(m.choose_candidate(repo, pulls, inventory), RUN if accepted else None)
+
     def test_authenticated_discovery_query_exact_literal_question_mark(self):
         from unittest.mock import patch
         from types import SimpleNamespace

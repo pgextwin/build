@@ -10,6 +10,7 @@ import re
 import subprocess
 import tempfile
 from urllib.parse import quote
+import candidate_branch
 import fleet_candidate_origin as origin
 from update_watch_lib import WatchError, github_get_json
 from importlib.util import spec_from_file_location,module_from_spec
@@ -104,19 +105,27 @@ def fetch_audit(repo,run):
         raise WatchError("candidate audit has inconsistent identity")
     return data
 
-def candidate_run_url(repo, branch, event):
+def observed_candidate_branch(repo, branch, extension=None):
+    if type(repo) is not str or not re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", repo):
+        raise WatchError("invalid candidate repository")
+    if repo != candidate_branch.CENTRAL_REPOSITORY:
+        extension = repo.removeprefix("pgextwin/")
+    try:
+        return candidate_branch.parse_branch(branch, expected_extension=extension)
+    except ValueError as exc:
+        raise WatchError("invalid candidate branch for " + repo) from exc
+
+
+def candidate_run_url(repo, branch, event, *, extension=None):
     """Fetch only the active immutable candidate branch; never scan fleet-wide CI."""
-    if (type(repo) is not str
-            or re.fullmatch(r"pgextwin/[a-z][a-z0-9_]*", repo) is None
-            or type(branch) is not str
-            or re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch) is None
-            or event not in ("pull_request", "workflow_dispatch")):
+    if event not in ("pull_request", "workflow_dispatch"):
         raise WatchError("invalid scoped candidate Windows run query")
+    observed_candidate_branch(repo, branch, extension)
     return (BASE + repo + "/actions/workflows/windows.yml/runs?event=" + event
             + "&branch=" + quote(branch, safe="") + "&per_page=100")
 
 
-def native_candidate_ci(page, pr, repo, event="pull_request", *, verify_origin=origin.verify):
+def native_candidate_ci(page, pr, repo, event="pull_request", *, verify_origin=origin.verify, extension=None):
     """Observe exact active bot PR Windows CI; NEVER authorize merge or Release.
 
     Native pull_request CI does not necessarily include a legacy candidate-audit
@@ -134,10 +143,9 @@ def native_candidate_ci(page, pr, repo, event="pull_request", *, verify_origin=o
     head = (pr.get("head") or {}) if type(pr) is dict else {}
     branch, sha = head.get("ref"), head.get("sha")
     if (type(pr) is not dict or (head.get("repo") or {}).get("full_name") != repo
-            or type(branch) is not str
-            or re.fullmatch(r"auto-candidate/[0-9a-f]{20}", branch) is None
             or type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None):
         raise WatchError("active PR is not an authentic same-repository bot candidate")
+    observed_candidate_branch(repo, branch, extension)
     origin.author(repo, pr, verify_origin=verify_origin, denied=WatchError)
     if not all(type(r) is dict and r.get("event") == event for r in runs):
         raise WatchError("unfiltered native PR run list")
@@ -166,7 +174,10 @@ def native_candidate_ci(page, pr, repo, event="pull_request", *, verify_origin=o
 
 def one(entry,lifecycle,schedule_utc=None):
     repo=entry["repository"]
-    row={"extension":repo.split("/")[-1],"repository":repo,"mode":entry["mode"],
+    extension = entry.get("extension") if repo == candidate_branch.CENTRAL_REPOSITORY else repo.split("/")[-1]
+    if repo == candidate_branch.CENTRAL_REPOSITORY:
+        candidate_branch.validate_extension_name(extension)
+    row={"extension":extension,"repository":repo,"mode":entry["mode"],
          "scheduleUtc":entry.get("scheduleUtc",schedule_utc),"lastWatch":None,"watchResult":"UNKNOWN",
          "currentMainScheduleStatus":"INDETERMINATE","currentProtectedMainSha":None,
          "detectedCandidate":None,"candidatePrUrl":None,"lastWindowsCi":None,"candidateCiMode":"NONE",
@@ -207,9 +218,11 @@ def one(entry,lifecycle,schedule_utc=None):
             raise WatchError("unexpected PR payload")
         owned=[]
         for pr in prs:
-            branch=(pr.get("head") or {}).get("ref") or ""
-            m=re.fullmatch(r"auto-candidate/([0-9a-f]{20})",branch)
-            if m and "<!-- pgextwin-candidate:v1:"+m.group(1)+" -->" in (pr.get("body") or ""):
+            try:
+                parsed = observed_candidate_branch(repo, (pr.get("head") or {}).get("ref"), extension)
+            except WatchError:
+                continue
+            if "<!-- pgextwin-candidate:v1:"+parsed.candidate_id+" -->" in (pr.get("body") or ""):
                 owned.append(pr)
         row["candidatePrUrl"]=owned[0].get("html_url") if len(owned)==1 else None
         owned_pr=owned[0] if len(owned)==1 else None
@@ -230,8 +243,8 @@ def one(entry,lifecycle,schedule_utc=None):
                 owned_pr = live_pr
             # Active native pull_request CI ALWAYS takes precedence over stale
             # legacy workflow_dispatch runs. Do not assume green means audited.
-            page=request(candidate_run_url(repo,owned_pr["head"]["ref"],"pull_request"))
-            active_run,native_status=native_candidate_ci(page,owned_pr,repo)
+            page=request(candidate_run_url(repo,owned_pr["head"]["ref"],"pull_request",extension=extension))
+            active_run,native_status=native_candidate_ci(page,owned_pr,repo,extension=extension)
             if active_run is not None:
                 row["candidateCiMode"]="NATIVE_PULL_REQUEST"
                 row["lastWindowsCi"]=compact_run(active_run)
@@ -241,9 +254,9 @@ def one(entry,lifecycle,schedule_utc=None):
             # and explicitly dispatches windows.yml: PR event suppression may
             # prevent ANY native pull_request Windows run. The exact branch
             # and HEAD of the active PR still MUST match; no old green dispatch.
-            dispatched=request(candidate_run_url(repo,owned_pr["head"]["ref"],"workflow_dispatch"))
+            dispatched=request(candidate_run_url(repo,owned_pr["head"]["ref"],"workflow_dispatch",extension=extension))
             run,status=native_candidate_ci(dispatched,owned_pr,repo,
-                                           event="workflow_dispatch")
+                                           event="workflow_dispatch",extension=extension)
             row["candidateCiMode"]="ACTIVE_DISPATCH" if run is not None else "NONE"
             row["lastWindowsCi"]=compact_run(run)
             row["lastCandidateStatus"]=status
@@ -252,7 +265,13 @@ def one(entry,lifecycle,schedule_utc=None):
         # Legacy read-only telemetry retained if there is no active candidate.
         runs=most_recent(request(BASE+repo+"/actions/workflows/windows.yml/runs?event=workflow_dispatch&per_page=100"),"workflow_runs")
         row["candidateCiMode"]="LEGACY_DISPATCH"
-        candidates=[r for r in runs if (r.get("head_branch") or "").startswith("auto-candidate/")]
+        candidates=[]
+        for run in runs:
+            try:
+                observed_candidate_branch(repo, run.get("head_branch"), extension)
+            except WatchError:
+                continue
+            candidates.append(run)
         row["lastWindowsCi"]=compact_run(candidates[0]) if candidates else None
         if candidates:
             latest=candidates[0]

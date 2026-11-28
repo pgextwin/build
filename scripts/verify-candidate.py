@@ -3,6 +3,7 @@
 import argparse
 from datetime import date
 import hashlib
+import importlib.util
 import json
 import lzma
 import os
@@ -14,7 +15,10 @@ from zipfile import BadZipFile, ZipFile
 from zlib import error as ZlibError
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
-OWNED = re.compile(r"^auto-candidate/([0-9a-f]{20})$")
+_branch_spec = importlib.util.spec_from_file_location(
+    "candidate_branch", Path(__file__).resolve().with_name("candidate_branch.py"))
+candidate_branch = importlib.util.module_from_spec(_branch_spec)
+_branch_spec.loader.exec_module(candidate_branch)
 
 def eligible(ext, lifecycle, today):
     pg = ext["postgresql"]
@@ -88,8 +92,9 @@ def one(folder, ext, major, runid, branch_sha, branch, *,
 
 def audit(root, ext, lifecycle, runid, branch_sha, branch, matrix_result, today,
           *, event="workflow_dispatch", merge_sha=None, pr_number=None, run_attempt=None):
-    if not SHA.fullmatch(branch_sha) or not OWNED.fullmatch(branch):
-        raise ValueError("invalid candidate commit or branch")
+    if not SHA.fullmatch(branch_sha):
+        raise ValueError("invalid candidate commit")
+    candidate_branch.parse_branch(branch, expected_extension=ext["name"])
     majors=eligible(ext,lifecycle,today)
     items=[]
     for major in majors:
@@ -118,12 +123,12 @@ def gh(*argv):
     return p.stdout
 
 def comment(report,repo,path):
-    m=OWNED.fullmatch(report["branch"])
-    if not m or repo!="pgextwin/"+report["extension"]:
+    if repo!="pgextwin/"+report["extension"]:
         raise ValueError("untrusted PR/repository identifier")
+    parsed = candidate_branch.parse_branch(report["branch"], expected_extension=report["extension"])
     prs=json.loads(gh("pr","list","--repo",repo,"--head",report["branch"],
                      "--state","open","--limit","100","--json","number,body"))
-    marker="<!-- pgextwin-candidate:v1:"+m.group(1)+" -->"
+    marker="<!-- pgextwin-candidate:v1:"+parsed.candidate_id+" -->"
     if len(prs)!=1 or marker not in str(prs[0].get("body") or ""):
         raise ValueError("no unique automation-owned candidate PR")
     lines=["<!-- pgextwin-candidate-run:"+str(report["runId"])+" -->",

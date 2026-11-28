@@ -66,6 +66,31 @@ class NativeRunTests(unittest.TestCase):
                       "publishableReceipt","publicationAuthorized"):
             self.assertIs(x[field],False)
 
+    def test_tc17_exact_candidate_branch_must_match_repository(self):
+        for repo, branch, accepted in (
+            (REPO, BRANCH, True),
+            (REPO, "auto-candidate/pg_ivm/" + "d" * 20, True),
+            (REPO, "auto-candidate/pgaudit/" + "d" * 20, False),
+            ("pgextwin/build", "auto-candidate/pg_ivm/" + "d" * 20, True),
+            ("pgextwin/build", BRANCH, False),
+        ):
+            with self.subTest(repo=repo, branch=branch):
+                args = fixture()
+                args["repo"] = repo
+                args["run"].update(head_repository={"full_name": repo}, head_branch=branch)
+                pr_meta = args["run"]["pull_requests"][0]
+                pr_meta["head"]["ref"] = args["pr"]["head"]["ref"] = branch
+                for side in ("head", "base"):
+                    pr_meta[side]["repo"]["name"] = repo.removeprefix("pgextwin/")
+                    args["pr"][side]["repo"]["full_name"] = repo
+                args["checks"]["check_runs"][0]["details_url"] = (
+                    f"https://github.com/{repo}/actions/runs/{RUN}/job/701")
+                if accepted:
+                    self.assertEqual(native.validate(**args)["branch"], branch)
+                else:
+                    with self.assertRaises(native.Denied):
+                        native.validate(**args)
+
     def test_approved_native_run_and_dispatch_on_same_head_are_distinct(self):
         args=fixture();args["run"]["run_attempt"]=2
         dispatch=deepcopy(args["checks"]["check_runs"][0])

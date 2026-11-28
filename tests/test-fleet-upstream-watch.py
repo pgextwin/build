@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -20,6 +21,9 @@ replay_spec = importlib.util.spec_from_file_location(
     "fleet_replay", ROOT / "scripts/verify-scheduled-fleet-candidate.py")
 replay = importlib.util.module_from_spec(replay_spec)
 replay_spec.loader.exec_module(replay)
+direct_spec = importlib.util.spec_from_file_location("fleet_candidate", ROOT / "scripts/fleet-candidate.py")
+direct = importlib.util.module_from_spec(direct_spec)
+direct_spec.loader.exec_module(direct)
 sha = "a" * 40
 
 
@@ -108,6 +112,49 @@ class ReadonlyFleet(TestCase):
             w.snapshot("pgextwin/pgtap",{"mode":"BUILD","strategy":"github-releases"},bad)
         with self.assertRaises(WatchError):
             w.scan({"schemaVersion":1,"entries":[]},fixture)
+
+    def test_tc08_api_outage_is_indeterminate_and_stops_candidate_selection(self):
+        policy_path = ROOT / "metadata/automation-fleet.json"
+        registry = json.loads(policy_path.read_text())
+        repository = "pgextwin/pgtap"
+        snapshot = w.snapshot
+
+        def scoped_snapshot(repo, entry, fetch):
+            if repo == repository:
+                return snapshot(repo, entry, fetch)
+            return {"repository": repo, "mainSha": sha, "status": "up-to-date", "updates": []}
+
+        for endpoint in ("/releases?per_page=100", f"/{repository}/branches/main"):
+            def outage(url):
+                if url.endswith(endpoint):
+                    raise WatchError("fixture GitHub API outage")
+                return fixture(url)
+
+            with self.subTest(endpoint=endpoint), patch.object(w, "snapshot", scoped_snapshot):
+                report = w.scan(registry, outage)
+                row = next(row for row in report["extensions"] if row["repository"] == repository)
+                self.assertEqual(row["status"], "INDETERMINATE")
+                self.assertEqual(report["indeterminate"], 1)
+                self.assertEqual(report["updatesDetected"], 0)
+                self.assertEqual(report["publication"], "DENY")
+                self.assertIs(report["candidatePrCreated"], False)
+                with TemporaryDirectory() as tmp:
+                    output, summary = Path(tmp) / "report.json", Path(tmp) / "summary.md"
+                    argv = ["fleet-upstream-watch.py", "--policy", str(policy_path),
+                            "--output", str(output), "--summary", str(summary)]
+                    with patch.object(sys, "argv", argv), patch.dict("os.environ", {"GH_TOKEN": "fixture"}), \
+                         patch.object(w, "github_get_json", side_effect=lambda url, token: outage(url)):
+                        self.assertEqual(w.main(), 2)
+                    snapshot_report = json.loads(output.read_text())
+                    self.assertEqual(snapshot_report["extensions"], report["extensions"])
+                    self.assertEqual(snapshot_report["indeterminate"], 1)
+                with patch.object(direct, "execution_mode", return_value="ENFORCE"), \
+                     patch.object(direct.receipt, "api") as api, \
+                     patch.object(direct.candidate, "execute") as execute:
+                    with self.assertRaisesRegex(direct.receipt.Denied, "indeterminate fleet scan"):
+                        direct.select(snapshot_report, (None, None, None, registry))
+                    api.assert_not_called()
+                    execute.assert_not_called()
 
     def test_main_moves_and_bad_config_denied(self):
         calls=[0]
