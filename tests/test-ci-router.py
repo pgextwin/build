@@ -796,6 +796,27 @@ class NameStatusConversionTests(unittest.TestCase):
                 with self.assertRaises(router.RouterError):
                     router.changes_from_name_status(data)
 
+    def test_truncated_stream_and_bad_scores_are_extraction_failures(self):
+        # B2R5-N1: a non-empty name-status stream always ends with
+        # a NUL terminator, and rename / copy similarity scores are
+        # always present and within 0-100.
+        for data in (b"M\0extensions/pg_bigm/extension.jso",  # no final NUL
+                     b"R100\0extensions/wal2json/a\0extensions/pg_repack/",
+                     b"R999\0a\0b\0",       # similarity score above 100
+                     b"R101\0a\0b\0",       # similarity score above 100
+                     b"R\0a\0b\0",          # missing similarity score
+                     b"C\0a\0b\0"):         # missing similarity score
+            with self.subTest(data=data):
+                with self.assertRaises(router.RouterError):
+                    router.changes_from_name_status(data)
+
+    def test_similarity_score_boundaries_are_accepted(self):
+        changes = self.convert(
+            b"R000", b"docs/old.md", b"docs/new.md",
+            b"C100", b"docs/source.md", b"docs/copy.md")
+        self.assertEqual([change["status"] for change in changes],
+                         ["renamed", "copied"])
+
     def test_cli_name_status_mode(self):
         with TemporaryDirectory() as tmp:
             stream = Path(tmp) / "name-status.bin"
@@ -875,6 +896,13 @@ class RouteStepPinningTests(unittest.TestCase):
         self.git(seed, "commit", "-a", "-m", "documentation change")
         head_b = self.git(seed, "rev-parse", "HEAD")
         self.git(seed, "push", str(origin), "main", "head-a", "head-b")
+        # A merge commit of head-a into main, as actions/checkout
+        # materialises for a pull request (refs/pull/<n>/merge) and
+        # as a --merge commit lands on main through a push.
+        self.git(seed, "checkout", "main")
+        self.git(seed, "merge", "--no-ff", "head-a", "-m", "merge head-a")
+        merge = self.git(seed, "rev-parse", "HEAD")
+        self.git(seed, "push", str(origin), "HEAD:refs/heads/sim-merge")
         work = tmp / "work"
         subprocess.run(["git", "clone", str(origin), str(work)],
                        check=True, capture_output=True)
@@ -886,7 +914,26 @@ class RouteStepPinningTests(unittest.TestCase):
             target = work / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes((ROOT / rel).read_bytes())
-        return work, base, head_a, head_b
+        return work, base, head_a, head_b, merge
+
+    def make_shallow_checkout(self, tmp, name, sha):
+        """Reproduce the actions/checkout fetch-depth: 1 shape: a
+        single commit fetched with --depth=1 and checked out, so the
+        commit is a shallow root with no parents (B2R5-M1)."""
+        tmp = Path(tmp)
+        work = tmp / name
+        subprocess.run(["git", "init", "-b", "main", str(work)],
+                       check=True, capture_output=True)
+        self.git(work, "remote", "add", "origin", str(tmp / "origin.git"))
+        self.git(work, "fetch", "--depth=1", "origin", sha)
+        self.git(work, "checkout", "--detach", "FETCH_HEAD")
+        for rel in ("scripts/ci-router.py", "scripts/central-extension.py",
+                    "schema/central-extension.schema.json",
+                    "metadata/automation-fleet.json"):
+            target = work / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT / rel).read_bytes())
+        return work
 
     def run_route_step(self, work, runtime, **overrides):
         runtime = Path(runtime)
@@ -922,7 +969,7 @@ class RouteStepPinningTests(unittest.TestCase):
 
     def test_rerun_routes_the_event_commits_not_the_current_pr(self):
         with TemporaryDirectory() as tmp:
-            work, base, head_a, head_b = self.make_repos(tmp)
+            work, base, head_a, head_b, _merge = self.make_repos(tmp)
             # The old run's event names head-a (the extension
             # change).  The pull request's current head (head-b) is
             # documentation-only with the same file count; routing
@@ -949,7 +996,7 @@ class RouteStepPinningTests(unittest.TestCase):
 
     def test_push_routes_the_before_after_commits(self):
         with TemporaryDirectory() as tmp:
-            work, base, head_a, _head_b = self.make_repos(tmp)
+            work, base, head_a, _head_b, _merge = self.make_repos(tmp)
             proc, outputs = self.run_route_step(
                 work, Path(tmp) / "rt-push",
                 GITHUB_EVENT_NAME="push",
@@ -957,9 +1004,70 @@ class RouteStepPinningTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(outputs["targets"], "pg_bigm")
 
+    def test_push_in_shallow_checkout_routes_the_changed_extension(self):
+        # B2R5-M1: with the fetch-depth: 1 checkout shape, the push
+        # head is a shallow root; before the fix the route step's
+        # three-dot diff failed with "no merge base" and every push
+        # fell back to all registered extensions.
+        with TemporaryDirectory() as tmp:
+            _work, base, head_a, _head_b, _merge = self.make_repos(tmp)
+            shallow = self.make_shallow_checkout(tmp, "shallow-push", head_a)
+            proc, outputs = self.run_route_step(
+                shallow, Path(tmp) / "rt-shallow-push",
+                GITHUB_EVENT_NAME="push",
+                BEFORE_SHA=base, GITHUB_SHA=head_a)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("::warning::ci-router", proc.stdout)
+            self.assertEqual(outputs["targets"], "pg_bigm")
+            self.assertEqual(outputs["resolver_conclusion"], "success")
+
+    def test_push_merge_commit_in_shallow_checkout_routes(self):
+        with TemporaryDirectory() as tmp:
+            _work, base, _head_a, _head_b, merge = self.make_repos(tmp)
+            shallow = self.make_shallow_checkout(tmp, "shallow-merge", merge)
+            proc, outputs = self.run_route_step(
+                shallow, Path(tmp) / "rt-shallow-merge",
+                GITHUB_EVENT_NAME="push",
+                BEFORE_SHA=base, GITHUB_SHA=merge)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("::warning::ci-router", proc.stdout)
+            self.assertEqual(outputs["targets"], "pg_bigm")
+
+    def test_push_docs_only_in_shallow_checkout_has_no_targets(self):
+        with TemporaryDirectory() as tmp:
+            _work, base, _head_a, head_b, _merge = self.make_repos(tmp)
+            shallow = self.make_shallow_checkout(tmp, "shallow-docs", head_b)
+            proc, outputs = self.run_route_step(
+                shallow, Path(tmp) / "rt-shallow-docs",
+                GITHUB_EVENT_NAME="push",
+                BEFORE_SHA=base, GITHUB_SHA=head_b)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("::warning::ci-router", proc.stdout)
+            self.assertEqual(outputs["targets"], "")
+            self.assertEqual(outputs["has_targets"], "false")
+            self.assertEqual(outputs["resolver_conclusion"], "success")
+
+    def test_pull_request_in_shallow_merge_checkout_routes(self):
+        # The pull_request path materialises a synthetic merge
+        # commit; routing its pinned base/head commits from that
+        # shallow checkout must keep working (and now completes the
+        # history explicitly instead of relying on the base/head
+        # staying off the shallow boundary).
+        with TemporaryDirectory() as tmp:
+            _work, base, head_a, _head_b, merge = self.make_repos(tmp)
+            shallow = self.make_shallow_checkout(tmp, "shallow-pr", merge)
+            proc, outputs = self.run_route_step(
+                shallow, Path(tmp) / "rt-shallow-pr",
+                PR_BASE_SHA=base, PR_HEAD_SHA=head_a,
+                PR_CHANGED_FILES="1", GITHUB_SHA=merge)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("::warning::ci-router", proc.stdout)
+            self.assertEqual(outputs["targets"], "pg_bigm")
+            self.assertEqual(outputs["resolver_conclusion"], "success")
+
     def test_unpinnable_event_falls_back_to_all_registered(self):
         with TemporaryDirectory() as tmp:
-            work, _base, head_a, _head_b = self.make_repos(tmp)
+            work, _base, head_a, _head_b, _merge = self.make_repos(tmp)
             proc, outputs = self.run_route_step(
                 work, Path(tmp) / "rt-fallback",
                 PR_BASE_SHA="", PR_HEAD_SHA=head_a, GITHUB_SHA=head_a)

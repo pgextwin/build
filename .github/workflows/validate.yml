@@ -427,12 +427,22 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             base_sha="$PR_BASE_SHA"
             head_sha="$PR_HEAD_SHA"
+            # A pull request routes the changes the head introduces
+            # relative to where it diverged from the base: the
+            # three-dot (merge-base) range.
+            diff_range="$base_sha...$head_sha"
           elif [ "$GITHUB_EVENT_NAME" = "push" ]; then
             base_sha="$BEFORE_SHA"
             head_sha="$GITHUB_SHA"
+            # A push routes exactly the before -> after transition:
+            # the two-dot range.  A three-dot range would need a
+            # merge base and, on a rewind push, would describe the
+            # wrong (empty) change set (B2R5-M1).
+            diff_range="$base_sha..$head_sha"
           else
             base_sha=""
             head_sha=""
+            diff_range=""
           fi
           zero_sha="0000000000000000000000000000000000000000"
           if [ -z "$base_sha" ] || [ -z "$head_sha" ] \
@@ -444,9 +454,25 @@ jobs:
             fallback=1
           else
             name_status="$RUNNER_TEMP/ci-router-name-status.bin"
-            if ! git fetch --no-tags origin "$base_sha" "$head_sha"; then
+            # actions/checkout fetches with fetch-depth: 1, so the
+            # checked-out commit is a shallow root with no parents.
+            # On push that root is the head commit itself, and a
+            # plain fetch leaves its shallow boundary in place, so
+            # the base and head share no reachable ancestor and the
+            # diff below fails with "no merge base" (B2R5-M1).  When
+            # the repository is shallow, complete the history of the
+            # two pinned commits with --unshallow (a complete
+            # repository rejects --unshallow, hence the condition);
+            # the pull_request path takes the same explicit route
+            # instead of relying on its merge-commit checkout not
+            # placing the base/head on the shallow boundary.
+            fetch_args=(--no-tags)
+            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+              fetch_args+=(--unshallow)
+            fi
+            if ! git fetch "${fetch_args[@]}" origin "$base_sha" "$head_sha"; then
               fallback=1
-            elif ! git diff --name-status -z -M -C "$base_sha...$head_sha" > "$name_status"; then
+            elif ! git diff --name-status -z -M -C "$diff_range" > "$name_status"; then
               fallback=1
             elif ! python3 scripts/ci-router.py --name-status "$name_status" > "$files_json"; then
               fallback=1

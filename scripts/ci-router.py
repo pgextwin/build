@@ -332,7 +332,13 @@ def changes_from_name_status(data):
     if not isinstance(data, (bytes, bytearray)):
         raise RouterError(
             f"name-status input must be bytes, got {type(data).__name__}")
-    fields = bytes(data).split(b"\0")
+    data = bytes(data)
+    if data and not data.endswith(b"\0"):
+        # A non-empty ``git diff --name-status -z`` stream always
+        # ends with a NUL terminator; a missing one means the stream
+        # was truncated mid-entry (B2R5-N1).
+        raise RouterError("name-status stream is missing its final NUL")
+    fields = data.split(b"\0")
     if fields and fields[-1] == b"":
         fields.pop()
     changes = []
@@ -351,7 +357,11 @@ def changes_from_name_status(data):
         if letter not in GIT_NAME_STATUS_MAP:
             raise RouterError(f"unknown git name-status {token!r}")
         if letter in ("R", "C"):
-            if score and not score.isdigit():
+            if not score or not score.isdigit() or not 0 <= int(score) <= 100:
+                # ``git diff -M -C`` always reports a similarity
+                # score in the range 0-100 for rename / copy
+                # entries; a missing or out-of-range score is a
+                # malformed stream (B2R5-N1).
                 raise RouterError(
                     f"malformed similarity score in git name-status {token!r}")
         elif score:
