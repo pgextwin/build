@@ -28,6 +28,8 @@ CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 P5_ROOTS = frozenset({"metadata"})
 P5_FILES = frozenset({"schema/local-candidate-authority.schema.json"})
 P5_WORKFLOWS = frozenset({
+    "central-signed-main.yml",
+    "central-extension-attested.yml",
     "local-authorized-candidate.yml", "fleet-candidate.yml", "fleet-upstream-watch.yml",
     "candidate-update.yml", "build-extension-attested.yml", "chat-signed-main-source.yml",
     "publisher-candidate-intake.yml", "publisher-app-proof.yml", "promote-verified-release.yml",

@@ -1,0 +1,338 @@
+name: Central Windows package attestation
+
+on:
+  workflow_call:
+    inputs:
+      extension_name:
+        type: string
+        required: true
+      postgresql_major:
+        type: number
+        required: true
+      extension_source_sha:
+        type: string
+        required: true
+      packaging_sha:
+        type: string
+        required: true
+      reusable_pin_sha:
+        type: string
+        required: true
+      upstream_tarball_sha256:
+        type: string
+        required: true
+      caller_run_id:
+        type: string
+        required: true
+      caller_run_attempt:
+        type: string
+        required: true
+      caller_event:
+        type: string
+        required: true
+      auth_artifact_name:
+        type: string
+        required: true
+      build_config_uri:
+        type: string
+        required: true
+      signer_uri:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  M1_EXTENSION: ${{ inputs.extension_name }}
+  M1_MAJOR: ${{ inputs.postgresql_major }}
+  M1_EXTENSION_SOURCE_SHA: ${{ inputs.extension_source_sha }}
+  M1_PACKAGING_SHA: ${{ inputs.packaging_sha }}
+  M1_REUSABLE_PIN_SHA: ${{ inputs.reusable_pin_sha }}
+  M1_UPSTREAM_TARBALL_SHA256: ${{ inputs.upstream_tarball_sha256 }}
+  M1_CALLER_RUN_ID: ${{ inputs.caller_run_id }}
+  M1_CALLER_RUN_ATTEMPT: ${{ inputs.caller_run_attempt }}
+  M1_CALLER_EVENT: ${{ inputs.caller_event }}
+  M1_AUTH_ARTIFACT: ${{ inputs.auth_artifact_name }}
+  M1_BUILD_CONFIG_URI: ${{ inputs.build_config_uri }}
+  M1_SIGNER_URI: ${{ inputs.signer_uri }}
+  M1_INTENT: intent/${{ inputs.extension_name }}/${{ inputs.postgresql_major }}/central-signed-main-intent.json
+
+jobs:
+  package:
+    if: >-
+      github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' &&
+      github.run_attempt == '1' && (github.event_name == 'schedule' || github.event_name == 'issue_comment') &&
+      github.workflow_ref == 'pgextwin/build/.github/workflows/central-signed-main.yml@refs/heads/main'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out the pinned signer implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: signer
+          persist-credentials: false
+
+      - name: Check out the protected caller commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the current run's authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: central-signed-main-intent-nonpublishing
+          path: intent
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Validate the intent, declaration and upstream archive
+        id: target
+        env:
+          M1_JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          M1_JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+        run: |
+          python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+          if ($LASTEXITCODE -ne 0) { throw "Could not install the declaration validator." }
+          python signer/scripts/central-signing-auth.py --verify-intent --root source --postgresql-major $env:M1_MAJOR --intent $env:M1_INTENT
+          if ($LASTEXITCODE -ne 0) { throw "Central signing intent rejected." }
+
+      - name: Check out the declared upstream commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.target.outputs.upstream_repository }}
+          ref: ${{ steps.target.outputs.upstream_commit }}
+          path: upstream
+          persist-credentials: false
+
+      - name: Select and install the admitted PostgreSQL series
+        id: postgres
+        run: |
+          $output = $env:GITHUB_OUTPUT
+          $env:GITHUB_OUTPUT = Join-Path $env:RUNNER_TEMP "central-matrix"
+          try {
+            & signer/scripts/resolve-matrix.ps1 -ExtensionConfigPath "source/extensions/$env:M1_EXTENSION/extension.json" `
+              -PostgreSqlConfigPath source/metadata/postgresql.json
+            $fields = @{}
+            foreach ($line in Get-Content -LiteralPath $env:GITHUB_OUTPUT) {
+              $key, $value = $line.Split('=', 2)
+              $fields[$key] = $value
+            }
+          } finally {
+            $env:GITHUB_OUTPUT = $output
+          }
+          $matrix = @((ConvertFrom-Json -InputObject $fields.matrix).include | Where-Object { $_.major -eq [int]$env:M1_MAJOR })
+          if ($matrix.Count -ne 1 -or $fields.verify_upstream_license -cne "true") { throw "PostgreSQL target is not admitted." }
+          $row = $matrix[0]
+          "matrix=$($row | ConvertTo-Json -Depth 12 -Compress)" >> $env:GITHUB_OUTPUT
+          & signer/scripts/install-postgresql.ps1 -Major $row.major -ChocolateyPackage $row.chocolateyPackage `
+            -ChocolateyVersion $row.chocolateyVersion -TestPort $row.testPort
+
+      - name: Build, smoke-test and finalize the package
+        id: package
+        env:
+          M1_JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          M1_JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          UPSTREAM_REPOSITORY: ${{ steps.target.outputs.upstream_repository }}
+          UPSTREAM_COMMIT: ${{ steps.target.outputs.upstream_commit }}
+          MATRIX_ROW: ${{ steps.postgres.outputs.matrix }}
+        run: |
+          . ./signer/scripts/windows-package.ps1
+          $row = ConvertFrom-Json -InputObject $env:MATRIX_ROW
+          if ($row.upstreamCommit -cne $env:UPSTREAM_COMMIT) { throw "Upstream pin changed." }
+          $source = Join-Path $PWD "source"
+          $extensionPath = "extensions/$env:M1_EXTENSION"
+          $extension = Join-Path $source $extensionPath
+          $upstream = Join-Path $PWD "upstream"
+          $build = Join-Path $extension "build"
+          $declaration = Get-Content -LiteralPath (Join-Path $extension "extension.json") -Raw | ConvertFrom-Json -AsHashtable
+          $tokens = Get-PackageTokens $env:M1_EXTENSION $env:UPSTREAM_REPOSITORY $row $upstream
+          $work = [IO.Directory]::CreateTempSubdirectory('pgextwin-central-package-').FullName
+
+          # License paths in the declaration are extension-relative. Git
+          # reads use repository-relative paths, then the placement map
+          # consumes the verified bytes under the extension's license root.
+          foreach ($entry in $row.licenseFiles) { $entry.repositoryPath = "$extensionPath/$($entry.repositoryPath)" }
+          $licenses = Invoke-PackageLicenseVerification $row $source $upstream $work
+          foreach ($entry in $licenses.verified.licenses) {
+            $entry.repositoryPath = $entry.repositoryPath.Substring($extensionPath.Length + 1)
+          }
+
+          $runScript = @'
+          import importlib
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path("signer/scripts").resolve()))
+          package = importlib.import_module("central-package")
+          script, root, *args = sys.argv[1:]
+          result = package.run_adapter_script(script, args, extension_root=root, timeout=1800)
+          sys.stdout.write(result.stdout)
+          sys.stderr.write(result.stderr)
+          sys.exit(result.returncode)
+          '@
+          $scriptFile = Join-Path $work "run-script.py"
+          Set-Content -LiteralPath $scriptFile -Value $runScript -Encoding utf8NoBOM
+          if ($declaration.adapter) {
+            [void][IO.Directory]::CreateDirectory($build)
+            python $scriptFile (Join-Path $extension $declaration.adapter.path) $extension `
+              -PgRoot $env:PGROOT -UpstreamDir $upstream -BuildOutputDir $build -PostgreSqlMajor $row.major
+            if ($LASTEXITCODE -ne 0) { throw "Central Windows adapter failed." }
+          }
+
+          $map = Join-Path $work "package.json"
+          $declaration.packaging.schemaVersion = 1
+          $declaration.packaging.distribution = $declaration.build.distribution
+          $declaration.packaging | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $map -Encoding utf8NoBOM
+          $licensesRoot = Join-Path $licenses.stage $extensionPath
+          $plan = Resolve-WindowsPackage $map $extension $upstream $build $licensesRoot $licenses.verified $tokens `
+            -LicenseSourceStage $licenses.sourceStage
+          Copy-PackageFiles $plan $env:PGROOT install
+          if (!$declaration.tests) { throw "Central attested packages require a declared smoke test." }
+          python $scriptFile (Join-Path $extension $declaration.tests.smokeTest) $extension `
+            -PgRoot $env:PGROOT -PgPort $env:PGPORT -PostgreSqlMajor $row.major
+          if ($LASTEXITCODE -ne 0) { throw "Central smoke test failed." }
+
+          $stage = Join-Path $work "stage"
+          $licenseList = Join-Path $work "licenses.json"
+          Write-WindowsPackageStage $plan $stage $licenseList
+          $embeddedIntent = Join-Path $stage "central-signed-main-intent.json"
+          if (Test-Path -LiteralPath $embeddedIntent) { throw "Package map used the reserved intent filename." }
+          Copy-Item -LiteralPath $env:M1_INTENT -Destination $embeddedIntent
+
+          $finalizer = Get-PackageFinalizerInputs $tokens $source $upstream "pgextwin/build" `
+            $env:M1_JOB_WORKFLOW_REPOSITORY $env:M1_JOB_WORKFLOW_SHA "release-attested" ".github/workflows/central-extension-attested.yml"
+          $asset = Get-WindowsPackageAssetName $tokens
+          & signer/scripts/finalize-package.ps1 @finalizer -StageDir $stage -AssetName $asset -VerifiedLicenseList $licenseList
+          python signer/scripts/validate-package-metadata.py --schema signer/schema/package-info.schema.json --zip "dist/$asset"
+          if ($LASTEXITCODE -ne 0) { throw "Invalid central package metadata." }
+          "version=$($tokens.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Generate the Syft SPDX 2.3 SBOM
+        env:
+          EXTENSION_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          & signer/scripts/install-syft.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Syft installation failed." }
+          & signer/scripts/generate-sbom.ps1 -SyftPath (Join-Path $PWD ".pgextwin-tools/syft/syft.exe") `
+            -ExtensionName $env:M1_EXTENSION -ExtensionVersion $env:EXTENSION_VERSION
+
+      - name: Upload the unsigned package and SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-unsigned-${{ inputs.extension_name }}-pg${{ inputs.postgresql_major }}
+          path: |
+            dist/*.zip
+            dist/*.spdx.json
+          if-no-files-found: error
+
+  attest:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pinned signer implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: signer
+          persist-credentials: false
+
+      - name: Check out the protected caller commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the current run's authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: central-signed-main-intent-nonpublishing
+          path: intent
+
+      - name: Download the exact package job's artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: central-unsigned-${{ inputs.extension_name }}-pg${{ inputs.postgresql_major }}
+          path: dist
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Recheck the authorization and upstream bindings
+        id: target
+        shell: bash
+        env:
+          M1_JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          M1_JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+        run: |
+          python signer/scripts/central-signing-auth.py --verify-intent --root source \
+            --postgresql-major "$M1_MAJOR" --intent "$M1_INTENT"
+
+      - name: Authenticate the signing subject
+        id: subject
+        shell: bash
+        env:
+          UPSTREAM_REPOSITORY: ${{ steps.target.outputs.upstream_repository }}
+          UPSTREAM_COMMIT: ${{ steps.target.outputs.upstream_commit }}
+        run: |
+          shopt -s nullglob
+          zips=(dist/*.zip)
+          sboms=(dist/*.spdx.json)
+          [[ ${#zips[@]} == 1 && ${#sboms[@]} == 1 ]]
+          python signer/scripts/verify-central-attestation-claims.py --check-package \
+            --zip "${zips[0]}" --sbom "${sboms[0]}" --intent "$M1_INTENT" \
+            --expected-event "$GITHUB_EVENT_NAME" --major "$M1_MAJOR" \
+            --upstream-repository "$UPSTREAM_REPOSITORY" --upstream-commit "$UPSTREAM_COMMIT"
+          printf 'zip=%s\nsbom=%s\n' "${zips[0]}" "${sboms[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest SLSA build provenance
+        id: slsa
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subject.outputs.zip }}
+
+      - name: Attest the SPDX 2.3 SBOM
+        id: spdx
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subject.outputs.zip }}
+          sbom-path: ${{ steps.subject.outputs.sbom }}
+
+      - name: Stage the attestation bundles
+        shell: bash
+        env:
+          SLSA_BUNDLE: ${{ steps.slsa.outputs.bundle-path }}
+          SPDX_BUNDLE: ${{ steps.spdx.outputs.bundle-path }}
+        run: |
+          cp -- "$SLSA_BUNDLE" dist/slsa.sigstore.json
+          cp -- "$SPDX_BUNDLE" dist/spdx.sigstore.json
+
+      - name: Upload signed package evidence for this run
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-signed-${{ inputs.extension_name }}-pg${{ inputs.postgresql_major }}
+          path: |
+            ${{ steps.subject.outputs.zip }}
+            ${{ steps.subject.outputs.sbom }}
+            dist/slsa.sigstore.json
+            dist/spdx.sigstore.json
+          if-no-files-found: error

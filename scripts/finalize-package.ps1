@@ -85,7 +85,21 @@ if ($BuildMode -eq "release-attested") {
     if ($WorkflowRef -ne "refs/heads/main") {
         throw "Attested Release packages require a main-branch workflow ref."
     }
-    if ($WorkflowEvent -eq "issue_comment") {
+    if ($PackagingRepository -ceq "pgextwin/build") {
+        $centralVerifier = Join-Path $BuildInfrastructureDir "scripts/central-signing-auth.py"
+        & python $centralVerifier --verify-finalizer --event $env:GITHUB_EVENT_PATH --intent $env:M1_INTENT `
+            --repository $PackagingRepository --extension $ExtensionName --workflow-event $WorkflowEvent `
+            --run-id $WorkflowRunId --run-attempt $WorkflowRunAttempt --ref $WorkflowRef --run-url $WorkflowRunUrl `
+            --packaging-sha $PackagingCommit --reusable-pin-sha $BuildCommit --reusable-workflow $ReusableWorkflow
+        if ($LASTEXITCODE -ne 0) {
+            throw "Central attested Release source denied by run authentication."
+        }
+    }
+    elseif ($PackagingRepository -ieq "pgextwin/build" -or
+        $env:GITHUB_WORKFLOW_REF -clike "pgextwin/build/.github/workflows/central-signed-main.yml@*") {
+        throw "Central attested Release context must use the exact packaging repository."
+    }
+    elseif ($WorkflowEvent -eq "issue_comment") {
         if ($WorkflowRunAttempt -ne 1 -or
             $env:GITHUB_EVENT_NAME -ne "issue_comment" -or
             $env:GITHUB_REF -ne $WorkflowRef -or

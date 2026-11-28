@@ -414,6 +414,16 @@ jobs:
       - name: Validate selective CI router and concurrency contract (F21-02)
         run: python -m unittest -v tests/test-ci-router.py
 
+      - name: Verify M1 central signing boundary and full attestation claims comparison (F21-05 / CB-70)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          pin=$(sed -nE 's|^    uses: pgextwin/build/\.github/workflows/central-extension-attested\.yml@([a-f0-9]{40})$|\1|p' .github/workflows/central-signed-main.yml)
+          if [[ "$pin" =~ ^[a-f0-9]{40}$ ]] && ! git cat-file -e "$pin^{commit}"; then
+            git fetch --no-tags --depth=1 origin "$pin"
+          fi
+          python -m unittest -v tests/test-central-signing-boundary.py
+
       - name: Route selective CI targets for this change (F21-02)
         id: route
         env:
