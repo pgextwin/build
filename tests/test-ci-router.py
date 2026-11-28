@@ -38,12 +38,23 @@ hierarchy), the per-event concurrency group rendering in validate.yml
 (pr-validation for pull requests, postmerge otherwise), and the
 launchable_targets() guard against a symbolic-link extensions/ root
 on direct calls.
+
+Fix round 4 (Sol re-audit B2-SOL-R2-M1) adds: the git name-status to
+GitHub file-list conversion (the status-letter mapping, rename / copy
+old-path pairing, malformed-stream rejections, the --name-status CLI
+mode), the structural pinning of the validate.yml route step to the
+event's base/head commits, and a functional run of the extracted
+route step over a real git repository reproducing the audit's
+same-count / different-version pair (an old run's event commits keep
+selecting the extension change even though the pull request's current
+head is documentation-only).
 """
 
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -502,6 +513,29 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("--format github", run)
         self.assertIn('>> "$GITHUB_OUTPUT"', run)
 
+    def test_route_step_pins_the_change_list_to_the_event_commits(self):
+        # B2-SOL-R2-M1: the route step takes its base/head commits
+        # from the event payload itself and computes the change list
+        # locally with git diff; the pull-request-number file list
+        # is gone, so a re-run can never pair its original checkout
+        # with a newer list.
+        steps = self.workflow["jobs"]["resolver"]["steps"]
+        route_steps = [step for step in steps
+                       if isinstance(step, dict) and step.get("id") == "route"]
+        self.assertEqual(len(route_steps), 1)
+        env = route_steps[0]["env"]
+        self.assertEqual(env["PR_BASE_SHA"],
+                         "${{ github.event.pull_request.base.sha }}")
+        self.assertEqual(env["PR_HEAD_SHA"],
+                         "${{ github.event.pull_request.head.sha }}")
+        self.assertEqual(env["BEFORE_SHA"], "${{ github.event.before }}")
+        run = route_steps[0]["run"]
+        self.assertIn("git diff --name-status -z -M -C", run)
+        self.assertIn('"$base_sha...$head_sha"', run)
+        self.assertIn("--name-status", run)
+        self.assertNotIn("pulls/", run)
+        self.assertNotIn("PR_NUMBER", run)
+
     def test_extension_ci_job_consumes_the_launch_matrix(self):
         job = self.workflow["jobs"]["extension-ci"]
         needs = job["needs"]
@@ -697,6 +731,241 @@ class ConcurrencyContractTests(unittest.TestCase):
                         block.get("cancel-in-progress", False), False,
                         f"{workflow.name}: {block}")
         self.assertGreater(declarations, 0)
+
+
+class NameStatusConversionTests(unittest.TestCase):
+    """B2-SOL-R2-M1: the git name-status -> GitHub file-list mapping.
+
+    validate.yml computes the change list with
+    ``git diff --name-status -z -M -C BASE...HEAD`` over the event's
+    own commits; this conversion is the only bridge between git's
+    status letters and the router's GitHub-shaped input, so the
+    mapping and its failure modes are pinned here.
+    """
+
+    def convert(self, *fields):
+        data = b"\0".join(fields) + b"\0"
+        return router.changes_from_name_status(data)
+
+    def test_simple_statuses_map_to_github_values(self):
+        changes = self.convert(
+            b"A", b"extensions/pg_bigm/extension.json",
+            b"M", b"scripts/ci-router.py",
+            b"D", b"docs/old.md",
+            b"T", b"windows/ci/link.ps1",
+        )
+        self.assertEqual(changes, [
+            {"filename": "extensions/pg_bigm/extension.json", "status": "added"},
+            {"filename": "scripts/ci-router.py", "status": "modified"},
+            {"filename": "docs/old.md", "status": "removed"},
+            {"filename": "windows/ci/link.ps1", "status": "changed"},
+        ])
+
+    def test_rename_and_copy_carry_the_old_path(self):
+        changes = self.convert(
+            b"R100", b"extensions/wal2json/a.patch",
+            b"extensions/pg_repack/a.patch",
+            b"C075", b"docs/source.md", b"docs/copy.md",
+        )
+        self.assertEqual(changes[0], {
+            "filename": "extensions/pg_repack/a.patch", "status": "renamed",
+            "previous_filename": "extensions/wal2json/a.patch"})
+        self.assertEqual(changes[1], {
+            "filename": "docs/copy.md", "status": "copied",
+            "previous_filename": "docs/source.md"})
+
+    def test_empty_stream_is_an_empty_change_list(self):
+        self.assertEqual(router.changes_from_name_status(b""), [])
+
+    def test_converted_rename_routes_both_sides(self):
+        changes = self.convert(
+            b"R100", b"extensions/wal2json/a.patch",
+            b"extensions/pg_repack/a.patch")
+        result = route(changes)
+        self.assertEqual(result["targets"], ["pg_repack", "wal2json"])
+
+    def test_malformed_streams_are_extraction_failures(self):
+        for data in (b"X\0docs/a.md\0",          # unknown status letter
+                     b"U\0docs/a.md\0",          # unmerged: never in a diff
+                     b"Rabc\0a\0b\0",            # malformed similarity score
+                     b"M100\0docs/a.md\0",       # score on a simple status
+                     b"R100\0only-one-path\0",   # truncated rename pair
+                     b"A\0\0",                   # empty path
+                     b"A\0docs/\xff.md\0"):      # non-UTF-8 path
+            with self.subTest(data=data):
+                with self.assertRaises(router.RouterError):
+                    router.changes_from_name_status(data)
+
+    def test_cli_name_status_mode(self):
+        with TemporaryDirectory() as tmp:
+            stream = Path(tmp) / "name-status.bin"
+            stream.write_bytes(b"M\0extensions/pg_bigm/extension.json\0")
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--name-status", str(stream)],
+                capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), [
+            {"filename": "extensions/pg_bigm/extension.json",
+             "status": "modified"}])
+
+    def test_cli_name_status_rejects_a_malformed_stream(self):
+        with TemporaryDirectory() as tmp:
+            stream = Path(tmp) / "name-status.bin"
+            stream.write_bytes(b"X\0docs/a.md\0")
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--name-status", str(stream)],
+                capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("ci-router:", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+
+@unittest.skipUnless(shutil.which("git"), "git is required")
+class RouteStepPinningTests(unittest.TestCase):
+    """B2-SOL-R2-M1: the validate.yml route step derives the change
+    list from the event's own base/head commits, never from the pull
+    request's current state, so a re-run of an old run (bound to the
+    original event payload and checkout) cannot pair that checkout
+    with a newer file list."""
+
+    @classmethod
+    def setUpClass(cls):
+        workflow = yaml.safe_load(
+            (WORKFLOWS / "validate.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["resolver"]["steps"]
+        route_steps = [step for step in steps
+                       if isinstance(step, dict) and step.get("id") == "route"]
+        if len(route_steps) != 1:
+            raise AssertionError("validate.yml must have exactly one route step")
+        cls.route_run = route_steps[0]["run"]
+
+    def git(self, cwd, *args):
+        return subprocess.run(
+            ["git", "-c", "user.email=ci-router@example.invalid",
+             "-c", "user.name=ci-router tests", *args],
+            cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+
+    def make_repos(self, tmp):
+        """origin holds base -> head-a (one extension file) and
+        base -> head-b (one documentation file): the audit's
+        same-count / different-version reproduction pair."""
+        tmp = Path(tmp)
+        origin = tmp / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(origin)],
+                       check=True, capture_output=True)
+        seed = tmp / "seed"
+        subprocess.run(["git", "init", "-b", "main", str(seed)],
+                       check=True, capture_output=True)
+        (seed / "extensions" / "pg_bigm").mkdir(parents=True)
+        (seed / "extensions" / "pg_bigm" / "extension.json").write_text(
+            '{"v": 1}\n', encoding="utf-8")
+        (seed / "docs").mkdir()
+        (seed / "docs" / "audit.md").write_text("# audit\n", encoding="utf-8")
+        self.git(seed, "add", "extensions/pg_bigm/extension.json", "docs/audit.md")
+        self.git(seed, "commit", "-m", "base")
+        base = self.git(seed, "rev-parse", "HEAD")
+        self.git(seed, "checkout", "-b", "head-a")
+        (seed / "extensions" / "pg_bigm" / "extension.json").write_text(
+            '{"v": 2}\n', encoding="utf-8")
+        self.git(seed, "commit", "-a", "-m", "extension change")
+        head_a = self.git(seed, "rev-parse", "HEAD")
+        self.git(seed, "checkout", "main")
+        self.git(seed, "checkout", "-b", "head-b")
+        (seed / "docs" / "audit.md").write_text("# audit v2\n", encoding="utf-8")
+        self.git(seed, "commit", "-a", "-m", "documentation change")
+        head_b = self.git(seed, "rev-parse", "HEAD")
+        self.git(seed, "push", str(origin), "main", "head-a", "head-b")
+        work = tmp / "work"
+        subprocess.run(["git", "clone", str(origin), str(work)],
+                       check=True, capture_output=True)
+        # The router and its PR-B1 support files, as in the real
+        # checkout (untracked here: only their presence matters).
+        for rel in ("scripts/ci-router.py", "scripts/central-extension.py",
+                    "schema/central-extension.schema.json",
+                    "metadata/automation-fleet.json"):
+            target = work / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT / rel).read_bytes())
+        return work, base, head_a, head_b
+
+    def run_route_step(self, work, runtime, **overrides):
+        runtime = Path(runtime)
+        runtime.mkdir(parents=True, exist_ok=True)
+        env = {
+            "PATH": os.environ["PATH"],
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_REPOSITORY": "pgextwin/build",
+            "GITHUB_SHA": "",
+            "PR_BASE_SHA": "",
+            "PR_HEAD_SHA": "",
+            "PR_CHANGED_FILES": "",
+            "BEFORE_SHA": "",
+            "RUNNER_TEMP": str(runtime),
+            "GITHUB_OUTPUT": str(runtime / "github-output.txt"),
+            "GITHUB_STEP_SUMMARY": str(runtime / "github-summary.md"),
+        }
+        if "HOME" in os.environ:
+            env["HOME"] = os.environ["HOME"]
+        env.update(overrides)
+        proc = subprocess.run(
+            ["bash", "-c", self.route_run], cwd=work, env=env,
+            capture_output=True, text=True)
+        outputs = {}
+        output_file = runtime / "github-output.txt"
+        if output_file.exists():
+            outputs = dict(
+                line.split("=", 1)
+                for line in output_file.read_text(
+                    encoding="utf-8").strip().splitlines()
+                if "=" in line)
+        return proc, outputs
+
+    def test_rerun_routes_the_event_commits_not_the_current_pr(self):
+        with TemporaryDirectory() as tmp:
+            work, base, head_a, head_b = self.make_repos(tmp)
+            # The old run's event names head-a (the extension
+            # change).  The pull request's current head (head-b) is
+            # documentation-only with the same file count; routing
+            # the event commits still selects pg_bigm, where a list
+            # fetched by pull-request number would select nothing.
+            proc, outputs = self.run_route_step(
+                work, Path(tmp) / "rt-a",
+                PR_BASE_SHA=base, PR_HEAD_SHA=head_a,
+                PR_CHANGED_FILES="1", GITHUB_SHA=head_a)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(outputs["targets"], "pg_bigm")
+            self.assertEqual(outputs["resolver_conclusion"], "success")
+            # The documentation-only head itself routes to no
+            # targets: a legitimate skip, distinct from a dropped
+            # change.
+            proc_b, outputs_b = self.run_route_step(
+                work, Path(tmp) / "rt-b",
+                PR_BASE_SHA=base, PR_HEAD_SHA=head_b,
+                PR_CHANGED_FILES="1", GITHUB_SHA=head_b)
+            self.assertEqual(proc_b.returncode, 0, proc_b.stderr)
+            self.assertEqual(outputs_b["targets"], "")
+            self.assertEqual(outputs_b["has_targets"], "false")
+            self.assertEqual(outputs_b["resolver_conclusion"], "success")
+
+    def test_push_routes_the_before_after_commits(self):
+        with TemporaryDirectory() as tmp:
+            work, base, head_a, _head_b = self.make_repos(tmp)
+            proc, outputs = self.run_route_step(
+                work, Path(tmp) / "rt-push",
+                GITHUB_EVENT_NAME="push",
+                BEFORE_SHA=base, GITHUB_SHA=head_a)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(outputs["targets"], "pg_bigm")
+
+    def test_unpinnable_event_falls_back_to_all_registered(self):
+        with TemporaryDirectory() as tmp:
+            work, _base, head_a, _head_b = self.make_repos(tmp)
+            proc, outputs = self.run_route_step(
+                work, Path(tmp) / "rt-fallback",
+                PR_BASE_SHA="", PR_HEAD_SHA=head_a, GITHUB_SHA=head_a)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(outputs["targets"], ",".join(REGISTERED))
+            self.assertEqual(outputs["resolver_conclusion"], "success")
 
 
 class CliTests(unittest.TestCase):

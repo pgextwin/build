@@ -402,50 +402,62 @@ jobs:
       - name: Route selective CI targets for this change (F21-02)
         id: route
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
           BEFORE_SHA: ${{ github.event.before }}
         shell: bash
         run: |
           set -uo pipefail
           files_json="$RUNNER_TEMP/ci-router-files.json"
-          slim='map({filename, status} + (if .previous_filename then {previous_filename} else {} end))'
           fallback=0
+          # B2-SOL-R2-M1: pin the change list to the commits this run
+          # is about.  A re-run reuses the original event payload --
+          # the GITHUB_SHA checkout and the base/head SHAs below --
+          # while a file list fetched by pull-request number
+          # describes the pull request's *current* state, so an old
+          # checkout could be paired with a newer list and, when the
+          # file counts happen to match, a landed change would
+          # silently drop out of the routing.  The list is therefore
+          # computed locally from the event's own base/head commits
+          # (no API file list, so no API truncation cap either); the
+          # payload count cross-check stays as a second guard, and
+          # anything that cannot be pinned falls back to the safety
+          # side instead of routing an untrusted list.
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
-              | jq -s "add | $slim" > "$files_json"; then
-              fallback=1
-            else
-              count="$(jq 'length' "$files_json")"
-              # The pulls/{n}/files API silently stops after 3000
-              # files.  Cross-check the fetched count against the
-              # event payload's changed_files and treat any mismatch
-              # (or reaching the cap) as an incomplete list (B2-M3).
-              if [ "$count" -ge 3000 ]; then
-                fallback=1
-              elif [ -n "$PR_CHANGED_FILES" ] && [ "$count" != "$PR_CHANGED_FILES" ]; then
-                fallback=1
-              fi
-            fi
+            base_sha="$PR_BASE_SHA"
+            head_sha="$PR_HEAD_SHA"
           elif [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            compare_json="$RUNNER_TEMP/ci-router-compare.json"
-            if ! gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE_SHA...$GITHUB_SHA" > "$compare_json"; then
-              fallback=1
-            elif [ "$(jq '.files | length' "$compare_json")" -ge 300 ]; then
-              # The compare API silently truncates .files at 300
-              # entries with no pagination; a list at the cap may be
-              # incomplete, so route the safety side instead (B2-M3).
-              fallback=1
-            else
-              jq ".files | $slim" "$compare_json" > "$files_json" || fallback=1
-            fi
+            base_sha="$BEFORE_SHA"
+            head_sha="$GITHUB_SHA"
           else
-            # workflow_dispatch and any other event carry no change
-            # list to route.  Never present that as an empty change
-            # (that would equate "unknown" with "no targets"); fall
-            # back to the safety side instead (DESIGN 2.1, B2-M3).
+            base_sha=""
+            head_sha=""
+          fi
+          zero_sha="0000000000000000000000000000000000000000"
+          if [ -z "$base_sha" ] || [ -z "$head_sha" ] \
+            || [ "$base_sha" = "$zero_sha" ] || [ "$head_sha" = "$zero_sha" ]; then
+            # workflow_dispatch and any other event carry no pinned
+            # change list to route.  Never present that as an empty
+            # change (that would equate "unknown" with "no targets");
+            # fall back to the safety side instead (DESIGN 2.1, B2-M3).
             fallback=1
+          else
+            name_status="$RUNNER_TEMP/ci-router-name-status.bin"
+            if ! git fetch --no-tags origin "$base_sha" "$head_sha"; then
+              fallback=1
+            elif ! git diff --name-status -z -M -C "$base_sha...$head_sha" > "$name_status"; then
+              fallback=1
+            elif ! python3 scripts/ci-router.py --name-status "$name_status" > "$files_json"; then
+              fallback=1
+            elif [ "$GITHUB_EVENT_NAME" = "pull_request" ] \
+              && [ -n "$PR_CHANGED_FILES" ] \
+              && [ "$(jq 'length' "$files_json")" != "$PR_CHANGED_FILES" ]; then
+              # The pinned diff must describe exactly the change the
+              # event payload announces; a count mismatch means the
+              # list cannot be trusted as complete (B2-M3 guard).
+              fallback=1
+            fi
           fi
           if [ "$fallback" = "1" ] || [ ! -s "$files_json" ]; then
             # Extraction failure falls back to the safety side (all

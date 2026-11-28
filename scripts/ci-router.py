@@ -70,6 +70,15 @@ Input is the GitHub pull-request / compare file list shape::
 ``previous_filename`` is evaluated whenever it is present, and a
 ``renamed`` / ``copied`` status without it is rejected as malformed.
 
+The workflow computes that list from the event's own commits
+(B2-SOL-R2-M1): ``validate.yml`` pins the diff to the pull request's
+base/head SHAs (or the push before/after SHAs) and runs
+``git diff --name-status -z -M -C BASE...HEAD``, whose output
+``changes_from_name_status()`` converts to the shape above.  A list
+fetched by pull-request number would describe the pull request's
+current state instead, which a re-run -- bound to the original
+event's checkout and payload -- could silently disagree with.
+
 The module also fixes the processing-type ``concurrency`` contract of
 DESIGN 2.2 / PLAN-F 5.4 (see ``CONCURRENCY_CONTRACT``): one group per
 processing type, every current group with ``cancel-in-progress: false``
@@ -289,6 +298,86 @@ def classify_path(path, *, registered, smoke):
 VALID_STATUSES = frozenset(
     {"added", "removed", "modified", "renamed", "copied", "changed", "unchanged"}
 )
+
+# The mapping from ``git diff --name-status`` status letters to the
+# GitHub file-list values above, fixed for the pinned-diff conversion
+# (B2-SOL-R2-M1).  A type change (file <-> symlink <-> submodule) is
+# git's T, which the API calls "changed"; rename / copy entries carry
+# a similarity score (R100, C075) and are followed by the old path and
+# then the new path.  U (unmerged) has no mapping: a commit-to-commit
+# diff never produces it, so it is an extraction failure like any
+# other unknown letter.
+GIT_NAME_STATUS_MAP = {
+    "A": "added",
+    "C": "copied",
+    "D": "removed",
+    "M": "modified",
+    "R": "renamed",
+    "T": "changed",
+}
+
+
+def changes_from_name_status(data):
+    """Convert ``git diff --name-status -z -M -C`` output to a change list.
+
+    ``data`` is the raw NUL-separated byte stream.  Rename and copy
+    entries are followed by the old path and then the new path; every
+    other entry by its single path.  Anything outside that shape --
+    an unknown status letter, a malformed similarity score, a score
+    on a simple status, a truncated rename / copy pair, an empty
+    path, or a path that is not valid UTF-8 -- is an extraction
+    failure, so the caller falls back to the safety side instead of
+    routing an untrusted list.
+    """
+    if not isinstance(data, (bytes, bytearray)):
+        raise RouterError(
+            f"name-status input must be bytes, got {type(data).__name__}")
+    fields = bytes(data).split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    changes = []
+    index = 0
+    while index < len(fields):
+        raw_token = fields[index]
+        index += 1
+        try:
+            token = raw_token.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise RouterError(
+                f"name-status token is not ASCII: {raw_token!r}") from exc
+        if not token:
+            raise RouterError("name-status stream has an empty status field")
+        letter, score = token[0], token[1:]
+        if letter not in GIT_NAME_STATUS_MAP:
+            raise RouterError(f"unknown git name-status {token!r}")
+        if letter in ("R", "C"):
+            if score and not score.isdigit():
+                raise RouterError(
+                    f"malformed similarity score in git name-status {token!r}")
+        elif score:
+            raise RouterError(
+                f"unexpected score on git name-status {token!r}")
+        paths = []
+        for _ in range(2 if letter in ("R", "C") else 1):
+            if index >= len(fields):
+                raise RouterError(
+                    f"name-status stream ends inside a {token!r} entry")
+            raw_path = fields[index]
+            index += 1
+            try:
+                path = raw_path.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise RouterError(
+                    f"name-status path is not UTF-8: {raw_path!r}") from exc
+            if not path:
+                raise RouterError(
+                    f"name-status {token!r} entry has an empty path")
+            paths.append(path)
+        change = {"filename": paths[-1], "status": GIT_NAME_STATUS_MAP[letter]}
+        if letter in ("R", "C"):
+            change["previous_filename"] = paths[0]
+        changes.append(change)
+    return changes
 
 
 def route_changes(changes, *, registered, smoke):
@@ -526,6 +615,13 @@ def main(argv=None):
         default="-",
         help="JSON change list in GitHub file-list shape ('-' reads stdin)",
     )
+    parser.add_argument(
+        "--name-status",
+        metavar="FILE",
+        default=None,
+        help="convert a 'git diff --name-status -z -M -C' stream (FILE, "
+        "or '-' for stdin) to the JSON change list and exit",
+    )
     parser.add_argument("--fleet", default=str(FLEET_PATH),
                         help="fleet registry JSON (default: metadata/automation-fleet.json)")
     parser.add_argument(
@@ -547,6 +643,24 @@ def main(argv=None):
         help="output format: JSON document or $GITHUB_OUTPUT lines",
     )
     args = parser.parse_args(argv)
+
+    if args.name_status is not None:
+        try:
+            if args.name_status == "-":
+                raw_stream = sys.stdin.buffer.read()
+            else:
+                try:
+                    raw_stream = Path(args.name_status).read_bytes()
+                except OSError as exc:
+                    raise RouterError(
+                        f"cannot read the name-status stream "
+                        f"{args.name_status}: {exc}"
+                    ) from exc
+            print(json.dumps(changes_from_name_status(raw_stream)))
+        except RouterError as exc:
+            print(f"ci-router: {exc}", file=sys.stderr)
+            return 2
+        return 0
 
     try:
         if args.files == "-":
