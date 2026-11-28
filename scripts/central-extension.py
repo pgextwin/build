@@ -88,11 +88,18 @@ def _carry_in_class(rel):
     if "wrapper" in lower or lower.startswith("compat-"):
         return "N-14"
     parts = PurePosixPath(rel).parts
-    if any(part in ("source", "src", "upstream", "upstream-src") for part in parts):
+    # Path components are compared case-insensitively: the target
+    # platform is Windows, where Source/ and source/ (or BIN/ and bin/)
+    # are the same directory and must receive the same classification.
+    folded = tuple(part.casefold() for part in parts)
+    if any(part in ("source", "src", "upstream", "upstream-src") for part in folded):
         return "N-16"
-    if "__pycache__" in parts or any(part in ("bin", "obj") for part in parts) or lower.endswith((".pyc", ".tmp", ".temp")):
+    if "__pycache__" in folded or any(part in ("bin", "obj") for part in folded) or lower.endswith((".pyc", ".tmp", ".temp")):
         return "N-17"
-    if lower.endswith(".md") and base != "README.md":
+    # The README exception is limited to the extension root README.md;
+    # a Markdown document at any deeper level is a non-carry-in
+    # operational document (N-18).
+    if lower.endswith(".md") and rel != "README.md":
         return "N-18"
     return None
 
@@ -219,6 +226,15 @@ def validate_declaration(declaration, expected_name=None, validator=None):
         errors.append(f"name '{name}' does not match directory '{expected_name}'.")
 
     majors = declaration["postgresql"]["majors"]
+    if any(isinstance(m, bool) or not isinstance(m, int) for m in majors):
+        # JSON Schema's "integer" also accepts the decimal notation
+        # (17.0); the conversion path (normalize_majors) rejects it, so
+        # direct validation rejects it too and both entry points share
+        # the str(int) key representation for per-major dictionaries.
+        errors.append(
+            "postgresql.majors must be integers; decimal notation is not accepted."
+        )
+        return errors
     if majors != sorted(set(majors)):
         errors.append("postgresql.majors must be sorted ascending without duplicates.")
 
@@ -289,13 +305,52 @@ EXECUTABLE_SUFFIXES = (".ps1", ".psm1", ".py", ".sh", ".bat", ".cmd")
 SCRIPT_SUFFIXES = (".ps1", ".psm1")
 
 
-def _adapter_effectively_empty(text):
-    """True when a script holds only blank lines and comments (N-15)."""
-    for line in text.splitlines():
+def _powershell_effectively_empty(text):
+    """True when a PowerShell script holds only blanks and comments (N-15).
+
+    Both line comments (# ...) and block comments (<# ... #>, possibly
+    spanning lines) are stripped before judging substance.
+    """
+    without_blocks = re.sub(r"<#.*?#>", "", text, flags=re.DOTALL)
+    for line in without_blocks.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             return False
     return True
+
+
+def _readme_effectively_empty(text):
+    """True when a README holds only headings / blanks / HTML comments.
+
+    Inspection scope for content-judged assets (N-15): adapter and test
+    scripts are judged after PowerShell comment stripping, JSON test
+    assets after parsing (an empty object / array / string counts as
+    empty), and the root README after removing heading-only lines and
+    HTML comments.
+    """
+    without_comments = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    for line in without_comments.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return False
+    return True
+
+
+def _json_effectively_empty(data):
+    """True when bytes parse as JSON with no content ({} / [] / "" / null)."""
+    try:
+        value = json.loads(data.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return False
+    if isinstance(value, (dict, list, str)):
+        return len(value) == 0
+    return value is None
+
+
+# Sentinel for "extension.json was not (successfully) parsed". A parsed
+# JSON null is a declaration value like any other and must go through
+# validation; it must never be confused with the pre-parse state.
+_UNSET = object()
 
 
 def validate_extension_dir(ext_dir, validator=None):
@@ -304,17 +359,28 @@ def validate_extension_dir(ext_dir, validator=None):
     Every file and directory is checked recursively: the N-01..N-18
     non-carry-in classification and the source-lock.json ban apply at any
     depth (including inside the allowed patches/ tests/ packaging/
-    licenses/ directories), symbolic links are rejected outright, and
-    extension-specific PowerShell (adapter.ps1 and tests/ scripts) is
-    statically scanned for privilege-boundary violations.
+    licenses/ directories), symbolic links are rejected outright
+    (including at the tree root and at each extension root, so the
+    inspected tree is the tree that lands in the protected commit), and
+    every executable script in the adapter area (adapter.ps1 and tests/
+    scripts of any suffix) is statically scanned for privilege-boundary
+    violations, so the set of scripts that may run and the set of
+    scripts that are inspected stay identical.
     """
     errors = []
     name = ext_dir.name
     if not NAME_RE.fullmatch(name):
         errors.append(f"extensions/{name}: invalid extension directory name.")
         return errors
+    if ext_dir.is_symlink():
+        errors.append(
+            f"extensions/{name}: the extension root must not be a symbolic "
+            "link; the inspected tree must be the tree that lands in the "
+            "protected commit."
+        )
+        return errors
 
-    declaration = None
+    declaration = _UNSET
     seen_adapter = False
     for path in sorted(ext_dir.rglob("*")):
         rel = path.relative_to(ext_dir).as_posix()
@@ -328,7 +394,7 @@ def validate_extension_dir(ext_dir, validator=None):
             if not any(path.iterdir()):
                 errors.append(f"extensions/{name}/{rel}: empty directory is not allowed (N-15).")
             top = rel.split("/", 1)[0]
-            if "/" not in rel and top not in ALLOWED_DIRS:
+            if "/" not in rel and top.casefold() not in ALLOWED_DIRS:
                 cls = _carry_in_class(rel)
                 label = f" ({cls})" if cls else ""
                 errors.append(
@@ -364,6 +430,9 @@ def validate_extension_dir(ext_dir, validator=None):
             )
             continue
         top = rel.split("/", 1)[0]
+        # Directory classification follows Windows semantics: Tests/ and
+        # tests/ are the same directory on the target platform.
+        top_folded = top.casefold()
         suffix = path.suffix.lower()
         if "/" not in rel:
             if rel not in ALLOWED_FILES:
@@ -372,34 +441,56 @@ def validate_extension_dir(ext_dir, validator=None):
                 )
                 continue
         else:
-            if top not in ALLOWED_DIRS:
+            if top_folded not in ALLOWED_DIRS:
                 errors.append(
                     f"extensions/{name}/{rel}: path is outside the standard layout."
                 )
                 continue
-            if top == "patches" and suffix not in (".patch", ".diff"):
+            if top_folded == "patches" and suffix not in (".patch", ".diff"):
                 errors.append(
                     f"extensions/{name}/{rel}: patches/ may contain only .patch/.diff files."
                 )
-            if top in ("packaging", "licenses") and suffix in EXECUTABLE_SUFFIXES:
+            if top_folded in ("packaging", "licenses") and suffix in EXECUTABLE_SUFFIXES:
                 errors.append(
                     f"extensions/{name}/{rel}: executable scripts must not be placed under {top}/."
                 )
-            if suffix in SCRIPT_SUFFIXES and top != "tests":
+            if suffix in SCRIPT_SUFFIXES and top_folded != "tests":
                 errors.append(
                     f"extensions/{name}/{rel}: PowerShell code is allowed only as adapter.ps1 or under tests/."
                 )
         if rel == "adapter.ps1":
             seen_adapter = True
             text = data.decode("utf-8", errors="replace")
-            if _adapter_effectively_empty(text):
+            if _powershell_effectively_empty(text):
                 errors.append(
                     f"extensions/{name}/{rel}: adapter.ps1 holds only comments or "
                     "blank lines and is not a substantive asset (N-15)."
                 )
             _scan_adapter(path, f"extensions/{name}/{rel}", errors)
-        elif top == "tests" and suffix in SCRIPT_SUFFIXES:
+        elif top_folded == "tests" and suffix in EXECUTABLE_SUFFIXES:
+            # Every executable script in the adapter area is statically
+            # scanned, whatever its suffix, so execution rights and
+            # inspection coverage cannot drift apart (DESIGN 1.3).
+            if suffix in SCRIPT_SUFFIXES:
+                text = data.decode("utf-8", errors="replace")
+                if _powershell_effectively_empty(text):
+                    errors.append(
+                        f"extensions/{name}/{rel}: test script holds only comments "
+                        "or blank lines and is not a substantive asset (N-15)."
+                    )
             _scan_adapter(path, f"extensions/{name}/{rel}", errors)
+        if top_folded == "tests" and suffix == ".json" and _json_effectively_empty(data):
+            errors.append(
+                f"extensions/{name}/{rel}: test asset parses as empty JSON and "
+                "carries no test content (N-15)."
+            )
+        if rel == "README.md":
+            text = data.decode("utf-8", errors="replace")
+            if _readme_effectively_empty(text):
+                errors.append(
+                    f"extensions/{name}/{rel}: README.md holds only headings or "
+                    "comments and is not a substantive asset (N-15)."
+                )
         if rel == "extension.json":
             try:
                 declaration = json.loads(path.read_text(encoding="utf-8"))
@@ -410,7 +501,16 @@ def validate_extension_dir(ext_dir, validator=None):
     if not decl_path.is_file():
         errors.append(f"extensions/{name}: extension.json is required.")
         return errors
-    if declaration is None:
+    if declaration is _UNSET:
+        # Unparseable (the parse error is already recorded) or the file
+        # was rejected above as a symbolic link.
+        return errors
+    if not isinstance(declaration, dict):
+        # A parsed JSON null / array / scalar is a declaration failure,
+        # never a pass: every parsed value goes through the object,
+        # required-field, and name checks before the tree can validate.
+        for error in validate_declaration(declaration, expected_name=name, validator=validator):
+            errors.append(f"extensions/{name}/extension.json: {error}")
         return errors
 
     for error in validate_declaration(declaration, expected_name=name, validator=validator):
@@ -441,6 +541,12 @@ def validate_tree(root):
     """Validate <root>/extensions/**. Returns a list of error strings."""
     root = Path(root)
     extensions_root = root / "extensions"
+    if extensions_root.is_symlink():
+        return [
+            f"{extensions_root}: the extensions root must not be a symbolic "
+            "link; the inspected tree must be the tree that lands in the "
+            "protected commit."
+        ]
     if not extensions_root.is_dir():
         return [f"{extensions_root}: extensions directory not found."]
     errors = []
@@ -449,6 +555,11 @@ def validate_tree(root):
     if not entries:
         errors.append("extensions/: no extension directories found.")
     for entry in entries:
+        if entry.is_symlink():
+            errors.append(
+                f"extensions/{entry.name}: symbolic link extension roots are not allowed."
+            )
+            continue
         if not entry.is_dir():
             errors.append(f"extensions/{entry.name}: only extension directories are allowed here.")
             continue

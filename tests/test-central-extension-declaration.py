@@ -219,6 +219,15 @@ class DeclarationSchemaTests(unittest.TestCase):
         decl["watch"]["prereleases"] = True
         self.assert_rejected(decl, "watch prereleases must stay false")
 
+    def test_decimal_major_notation_rejected(self):
+        # JSON Schema's "integer" accepts 17.0; the conversion path
+        # rejects decimal notation, so direct validation must reject it
+        # too (SOL-B1-01: both entry points share the major type rule).
+        decl = copy.deepcopy(self.base)
+        decl["postgresql"]["majors"] = [15.0, 16.0, 17.0, 18.0, 19.0]
+        errors = central.validate_declaration(decl, "pg_permissions")
+        self.assertTrue(any("decimal notation" in e for e in errors), errors)
+
     def test_watch_strategy_exclusivity(self):
         decl = copy.deepcopy(self.base)
         decl["watch"]["perPostgresql"] = {"17": {"tagPattern": "^v17"}}
@@ -244,7 +253,7 @@ def valid_tree(root, name="pg_permissions", adapter_content=None):
     ext = root / "extensions" / name
     ext.mkdir(parents=True)
     write_file(ext, "extension.json", json.dumps(decl, indent=2) + "\n")
-    write_file(ext, "tests/test-contract.json", "{}\n")
+    write_file(ext, "tests/test-contract.json", '{"version": 1, "checks": ["smoke"]}\n')
     write_file(ext, "tests/smoke-test.ps1", "Write-Host 'smoke'\n")
     if adapter_content is not None:
         write_file(ext, "adapter.ps1", adapter_content)
@@ -486,6 +495,119 @@ class TreeValidationTests(unittest.TestCase):
             write_file(root / "extensions", "README.md", "stray\n")
         errors = self.errors_for(build)
         self.assertTrue(any("only extension directories" in e for e in errors), errors)
+
+    def test_non_object_extension_json_rejected(self):
+        # A parsed JSON null / array / scalar is a declaration failure,
+        # never a pass (SOL-B1-01: the pre-parse sentinel and the parsed
+        # null were previously conflated, so a null extension.json
+        # validated successfully).
+        for content in ("null\n", "[1, 2]\n", "42\n", '"text"\n'):
+            with self.subTest(content=content.strip()):
+                def build(root, content=content):
+                    ext = valid_tree(root)
+                    (ext / "extension.json").write_text(content, encoding="utf-8")
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("not a JSON object" in e for e in errors),
+                    f"extension.json {content.strip()!r} not rejected: {errors}",
+                )
+
+    def test_extensions_root_symlink_rejected(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "real"
+            valid_tree(real)
+            link_root = root / "linked"
+            link_root.mkdir()
+            try:
+                os.symlink(real / "extensions", link_root / "extensions")
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            errors = central.validate_tree(link_root)
+            self.assertTrue(any("symbolic" in e for e in errors), errors)
+
+    def test_extension_root_symlink_rejected(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "real"
+            ext = valid_tree(real)
+            (root / "extensions").mkdir()
+            try:
+                os.symlink(ext, root / "extensions" / "pg_permissions")
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            errors = central.validate_tree(root)
+            self.assertTrue(any("symbolic" in e for e in errors), errors)
+
+    def test_case_variant_source_directory_rejected_n16(self):
+        # Windows treats Source/ and source/ as the same directory, so
+        # the N-16 classification applies to case variants too.
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "Source/pg_permissions.c", "int main(void);\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-16" in e for e in errors), errors)
+
+    def test_deep_readme_rejected_n18(self):
+        # The README exception is limited to the extension root; a
+        # Markdown document inside an allowed directory is N-18.
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "packaging/README.md", "# Packaging notes\n\nBody text.\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-18" in e for e in errors), errors)
+
+    def test_block_comment_only_adapter_rejected_n15(self):
+        def build(root):
+            valid_tree(
+                root, "pg_bigm",
+                adapter_content="<# placeholder\nstill only a comment #>\n",
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_block_comment_only_test_script_rejected_n15(self):
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "tests/smoke-test.ps1", "<# nothing substantive #>\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_empty_json_test_asset_rejected_n15(self):
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "tests/test-contract.json", "{}\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_heading_only_readme_rejected_n15(self):
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "README.md", "# pg_permissions\n\n<!-- todo: write me -->\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_substantive_readme_passes(self):
+        def build(root):
+            ext = valid_tree(root)
+            write_file(
+                ext, "README.md",
+                "# pg_permissions\n\nCentral packaging notes for this extension.\n",
+            )
+        self.assertEqual(self.errors_for(build), [])
+
+    def test_non_powershell_script_in_tests_scanned(self):
+        # Execution rights and static inspection coverage stay aligned:
+        # a non-PowerShell helper under tests/ is scanned with the same
+        # privilege-boundary patterns as PowerShell.
+        def build(root):
+            ext = valid_tree(root)
+            write_file(
+                ext, "tests/helper.py",
+                "import os\nTOKEN = os.environ['GITHUB_TOKEN']\n",
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("adapter area contains" in e for e in errors), errors)
 
 
 class CliTests(unittest.TestCase):
