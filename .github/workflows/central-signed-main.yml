@@ -1,0 +1,170 @@
+name: Central signed main packages
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  authenticate_and_prepare:
+    if: >-
+      github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' &&
+      github.run_attempt == '1' &&
+      (github.event_name == 'schedule' ||
+      (github.event_name == 'issue_comment' && github.event.issue.number == 311 &&
+      !github.event.issue.pull_request && github.actor == 'ShutenOishi' &&
+      startsWith(github.event.comment.body, '/pgextwin sign-main ')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      has_targets: ${{ steps.prepare.outputs.has_targets }}
+      matrix: ${{ steps.prepare.outputs.matrix }}
+      reusable_pin_sha: ${{ steps.prepare.outputs.reusable_pin_sha }}
+      build_config_uri: ${{ steps.prepare.outputs.build_config_uri }}
+      signer_uri: ${{ steps.prepare.outputs.signer_uri }}
+      auth_artifact_name: ${{ steps.prepare.outputs.auth_artifact_name }}
+    steps:
+      - name: Check out the protected caller commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Authenticate the original event
+        run: python scripts/central-signing-auth.py --verify-trigger
+
+      - name: Install the declaration validator for nonempty trees
+        if: hashFiles('extensions/*/extension.json') != ''
+        run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+
+      - name: Prepare signing targets
+        id: prepare
+        run: python scripts/central-signing-auth.py --emit-intent --intent-dir intent
+
+      # Before the pilot declarations land, an empty schedule is a successful
+      # no-op. No intent is uploaded and neither downstream job starts.
+      - name: Upload the run-bound nonpublishing intents
+        if: steps.prepare.outputs.has_targets == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-signed-main-intent-nonpublishing
+          path: intent/
+          if-no-files-found: error
+
+  invoke_central_signer:
+    needs: [authenticate_and_prepare]
+    if: needs.authenticate_and_prepare.outputs.has_targets == 'true'
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.authenticate_and_prepare.outputs.matrix) }}
+    uses: pgextwin/build/.github/workflows/central-extension-attested.yml@6ab938800d686240b5d18248bd73bf8deef31d23
+    with:
+      extension_name: ${{ matrix.extension }}
+      postgresql_major: ${{ matrix.major }}
+      extension_source_sha: ${{ matrix.extension_source_sha }}
+      packaging_sha: ${{ github.sha }}
+      reusable_pin_sha: ${{ needs.authenticate_and_prepare.outputs.reusable_pin_sha }}
+      upstream_tarball_sha256: ${{ matrix.upstream_tarball_sha256 }}
+      caller_run_id: ${{ github.run_id }}
+      caller_run_attempt: ${{ github.run_attempt }}
+      caller_event: ${{ github.event_name }}
+      auth_artifact_name: ${{ needs.authenticate_and_prepare.outputs.auth_artifact_name }}
+      build_config_uri: ${{ needs.authenticate_and_prepare.outputs.build_config_uri }}
+      signer_uri: ${{ needs.authenticate_and_prepare.outputs.signer_uri }}
+
+  verify_central_claims:
+    needs: [authenticate_and_prepare, invoke_central_signer]
+    if: needs.authenticate_and_prepare.outputs.has_targets == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.authenticate_and_prepare.outputs.matrix) }}
+    env:
+      EXTENSION: ${{ matrix.extension }}
+      PG_MAJOR: ${{ matrix.major }}
+      SIGNER_PIN: ${{ needs.authenticate_and_prepare.outputs.reusable_pin_sha }}
+    steps:
+      - name: Check out the protected caller commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Download the current run's authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: central-signed-main-intent-nonpublishing
+          path: intent
+
+      - name: Download the signed ZIP, SBOM and bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: central-signed-${{ matrix.extension }}-pg${{ matrix.major }}
+          path: dist
+
+      - name: Verify both signatures, compare all claims and bind the run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          zips=(dist/*.zip)
+          sboms=(dist/*.spdx.json)
+          [[ ${#zips[@]} == 1 && ${#sboms[@]} == 1 ]]
+          mkdir evidence
+          verification=(
+            --repo pgextwin/build
+            --signer-workflow pgextwin/build/.github/workflows/central-extension-attested.yml
+            --signer-digest "$SIGNER_PIN"
+            --source-digest "$GITHUB_SHA"
+            --source-ref refs/heads/main
+            --deny-self-hosted-runners
+            --format json
+          )
+          gh attestation verify "${zips[0]}" "${verification[@]}" \
+            --bundle dist/slsa.sigstore.json --predicate-type https://slsa.dev/provenance/v1 > evidence/slsa.json
+          gh attestation verify "${zips[0]}" "${verification[@]}" \
+            --bundle dist/spdx.sigstore.json --predicate-type https://spdx.dev/Document/v2.3 > evidence/spdx.json
+          intent="intent/$EXTENSION/$PG_MAJOR/central-signed-main-intent.json"
+          python scripts/verify-central-attestation-claims.py --zip "${zips[0]}" --sbom "${sboms[0]}" \
+            --slsa-json evidence/slsa.json --spdx-json evidence/spdx.json --intent "$intent" \
+            --expected-event "$GITHUB_EVENT_NAME" --major "$PG_MAJOR" --output-table evidence/claims.json
+          gh api "repos/pgextwin/build/actions/runs/$GITHUB_RUN_ID" > evidence/run.json
+          python scripts/central-signed-main-audit.py --run-json evidence/run.json --intent "$intent" \
+            --claims-report evidence/claims.json --output evidence/audit.json
+
+      - name: Upload the claims comparison and run audit
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-claims-${{ matrix.extension }}-pg${{ matrix.major }}
+          path: evidence/
+          if-no-files-found: error

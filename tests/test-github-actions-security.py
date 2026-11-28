@@ -454,6 +454,73 @@ for build_name in ("build-extension.yml", "build-extension-attested.yml", "promo
     if "issues: write" in build_text:
         errors.append(f"{build_name}: issues: write must remain isolated from build/release workflows")
 
+def central_signing_errors(caller_text, reusable_text, upload_reference):
+    import yaml
+
+    caller = yaml.load(caller_text, Loader=yaml.BaseLoader)
+    reusable = yaml.load(reusable_text, Loader=yaml.BaseLoader)
+    read = {"contents": "read", "actions": "read"}
+    signing = {"contents": "read", "id-token": "write", "attestations": "write"}
+    caller_jobs = caller["jobs"]
+    signer_jobs = reusable["jobs"]
+    invoke = caller_jobs.get("invoke_central_signer", {})
+    problems = []
+
+    if set(caller["on"]) != {"schedule", "issue_comment"} or set(reusable["on"]) != {"workflow_call"}:
+        problems.append("central workflows: only the genuine caller events and reusable workflow_call are allowed")
+    if (caller.get("permissions") != read or reusable.get("permissions") != signing
+            or {name: job.get("permissions") for name, job in caller_jobs.items()} != {
+                "authenticate_and_prepare": read,
+                "invoke_central_signer": {**read, **signing},
+                "verify_central_claims": read,
+            }
+            or {name: job.get("permissions") for name, job in signer_jobs.items()} != {
+                "package": {"contents": "read"},
+                "attest": None,
+            }):
+        problems.append("central workflows: unexpected permissions or signing isolation")
+    if not re.fullmatch(
+        r"pgextwin/build/\.github/workflows/central-extension-attested\.yml@[a-f0-9]{40}",
+        invoke.get("uses", ""),
+    ) or any("secrets" in job for document in (caller, reusable) for job in document["jobs"].values()):
+        problems.append("central caller: fixed reusable SHA and no secret forwarding required")
+
+    for label, source, document in (
+        ("central caller", caller_text, caller), ("central signer", reusable_text, reusable),
+    ):
+        steps = [step for job in document["jobs"].values() for step in job.get("steps", [])]
+        if not any(step.get("uses") == upload_reference for step in steps) or any(
+            step.get("uses", "").startswith("actions/upload-artifact@")
+            and step["uses"] != upload_reference for step in steps
+        ):
+            problems.append(f"{label}: upload-artifact must use the validate.yml v7.0.2 pin")
+        for step in steps:
+            action = step.get("uses", "")
+            if action and not re.fullmatch(r"actions/[a-z-]+@[a-f0-9]{40}", action):
+                problems.append(f"{label}: invalid pinned action {action}")
+            if action and not re.search(
+                rf"^\s*(?:- )?uses:\s*{re.escape(action)}\s+# v[0-9]+\.[0-9]+\.[0-9]+\s*$",
+                source, re.MULTILINE,
+            ):
+                problems.append(f"{label}: missing same-line action version comment for {action}")
+    return problems
+
+
+central_caller = WORKFLOW_DIR / "central-signed-main.yml"
+central_signer = WORKFLOW_DIR / "central-extension-attested.yml"
+upload_v7 = re.search(
+    r"(actions/upload-artifact@[a-f0-9]{40}) # v7\.0\.2",
+    (WORKFLOW_DIR / "validate.yml").read_text(encoding="utf-8"),
+)
+if not all(path.is_file() for path in (central_caller, central_signer)) or upload_v7 is None:
+    errors.append("central signing workflows and validate.yml upload-artifact v7.0.2 pin are required")
+else:
+    errors.extend(central_signing_errors(
+        central_caller.read_text(encoding="utf-8"),
+        central_signer.read_text(encoding="utf-8"),
+        upload_v7.group(1),
+    ))
+
 if errors:
     print("GitHub Actions trust policy validation failed:", file=sys.stderr)
     for error in errors:
