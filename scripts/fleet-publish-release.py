@@ -421,7 +421,8 @@ def render_release_notes(ext, receipt):
     )
 
 
-def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_run_id):
+def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_run_id,
+                        extra_notes: str | None = None):
     """Existing create-only formal Release writer after SAME-JOB full preflight.
 
     Never invoke with an untrusted JSON receipt: the caller must already have
@@ -445,6 +446,8 @@ def publish_preverified(folder,ext,receipt,commit,expected,recovery,*,publish_ru
         # source Run and completed central schedule Run. This text is never
         # treated as a signed proof or as an admission grant by itself.
         notes_text += "\n" + auto_provenance.encode(receipt) + "\n"
+    if extra_notes:
+        notes_text += "\n" + extra_notes + "\n"
     notes.write_text(notes_text, encoding="utf-8")
     def state(s):
         nonlocal stage

@@ -537,6 +537,150 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  central_publisher_intake_request:
+    name: Admit the owner-requested central signing run
+    if: >-
+      ${{ github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' &&
+          github.event_name == 'issue_comment' && github.event.issue.number == 311 &&
+          !github.event.issue.pull_request && github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' && github.run_attempt == '1' &&
+          startsWith(github.event.comment.body, '/pgextwin publish-central ') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      issues: read
+    outputs:
+      extension: ${{ steps.intake.outputs.extension }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install schema validator
+        run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+      - name: Authenticate request, verify K3 admission and check for duplicates
+        id: intake
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+          CENTRAL_PUBLISHER_K3_ISSUANCE_POLICY: ${{ vars.CENTRAL_PUBLISHER_K3_ISSUANCE_POLICY }}
+          CENTRAL_PUBLISHER_ISSUER_READ_TOKEN: ${{ secrets.CENTRAL_PUBLISHER_ISSUER_READ_TOKEN }}
+        run: |
+          mkdir central-publisher-output
+          python scripts/central-publisher-intake.py \
+            --out-plan central-publisher-output/central-publisher-plan.json \
+            --out-duplicate-observation central-publisher-output/central-duplicate-observation.json
+      - name: Upload read-only intake plan
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-publisher-plan
+          path: central-publisher-output/central-publisher-plan.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve prewrite duplicate observation
+        if: failure() && hashFiles('central-publisher-output/central-duplicate-observation.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-duplicate-observation-${{ steps.intake.outputs.extension }}
+          path: central-publisher-output/central-duplicate-observation.json
+          if-no-files-found: error
+          retention-days: 30
+
+  isolated_central_formal_publisher:
+    name: Recheck and publish the central signed Release
+    needs: central_publisher_intake_request
+    if: >-
+      ${{ github.repository == 'pgextwin/build' && github.ref == 'refs/heads/main' &&
+          github.event_name == 'issue_comment' && github.event.issue.number == 311 &&
+          !github.event.issue.pull_request && github.actor == 'ShutenOishi' &&
+          github.triggering_actor == 'ShutenOishi' && github.run_attempt == '1' &&
+          startsWith(github.event.comment.body, '/pgextwin publish-central ') &&
+          needs.central_publisher_intake_request.result == 'success' &&
+          needs.central_publisher_intake_request.outputs.extension != '' }}
+    environment: publisher
+    # Keep a separate group from the workflow-level central-publisher-intake lock.
+    concurrency: central-publisher-intake-formal
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      issues: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install schema validator
+        run: python -m pip install --disable-pip-version-check "jsonschema>=4,<5"
+      - name: Download intake plan from this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: central-publisher-plan
+          path: central-publisher-output
+      - name: Independently recheck the exact run, artifacts and duplicate state
+        id: prepare
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+          CENTRAL_PUBLISHER_K3_ISSUANCE_POLICY: ${{ vars.CENTRAL_PUBLISHER_K3_ISSUANCE_POLICY }}
+          CENTRAL_PUBLISHER_ISSUER_READ_TOKEN: ${{ secrets.CENTRAL_PUBLISHER_ISSUER_READ_TOKEN }}
+        run: >-
+          python scripts/central-publisher-run.py --phase prepare
+          --plan central-publisher-output/central-publisher-plan.json
+          --out-manifest central-publisher-output/central-zip-t0-t3-manifest.json
+          --out-duplicate-observation central-publisher-output/central-duplicate-observation.json
+          --recovery-file central-publisher-output/central-publisher-recovery.json
+      - name: Recheck admission and publish with one repository-scoped token
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+          CENTRAL_PUBLISHER_K3_ISSUANCE_POLICY: ${{ vars.CENTRAL_PUBLISHER_K3_ISSUANCE_POLICY }}
+          CENTRAL_PUBLISHER_ISSUER_READ_TOKEN: ${{ secrets.CENTRAL_PUBLISHER_ISSUER_READ_TOKEN }}
+          CENTRAL_PUBLISHER_PREPARED_SHA256: ${{ steps.prepare.outputs.prepared_sha256 }}
+          PUBLISHER_APP_ID: ${{ vars.PGEXTWIN_PUBLISHER_APP_ID }}
+          PUBLISHER_INSTALLATION_ID: ${{ vars.PGEXTWIN_PUBLISHER_INSTALLATION_ID }}
+          PUBLISHER_PRIVATE_KEY: ${{ secrets.PGEXTWIN_PUBLISHER_APP_PRIVATE_KEY }}
+        run: >-
+          python scripts/central-publisher-run.py --phase publish
+          --plan central-publisher-output/central-publisher-plan.json
+          --out-manifest central-publisher-output/central-zip-t0-t3-manifest.json
+          --out-duplicate-observation central-publisher-output/central-duplicate-observation.json
+          --recovery-file central-publisher-output/central-publisher-recovery.json
+      - name: Preserve ZIP-wise manifest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-zip-t0-t3-manifest-${{ needs.central_publisher_intake_request.outputs.extension }}
+          path: central-publisher-output/central-zip-t0-t3-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve duplicate or uncertain-write observation
+        if: failure() && hashFiles('central-publisher-output/central-duplicate-observation.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-duplicate-observation-${{ needs.central_publisher_intake_request.outputs.extension }}
+          path: central-publisher-output/central-duplicate-observation.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve writer recovery on failure
+        if: failure() && hashFiles('central-publisher-output/central-publisher-recovery.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: central-publisher-recovery-${{ needs.central_publisher_intake_request.outputs.extension }}
+          path: central-publisher-output/central-publisher-recovery.json
+          if-no-files-found: error
+          retention-days: 30
+
   isolated_owner_source_formal_publisher:
     # New, strictly separate owner source-kind. Do not treat owner issue_comment
     # as the legacy signed main/push. A successful read-only selector is only
