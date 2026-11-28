@@ -390,6 +390,9 @@ jobs:
       - name: Route selective CI targets for this change (F21-02)
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          BEFORE_SHA: ${{ github.event.before }}
         shell: bash
         run: |
           set -uo pipefail
@@ -397,13 +400,39 @@ jobs:
           slim='map({filename, status} + (if .previous_filename then {previous_filename} else {} end))'
           fallback=0
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
-              | jq -s "add | $slim" > "$files_json" || fallback=1
+            if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+              | jq -s "add | $slim" > "$files_json"; then
+              fallback=1
+            else
+              count="$(jq 'length' "$files_json")"
+              # The pulls/{n}/files API silently stops after 3000
+              # files.  Cross-check the fetched count against the
+              # event payload's changed_files and treat any mismatch
+              # (or reaching the cap) as an incomplete list (B2-M3).
+              if [ "$count" -ge 3000 ]; then
+                fallback=1
+              elif [ -n "$PR_CHANGED_FILES" ] && [ "$count" != "$PR_CHANGED_FILES" ]; then
+                fallback=1
+              fi
+            fi
           elif [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            gh api "repos/$GITHUB_REPOSITORY/compare/${{ github.event.before }}...$GITHUB_SHA" \
-              | jq ".files | $slim" > "$files_json" || fallback=1
+            compare_json="$RUNNER_TEMP/ci-router-compare.json"
+            if ! gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE_SHA...$GITHUB_SHA" > "$compare_json"; then
+              fallback=1
+            elif [ "$(jq '.files | length' "$compare_json")" -ge 300 ]; then
+              # The compare API silently truncates .files at 300
+              # entries with no pagination; a list at the cap may be
+              # incomplete, so route the safety side instead (B2-M3).
+              fallback=1
+            else
+              jq ".files | $slim" "$compare_json" > "$files_json" || fallback=1
+            fi
           else
-            echo '[]' > "$files_json"
+            # workflow_dispatch and any other event carry no change
+            # list to route.  Never present that as an empty change
+            # (that would equate "unknown" with "no targets"); fall
+            # back to the safety side instead (DESIGN 2.1, B2-M3).
+            fallback=1
           fi
           if [ "$fallback" = "1" ] || [ ! -s "$files_json" ]; then
             # Extraction failure falls back to the safety side (all

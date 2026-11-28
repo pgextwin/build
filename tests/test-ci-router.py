@@ -9,15 +9,28 @@ rejections, and the concurrency contract (one group per processing
 type, cancel-in-progress false everywhere, series groups carrying the
 matrix keys).  The representative inputs used here are the ones recorded
 in CB-73 (X-09).
+
+Fix round 1 (Neon audit B2-M1..M4, B2-N1..N2) adds: the tree-union
+registry path (extensions_root) with the PR-B1 layout rules (no files
+directly under extensions/, no symbolic links, no case-insensitive
+collisions, the schema name pattern), the classification order (shared
+roots before the documentation rule, documentation limited to docs/ and
+repository-root Markdown), the concurrency_group() value validation and
+router rendering, the status value set and control-character rejection,
+and structural (PyYAML) workflow concurrency checks.  PyYAML is
+installed by validate.yml in the resolver job before this suite runs.
 """
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci-router.py"
@@ -52,6 +65,78 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(SMOKE, ["pg_bigm", "pg_permissions", "pgaudit"])
         for name in SMOKE:
             self.assertIn(name, REGISTERED)
+
+    def make_tree(self, tmp, names):
+        layout = Path(tmp) / "extensions"
+        layout.mkdir()
+        for name in names:
+            (layout / name).mkdir()
+        return Path(tmp)
+
+    def test_tree_union_adds_tree_extensions_to_the_fleet_set(self):
+        # B2-M1: the extensions_root union path (previously untested).
+        with TemporaryDirectory() as tmp:
+            root = self.make_tree(tmp, ["future_ext", "pg_bigm"])
+            names = router.registered_extensions(extensions_root=root)
+        self.assertEqual(len(names), 27)
+        self.assertIn("future_ext", names)
+        self.assertIn("pg_bigm", names)
+
+    def test_tree_union_rejects_a_casefold_collision_with_the_fleet(self):
+        with TemporaryDirectory() as tmp:
+            root = self.make_tree(tmp, ["PG_BIGM"])
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(extensions_root=root)
+
+    def test_tree_union_rejects_a_casefold_collision_inside_the_tree(self):
+        with TemporaryDirectory() as tmp:
+            root = self.make_tree(tmp, ["Zeta_One", "zeta_one"])
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(extensions_root=root)
+
+    def test_tree_union_rejects_an_invalid_tree_extension_name(self):
+        with TemporaryDirectory() as tmp:
+            root = self.make_tree(tmp, ["a..b"])
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(extensions_root=root)
+
+    def make_symlink(self, target, link, *, is_dir):
+        try:
+            os.symlink(target, link, target_is_directory=is_dir)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symbolic links unavailable here: {exc}")
+
+    def test_tree_union_rejects_a_symlink_extension_root(self):
+        with TemporaryDirectory() as tmp:
+            root = self.make_tree(tmp, ["real_ext"])
+            self.make_symlink(root / "extensions" / "real_ext",
+                              root / "extensions" / "sym_ext", is_dir=True)
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(extensions_root=root)
+
+    def test_tree_union_rejects_a_symlink_extensions_root(self):
+        with TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real-extensions"
+            real.mkdir()
+            (real / "some_ext").mkdir()
+            self.make_symlink(real, Path(tmp) / "extensions", is_dir=True)
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(extensions_root=Path(tmp))
+
+    def test_fleet_registry_shape_errors_are_router_errors(self):
+        # B2-N1: a missing file, a non-object document and non-UTF-8
+        # bytes are clean RouterErrors, not uncaught exceptions.
+        with TemporaryDirectory() as tmp:
+            array = Path(tmp) / "array.json"
+            array.write_text("[]", encoding="utf-8")
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(fleet_path=array)
+            binary = Path(tmp) / "binary.json"
+            binary.write_bytes(b"\xff\xfe{}")
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(fleet_path=binary)
+            with self.assertRaises(router.RouterError):
+                router.registered_extensions(fleet_path=Path(tmp) / "missing.json")
 
 
 class RoutingTypeTests(unittest.TestCase):
@@ -121,6 +206,69 @@ class RoutingTypeTests(unittest.TestCase):
         self.assertEqual(result["resolver_conclusion"], "success")
         self.assertEqual(result["pending"], 0)
 
+    def test_shared_root_markdown_is_a_shared_change(self):
+        # B2-M2: the documentation rule must not override the shared
+        # roots -- a Markdown file under scripts/, tests/ or .github/
+        # is a shared-foundation change and selects the smoke set.
+        for path in ("tests/fixtures/README.md",
+                     "scripts/README.md",
+                     ".github/workflows/README.md",
+                     "windows/README.md"):
+            with self.subTest(path=path):
+                result = route([{"filename": path, "status": "modified"}])
+                self.assertEqual(result["targets"], SMOKE)
+                self.assertEqual(result["classified"][0]["kind"], "shared")
+
+    def test_markdown_outside_docs_and_root_is_unclassified(self):
+        # B2-M2: documentation is limited to docs/** and Markdown at
+        # the repository root; a Markdown file anywhere else falls
+        # back to the safety side instead of selecting nothing.
+        result = route([{"filename": "tools/notes.md", "status": "added"}])
+        self.assertEqual(result["targets"], REGISTERED)
+        self.assertEqual(result["classified"][0]["kind"], "unclassified")
+
+
+class LayoutAndCollisionTests(unittest.TestCase):
+    """B2-M1: the PR-B1 layout and name rules on extension paths."""
+
+    def test_file_directly_under_extensions_is_an_extraction_failure(self):
+        # A file directly under extensions/ is not extension content;
+        # its file name must never enter the matrix as a fake
+        # extension name.
+        for path in ("extensions/README.md", "extensions/.gitkeep",
+                     "extensions/stray.txt"):
+            with self.subTest(path=path):
+                with self.assertRaises(router.RouterError):
+                    route([{"filename": path, "status": "added"}])
+
+    def test_leading_dot_and_repeated_dot_names_are_extraction_failures(self):
+        # The PR-B1 schema name pattern (no leading or repeated dots),
+        # which central.load_validator() enforces for declarations.
+        for path in ("extensions/.hidden/extension.json",
+                     "extensions/a..b/extension.json"):
+            with self.subTest(path=path):
+                with self.assertRaises(router.RouterError):
+                    route([{"filename": path, "status": "added"}])
+
+    def test_case_variant_of_a_registered_extension_is_an_extraction_failure(self):
+        with self.assertRaises(router.RouterError):
+            route([{"filename": "extensions/PG_BIGM/extension.json",
+                    "status": "modified"}])
+
+    def test_case_variants_within_one_change_are_an_extraction_failure(self):
+        with self.assertRaises(router.RouterError):
+            route([
+                {"filename": "extensions/Zeta_One/extension.json", "status": "added"},
+                {"filename": "extensions/zeta_one/extension.json", "status": "added"},
+            ])
+
+    def test_extensions_root_case_variant_is_an_extraction_failure(self):
+        # B2-M2: on a Windows checkout Extensions/ is the extensions/
+        # root; it must not fall through to the documentation rule.
+        with self.assertRaises(router.RouterError):
+            route([{"filename": "Extensions/pg_bigm/README.md",
+                    "status": "modified"}])
+
 
 class DeleteRenameTests(unittest.TestCase):
     """CB-73 row 5: deletions and renames evaluate old and new paths."""
@@ -187,6 +335,26 @@ class FallbackAndFailureTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaises(router.RouterError):
                     route(bad)
+
+    def test_status_is_required_and_must_be_a_github_value(self):
+        # B2-N1: a missing status, an unknown value, a case variant or
+        # a non-string status is malformed input, not a silent accept.
+        for bad in ({"filename": "docs/notes.md"},
+                    {"filename": "docs/notes.md", "status": "bogus"},
+                    {"filename": "docs/notes.md", "status": "RENAMED"},
+                    {"filename": "docs/notes.md", "status": 3},
+                    {"filename": "docs/notes.md", "status": None}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(router.RouterError):
+                    route([bad])
+
+    def test_control_characters_in_a_path_are_extraction_failures(self):
+        # B2-N1.
+        for path in ("extensions/pg_bigm/foo\nbar", "extensions/pg_bigm/foo\x00bar",
+                     "extensions/pg_bigm/foo\x7fbar"):
+            with self.subTest(path=path):
+                with self.assertRaises(router.RouterError):
+                    route([{"filename": path, "status": "added"}])
 
     def test_routing_is_deterministic(self):
         changes = [
@@ -255,21 +423,96 @@ class ConcurrencyContractTests(unittest.TestCase):
         with self.assertRaises(router.RouterError):
             router.concurrency_group("no-such-type", extension="pg_bigm")
 
+    def test_router_group_renders_the_workflow_group(self):
+        # B2-M4: the router type renders the ROUTER_WORKFLOW_GROUP
+        # shape from its workflow and scope values.
+        self.assertEqual(
+            router.concurrency_group(
+                "router", workflow="Validate build infrastructure", scope="713"),
+            "ci-router-Validate build infrastructure-713")
+        self.assertEqual(
+            router.concurrency_group(
+                "router", workflow="Validate build infrastructure",
+                scope="refs/heads/main"),
+            "ci-router-Validate build infrastructure-refs/heads/main")
+
+    def test_router_group_requires_workflow_and_scope(self):
+        with self.assertRaises(router.RouterError):
+            router.concurrency_group("router", scope="713")
+        with self.assertRaises(router.RouterError):
+            router.concurrency_group(
+                "router", workflow="Validate build infrastructure")
+
+    def test_group_values_are_validated(self):
+        # B2-M4: empty values, Windows-reserved names, bool / negative
+        # / empty numbers and empty candidate ids would collapse or
+        # split groups, so all of them are rejected.
+        bad_calls = [
+            (("pr-validation",), {"extension": "", "pr_number": 712}),
+            (("pr-validation",), {"extension": "aux", "pr_number": 712}),
+            (("pr-validation",), {"extension": "pg_bigm", "pr_number": -1}),
+            (("pr-validation",), {"extension": "pg_bigm", "pr_number": True}),
+            (("pr-validation",), {"extension": "pg_bigm", "pr_number": "712"}),
+            (("pr-validation",), {"extension": "pg_bigm", "pr_number": 712,
+                                  "pg_major": True}),
+            (("pr-validation",), {"extension": "pg_bigm", "pr_number": 712,
+                                  "pg_major": ""}),
+            (("pr-validation",), {"extension": "pg_bigm", "pr_number": 712,
+                                  "pg_major": 0}),
+            (("candidate-ci",), {"extension": "pg_bigm", "candidate_id": ""}),
+            (("candidate-ci",), {"extension": "pg_bigm",
+                                 "candidate_id": "white space"}),
+            (("router",), {"workflow": "", "scope": "713"}),
+        ]
+        for args, kwargs in bad_calls:
+            with self.subTest(args=args, kwargs=kwargs):
+                with self.assertRaises(router.RouterError):
+                    router.concurrency_group(*args, **kwargs)
+
+    def test_placeholder_injection_through_a_value_is_rejected(self):
+        # B2-M4: substitution is a single pass over validated values,
+        # so a value carrying a placeholder can never be re-expanded.
+        with self.assertRaises(router.RouterError):
+            router.concurrency_group(
+                "pr-validation", extension="{pr_number}", pr_number=712)
+        with self.assertRaises(router.RouterError):
+            router.concurrency_group(
+                "router", workflow="{scope}", scope="713")
+
     def test_validate_workflow_declares_the_router_group(self):
-        text = (WORKFLOWS / "validate.yml").read_text(encoding="utf-8")
-        self.assertIn(f"group: {router.ROUTER_WORKFLOW_GROUP}", text)
-        self.assertIn("cancel-in-progress: false", text)
+        # B2-N2: structural (PyYAML) check of the workflow, not a
+        # substring match.
+        data = yaml.safe_load((WORKFLOWS / "validate.yml").read_text(encoding="utf-8"))
+        concurrency = data["concurrency"]
+        self.assertEqual(concurrency["group"], router.ROUTER_WORKFLOW_GROUP)
+        self.assertIs(concurrency["cancel-in-progress"], False)
 
     def test_no_workflow_cancels_in_progress(self):
-        # CB-73 fixed value: every processing-type group in the live
-        # workflows fixes cancel-in-progress to false.
-        for workflow in sorted(WORKFLOWS.glob("*.yml")):
-            for line in workflow.read_text(encoding="utf-8").splitlines():
-                stripped = line.strip()
-                if stripped.startswith("cancel-in-progress:"):
-                    self.assertEqual(
-                        stripped, "cancel-in-progress: false",
-                        f"{workflow.name}: {stripped}")
+        # B2-N2 / CB-73 fixed value: every concurrency declaration in
+        # the live workflows -- top level and job level, *.yml and
+        # *.yaml, mapping or flow form -- fixes cancel-in-progress to
+        # false (an absent flag keeps the GitHub default, false).
+        workflows = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+        self.assertTrue(workflows)
+        declarations = 0
+        for workflow in workflows:
+            data = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+            blocks = [data.get("concurrency")]
+            jobs = data.get("jobs")
+            if isinstance(jobs, dict):
+                blocks += [job.get("concurrency") for job in jobs.values()
+                           if isinstance(job, dict)]
+            for block in blocks:
+                if block is None:
+                    continue
+                declarations += 1
+                if isinstance(block, dict):
+                    self.assertIs(
+                        block.get("cancel-in-progress", False), False,
+                        f"{workflow.name}: {block}")
+        self.assertGreater(declarations, 0)
 
 
 class CliTests(unittest.TestCase):
@@ -304,6 +547,18 @@ class CliTests(unittest.TestCase):
         proc = self.run_cli("{not json")
         self.assertEqual(proc.returncode, 2)
         self.assertIn("ci-router:", proc.stderr)
+
+    def test_cli_missing_files_input_is_a_clean_error(self):
+        # B2-N1: an unreadable --files input is a RouterError (exit 2
+        # with the ci-router: prefix), not an uncaught traceback.
+        with TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--files",
+                 str(Path(tmp) / "missing.json")],
+                capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("ci-router:", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
 
 
 if __name__ == "__main__":

@@ -11,14 +11,20 @@ and contention rules of PLAN-F section 5.4:
 * ``extensions/<name>/**`` selects exactly ``<name>``.  Deletions and
   renames evaluate the old path as well as the new one, so a change that
   only touches the old side of a rename still selects the old extension.
+  A file directly under ``extensions/`` is not extension content (the
+  PR-B1 layout rule) and is an extraction failure, as is a case variant
+  of the ``extensions/`` root itself, which would collide with it on a
+  Windows checkout.
 * Several extension paths select the union of their extensions.
 * Shared build / CI foundation paths (``scripts/``, ``windows/``,
   ``schema/``, ``tests/``, ``.github/``, ``metadata/``) select the
-  representative smoke set -- the three F2 pilots -- by default.  The
-  full registered matrix is reserved for explicit triggers or wave
-  control (PLAN-F 5.4) and is available via ``--shared-policy all``.
-* Documentation changes (``docs/**`` and Markdown outside
-  ``extensions/``) select nothing.
+  representative smoke set -- the three F2 pilots -- by default, whatever
+  the file extension: a Markdown file under a shared root is still a
+  shared-foundation change.  The full registered matrix is reserved for
+  explicit triggers or wave control (PLAN-F 5.4) and is available via
+  ``--shared-policy all``.
+* Documentation changes (``docs/**`` and Markdown at the repository
+  root) select nothing.
 * Anything the router cannot classify selects every registered extension
   (the safety side of DESIGN 2.1).  A malformed change list, or an
   ``extensions/`` path component that Windows cannot carry, is an
@@ -60,6 +66,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,18 +99,69 @@ class RouterError(Exception):
     """The change list cannot be routed (extraction failure)."""
 
 
+_NAME_PATTERN = None
+
+
+def _schema_name_pattern():
+    """The declaration ``name`` pattern, read from the PR-B1 schema.
+
+    The pattern literal lives only in
+    ``schema/central-extension.schema.json`` (PR-B1); the router reads
+    it from ``central.SCHEMA_PATH`` instead of duplicating it, the same
+    way it reuses ``central.NAME_RE`` and ``central.windows_name_error``.
+    """
+    global _NAME_PATTERN
+    if _NAME_PATTERN is None:
+        try:
+            schema = json.loads(central.SCHEMA_PATH.read_text(encoding="utf-8"))
+            _NAME_PATTERN = re.compile(schema["properties"]["name"]["pattern"])
+        except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
+            raise RouterError(
+                f"cannot read the declaration name pattern from "
+                f"{central.SCHEMA_PATH}: {exc}"
+            ) from exc
+    return _NAME_PATTERN
+
+
 def _validate_extension_name(name, origin):
     if not isinstance(name, str) or not central.NAME_RE.match(name):
         raise RouterError(f"{origin}: {name!r} is not a legal extension name")
+    if not _schema_name_pattern().fullmatch(name):
+        raise RouterError(
+            f"{origin}: {name!r} does not match the central declaration "
+            "name pattern (no leading or repeated dots)"
+        )
     error = central.windows_name_error(name)
     if error is not None:
         raise RouterError(f"{origin}: extension name {name!r} is unusable: {error}")
 
 
+def _check_casefold_collision(name, others, origin):
+    """Reject ``name`` if it case-collides with a different name.
+
+    On a Windows checkout two names that differ only in case are the
+    same directory, so the tree cannot hold both (the PR-B1 rule
+    SOL-B1-R2-01, enforced for extension roots by
+    ``central.validate_tree``).
+    """
+    folded = name.casefold()
+    for other in others:
+        if other != name and other.casefold() == folded:
+            raise RouterError(
+                f"{origin}: extension name {name!r} collides with {other!r} "
+                "on a case-insensitive filesystem"
+            )
+
+
 def registered_extensions(fleet_path=FLEET_PATH, extensions_root=None):
     """Sorted registered extension names (fleet registry + tree layout)."""
     names = set()
-    fleet = json.loads(Path(fleet_path).read_text(encoding="utf-8"))
+    try:
+        fleet = json.loads(Path(fleet_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise RouterError(f"{fleet_path}: cannot read the fleet registry: {exc}") from exc
+    if not isinstance(fleet, dict):
+        raise RouterError(f"{fleet_path}: fleet registry must be a JSON object")
     entries = fleet.get("entries")
     if not isinstance(entries, list) or not entries:
         raise RouterError(f"{fleet_path}: fleet registry has no entries list")
@@ -116,17 +174,32 @@ def registered_extensions(fleet_path=FLEET_PATH, extensions_root=None):
         names.add(name)
     if extensions_root is not None:
         layout = Path(extensions_root) / "extensions"
+        # The PR-B1 layout rules (central.validate_tree): the inspected
+        # tree must be the tree that lands in the protected commit, so
+        # neither the extensions root nor an extension root may be a
+        # symbolic link.
+        if layout.is_symlink():
+            raise RouterError(f"{layout}: the extensions root must not be a symbolic link")
         if layout.is_dir():
             for child in sorted(layout.iterdir()):
+                if child.is_symlink():
+                    raise RouterError(
+                        f"{child}: symbolic link extension roots are not allowed"
+                    )
                 if child.is_dir():
                     _validate_extension_name(child.name, f"{layout} directory")
                     names.add(child.name)
-    return sorted(names)
+    ordered = sorted(names)
+    for index, name in enumerate(ordered):
+        _check_casefold_collision(name, ordered[index + 1:], "registered extensions")
+    return ordered
 
 
 def _validate_path(path, origin):
     if not isinstance(path, str) or not path:
         raise RouterError(f"{origin}: path must be a non-empty string, got {path!r}")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in path):
+        raise RouterError(f"{origin}: path contains control characters: {path!r}")
     if path.startswith("/") or "\\" in path:
         raise RouterError(f"{origin}: path must be a relative POSIX path, got {path!r}")
     parts = path.split("/")
@@ -141,16 +214,46 @@ def classify_path(path, *, registered, smoke):
     Returns ``(kind, targets)`` where kind is one of ``extension``,
     ``documentation``, ``shared`` or ``unclassified`` and targets is a
     frozenset of extension names the path selects.
+
+    The evaluation order matters: the ``extensions/`` root is judged
+    first (a case variant of it is an extraction failure, never a
+    document), then the shared build / CI foundation roots (a Markdown
+    file under a shared root is still a shared change), and only then
+    documentation, which is limited to ``docs/**`` and Markdown at the
+    repository root.  Anything else is unclassified and falls back to
+    every registered extension.
     """
     parts = _validate_path(path, "changed path")
-    if parts[0] == "extensions" and len(parts) >= 2:
-        _validate_extension_name(parts[1], f"changed path {path!r}")
-        return "extension", frozenset({parts[1]})
-    if parts[0] == "docs" or path.lower().endswith(".md"):
-        return "documentation", frozenset()
-    if parts[0] in SHARED_ROOTS:
+    root = parts[0]
+    if root.lower() == "extensions":
+        if root != "extensions":
+            raise RouterError(
+                f"changed path {path!r}: root {root!r} collides with the "
+                "'extensions' root on a case-insensitive filesystem"
+            )
+        if len(parts) < 3:
+            raise RouterError(
+                f"changed path {path!r}: a file directly under 'extensions/' "
+                "is not extension content (the PR-B1 layout rule)"
+            )
+        name = parts[1]
+        _validate_extension_name(name, f"changed path {path!r}")
+        _check_casefold_collision(name, registered, f"changed path {path!r}")
+        return "extension", frozenset({name})
+    if root in SHARED_ROOTS:
         return "shared", frozenset(smoke)
+    if root == "docs" or (len(parts) == 1 and path.lower().endswith(".md")):
+        return "documentation", frozenset()
     return "unclassified", frozenset(registered)
+
+
+# The file statuses the GitHub REST API reports for pull-request and
+# compare file lists.  A missing or unknown status means the change
+# list is not in the documented shape, so it is an extraction failure
+# rather than a silently accepted entry.
+VALID_STATUSES = frozenset(
+    {"added", "removed", "modified", "renamed", "copied", "changed", "unchanged"}
+)
 
 
 def route_changes(changes, *, registered, smoke):
@@ -159,6 +262,7 @@ def route_changes(changes, *, registered, smoke):
         raise RouterError(f"change list must be a JSON array, got {type(changes).__name__}")
     targets = set()
     classified = []
+    selected_names = []
     for index, change in enumerate(changes):
         origin = f"change[{index}]"
         if not isinstance(change, dict):
@@ -167,8 +271,11 @@ def route_changes(changes, *, registered, smoke):
         if not isinstance(filename, str) or not filename:
             raise RouterError(f"{origin}: entry has no usable 'filename': {change!r}")
         status = change.get("status")
-        if status is not None and not isinstance(status, str):
-            raise RouterError(f"{origin}: 'status' must be a string: {change!r}")
+        if not isinstance(status, str) or status not in VALID_STATUSES:
+            raise RouterError(
+                f"{origin}: 'status' must be one of {sorted(VALID_STATUSES)}, "
+                f"got {status!r}"
+            )
         previous = change.get("previous_filename")
         if status in ("renamed", "copied") and not previous:
             raise RouterError(
@@ -178,6 +285,10 @@ def route_changes(changes, *, registered, smoke):
             if path is None:
                 continue
             kind, selected = classify_path(path, registered=registered, smoke=smoke)
+            if kind == "extension":
+                (name,) = selected
+                _check_casefold_collision(name, selected_names, origin)
+                selected_names.append(name)
             targets |= selected
             classified.append(
                 {
@@ -217,6 +328,12 @@ ROUTER_WORKFLOW_GROUP = (
     "${{ github.event.pull_request.number || github.ref }}"
 )
 
+# The router entry's template below is the Python-side rendering of
+# ROUTER_WORKFLOW_GROUP: the GitHub Actions expression is kept as the
+# workflow constant above (validate.yml declares it verbatim), while
+# concurrency_group() renders the same shape from the {workflow} and
+# {scope} placeholders (the workflow name and the pull-request number
+# or ref the expression resolves to).
 CONCURRENCY_CONTRACT = {
     "pr-validation": {
         "group": "ci-{extension}-pr-{pr_number}",
@@ -241,19 +358,65 @@ CONCURRENCY_CONTRACT = {
     "signing": {"group": None, "cancel_in_progress": False},
     "publishing": {"group": None, "cancel_in_progress": False},
     "catalog-update": {"group": None, "cancel_in_progress": False},
-    "router": {"group": ROUTER_WORKFLOW_GROUP, "cancel_in_progress": False},
+    "router": {"group": "ci-router-{workflow}-{scope}", "cancel_in_progress": False},
 }
 
 
+_PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
+_CANDIDATE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
+
+
+def _validate_group_value(kind, key, value):
+    """Validate one concurrency-group value and return its string form.
+
+    Every value that lands in a group is checked before substitution:
+    an empty or malformed matrix key would collapse distinct jobs into
+    one group (or split one series across groups), which is exactly
+    what the contract exists to prevent.
+    """
+    origin = f"processing type {kind!r}"
+    if key == "extension":
+        _validate_extension_name(value, origin)
+        return value
+    if key in ("pr_number", "pg_major"):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise RouterError(
+                f"{origin}: {key} must be a positive integer, got {value!r}"
+            )
+        return str(value)
+    if key == "candidate_id":
+        if not isinstance(value, str) or not _CANDIDATE_ID_RE.match(value):
+            raise RouterError(
+                f"{origin}: candidate_id must be a non-empty identifier "
+                f"([A-Za-z0-9._-]), got {value!r}"
+            )
+        return value
+    # workflow / scope are free-form labels (a workflow name contains
+    # spaces, a scope is a ref); only emptiness and placeholder
+    # injection are barred.
+    if not isinstance(value, str) or not value or "{" in value or "}" in value:
+        raise RouterError(
+            f"{origin}: {key} must be a non-empty string without braces, "
+            f"got {value!r}"
+        )
+    return value
+
+
 def concurrency_group(kind, *, extension=None, pr_number=None, candidate_id=None,
-                      pg_major=None):
+                      pg_major=None, workflow=None, scope=None):
     """Render the concurrency group for one job of a processing type.
 
     Series jobs pass ``pg_major`` so the PostgreSQL series of one
     extension land in distinct groups and never cancel each other
     (DESIGN 2.2 matrix-key rule).  Types that keep an existing unit
     (signing, publishing, catalog update) raise RouterError instead of
-    inventing a replacement group.
+    inventing a replacement group.  The ``router`` type renders the
+    workflow group of ROUTER_WORKFLOW_GROUP from its ``workflow`` and
+    ``scope`` values.
+
+    Substitution is a single pass over the template, and every value
+    is validated first, so a value can never inject a second
+    placeholder into the rendered group.
     """
     entry = CONCURRENCY_CONTRACT.get(kind)
     if entry is None:
@@ -264,22 +427,30 @@ def concurrency_group(kind, *, extension=None, pr_number=None, candidate_id=None
             f"processing type {kind!r} keeps its existing authorization unit; "
             "the router does not assign it a new group"
         )
-    values = {
+    provided = {
         "extension": extension,
         "pr_number": pr_number,
         "candidate_id": candidate_id,
+        "workflow": workflow,
+        "scope": scope,
     }
-    group = template
-    for key, value in values.items():
-        placeholder = "{" + key + "}"
-        if placeholder in group:
-            if value is None:
-                raise RouterError(f"processing type {kind!r} requires {key}")
-            group = group.replace(placeholder, str(value))
+    values = {
+        key: _validate_group_value(kind, key, value)
+        for key, value in provided.items()
+        if value is not None
+    }
+
+    def substitute(match):
+        key = match.group(1)
+        if key not in values:
+            raise RouterError(f"processing type {kind!r} requires {key}")
+        return values[key]
+
+    group = _PLACEHOLDER_RE.sub(substitute, template)
     if "{" in group or "}" in group:
         raise RouterError(f"processing type {kind!r}: unfilled group template {template!r}")
     if pg_major is not None:
-        group = f"{group}-pg{pg_major}"
+        group = f"{group}-pg{_validate_group_value(kind, 'pg_major', pg_major)}"
     return group
 
 
@@ -313,7 +484,15 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     try:
-        raw = sys.stdin.read() if args.files == "-" else Path(args.files).read_text(encoding="utf-8")
+        if args.files == "-":
+            raw = sys.stdin.read()
+        else:
+            try:
+                raw = Path(args.files).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                raise RouterError(
+                    f"cannot read the change list {args.files}: {exc}"
+                ) from exc
         try:
             changes = json.loads(raw)
         except json.JSONDecodeError as exc:
