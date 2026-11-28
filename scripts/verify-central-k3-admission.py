@@ -11,13 +11,16 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 from importlib import import_module
 import json
+import lzma
 import os
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 import tempfile
 import zipfile
+import zlib
 
 from jsonschema import Draft202012Validator
 
@@ -404,7 +407,8 @@ def verify_zip_metadata(path, intent, source, upstream):
             require(archive.testzip() is None, code)
             embedded = auth.validate_intent(claims.zip_json(archive, auth.INTENT_NAME))
             package = auth.object_or_empty(claims.zip_json(archive, "PACKAGE-INFO.json"))
-    except (zipfile.BadZipFile, ValueError, OSError, RuntimeError, RecursionError):
+    except (zipfile.BadZipFile, ValueError, OSError, RuntimeError, EOFError,
+            lzma.LZMAError, struct.error, zlib.error):
         raise Denied(code) from None
     expected = {
         "buildMode": "release-attested",

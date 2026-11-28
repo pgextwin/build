@@ -725,6 +725,23 @@ class CentralK3Admission(unittest.TestCase):
         path.symlink_to(target)
         self.reject(fixture, "K3_ZIP_MISSING_OR_EXTRA")
         fixture = self.fixture()
+        path = fixture.zip_paths[15]
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("PACKAGE-INFO.json", canonical(fixture.packages[15]))
+            archive.writestr(auth.INTENT_NAME, canonical(fixture.intents[15]))
+        raw = bytearray(path.read_bytes())
+        # The first deflate block starts after the fixed local header and filename.
+        raw[30 + len("PACKAGE-INFO.json")] = 0x07  # reserved deflate block type
+        path.write_bytes(raw)
+        audit_path = fixture.audit_path(15)
+        report = load(audit_path)
+        verification = report["verification"]
+        verification["subject"]["digest"]["sha256"] = k3.sha256(raw)
+        for rows in verification["claims"].values():
+            rows[16]["expected"] = [verification["subject"]]
+        write(audit_path, report)
+        self.reject(fixture, "K3_ZIP_METADATA_MISMATCH")
+        fixture = self.fixture()
         original_check = k3.verify_zip_metadata
 
         def mutate_after_check(path, *args):
