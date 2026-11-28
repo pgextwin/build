@@ -26,7 +26,8 @@ def load_script(name):
 
 candidate = load_script("candidate-update")
 fleet = load_script("fleet-control")
-live = load_script("local-auth-live")
+live = importlib.import_module("local-auth-live")
+local_auth_central = load_script("local_auth_central")
 verifier = live.verifier
 ROOT = Path(__file__).resolve().parents[1]
 API = "https://api.github.com/repos/"
@@ -144,10 +145,17 @@ def versioned_sources(extension, repository, target_sha, fetch, now):
     return sources
 
 
-def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now=None):
-    now = now or datetime.now(timezone.utc)
+def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now=None,
+            extension=None, registered_extensions=None, changes=None):
+    is_central = repository == BUILD
+    if now is None or not is_central and not now:
+        now = datetime.now(timezone.utc)
     central, policy = load_authority(fetch)
+    if is_central:
+        local_auth_central.validate_policy(policy, now)
     enforce_policy(policy, now)
+    if is_central:
+        need(local_auth_central.valid_extension_name(extension), "INVALID_CENTRAL_EXTENSION")
     need(candidate.execute("git", "-C", str(ROOT), "rev-parse", "HEAD") == central,
          "CENTRAL_CHECKOUT_CHANGED")
     registry_file = file_at(fetch, BUILD, MANIFEST, central)
@@ -155,6 +163,16 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
     entries = fleet.validate(registry)
     need(repository in entries and entries[repository]["candidateEnabled"] is True,
          "REPO_NOT_IN_FLEET")
+    if is_central:
+        manifest_path = f"extensions/{extension}/extension.json"
+        registered = (local_auth_central.registered_extensions(entries) if registered_extensions is None
+                      else registered_extensions)
+        local_auth_central.need(
+            isinstance(registered, (set, frozenset)) and extension in registered
+            and all(isinstance(name, str) for name in registered), "EXTENSION_NOT_REGISTERED")
+        planned_changes = [{"filename": manifest_path, "status": "modified"}] if changes is None else changes
+        local_auth_central.evaluate_central_changes(
+            planned_changes, extension=extension, registered_extensions=registered)
     need(protected_sha(fetch, repository) == target_sha, "TARGET_MAIN_CHANGED")
     repo = fetch(API + repository)
     need(repo.get("full_name") == repository and repo.get("default_branch") == "main",
@@ -169,27 +187,36 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
          and run.get("repository", {}).get("full_name") == BUILD
          and run.get("head_repository", {}).get("full_name") == BUILD, "INVALID_CONSUMER_RUN")
 
-    extension = github_contents.decode_json_file(
-        file_at(fetch, repository, EXTENSION, target_sha), EXTENSION)
-    try:
-        legacy_watch = github_contents.decode_json_file(
-            file_at(fetch, repository, LEGACY_WATCH, target_sha), LEGACY_WATCH)
-    except candidate.WatchError as exc:
-        if not isinstance(exc.__cause__, HTTPError) or exc.__cause__.code != 404:
-            raise
-        legacy_watch = None
-    watch = candidate.resolve_watch(extension, legacy_watch)
+    legacy_watch = None
+    if is_central:
+        manifest_file = file_at(fetch, repository, manifest_path, target_sha)
+        extension_obj = github_contents.decode_json_file(manifest_file, manifest_path)
+        need(extension_obj.get("name") == extension, "INVALID_CENTRAL_EXTENSION")
+    else:
+        extension_obj = github_contents.decode_json_file(
+            file_at(fetch, repository, EXTENSION, target_sha), EXTENSION)
+        try:
+            legacy_watch = github_contents.decode_json_file(
+                file_at(fetch, repository, LEGACY_WATCH, target_sha), LEGACY_WATCH)
+        except candidate.WatchError as exc:
+            if not isinstance(exc.__cause__, HTTPError) or exc.__cause__.code != 404:
+                raise
+    watch = candidate.resolve_watch(extension_obj, legacy_watch)
     candidate_policy = candidate.publication_policy.load_candidate_policy(ROOT)
-    branch_style = candidate_branch.branch_style_for_repository(repository, extension["name"])
-    allowed, _ = fleet.decide(registry, "pgextwin/" + extension["name"], extension, watch,
+    branch_style = candidate_branch.branch_style_for_repository(repository, extension_obj["name"])
+    allowed, _ = fleet.decide(registry, "pgextwin/" + extension_obj["name"], extension_obj, watch,
                               "candidate", candidate_policy)
     need(allowed, "CANDIDATE_DISABLED")
-    plan = candidate.plan(extension, watch, candidate_policy, fetch=fetch,
+    plan = candidate.plan(extension_obj, watch, candidate_policy, fetch=fetch,
                           lifecycle=candidate.read(ROOT / LIFECYCLE), branch_style=branch_style)
     need(plan["status"] == "candidate" and plan["updates"] and all(
         not update["pinOnly"] and not update["initialOnly"] for update in plan["updates"]),
         "STABLE_UPDATE_REQUIRED")
-    updated = candidate.apply(extension, plan, pin_remaining=True, fetch=fetch)
+    if is_central:
+        local_auth_central.enforce_central_candidate(
+            policy=policy, repository=repository, extension=extension, registered_extensions=registered,
+            branch=plan["branch"], expected_candidate_id=plan["candidateId"], changes=planned_changes, now=now)
+    updated = candidate.apply(extension_obj, plan, pin_remaining=True, fetch=fetch)
     sources = versioned_sources(updated, repository, target_sha, fetch, now)
     need(protected_sha(fetch, repository) == target_sha and protected_sha(fetch, BUILD) == central,
          "PROTECTED_MAIN_CHANGED")
@@ -198,23 +225,56 @@ def prepare(repository, target_sha, consumer_run_id, *, fetch=candidate.api, now
         "repository": repository, "plan": {k: v for k, v in plan.items() if k != "detectedAt"},
         "sources": sources,
     }
+    if is_central:
+        inputs["centralScope"] = local_auth_central.central_scope(extension, plan["branch"])
     bindings = {
         "operation": "candidate", "repository": repository, "repositoryId": repo["id"],
         "targetMainSha": target_sha, "policySha": central, "centralMainSha": central,
-        "verifierSha": central, "manifestBlob": registry_file["sha"],
+        "verifierSha": central, "manifestBlob": (manifest_file if is_central else registry_file)["sha"],
         "upstreamSourcesSha256": hashlib.sha256(verifier.canonical_json(sources)).hexdigest(),
         "issuerKeyId": policy["issuerKeyId"], "policyEpoch": policy["policyEpoch"],
     }
     return policy, frozenset(entries), bindings, verifier.canonical_json(inputs)
 
 
-def authorize(ticket, inputs, issuance, prepared, *, now, api=live.github_get):
+def authorize(ticket, inputs, issuance, prepared, *, now, api=live.github_get, changes=None):
     policy, repositories, expected, fresh_inputs = prepared
+    is_central = expected.get("repository") == BUILD or changes is not None
+    if is_central:
+        local_auth_central.validate_policy(policy, now, ticket if type(ticket) is dict else None)
     enforce_policy(policy, now)
+    if is_central:
+        try:
+            inputs_obj = verifier._parse_json(fresh_inputs.decode("utf-8"), verifier.MAX_INPUTS_BYTES)
+        except (AttributeError, UnicodeError, TypeError, verifier.TicketRejected) as exc:
+            raise verifier.TicketRejected(local_auth_central.BINDING_MISMATCH) from exc
+        plan = inputs_obj.get("plan") if type(inputs_obj) is dict else None
+        need(type(plan) is dict, local_auth_central.BINDING_MISMATCH)
+        extension = plan.get("extension")
+        candidate_id = plan.get("candidateId") or ""
+        central_changes = (
+            [{"filename": f"extensions/{extension}/extension.json", "status": "modified"}]
+            if changes is None else changes
+        )
+        registered = local_auth_central.registered_extensions(repositories)
+        local_auth_central.enforce_central_candidate(
+            policy=policy, now=now, repository=expected.get("repository"), extension=extension,
+            registered_extensions=registered, branch=plan.get("branch"),
+            expected_candidate_id=candidate_id, changes=central_changes)
     evidence = live.verify_live_binding(
         ticket, inputs, policy, repositories, now, issuance_policy=issuance, api=api)
     need(all(ticket.get(field) == value for field, value in expected.items())
          and inputs == fresh_inputs, "CANDIDATE_BINDING_MISMATCH")
+    if is_central:
+        auth_binding = {"ticket": ticket, "inputs_obj": inputs_obj, "live_evidence": evidence,
+                        # prepare verified this consumer Run against protected main.
+                        "consumer_run_id": inputs_obj.get("consumerRunId")}
+        central_evidence = local_auth_central.enforce_central_candidate(
+            policy=policy, now=now, repository=ticket["repository"], extension=extension,
+            registered_extensions=registered, branch=plan["branch"], expected_candidate_id=candidate_id,
+            changes=central_changes, auth_binding=auth_binding, require_binding=True)
+        return dict(evidence, status="AUTHORIZED_CANDIDATE", authorized=True,
+                    centralEvidence=central_evidence, centralBinding=auth_binding)
     return dict(evidence, status="AUTHORIZED_CANDIDATE", authorized=True)
 
 
@@ -226,9 +286,11 @@ if __name__ == "__main__":
     parser.add_argument("--target", required=True)
     parser.add_argument("--consumer-run", required=True, type=int)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--extension")
     args = parser.parse_args()
     try:
-        policy, _, bindings, inputs = prepare(args.repository, args.target, args.consumer_run)
+        policy, _, bindings, inputs = prepare(args.repository, args.target, args.consumer_run,
+                                              extension=args.extension)
         args.output.mkdir(exist_ok=True)
         (args.output / "inputs.json").write_bytes(inputs)
         (args.output / "bindings.json").write_bytes(verifier.canonical_json(bindings))

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the same-run candidate handoff without GitHub writes."""
+from contextlib import ExitStack
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import base64
@@ -28,6 +29,7 @@ UPDATE_SHA = "c" * 40
 UPSTREAM = "sraoss/pg_ivm"
 WRITER = (direct.origin.BOT, direct.origin.APP["botUserId"])
 REGISTRY = json.loads((ROOT / "metadata/automation-fleet.json").read_text(encoding="utf-8"))
+AUTHORITY_POLICY = dict(direct.local_auth_central.load_policy(ROOT), delegationEndsAt="2099-01-01T00:00:00Z")
 MANIFEST = {"name": "pg_ivm", "postgresql": {"majors": [17, 18]},
             "upstream": {"repository": UPSTREAM, "ref": "v1.17", "version": "1.17", "commit": "e" * 40},
             "watch": {"source": "github", "strategy": "github-releases", "prereleases": False,
@@ -77,7 +79,8 @@ class FleetCandidate(TestCase):
         def branches(url, token):
             if url.endswith("/pgextwin/build/branches/main"):
                 return branch(BUILD_SHA)
-            self.assertEqual(url, direct.receipt.HOST + REPO + "/branches/main")
+            self.assertIn(url, {direct.receipt.HOST + row["repository"] + "/branches/main"
+                                for row in REGISTRY["entries"]})
             return branch(TARGET_SHA)
 
         self.enterContext(patch.dict(os.environ, {"PGEXTWIN_SCAN_READ_TOKEN": "reader"}))
@@ -122,9 +125,16 @@ class FleetCandidate(TestCase):
         self.exercise_plan_to_proposal(None)
 
     def test_tc14_central_plan_and_created_origin_agree_with_local_auth(self):
-        self.exercise_plan_to_proposal(direct.receipt.BUILD)
+        with patch.object(direct, "execution_mode", return_value="ENFORCE"), \
+                patch.object(direct.local_auth_central, "load_policy", return_value=AUTHORITY_POLICY):
+            self.exercise_plan_to_proposal(direct.receipt.BUILD)
 
-    def exercise_plan_to_proposal(self, target_repository):
+    def test_tc16_unsigned_successor_stops_before_writes_and_authorization_evidence(self):
+        with patch.object(direct, "execution_mode", return_value="ENFORCE"), \
+                patch.object(direct.local_auth_central, "load_policy", return_value=AUTHORITY_POLICY):
+            self.exercise_plan_to_proposal(direct.receipt.BUILD, closed_predecessor=True)
+
+    def exercise_plan_to_proposal(self, target_repository, *, closed_predecessor=False):
         report, context = fixture()
         repo_name = target_repository or REPO
         base_sha = BUILD_SHA if target_repository else TARGET_SHA
@@ -136,14 +146,18 @@ class FleetCandidate(TestCase):
         blob = "a" * 40
         body = ""
 
+        def closed_pr_marker():
+            return f"<!-- pgextwin-candidate:v1:{plan['candidateId']} -->"
+
         def fetch_with_pr(url):
             if url == direct.receipt.HOST + repo_name:
                 return {"full_name": repo_name, "id": repo_id}
             if url.endswith("/pulls/123"):
                 repo = {"full_name": repo_name, "id": repo_id}
-                return {"number": 123, "state": "open", "merged": False,
+                return {"number": 123, "state": "closed" if closed_predecessor else "open", "merged": False,
                         "user": {"login": WRITER[0], "id": WRITER[1], "type": "Bot"},
-                        "body": body, "head": {"ref": plan["branch"], "sha": branch_head, "repo": repo},
+                        "body": closed_pr_marker() if closed_predecessor else body,
+                        "head": {"ref": plan["branch"], "sha": branch_head, "repo": repo},
                         "base": {"ref": "main", "sha": base_sha, "repo": repo}}
             return fetch(url)
 
@@ -156,6 +170,15 @@ class FleetCandidate(TestCase):
                 return branch_head if ("git", "commit") in [call[:2] for call in commands] else base_sha
             if args[:3] == ("git", "remote", "get-url"):
                 return "https://github.com/" + repo_name
+            if args == ("git", "diff", "--name-status", "-z", "-M", "-C", "HEAD~1", "HEAD"):
+                self.assertIsNotNone(target_repository)
+                return f"M\0{manifest_path}\0"
+            if closed_predecessor and args[:3] == ("gh", "pr", "list") and plan["branch"] in args:
+                return json.dumps([{"number": 123, "state": "CLOSED", "body": closed_pr_marker(),
+                                    "url": f"https://github.com/{repo_name}/pull/123", "headRefOid": branch_head,
+                                    "headRefName": plan["branch"], "baseRefName": "main", "isCrossRepository": False}])
+            if args == ("gh", "api", f"repos/{repo_name}/pulls/123"):
+                return json.dumps(fetch_with_pr(direct.receipt.HOST + repo_name + "/pulls/123"))
             if args[:3] in (("gh", "pr", "list"), ("gh", "run", "list")):
                 return "[]"
             if args[:3] == ("gh", "pr", "create"):
@@ -179,7 +202,7 @@ class FleetCandidate(TestCase):
                 prefix = "auto-candidate/pg_ivm/" if target_repository else "auto-candidate/"
                 self.assertEqual(plan["branch"], prefix + legacy["candidateId"])
                 self.assertEqual(plan["candidateId"], legacy["candidateId"])
-                self.assert_issuer_plan_matches(plan, repo_name, base_sha)
+                prepared = self.assert_issuer_plan_matches(plan, repo_name, base_sha)
                 self.assertEqual(plan["updates"][0]["commit"], UPDATE_SHA)
                 self.assertEqual(plan["releasePolicy"], "manual-only")
                 altered = deepcopy(plan)
@@ -190,9 +213,67 @@ class FleetCandidate(TestCase):
                 self.assertFalse(any(call[:2] == ("git", "push") for call in commands))
                 origin = Path(tmp) / "origin.json"
                 output = Path(tmp) / "output"
-                with patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
+                with ExitStack() as stack:
+                    stack.enter_context(patch.dict(os.environ, {"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ID": "100"}))
+                    if target_repository:
+                        evidence_path = Path(tmp) / "authorization.json"
+                        proposal_paths["auth_evidence_path"] = evidence_path
+                        inputs, issuance = prepared[3], {"receipt": "fixture"}
+                        inputs_obj = json.loads(inputs)
+                        ticket = dict(prepared[2], requestId="d" * 32,
+                                      inputsSha256=hashlib.sha256(inputs).hexdigest())
+                        central_binding = {
+                            "ticket": ticket, "inputs_obj": inputs_obj, "consumer_run_id": 100,
+                            "live_evidence": {"authorized": False, "publication": False,
+                                              "requestId": ticket["requestId"],
+                                              "issuerRepository": direct.local_auth.live.ISSUER_REPOSITORY,
+                                              "issuerRunId": 120, "issuerRunAttempt": 1,
+                                              "claimCommitSha": "e" * 40, "ticketSha256": "f" * 64},
+                        }
+                        central_evidence = {
+                            "schemaVersion": 1, "status": "AUTHORIZED_CENTRAL_CANDIDATE",
+                            "publication": False, "authorized": True,
+                            "target": {"extension": "pg_ivm", "paths": [manifest_path], "branch": plan["branch"]},
+                        }
+                        prepare = stack.enter_context(patch.object(direct.local_auth, "prepare", return_value=prepared))
+                        receive = stack.enter_context(patch.object(direct.issuance, "receive",
+                                                                   return_value=(ticket, inputs, issuance)))
+                        authorize = stack.enter_context(patch.object(
+                            direct.local_auth, "authorize",
+                            return_value={"centralEvidence": central_evidence, "centralBinding": central_binding}))
+                    if closed_predecessor:
+                        original_manifest = manifest.read_bytes()
+                        with self.assertRaisesRegex(direct.candidate.WatchError,
+                                                    "^RUN_CLAIM_CHANGE_BINDING_MISMATCH$"):
+                            direct.propose(report, context, REPO, plan, WRITER, fetch=fetch_with_pr,
+                                           origin_path=origin, decision_id=45, **proposal_paths)
+                        authorize.assert_called_once()
+                        successor = direct.candidate.regenerated_candidate_id(plan["candidateId"], 123)
+                        successor_branch = f"auto-candidate/pg_ivm/{successor}"
+                        self.assertTrue(any(call[:3] == ("gh", "pr", "list") and successor_branch in call
+                                            for call in commands))
+                        blocked_git = {"ls-remote", "checkout", "add", "commit", "push"}
+                        self.assertFalse(any((call[0] == "git" and call[1] in blocked_git)
+                                             or call[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")}
+                                             for call in commands), commands)
+                        self.assertEqual(manifest.read_bytes(), original_manifest)
+                        self.assertFalse(evidence_path.exists())
+                        self.assertFalse(origin.exists())
+                        return
                     direct.propose(report, context, REPO, plan, WRITER, fetch=fetch_with_pr,
                                    origin_path=origin, decision_id=45, **proposal_paths)
+                    if target_repository:
+                        registered = frozenset(row["repository"].split("/")[1] for row in REGISTRY["entries"])
+                        changes = [{"filename": manifest_path, "status": "modified"}]
+                        self.assertEqual(prepare.call_count, 2)
+                        for call in prepare.call_args_list:
+                            self.assertEqual(call.args, (repo_name, base_sha, 100))
+                            self.assertEqual(call.kwargs, {"fetch": fetch_with_pr, "extension": "pg_ivm",
+                                                           "registered_extensions": registered, "changes": changes})
+                        receive.assert_called_once_with(repo_name, base_sha, 100, direct.local_auth.verifier)
+                        self.assertEqual(authorize.call_args.args, (ticket, inputs, issuance, prepared))
+                        self.assertEqual(authorize.call_args.kwargs["changes"], changes)
+                        self.assertEqual(json.loads(evidence_path.read_bytes()), central_evidence)
                 expected = direct.origin.parse_marker(body)
                 self.assertEqual(body.count(f"<!-- pgextwin-candidate:v1:{plan['candidateId']} -->"), 1)
                 self.assertEqual(json.loads(origin.read_bytes()), {"origin": expected, "pullRequest": 123})
@@ -216,6 +297,8 @@ class FleetCandidate(TestCase):
         self.assertIn(("git", "push", "--set-upstream", "origin", plan["branch"]), commands)
         self.assertTrue(any(call[:3] == ("gh", "pr", "create") and "--draft" in call for call in commands))
         self.assertIn(("gh", "workflow", "run", "windows.yml", "--repo", repo_name, "--ref", plan["branch"]), commands)
+        if target_repository:
+            self.assertIn(("git", "diff", "--name-status", "-z", "-M", "-C", "HEAD~1", "HEAD"), commands)
 
     def assert_issuer_plan_matches(self, record, repository, base_sha):
         auth = direct.local_auth
@@ -227,7 +310,8 @@ class FleetCandidate(TestCase):
             registry["entries"].append(dict(row, repository=repository))
 
         def issuer_file(fetch_api, repo, path, sha):
-            payloads = {auth.MANIFEST: registry, auth.EXTENSION: MANIFEST}
+            extension_path = "extensions/pg_ivm/extension.json" if repository == auth.BUILD else auth.EXTENSION
+            payloads = {auth.MANIFEST: registry, extension_path: MANIFEST}
             if path == auth.LEGACY_WATCH:
                 # A real legacy watch alongside the embedded one must agree with it.
                 payloads[path] = dict(MANIFEST["watch"], schemaVersion=1, repository=UPSTREAM)
@@ -248,19 +332,68 @@ class FleetCandidate(TestCase):
                         "repository": identity, "head_repository": identity}
             return fetch(url)
 
-        policy = {"issuerKeyId": "fixture", "policyEpoch": 1}
-        with patch.object(auth, "load_authority", return_value=(BUILD_SHA, policy)), \
+        scope = {"extension": record["extension"]} if repository == auth.BUILD else {}
+        with patch.object(auth, "load_authority", return_value=(BUILD_SHA, AUTHORITY_POLICY)), \
              patch.object(auth, "enforce_policy"), patch.object(auth, "file_at", issuer_file), \
              patch.object(auth, "versioned_sources", return_value=[]), \
              patch.object(auth.candidate, "execute", return_value=BUILD_SHA):
             if repository == auth.BUILD:
                 with patch.object(auth.fleet, "validate", return_value=direct.fleet.validate(REGISTRY)):
                     with self.assertRaisesRegex(auth.verifier.TicketRejected, "REPO_NOT_IN_FLEET"):
-                        auth.prepare(repository, base_sha, 100, fetch=issuer_fetch)
-            _, _, _, inputs = auth.prepare(repository, base_sha, 100, fetch=issuer_fetch)
+                        auth.prepare(repository, base_sha, 100, fetch=issuer_fetch, **scope)
+            prepared = auth.prepare(repository, base_sha, 100, fetch=issuer_fetch, **scope)
         canonical = auth.verifier.canonical_json
-        self.assertEqual(canonical(json.loads(inputs)["plan"]),
+        self.assertEqual(canonical(json.loads(prepared[3])["plan"]),
                          canonical({k: v for k, v in record.items() if k != "detectedAt"}))
+        return prepared
+
+    def assert_central_preflight_denied(self, code, *, mode="ENFORCE", policy=AUTHORITY_POLICY, invalid_fleet=False,
+                                        manifest_path="extensions/pg_ivm/extension.json", branch_extension="pg_ivm"):
+        report, context = fixture()
+        if invalid_fleet:
+            context = (*context[:3], {})
+        record = direct.candidate.plan(
+            MANIFEST, None, direct.candidate.publication_policy.load_candidate_policy(ROOT),
+            fetch=fetch, branch_style="central")
+        record["branch"] = f"auto-candidate/{branch_extension}/{record['candidateId']}"
+        with TemporaryDirectory() as tmp, \
+                patch.object(direct, "execution_mode", return_value=mode), \
+                patch.object(direct.local_auth_central, "load_policy", return_value=policy), \
+                patch.object(direct.issuance, "receive") as receive, \
+                patch.object(direct.local_auth, "prepare") as prepare, \
+                patch.object(direct.candidate, "propose_candidate") as write, \
+                patch.object(direct.candidate, "execute") as execute:
+            origin, evidence = Path(tmp) / "origin.json", Path(tmp) / "auth.json"
+            with self.assertRaises(direct.local_auth_central.TicketRejected) as caught:
+                direct.propose(report, context, REPO, record, WRITER, fetch=fetch,
+                               origin_path=origin, decision_id=45, target_repository=direct.receipt.BUILD,
+                               manifest_path=manifest_path, auth_evidence_path=evidence)
+            self.assertEqual(caught.exception.code, code)
+            for operation in (prepare, receive, write, execute):
+                operation.assert_not_called()
+            self.assertFalse(origin.exists())
+            self.assertFalse(evidence.exists())
+
+    def test_pr_b4_central_enforcement_cross_extension(self):
+        self.assert_central_preflight_denied("CROSS_EXTENSION_DENIED",
+                                             manifest_path="extensions/pg_bigm/extension.json")
+
+    def test_pr_b4_central_enforcement_unclassified_path(self):
+        self.assert_central_preflight_denied("PATH_CLASS_P7_DENIED", manifest_path="README.md")
+
+    def test_pr_b4_central_enforcement_branch_mismatch(self):
+        self.assert_central_preflight_denied("BRANCH_EXTENSION_MISMATCH", branch_extension="pg_bigm")
+
+    def test_pr_b4_central_enforcement_deny_precedes_other_errors(self):
+        self.assert_central_preflight_denied("DENY_MODE", mode="DENY", manifest_path="README.md",
+                                             branch_extension="pg_bigm")
+
+    def test_pr_b4_central_enforcement_unsupported_mode(self):
+        self.assert_central_preflight_denied("MODE_NOT_IMPLEMENTED", mode="OBSERVE")
+
+    def test_tc16_revoked_epoch_precedes_invalid_fleet(self):
+        revoked = dict(AUTHORITY_POLICY, revokedPolicyEpochs=[AUTHORITY_POLICY["policyEpoch"]])
+        self.assert_central_preflight_denied("EPOCH_REVOKED", policy=revoked, invalid_fleet=True)
 
     def test_workflow_passes_environment_app_key_through_both_calls(self):
         workflow_dir = ROOT / ".github/workflows"

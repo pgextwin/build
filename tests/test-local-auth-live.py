@@ -486,5 +486,244 @@ class GithubGetTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "LIVE_ENDPOINT_DENIED")
 
 
+class CentralCandidateBindingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        fixtures.TicketTests.setUpClass()
+
+    def setUp(self):
+        LiveBindingTests.setUp(self)
+        self.policy["mode"] = "ENFORCE"
+        self.sha = "a" * 40
+        self.extension = "pg_ivm"
+        self.legacy_repo = f"pgextwin/{self.extension}"
+        self.manifest = f"extensions/{self.extension}/extension.json"
+        self.changes = [{"filename": self.manifest, "status": "modified"}]
+        self.config = {
+            "name": self.extension, "postgresql": {"majors": [17, 18]},
+            "upstream": {"repository": "sraoss/pg_ivm", "ref": "v1.17", "version": "1.17", "commit": "e" * 40},
+            "watch": {"source": "github", "strategy": "github-releases", "prereleases": False,
+                      "stableTagPattern": r"^v(?P<version>\d+\.\d+)$"},
+        }
+        self.registry = json.loads((ROOT / authority.MANIFEST).read_text(encoding="utf-8"))
+        row = next(row for row in self.registry["entries"] if row["repository"] == self.legacy_repo)
+        self.registry["entries"].append(dict(row, repository=authority.BUILD))
+        self.upstream_sha = "c" * 40
+        self.license_bytes = b"fixture version-specific license\n"
+        self.license_mapping = {"repositoryPath": "LICENSE.txt", "upstreamPath": "LICENSE"}
+        self.sources = [{"major": 17, "ref": "v1.18", "version": "1.18", "commit": self.upstream_sha,
+                         "licenses": [dict(self.license_mapping, sha256=hashlib.sha256(self.license_bytes).hexdigest())]}]
+        self.run_id = 100
+        self.consumer_run_status = "in_progress"
+        self.calls = []
+        self.enterContext(patch.object(authority.candidate, "execute", return_value=self.sha))
+        self.matrix = self.enterContext(patch.object(authority, "build_matrix", return_value=(
+            "true", [{"major": 17, "upstreamRef": "v1.18", "upstreamVersion": "1.18",
+                      "upstreamCommit": self.upstream_sha, "licenseFiles": [self.license_mapping]}])))
+        self.fetch_live = self.enterContext(patch.object(authority.live, "fetch_live_facts", return_value=self.facts))
+
+    @staticmethod
+    def content(path, data):
+        raw = data if isinstance(data, bytes) else json.dumps(data).encode()
+        return {"path": path, "encoding": "base64", "content": base64.b64encode(raw).decode(),
+                "sha": hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()}
+
+    def fetch(self, url):
+        self.calls.append(url)
+        repo = self.repository
+        api = authority.API
+        if url in (f"{api}{authority.BUILD}/branches/main", f"{api}{repo}/branches/main"):
+            return {"name": "main", "protected": True, "commit": {"sha": self.sha}}
+        if url == api + repo:
+            return {"full_name": repo, "default_branch": "main", "id": 12345}
+        if url == f"{api}{authority.BUILD}/actions/runs/{self.run_id}":
+            identity = {"full_name": authority.BUILD}
+            return {"id": self.run_id, "head_sha": self.sha, "head_branch": "main", "event": "schedule",
+                    "path": authority.WATCH_WORKFLOW, "run_attempt": 1, "status": self.consumer_run_status,
+                    "repository": identity, "head_repository": identity}
+        upstream = api + self.config["upstream"]["repository"]
+        if url == upstream + "/releases?per_page=100":
+            return [{"tag_name": "v1.18", "draft": False, "prerelease": False}]
+        if url == upstream + "/git/ref/tags/v1.18":
+            return {"object": {"type": "commit", "sha": self.upstream_sha}}
+        if url == f"{upstream}/contents/LICENSE?ref={self.upstream_sha}":
+            return self.content("LICENSE", self.license_bytes)
+        contents = {
+            (authority.BUILD, authority.AUTHORITY): self.policy,
+            (authority.BUILD, authority.MANIFEST): self.registry,
+            (repo, self.manifest if repo == authority.BUILD else authority.EXTENSION): self.config,
+            (repo, "LICENSE.txt"): self.license_bytes,
+        }
+        if repo != authority.BUILD:
+            contents[(repo, authority.LEGACY_WATCH)] = {
+                **self.config["watch"], "schemaVersion": 1, "repository": self.config["upstream"]["repository"]}
+        for (name, path), value in contents.items():
+            if url == f"{api}{name}/contents/{path}?ref={self.sha}":
+                return self.content(path, value)
+        self.fail(f"unexpected fetch {url}")
+
+    def prepare(self, **kwargs):
+        self.repository = authority.BUILD
+        return authority.prepare(self.repository, self.sha, self.run_id, fetch=self.fetch, now=self.now,
+                                 extension=self.extension, **kwargs)
+
+    def sign(self, bindings, inputs):
+        self.ticket.update(bindings, inputsSha256=hashlib.sha256(inputs).hexdigest())
+        fixtures.sign_ticket(self.ticket)
+        digest = hashlib.sha256(authority.verifier.canonical_json(self.ticket)).hexdigest()
+        self.issuance["ticketSha256"] = self.claim["ticketSha256"] = digest
+        self.facts["claimFile"] = claim_file(self.claim)
+
+    def authorize(self, prepared, *, inputs=None, **kwargs):
+        return authority.authorize(self.ticket, prepared[3] if inputs is None else inputs,
+                                   self.issuance, prepared, now=self.now, **kwargs)
+
+    def rejected(self, code, action):
+        with self.assertRaises(authority.verifier.TicketRejected) as caught:
+            action()
+        self.assertEqual(caught.exception.code, code)
+
+    def test_tc15_central_prepare_authorize_binds_manifest_run_and_claim(self):
+        prepared = self.prepare()
+        _, _, bindings, raw = prepared
+        inputs = json.loads(raw)
+        self.assertEqual(bindings["manifestBlob"], self.content(self.manifest, self.config)["sha"])
+        self.assertEqual(inputs["sources"], self.sources)
+        self.assertEqual(inputs["centralScope"], {
+            "extension": self.extension, "manifestPath": self.manifest, "branch": inputs["plan"]["branch"],
+            "allowedPaths": [self.manifest], "operation": "candidate", "publication": False,
+        })
+        self.assertFalse(any("/contents/config/" in url for url in self.calls))
+        self.sign(bindings, raw)
+        result = self.authorize(prepared, changes=self.changes)
+        self.assertEqual(result["status"], "AUTHORIZED_CANDIDATE")
+        self.assertIs(result["authorized"], True)
+        self.assertIs(result["publication"], False)
+        binding = result["centralBinding"]
+        self.assertIs(binding["ticket"], self.ticket)
+        self.assertEqual(binding["inputs_obj"], inputs)
+        self.assertEqual(binding["consumer_run_id"], self.run_id)
+        self.assertIs(binding["live_evidence"]["authorized"], False)
+        central = result["centralEvidence"]
+        self.assertEqual(central, {
+            "schemaVersion": 1, "status": "AUTHORIZED_CENTRAL_CANDIDATE", "authorized": True,
+            "publication": False, "operation": "candidate", "repository": authority.BUILD,
+            "policy": {key: self.policy[key] for key in ("mode", "policyEpoch", "issuerKeyId")},
+            "consumerRun": {"repository": authority.BUILD, "runId": self.run_id},
+            "issuerRun": {"repository": self.issuance["repository"], "runId": self.issuance["runId"], "attempt": 1},
+            "claim": {key: self.issuance[key] for key in ("requestId", "claimCommitSha", "ticketSha256")},
+            "target": {"extension": self.extension, "branch": inputs["plan"]["branch"],
+                       "scopeMode": "candidate_manifest", "paths": [self.manifest], "pathClasses": ["P1"]},
+        })
+
+    def test_tc15_deny_short_circuits_live_fact_fetch(self):
+        prepared = self.prepare()
+        denied = (dict(prepared[0], mode="DENY"), *prepared[1:])
+        self.rejected("DENY_MODE", lambda: self.authorize(denied, inputs=b"{}"))
+        self.fetch_live.assert_not_called()
+
+    def test_tc15_central_prepare_rejects_invalid_scope_before_license_reads(self):
+        self.rejected("CROSS_EXTENSION_DENIED", lambda: self.prepare(changes=[
+            {"filename": "extensions/pg_bigm/extension.json", "status": "modified"}]))
+        self.matrix.assert_not_called()
+        for extension in (None, "COM1", "../pg_ivm"):
+            self.rejected("INVALID_CENTRAL_EXTENSION", lambda: authority.prepare(
+                authority.BUILD, self.sha, self.run_id, fetch=self.fetch, now=self.now, extension=extension))
+
+    def test_tc15_prepare_p7_precedes_invalid_consumer_run(self):
+        self.consumer_run_status = "completed"
+        consumer_run_url = f"{authority.API}{authority.BUILD}/actions/runs/{self.run_id}"
+        self.rejected("PATH_CLASS_P7_DENIED", lambda: self.prepare(changes=[
+            {"filename": "README.md", "status": "modified"}]))
+        self.assertEqual(self.calls.count(consumer_run_url), 0)
+        self.matrix.assert_not_called()
+
+    def test_tc15_authorize_epoch_then_p7_precede_tampered_claim_ref(self):
+        prepared = self.prepare()
+        self.sign(prepared[2], prepared[3])
+        changes = [{"filename": "README.md", "status": "modified"}]
+        revoked = (dict(self.policy, policyEpoch=2, revokedPolicyEpochs=[1]), *prepared[1:])
+        with patch.dict(self.facts["claimRef"]["object"], {"sha": "f" * 40}):
+            self.rejected("PATH_CLASS_P7_DENIED", lambda: self.authorize(prepared, changes=changes))
+            self.rejected("EPOCH_REVOKED", lambda: self.authorize(revoked, changes=changes))
+        self.fetch_live.assert_not_called()
+
+    def test_tc15_authorize_missing_prepared_plan_rejects_before_live_fetch(self):
+        prepared = self.prepare()
+        inputs = json.loads(prepared[3])
+        del inputs["plan"]
+        raw = authority.verifier.canonical_json(inputs)
+        self.sign(prepared[2], raw)
+        self.rejected("RUN_CLAIM_CHANGE_BINDING_MISMATCH", lambda: self.authorize((*prepared[:3], raw)))
+        self.fetch_live.assert_not_called()
+
+    def test_tc15_bad_epoch_claim_ref_or_issuer_run_is_rejected(self):
+        prepared = self.prepare()
+        self.sign(prepared[2], prepared[3])
+        self.rejected("EPOCH_MISMATCH", lambda: self.authorize((dict(self.policy, policyEpoch=2), *prepared[1:])))
+        self.rejected("EPOCH_REVOKED", lambda: self.authorize(
+            (dict(self.policy, policyEpoch=2, revokedPolicyEpochs=[1]), *prepared[1:])))
+        self.fetch_live.assert_not_called()
+        with patch.dict(self.facts["claimRef"]["object"], {"sha": "f" * 40}):
+            self.rejected("CLAIM_REF_MISMATCH", lambda: self.authorize(prepared))
+        with patch.dict(self.facts["run"], {"id": self.issuance["runId"] + 1}):
+            self.rejected("ISSUER_RUN_MISMATCH", lambda: self.authorize(prepared))
+
+    def test_tc15_signed_scope_inputs_and_actual_changes_must_agree(self):
+        prepared = self.prepare()
+        bindings, raw = prepared[2:]
+        self.sign(bindings, raw)
+        for code, changes in (
+            ("CROSS_EXTENSION_DENIED", [{"filename": "extensions/pg_bigm/extension.json", "status": "modified"}]),
+            ("PATH_CLASS_P7_DENIED", [{"filename": "README.md", "status": "modified"}]),
+            ("CANDIDATE_CHANGE_DENIED", [{"filename": self.manifest, "status": "renamed",
+                                         "previous_filename": f"extensions/{self.extension}/old.json"}]),
+        ):
+            with self.subTest(code=code):
+                self.rejected(code, lambda: self.authorize(prepared, changes=changes))
+
+        for field, value in (("extension", "pg_bigm"), ("branch", "auto-candidate/" + "a" * 20),
+                             ("allowedPaths", [self.manifest, "README.md"]), ("publication", 0)):
+            with self.subTest(field=field):
+                inputs = json.loads(raw)
+                inputs["centralScope"][field] = value
+                modified = authority.verifier.canonical_json(inputs)
+                self.rejected("INPUTS_HASH_MISMATCH", lambda: self.authorize(prepared, inputs=modified))
+                self.sign(bindings, modified)
+                self.rejected("CANDIDATE_BINDING_MISMATCH", lambda: self.authorize(prepared, inputs=modified))
+                self.rejected("RUN_CLAIM_CHANGE_BINDING_MISMATCH",
+                              lambda: self.authorize((*prepared[:3], modified)))
+                self.sign(bindings, raw)
+
+        inputs = dict(json.loads(raw), consumerRunId=self.run_id + 1)
+        modified = authority.verifier.canonical_json(inputs)
+        self.sign(bindings, modified)
+        self.rejected("CANDIDATE_BINDING_MISMATCH", lambda: self.authorize(prepared, inputs=modified))
+
+    def test_tc15_legacy_extensionless_prepare_preserves_canonical_contract(self):
+        self.repository = self.legacy_repo
+        prepared = authority.prepare(self.repository, self.sha, self.run_id, fetch=self.fetch, now=self.now)
+        _, _, bindings, raw = prepared
+        plan = authority.candidate.plan(self.config, None, {"schemaVersion": 1, "enabled": True,
+                                        "releasePolicy": "manual-only", "workflow": "windows.yml"}, fetch=self.fetch)
+        expected_inputs = {"operation": "candidate", "consumerRunId": self.run_id, "repository": self.repository,
+                           "plan": {key: value for key, value in plan.items() if key != "detectedAt"},
+                           "sources": self.sources}
+        canonical = authority.verifier.canonical_json
+        self.assertEqual(raw, canonical(expected_inputs))
+        self.assertEqual(bindings, {
+            "operation": "candidate", "repository": self.repository, "repositoryId": 12345,
+            "targetMainSha": self.sha, "policySha": self.sha, "centralMainSha": self.sha, "verifierSha": self.sha,
+            "manifestBlob": self.content(authority.MANIFEST, self.registry)["sha"],
+            "upstreamSourcesSha256": hashlib.sha256(canonical(self.sources)).hexdigest(),
+            "issuerKeyId": self.policy["issuerKeyId"], "policyEpoch": self.policy["policyEpoch"],
+        })
+        self.sign(bindings, raw)
+        result = self.authorize(prepared)
+        self.assertNotIn("centralEvidence", result)
+        self.assertNotIn("centralBinding", result)
+        self.assertEqual(result["status"], "AUTHORIZED_CANDIDATE")
+
+
 if __name__ == "__main__":
     unittest.main()

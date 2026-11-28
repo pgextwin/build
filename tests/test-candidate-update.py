@@ -1,6 +1,9 @@
 from __future__ import annotations
 import base64
+from contextlib import chdir
 import copy
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import tempfile
@@ -26,10 +29,28 @@ POLICY={"schemaVersion":1,"enabled":True,"releasePolicy":"manual-only","workflow
 APP_WRITER = ("pgextwin-fleet-candidate[bot]", 999001)
 LOCAL_REPO = "pgextwin/plpgsql_check"
 CENTRAL_REPO = "pgextwin/build"
+CENTRAL_MANIFEST = Path("extensions/plpgsql_check/extension.json")
+CENTRAL_TIME = datetime(2026, 11, 28, tzinfo=timezone.utc)
+CENTRAL_AUTHORITY = c.local_auth_central.load_policy(ROOT)
 PR_HEAD = "b" * 40
 INVALID_FETCHED_HEADS = {"fetched-head-mismatch": "0" * 40, "fetched-head-malformed": "not-a-sha"}
 REGISTRY_RESPONSE = {"encoding": "base64", "content": base64.b64encode(
     (ROOT / "metadata/automation-fleet.json").read_bytes()).decode()}
+
+
+def central_auth_binding(record, *, policy=CENTRAL_AUTHORITY):
+    central = c.local_auth_central
+    run_id = 100
+    inputs = {"operation": "candidate", "repository": CENTRAL_REPO, "consumerRunId": run_id,
+              "centralScope": central.central_scope(record["extension"], record["branch"])}
+    ticket = {"operation": "candidate", "repository": CENTRAL_REPO, "requestId": "b" * 32,
+              "policyEpoch": policy["policyEpoch"], "issuerKeyId": policy["issuerKeyId"],
+              "inputsSha256": hashlib.sha256(central.canonical_json(inputs)).hexdigest()}
+    live = {"authorized": False, "publication": False, "requestId": ticket["requestId"],
+            "issuerRepository": central.live_verifier.ISSUER_REPOSITORY, "issuerRunId": 120,
+            "issuerRunAttempt": 1, "claimCommitSha": "c" * 40, "ticketSha256": "d" * 64}
+    return {"ticket": ticket, "inputs_obj": inputs, "live_evidence": live, "consumer_run_id": run_id}
+
 
 def fixture(url):
     if url.endswith("/releases?per_page=100"):
@@ -163,13 +184,15 @@ def exercise_proposer_safety():
 
 def exercise_upstream_and_pr_lookup_outages():
     """TC-07 covers the local entry point and central/App writer."""
-    with tempfile.TemporaryDirectory() as temp:
+    with tempfile.TemporaryDirectory() as temp, chdir(temp):
         root = Path(temp)
-        manifest, watch = root / "extension.json", root / "watch.json"
-        manifest.write_text(json.dumps(EXT), encoding="utf-8")
+        watch = root / "watch.json"
         watch.write_text(json.dumps(WATCH), encoding="utf-8")
-        original = manifest.read_bytes()
+        CENTRAL_MANIFEST.parent.mkdir(parents=True)
+        original = json.dumps(EXT).encode("utf-8")
         for repo, style, writer in ((LOCAL_REPO, "legacy", None), (CENTRAL_REPO, "central", APP_WRITER)):
+            manifest = CENTRAL_MANIFEST if style == "central" else root / "extension.json"
+            manifest.write_bytes(original)
             record = c.plan(EXT, WATCH, POLICY, fixture, branch_style=style)
             branch = record["branch"]
             parent = "a" * 40
@@ -220,6 +243,9 @@ def exercise_upstream_and_pr_lookup_outages():
                         return pushed_manifest
                     if args == ("git", "rev-parse", "HEAD"):
                         return parent
+                    if args[:6] == ("git", "diff", "--name-status", "-z", "-M", "-C"):
+                        assert style == "central"
+                        return f"M\0{manifest}\0"
                     if args[:2] == ("git", "diff"):
                         return str(manifest)
                     if args[:3] == ("gh", "pr", "create"):
@@ -233,7 +259,8 @@ def exercise_upstream_and_pr_lookup_outages():
                 def task():
                     if writer is None:
                         return c.propose(record, str(manifest), repo, str(watch))
-                    return c.propose_candidate(record, str(manifest), repo, str(watch), writer=writer, fetch=fetch)
+                    return c.propose_candidate(record, str(manifest), repo, str(watch), writer=writer,
+                                               fetch=fetch, now=CENTRAL_TIME, auth_binding=central_auth_binding(record))
 
                 with patch.dict(os.environ, {"GITHUB_REPOSITORY": repo, "GITHUB_REF": "refs/heads/main",
                                             "GH_TOKEN": "fixture", "RUNNER_TEMP": temp}), \
@@ -292,9 +319,10 @@ def exercise_writer_identity_normalization():
         ("rest-marker-duplicate", "OPEN", lambda pr: pr.update(body=f"{marker}\n{marker}")),
     ]
     scenarios.extend((name, "OPEN", None) for name in INVALID_FETCHED_HEADS)
-    with tempfile.TemporaryDirectory() as temp:
+    with tempfile.TemporaryDirectory() as temp, chdir(temp):
         root = Path(temp)
-        manifest, watch = root / "extension.json", root / "watch.json"
+        manifest, watch = CENTRAL_MANIFEST, root / "watch.json"
+        manifest.parent.mkdir(parents=True)
         manifest.write_text(json.dumps(EXT), encoding="utf-8")
         watch.write_text(json.dumps(WATCH), encoding="utf-8")
         original = manifest.read_bytes()
@@ -324,8 +352,8 @@ def exercise_writer_identity_normalization():
                     return INVALID_FETCHED_HEADS.get(name, PR_HEAD)
                 if args[:2] == ("git", "show"):
                     return json.dumps(c.apply(EXT, record))
-                if args[:2] == ("git", "diff"):
-                    return str(manifest)
+                if args == ("git", "diff", "--name-status", "-z", "-M", "-C", "HEAD", f"refs/remotes/origin/{branch}"):
+                    return f"M\0{manifest}\0"
                 if args[:3] == ("gh", "run", "list"):
                     return "[]"
                 if args[:3] == ("gh", "workflow", "run"):
@@ -336,7 +364,8 @@ def exercise_writer_identity_normalization():
                  patch.object(c, "repair_exact_bot_candidate_base_sync") as repair:
                 def task():
                     return c.propose_candidate(record, str(manifest), CENTRAL_REPO, str(watch),
-                                               writer=APP_WRITER, fetch=lambda url: REGISTRY_RESPONSE)
+                                               writer=APP_WRITER, fetch=lambda url: REGISTRY_RESPONSE,
+                                               now=CENTRAL_TIME, auth_binding=central_auth_binding(record))
 
                 if name in INVALID_FETCHED_HEADS:
                     expect_fail(task, "fetched candidate branch head differs from candidate PR")
@@ -398,9 +427,10 @@ def exercise_new_candidate_positive():
 
 def exercise_central_proposal_guards():
     record = c.plan(EXT, WATCH, POLICY, fixture, branch_style="central")
-    with tempfile.TemporaryDirectory() as temp:
+    with tempfile.TemporaryDirectory() as temp, chdir(temp):
         root = Path(temp)
-        manifest, watch = root / "extension.json", root / "watch.json"
+        manifest, watch = CENTRAL_MANIFEST, root / "watch.json"
+        manifest.parent.mkdir(parents=True)
         manifest.write_text(json.dumps(EXT), encoding="utf-8")
         watch.write_text(json.dumps(WATCH), encoding="utf-8")
         original = manifest.read_bytes()
@@ -419,7 +449,8 @@ def exercise_central_proposal_guards():
             raise AssertionError(args)
 
         def task(candidate_record):
-            return c.propose_candidate(candidate_record, str(manifest), CENTRAL_REPO, str(watch), fetch=fixture)
+            return c.propose_candidate(candidate_record, str(manifest), CENTRAL_REPO, str(watch), fetch=fixture,
+                                       now=CENTRAL_TIME, auth_binding=central_auth_binding(record))
 
         with patch.object(c, "execute", execute), \
              patch.object(update_watch_lib, "github_get_json", return_value=REGISTRY_RESPONSE), \
@@ -466,9 +497,11 @@ def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
     current_branch = None
     race_at = None
     rest_outage = False
-    with tempfile.TemporaryDirectory() as temp:
+    with tempfile.TemporaryDirectory() as temp, chdir(temp):
         root = Path(temp)
-        manifest = root/"extension.json"
+        manifest = CENTRAL_MANIFEST if style == "central" else root/"extension.json"
+        if style == "central":
+            manifest.parent.mkdir(parents=True)
         watch = root/"watch.json"
         policy = root/"policy.json"
         original_manifest = json.dumps(EXT).encode("utf-8")
@@ -515,6 +548,10 @@ def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
                 return parent if "--format=%P" in args else candidate_marker(args[-1].removeprefix("refs/remotes/origin/"))
             if args[:2] == ("git", "show"):
                 return json.dumps(c.apply(EXT, record))
+            if args[:6] == ("git", "diff", "--name-status", "-z", "-M", "-C"):
+                assert style == "central"
+                assert args[6:] == ("HEAD~1", "HEAD") or args[-1].startswith("refs/remotes/origin/")
+                return f"M\0{manifest}\0"
             if args[:2] == ("git", "diff"):
                 return str(manifest)
             if args[:3] == ("gh", "pr", "create"):
@@ -540,9 +577,10 @@ def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
             calls.clear()
             current_branch = None
             manifest.write_bytes(original_manifest)
+            binding = {"auth_binding": central_auth_binding(record)} if style == "central" else {}
             c.propose_candidate(record, str(manifest), repository, str(watch), str(policy),
                                 writer=writer, fetch=lambda url: REGISTRY_RESPONSE,
-                                origin_body=origin, on_created=created)
+                                origin_body=origin, on_created=created, now=CENTRAL_TIME, **binding)
 
         def assert_new_proposal(predecessor, branch):
             parsed = parse_branch(branch, expected_extension=EXT["name"])
@@ -610,35 +648,47 @@ def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
                 del prs[alternate]
                 dispatched.clear()
                 prs[base_branch]["state"] = "CLOSED"
+                successor_id = c.regenerated_candidate_id(record["candidateId"], prs[base_branch]["number"])
+                successor = format_branch(EXT["name"], successor_id, "central")
+                expect_fail(task, "RUN_CLAIM_CHANGE_BINDING_MISMATCH")
+                assert_scanned(base_branch, successor)
+                assert_no_writes_or_dispatch(calls)
+                assert all(args[0] == "gh" for args in calls), calls
+                assert manifest.read_bytes() == original_manifest
+                assert branches == set() and dispatched == set()
+                origin.assert_not_called()
+                created.assert_not_called()
+                print(f"TC-17 {predecessor_style} CLOSED unsigned successor rejected before writes: PASS")
 
-            task()
-            first, = branches
-            assert first != base_branch
-            assert_new_proposal(base_branch, first)
+            else:
+                task()
+                first, = branches
+                assert first != base_branch
+                assert_new_proposal(base_branch, first)
 
-            task()
-            assert_scanned(base_branch, first)
-            assert ("gh", "api", f"repos/{repository}/pulls/115") in calls
-            assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")} for args in calls)
-            assert not any(args[:2] == ("git", "push") for args in calls)
+                task()
+                assert_scanned(base_branch, first)
+                assert ("gh", "api", f"repos/{repository}/pulls/115") in calls
+                assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")} for args in calls)
+                assert not any(args[:2] == ("git", "push") for args in calls)
 
-            rest_users[115] = dict(actor, login="other-app[bot]")
-            expect_fail(task)
-            assert not any(args[0] == "git" or args[:3] == ("gh", "workflow", "run") for args in calls)
-            del rest_users[115]
+                rest_users[115] = dict(actor, login="other-app[bot]")
+                expect_fail(task)
+                assert not any(args[0] == "git" or args[:3] == ("gh", "workflow", "run") for args in calls)
+                del rest_users[115]
 
-            prs[first]["state"] = "CLOSED"
-            task()
-            second, = branches - {first}
-            assert second not in {base_branch, first}
-            assert_new_proposal(first, second)
-            assert dispatched == {first, second}
+                prs[first]["state"] = "CLOSED"
+                task()
+                second, = branches - {first}
+                assert second not in {base_branch, first}
+                assert_new_proposal(first, second)
+                assert dispatched == {first, second}
 
-            prs[second]["state"] = "MERGED"
-            task()
-            assert_scanned(base_branch, first, second)
-            assert all(args[:3] == ("gh", "pr", "list") or args[:2] == ("gh", "api") for args in calls)
-            assert origin.call_count == 2 and created.call_count == 2
+                prs[second]["state"] = "MERGED"
+                task()
+                assert_scanned(base_branch, first, second)
+                assert all(args[:3] == ("gh", "pr", "list") or args[:2] == ("gh", "api") for args in calls)
+                assert origin.call_count == 2 and created.call_count == 2
 
             # The base candidate still gets the same origin callback contract,
             # with its unchanged decision and no regeneration field.
@@ -670,6 +720,119 @@ def exercise_candidate_regeneration(style="legacy", predecessor_style="legacy"):
                     assert sum(args[:2] == ("git", "push") for args in calls) == 1
                     assert not any(args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")}
                                    for args in calls), calls
+
+
+def exercise_central_enforcement_before_write():
+    record = c.plan(EXT, WATCH, POLICY, fixture, branch_style="central")
+    cases = [
+        ("CROSS_EXTENSION_DENIED", "extensions/pg_bigm/extension.json", record),
+        ("PATH_CLASS_P5_DENIED", "metadata/local-candidate-authority.json", record),
+        ("PATH_CLASS_P7_DENIED", "README.md", record),
+        ("INVALID_PATH", "extensions/plpgsql_check/../pg_bigm/extension.json", record),
+        ("BRANCH_EXTENSION_MISMATCH", str(CENTRAL_MANIFEST),
+         dict(record, branch=format_branch("pg_bigm", record["candidateId"], "central"))),
+    ]
+    with tempfile.TemporaryDirectory() as temp, chdir(temp), patch.object(c, "execute") as execute:
+        cases.append(("INVALID_PATH", str(Path(temp) / CENTRAL_MANIFEST), record))
+        for code, manifest_path, decision in cases:
+            expect_fail(lambda: c.propose_candidate(
+                decision, manifest_path, CENTRAL_REPO, "watch.json", writer=APP_WRITER,
+                fetch=lambda url: REGISTRY_RESPONSE, now=CENTRAL_TIME), code)
+        expect_fail(lambda: c.propose_candidate(
+            record, str(CENTRAL_MANIFEST), CENTRAL_REPO, "watch.json", writer=APP_WRITER,
+            fetch=lambda url: REGISTRY_RESPONSE, now=CENTRAL_TIME, auth_binding=None),
+            "RUN_CLAIM_CHANGE_BINDING_MISMATCH")
+        print("TC-17 missing writer binding rejected before writes: PASS")
+
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": CENTRAL_REPO, "GITHUB_REF": "refs/heads/main",
+                                     "GH_TOKEN": "fixture"}), \
+             patch.object(c, "datetime", wraps=datetime) as clock, \
+             patch.object(update_watch_lib, "github_get_json", return_value=REGISTRY_RESPONSE):
+            clock.now.return_value = CENTRAL_TIME
+            expect_fail(lambda: c.propose(record, str(CENTRAL_MANIFEST), CENTRAL_REPO, "watch.json"),
+                        "RUN_CLAIM_CHANGE_BINDING_MISMATCH")
+        print("TC-17 direct central propose rejected before writes: PASS")
+
+        revoked_epoch = CENTRAL_AUTHORITY["policyEpoch"]
+        current_policy = dict(CENTRAL_AUTHORITY, policyEpoch=revoked_epoch + 1, revokedPolicyEpochs=[revoked_epoch])
+        fleet_fetch = Mock(side_effect=WatchError("fleet get_live outage"))
+        with patch.object(importlib.util, "spec_from_file_location", wraps=importlib.util.spec_from_file_location) as load:
+            expect_fail(lambda: c.propose_candidate(
+                record, str(CENTRAL_MANIFEST), CENTRAL_REPO, "watch.json", writer=APP_WRITER,
+                fetch=fleet_fetch, authority_policy=current_policy, now=CENTRAL_TIME,
+                auth_binding=central_auth_binding(record)), "EPOCH_REVOKED")
+        load.assert_not_called()
+        fleet_fetch.assert_not_called()
+        execute.assert_not_called()
+        assert not list(Path(temp).iterdir())
+        print("TC-17 revoked writer ticket takes precedence over fleet outage: PASS")
+
+
+def exercise_central_enforcement_diff(*, reuse):
+    record = c.plan(EXT, WATCH, POLICY, fixture, branch_style="central")
+    legacy_branch = format_branch(EXT["name"], record["candidateId"], "legacy")
+    listed = list_pr(CENTRAL_REPO, legacy_branch)
+    remote_ref = f"refs/remotes/origin/{legacy_branch}"
+    diff = ("git", "diff", "--name-status", "-z", "-M", "-C") + (
+        ("HEAD", remote_ref) if reuse else ("HEAD~1", "HEAD"))
+    own = str(CENTRAL_MANIFEST)
+    foreign = "extensions/pg_bigm/extension.json"
+    policy = "metadata/local-candidate-authority.json"
+    cases = [
+        ("CROSS_EXTENSION_DENIED", f"M\0{foreign}\0"),
+        ("PATH_CLASS_P2_DENIED", f"M\0{own}\0D\0{foreign}\0"),
+        ("PATH_CLASS_P2_DENIED", f"R100\0{foreign}\0{own}\0"),
+        ("PATH_CLASS_P2_DENIED", f"C100\0{own}\0{foreign}\0"),
+        ("PATH_CLASS_P7_DENIED", f"R100\0{own}\0README.md\0"),
+        ("PATH_CLASS_P5_DENIED", f"M\0{own}\0D\0{policy}\0"),
+        ("PATH_CLASS_P5_DENIED", f"C100\0{policy}\0{own}\0"),
+        ("CANDIDATE_CHANGE_DENIED", f"D\0{own}\0"),
+        ("TYPECHANGE_DENIED", f"T\0{own}\0"),
+        ("MALFORMED_CHANGE", f"M\0{own}"),
+    ]
+    calls = []
+
+    def execute(*args):
+        calls.append(args)
+        if args == diff:
+            return name_status
+        if args[:3] == ("gh", "pr", "list"):
+            return json.dumps([listed] if reuse and legacy_branch in args else [])
+        if args == ("gh", "api", f"repos/{CENTRAL_REPO}/pulls/114"):
+            return json.dumps(rest_pr(CENTRAL_REPO, listed, APP_WRITER))
+        if args[:2] == ("git", "ls-remote"):
+            return f"{PR_HEAD} refs/heads/{legacy_branch}" if reuse else ""
+        if reuse:
+            if args[:2] == ("git", "fetch"):
+                return ""
+            if args == ("git", "rev-parse", remote_ref):
+                return PR_HEAD
+            if args == ("git", "log", "-1", "--format=%B", remote_ref):
+                return candidate_marker(legacy_branch)
+        elif args[:2] in {("git", "checkout"), ("git", "config"), ("git", "add"), ("git", "commit")}:
+            return ""
+        raise AssertionError(args)
+
+    with tempfile.TemporaryDirectory() as temp, chdir(temp), patch.object(c, "execute", execute), \
+            patch.object(c, "peel_tag", return_value=SHA):
+        CENTRAL_MANIFEST.parent.mkdir(parents=True)
+        Path("watch.json").write_text(json.dumps(WATCH), encoding="utf-8")
+        original = json.dumps(EXT).encode("utf-8")
+        for code, name_status in cases:
+            calls.clear()
+            CENTRAL_MANIFEST.write_bytes(original)
+            expect_fail(lambda: c.propose_candidate(
+                record, own, CENTRAL_REPO, "watch.json", writer=APP_WRITER,
+                fetch=lambda url: REGISTRY_RESPONSE, now=CENTRAL_TIME,
+                auth_binding=central_auth_binding(record)), code)
+            assert calls.count(diff) == 1 and calls[-1] == diff
+            if reuse:
+                assert_no_writes_or_dispatch(calls)
+                assert CENTRAL_MANIFEST.read_bytes() == original
+            else:
+                assert calls[-2][:2] == ("git", "commit")
+                assert not any(args[:2] == ("git", "push") or
+                               args[:3] in {("gh", "pr", "create"), ("gh", "workflow", "run")} for args in calls)
 
 
 def main():
@@ -764,6 +927,9 @@ def main():
     exercise_candidate_regeneration()
     exercise_candidate_regeneration("central", "central")
     exercise_candidate_regeneration("central", "legacy")
+    exercise_central_enforcement_before_write()
+    exercise_central_enforcement_diff(reuse=True)
+    exercise_central_enforcement_diff(reuse=False)
     print("Step 19/20 candidate and proposer-safety fixture tests passed")
 
 if __name__=="__main__":main()
