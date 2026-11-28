@@ -659,6 +659,120 @@ class TreeValidationTests(unittest.TestCase):
         errors = self.errors_for(build)
         self.assertTrue(any("collides" in e for e in errors), errors)
 
+    def test_sibling_extension_case_collision_rejected(self):
+        # Extension roots are siblings on a Windows checkout too:
+        # pg_permissions and PG_PERMISSIONS cannot coexist there, so
+        # the tree-level uniqueness check must reject the pair even
+        # though each directory is internally consistent
+        # (SOL-B1-R2-01; the per-extension collision record alone
+        # cannot see across roots).
+        def build(root):
+            valid_tree(root, "pg_permissions")
+            decl = convert("pg_permissions")
+            decl["name"] = "PG_PERMISSIONS"
+            ext = root / "extensions" / "PG_PERMISSIONS"
+            ext.mkdir(parents=True)
+            write_file(ext, "extension.json", json.dumps(decl, indent=2) + "\n")
+            write_file(
+                ext, "tests/test-contract.json",
+                '{"version": 1, "checks": ["smoke"]}\n',
+            )
+            write_file(ext, "tests/smoke-test.ps1", "Write-Host 'smoke'\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("collides" in e for e in errors), errors)
+
+    def test_utf16_bom_adapter_privilege_mixing_rejected(self):
+        # SOL-B1-R2-02: the static scan must decode a script the way
+        # the PowerShell host does. A UTF-16 (BOM) adapter carrying
+        # Publisher material must not slip past the scan as
+        # replacement-decoded garbage while the host executes it.
+        def build(root):
+            ext = valid_tree(root, "pg_bigm", adapter_content="placeholder\n")
+            (ext / "adapter.ps1").write_bytes(
+                "# build step\ngh api repos/pgextwin/build\n".encode("utf-16")
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("adapter area contains" in e for e in errors), errors)
+
+    def test_utf16_bom_tests_script_privilege_mixing_rejected(self):
+        # The same decoding contract applies under tests/ (CB70-12).
+        def build(root):
+            ext = valid_tree(root)
+            (ext / "tests" / "smoke-test.ps1").write_bytes(
+                "Write-Host 'x'\n$env:GITHUB_TOKEN\n".encode("utf-16")
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("adapter area contains" in e for e in errors), errors)
+
+    def test_utf8_bom_comment_only_adapter_rejected_n15(self):
+        # A byte-order mark is not substance: a UTF-8 BOM followed by
+        # comments only is still a comment-only adapter (N-15).
+        def build(root):
+            ext = valid_tree(root, "pg_bigm", adapter_content="placeholder\n")
+            (ext / "adapter.ps1").write_bytes(
+                b"\xef\xbb\xbf# only a comment\n"
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_utf16_bom_comment_only_adapter_rejected_n15(self):
+        def build(root):
+            ext = valid_tree(root, "pg_bigm", adapter_content="placeholder\n")
+            (ext / "adapter.ps1").write_bytes(
+                "# only a comment\n".encode("utf-16")
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_utf16_bom_comment_only_test_script_rejected_n15(self):
+        def build(root):
+            ext = valid_tree(root)
+            (ext / "tests" / "smoke-test.ps1").write_bytes(
+                "# only a comment\n".encode("utf-16")
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-15" in e for e in errors), errors)
+
+    def test_utf16_bom_substantive_adapter_passes(self):
+        # A substantive, clean UTF-16 (BOM) adapter decodes to real
+        # content under the shared contract and passes.
+        def build(root):
+            ext = valid_tree(root, "pg_bigm", adapter_content="placeholder\n")
+            (ext / "adapter.ps1").write_bytes(
+                "# pg_bigm specific compile step\n& cl /LD pg_bigm.c\n".encode("utf-16")
+            )
+        self.assertEqual(self.errors_for(build), [])
+
+    def test_unsupported_encoding_adapter_rejected(self):
+        # BOM-less bytes that are not valid UTF-8 are outside the
+        # encoding contract: Windows PowerShell 5.1 would read them
+        # as the legacy ANSI code page while PowerShell 7 reads
+        # UTF-8, so no single inspected text is the executed text.
+        def build(root):
+            ext = valid_tree(root, "pg_bigm", adapter_content="placeholder\n")
+            (ext / "adapter.ps1").write_bytes(
+                b"# \x93\x94 legacy quotes\n& cl /LD pg_bigm.c\n"
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(any("encoding" in e for e in errors), errors)
+
+    def test_null_tests_block_rejected_without_crash(self):
+        # SOL-B1-R2-N2: a declaration whose tests block is null is a
+        # validation failure with a controlled diagnostic, never a
+        # crash in the declared-test-file check that follows the
+        # schema errors.
+        def build(root):
+            ext = valid_tree(root)
+            decl = json.loads(
+                (ext / "extension.json").read_text(encoding="utf-8")
+            )
+            decl["tests"] = None
+            (ext / "extension.json").write_text(
+                json.dumps(decl, indent=2) + "\n", encoding="utf-8"
+            )
+        errors = self.errors_for(build)
+        self.assertTrue(errors)
+
     def test_uppercase_bin_directory_rejected_n17(self):
         # The rejection-side path-component classification stays
         # case-insensitive: BIN/ is bin/ for N-17 purposes (B1R3-M3).
@@ -710,6 +824,24 @@ class CliTests(unittest.TestCase):
             result = self.run_cli("validate", "--root", str(root))
             self.assertEqual(result.returncode, 1)
             self.assertIn("not a JSON object", result.stderr)
+
+    def test_validate_cli_null_tests_block_no_traceback(self):
+        # SOL-B1-R2-N2: the CLI diagnostic for a malformed
+        # declaration (tests: null) is a controlled error line with
+        # exit 1, not a traceback.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ext = valid_tree(root)
+            decl = json.loads(
+                (ext / "extension.json").read_text(encoding="utf-8")
+            )
+            decl["tests"] = None
+            (ext / "extension.json").write_text(
+                json.dumps(decl, indent=2) + "\n", encoding="utf-8"
+            )
+            result = self.run_cli("validate", "--root", str(root))
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

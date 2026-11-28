@@ -28,7 +28,10 @@ must resolve to those commits before any blob is read, and every blob
 is then read at the resolved SHA (``git cat-file blob <sha>:<path>``),
 exactly like ``verify-license-bytes.py``, so untracked or modified
 worktree files, symbolic links, and references that move during the
-comparison cannot leak into the K4 comparison. The emitted document
+comparison cannot leak into the K4 comparison. Every Git read runs
+with replace refs disabled, so a local ``refs/replace/*`` entry
+cannot substitute another object's bytes for the pinned one while
+the document records the pinned SHA. The emitted document
 uses the ``verify-license-bytes.py`` shape (``licenses``), which
 ``scripts/windows-package.ps1`` consumes directly.
 
@@ -79,6 +82,25 @@ def verify_pinned_commit(declared_commit, actual_commit):
         )
 
 
+def _ordinal_ignore_case_key(name):
+    """Fold a ZIP entry name the way windows-package.ps1 compares it.
+
+    Resolve-WindowsPackage compares install destinations with
+    [StringComparison]::OrdinalIgnoreCase: a simple per-character
+    case mapping, under which a character whose uppercase form is
+    not a single character (ß, whose full mapping is "SS") keeps its
+    original form. str.casefold() applies the full Unicode mapping
+    and expands ß to "ss", which made this entrance reject pairs
+    the existing contract accepts (docs/straße next to
+    docs/STRASSE/a.txt, SOL-B1-R2-N1). The packaging contract is
+    the existing one, so the fold here matches it exactly: ß stays
+    ß, and ASCII case variants still fold together.
+    """
+    return "".join(
+        char.upper() if len(char.upper()) == 1 else char for char in name
+    )
+
+
 def write_deterministic_zip(entries, out_path):
     """Write a byte-reproducible ZIP from {arcname: bytes} and describe it."""
     if not entries:
@@ -92,11 +114,13 @@ def write_deterministic_zip(entries, out_path):
     # case-insensitive filesystem -- neither as identical names nor as
     # a file-versus-directory prefix pair (one name a strict path
     # prefix of another), the same conflict windows-package.ps1
-    # rejects for install destinations.
+    # rejects for install destinations. The collision comparison uses
+    # the OrdinalIgnoreCase fold of _ordinal_ignore_case_key, matching
+    # the comparison windows-package.ps1 itself performs.
     folded = []
     for arcname in entries:
         _validate_relative_path(arcname, "ZIP entry name")
-        key = arcname.casefold()
+        key = _ordinal_ignore_case_key(arcname)
         for existing in folded:
             if key == existing or key.startswith(existing + "/") or existing.startswith(key + "/"):
                 raise ValueError(
@@ -434,6 +458,47 @@ def _bind_clean_home(env, clean_home):
 ADAPTER_SCRIPT_SUFFIXES = (".ps1", ".psm1")
 
 
+def decode_powershell_script(data):
+    """Decode a PowerShell script exactly as the PowerShell host does.
+
+    This is the same encoding contract the static scan enforces in
+    central-extension.py (decode_powershell_script there): the host
+    selects the encoding from the byte-order mark (UTF-8, UTF-16
+    LE/BE, UTF-32 LE/BE) and reads BOM-less files as UTF-8
+    (PowerShell 7). BOM-less bytes that are not valid UTF-8 are
+    outside the contract -- Windows PowerShell 5.1 would read them
+    as the legacy ANSI code page, so the executed text would differ
+    from the inspected text -- and raise ValueError.
+    """
+    try:
+        if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+            return data.decode("utf-32")
+        if data.startswith(b"\xef\xbb\xbf"):
+            return data.decode("utf-8-sig")
+        if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+            return data.decode("utf-16")
+        return data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            "script encoding is outside the supported contract "
+            "(UTF-8, or UTF-16/UTF-32 with a byte-order mark): "
+            f"{error}"
+        ) from None
+
+
+def assert_adapter_script_encoding(script_path):
+    """Refuse a script whose encoding is outside the shared contract.
+
+    The execution entry and the static scan must agree on the text
+    of the script that runs (SOL-B1-R2-02): the scan decodes with
+    decode_powershell_script, and this gate applies the same
+    decoding to the resolved script before the host is invoked, so
+    a script the scan cannot interpret the way the host does never
+    executes through the common entry.
+    """
+    decode_powershell_script(Path(script_path).read_bytes())
+
+
 def adapter_script_kind(script_path, extension_root):
     """Classify an executable adapter-area script, or reject it.
 
@@ -508,7 +573,9 @@ def run_adapter_script(script_path, script_args=(), *, extension_root,
 
     This is the only entry the common foundation uses to execute
     extension-specific code: the script must belong to the executable
-    subset of the statically scanned set (adapter_script_kind), the
+    subset of the statically scanned set (adapter_script_kind), its
+    encoding must satisfy the shared encoding contract the scan
+    decodes with (assert_adapter_script_encoding), the
     child environment is built by build_adapter_environment (no
     signing / Publisher / local-auth credentials and no Actions
     file-command variables) with every persistent-configuration name
@@ -524,6 +591,7 @@ def run_adapter_script(script_path, script_args=(), *, extension_root,
     _kind, resolved_script, resolved_root = adapter_script_kind(
         script_path, extension_root
     )
+    assert_adapter_script_encoding(resolved_script)
     env = build_adapter_environment(
         dict(os.environ) if base_env is None else base_env, extra_values
     )
@@ -824,10 +892,31 @@ def _validate_license_entry_shapes(entries):
             raise ValueError(f"Unsupported license origin: {origin!r}")
 
 
-def _git_resolve_head(repo):
-    result = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True
+def _git(repo, *args, **kwargs):
+    """Run one Git command for the K4 comparison, replace refs disabled.
+
+    A local git replace ref (refs/replace/*) silently substitutes
+    one object for another in ordinary Git reads: with a replace ref
+    in place, ``cat-file`` returns the replacement's bytes while the
+    caller still records the original pinned SHA, so the comparison
+    would pass on bytes the pinned commit does not contain
+    (SOL-B1-R2-03). Every Git call the K4 path makes therefore runs
+    with replace refs disabled twice over -- the
+    ``--no-replace-objects`` option and the GIT_NO_REPLACE_OBJECTS
+    environment variable -- so the bytes compared are always the
+    bytes of the object the recorded SHA names, on both the
+    upstream and the packaging side.
+    """
+    env = dict(os.environ)
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return subprocess.run(
+        ["git", "--no-replace-objects", "-C", str(repo), *args],
+        capture_output=True, env=env, **kwargs,
     )
+
+
+def _git_resolve_head(repo):
+    result = _git(repo, "rev-parse", "HEAD", text=True)
     if result.returncode:
         raise ValueError(f"Not a git repository with a HEAD commit: {repo}")
     return result.stdout.strip()
@@ -840,21 +929,17 @@ def _git_blob(repo, commit, path, source):
     commit's blob, never the worktree file, so untracked files, local
     modifications, CRLF conversion, and symbolic links cannot leak in.
     The commit is always a resolved SHA supplied by the caller, never
-    the moving HEAD reference.
+    the moving HEAD reference, and the read runs through _git, so a
+    local replace ref cannot substitute another object's bytes for
+    the pinned one (SOL-B1-R2-03).
     """
-    listing = subprocess.run(
-        ["git", "-C", str(repo), "ls-tree", commit, "--", path],
-        capture_output=True, text=True,
-    )
+    listing = _git(repo, "ls-tree", commit, "--", path, text=True)
     if listing.returncode or not listing.stdout.strip():
         raise ValueError(f"Configured {source} license file was not found at {commit}: {path}")
     mode = listing.stdout.split(None, 1)[0]
     if mode == "120000":
         raise ValueError(f"Configured {source} license file is a symbolic link at {commit}: {path}")
-    result = subprocess.run(
-        ["git", "-C", str(repo), "cat-file", "blob", f"{commit}:{path}"],
-        capture_output=True,
-    )
+    result = _git(repo, "cat-file", "blob", f"{commit}:{path}")
     if result.returncode:
         raise ValueError(f"Configured {source} license file was not found at {commit}: {path}")
     return result.stdout

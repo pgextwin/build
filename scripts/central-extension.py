@@ -297,12 +297,44 @@ def validate_declaration(declaration, expected_name=None, validator=None):
     return errors
 
 
-def _scan_adapter(path, rel, errors):
+def decode_powershell_script(data):
+    """Decode a PowerShell script exactly as the PowerShell host does.
+
+    The host (Windows PowerShell 5.1 and PowerShell 7 alike) selects
+    the script encoding from its byte-order mark -- UTF-8, UTF-16
+    LE/BE, or UTF-32 LE/BE when a BOM is present -- and reads BOM-less
+    files as UTF-8 (PowerShell 7). The static scan and the N-15
+    substance judgement use this one decoding, so the inspected text
+    is the executed text: a UTF-16 (BOM) script can no longer slip
+    Publisher / credential material past the scan as
+    replacement-decoded garbage, and a BOM cannot make a
+    comment-only script look substantive (SOL-B1-R2-02). The common
+    execution entry in central-package.py enforces the same contract
+    before anything runs.
+
+    BOM-less bytes that are not valid UTF-8 are outside the
+    contract: Windows PowerShell 5.1 would read them as the legacy
+    ANSI code page while PowerShell 7 reads UTF-8, so no single
+    inspected text corresponds to the executed text. They raise
+    ValueError here and are refused at the execution entry too.
+    """
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError as error:
-        errors.append(f"{rel}: cannot read script: {error}")
-        return
+        if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+            return data.decode("utf-32")
+        if data.startswith(b"\xef\xbb\xbf"):
+            return data.decode("utf-8-sig")
+        if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+            return data.decode("utf-16")
+        return data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            "script encoding is outside the supported contract "
+            "(UTF-8, or UTF-16/UTF-32 with a byte-order mark): "
+            f"{error}"
+        ) from None
+
+
+def _scan_adapter_text(text, rel, errors):
     for category, pattern in ADAPTER_FORBIDDEN:
         match = pattern.search(text)
         if match:
@@ -493,32 +525,41 @@ def validate_extension_dir(ext_dir, validator=None):
                 )
         if rel == "adapter.ps1":
             seen_adapter = True
-            text = data.decode("utf-8", errors="replace")
-            if _powershell_effectively_empty(text):
-                errors.append(
-                    f"extensions/{name}/{rel}: adapter.ps1 holds only comments or "
-                    "blank lines and is not a substantive asset (N-15)."
-                )
-            _scan_adapter(path, f"extensions/{name}/{rel}", errors)
-        elif top == "tests" and suffix in EXECUTABLE_SUFFIXES:
+        if rel == "adapter.ps1" or (top == "tests" and suffix in EXECUTABLE_SUFFIXES):
             # Every executable script in the adapter area is statically
             # scanned, whatever its suffix; the executable set is a
-            # subset of this scanned set (DESIGN 1.3).
+            # subset of this scanned set (DESIGN 1.3). PowerShell
+            # scripts are decoded under the shared encoding contract
+            # (decode_powershell_script) and that single decoding
+            # feeds both the N-15 substance judgement and the
+            # privilege scan, so the inspected text is the text the
+            # PowerShell host executes (SOL-B1-R2-02). Other
+            # executable suffixes are never run by the PowerShell
+            # host; they are scanned as UTF-8 text with replacement.
             if suffix in SCRIPT_SUFFIXES:
+                try:
+                    text = decode_powershell_script(data)
+                except ValueError as error:
+                    errors.append(f"extensions/{name}/{rel}: {error}")
+                    text = None
+            else:
                 text = data.decode("utf-8", errors="replace")
-                if _powershell_effectively_empty(text):
+            if text is not None:
+                if suffix in SCRIPT_SUFFIXES and _powershell_effectively_empty(text):
+                    label = "adapter.ps1" if rel == "adapter.ps1" else "test script"
                     errors.append(
-                        f"extensions/{name}/{rel}: test script holds only comments "
-                        "or blank lines and is not a substantive asset (N-15)."
+                        f"extensions/{name}/{rel}: {label} holds only comments or "
+                        "blank lines and is not a substantive asset (N-15)."
                     )
-            _scan_adapter(path, f"extensions/{name}/{rel}", errors)
+                _scan_adapter_text(text, f"extensions/{name}/{rel}", errors)
         if top == "tests" and suffix == ".json" and _json_effectively_empty(data):
             errors.append(
                 f"extensions/{name}/{rel}: test asset parses as empty JSON and "
                 "carries no test content (N-15)."
             )
         if rel == "README.md":
-            text = data.decode("utf-8", errors="replace")
+            # utf-8-sig: a leading byte-order mark is not substance.
+            text = data.decode("utf-8-sig", errors="replace")
             if _readme_effectively_empty(text):
                 errors.append(
                     f"extensions/{name}/{rel}: README.md holds only headings or "
@@ -546,7 +587,10 @@ def validate_extension_dir(ext_dir, validator=None):
             errors.append(f"extensions/{name}/extension.json: {error}")
         return errors
 
-    for error in validate_declaration(declaration, expected_name=name, validator=validator):
+    declaration_errors = validate_declaration(
+        declaration, expected_name=name, validator=validator
+    )
+    for error in declaration_errors:
         errors.append(f"extensions/{name}/extension.json: {error}")
 
     declared_adapter = "adapter" in declaration
@@ -559,14 +603,23 @@ def validate_extension_dir(ext_dir, validator=None):
             f"extensions/{name}: adapter.ps1 exists but the declaration does not specify it."
         )
 
-    tests_block = declaration.get("tests", {})
-    for key in ("contract", "smokeTest"):
-        if key in tests_block:
-            target = ext_dir / tests_block[key]
-            if not target.is_file():
-                errors.append(
-                    f"extensions/{name}: declared tests.{key} file '{tests_block[key]}' is missing."
-                )
+    # The declared-test-file check dereferences the tests block, so
+    # it runs only for a declaration that itself validated: after a
+    # schema failure the block may be null or otherwise malformed
+    # (tests: null), and following the reference anyway turned a
+    # controlled rejection into a CLI traceback (SOL-B1-R2-N2).
+    if not declaration_errors:
+        tests_block = declaration.get("tests")
+        if isinstance(tests_block, dict):
+            for key in ("contract", "smokeTest"):
+                target_name = tests_block.get(key)
+                if isinstance(target_name, str):
+                    target = ext_dir / target_name
+                    if not target.is_file():
+                        errors.append(
+                            f"extensions/{name}: declared tests.{key} file "
+                            f"'{target_name}' is missing."
+                        )
     return errors
 
 
@@ -587,6 +640,23 @@ def validate_tree(root):
     entries = sorted(extensions_root.iterdir())
     if not entries:
         errors.append("extensions/: no extension directories found.")
+    # Extension roots are siblings in one directory: on a Windows
+    # checkout two roots whose names differ only in case are the
+    # same directory, so the tree cannot hold both. The collision
+    # record inside validate_extension_dir is rebuilt per extension
+    # and cannot see across roots; uniqueness is enforced here, at
+    # the level of the whole extensions/ directory (SOL-B1-R2-01).
+    seen_root_names = {}
+    for entry in entries:
+        folded = entry.name.casefold()
+        if folded in seen_root_names and seen_root_names[folded] != entry.name:
+            errors.append(
+                f"extensions/{entry.name}: extension directory name collides "
+                f"with '{seen_root_names[folded]}' on a case-insensitive "
+                "filesystem (a Windows checkout cannot hold both extension roots)."
+            )
+        else:
+            seen_root_names[folded] = entry.name
     for entry in entries:
         if entry.is_symlink():
             errors.append(

@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -137,6 +138,26 @@ class ZipTests(unittest.TestCase):
                         package.write_deterministic_zip(
                             entries, Path(tmp) / "evil.zip"
                         )
+
+
+    def test_unicode_prefix_pair_follows_windows_package_contract(self):
+        # SOL-B1-R2-N1: windows-package.ps1 compares install
+        # destinations with [StringComparison]::OrdinalIgnoreCase,
+        # a simple per-character case mapping under which ß does
+        # not expand to SS. The Python entrance shares that contract:
+        # the straße / STRASSE pair is not a collision there, while
+        # an ASCII case-variant prefix pair still is.
+        with TemporaryDirectory() as tmp:
+            info = package.write_deterministic_zip(
+                {"docs/straße": b"x", "docs/STRASSE/a.txt": b"y"},
+                Path(tmp) / "ok.zip",
+            )
+            self.assertEqual(info["fileName"], "ok.zip")
+            with self.assertRaises(ValueError):
+                package.write_deterministic_zip(
+                    {"docs/strassE": b"x", "docs/STRASSE/a.txt": b"y"},
+                    Path(tmp) / "evil.zip",
+                )
 
 
 class HandoffChainTests(unittest.TestCase):
@@ -554,6 +575,55 @@ class AdapterExecutionTests(unittest.TestCase):
                     ext / "tests" / "missing.ps1",
                     extension_root=ext, executable=sys.executable,
                 )
+
+    def test_entry_rejects_script_with_unsupported_encoding(self):
+        # SOL-B1-R2-02: the common entry enforces the same encoding
+        # contract as the static scan. BOM-less bytes that are not
+        # valid UTF-8 have no single PowerShell interpretation
+        # (5.1 reads ANSI, 7 reads UTF-8), so they never execute
+        # through the entry.
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            script = ext / "tests" / "legacy.ps1"
+            script.write_bytes(b"# \x93\x94 legacy quotes\nWrite-Host 'x'\n")
+            with self.assertRaises(ValueError):
+                package.run_adapter_script(
+                    script, extension_root=ext, executable=sys.executable
+                )
+
+    def test_entry_accepts_bom_encoded_script(self):
+        # A UTF-16 (BOM) script is inside the encoding contract: the
+        # entry's gate passes it to the host instead of rejecting it.
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            script = ext / "tests" / "bom.ps1"
+            script.write_bytes("Write-Host 'ok'\n".encode("utf-16"))
+            completed = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="", stderr=""
+            )
+            with mock.patch.object(package.subprocess, "run", return_value=completed) as run:
+                result = package.run_adapter_script(
+                    script, extension_root=ext, executable=sys.executable
+                )
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(run.called)
+
+    def test_utf16_bom_script_executes_under_real_powershell(self):
+        # The permitted form really executes: a substantive UTF-16
+        # (BOM) script runs under the PowerShell host through the
+        # common entry and produces its output.
+        pwsh = shutil.which("pwsh") or shutil.which("powershell")
+        if pwsh is None:
+            self.skipTest("PowerShell host not available")
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            script = ext / "tests" / "bom.ps1"
+            script.write_bytes("Write-Output 'bom-ok'\n".encode("utf-16"))
+            result = package.run_adapter_script(
+                script, extension_root=ext, executable=pwsh
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("bom-ok", result.stdout)
 
     def test_persistent_config_isolated_from_parent_home(self):
         # The parent account's home holds dummy persistent credential
@@ -1267,6 +1337,100 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("symbolic link", result.stderr)
+
+    def add_replace_ref(self, repo, original_bytes, replacement_bytes):
+        """Point the repo's LICENSE blob at replacement bytes via git replace.
+
+        Returns once a plain (unguarded) git read of HEAD:LICENSE
+        demonstrably returns the replacement bytes, so the negative
+        control is part of the fixture, not an assumption.
+        """
+        def git(*args, **kwargs):
+            return subprocess.run(
+                ["git", "-C", str(repo), *args],
+                check=True, capture_output=True, **kwargs,
+            )
+
+        head = self.git_head(repo)
+        original_blob = git(
+            "rev-parse", f"{head}:LICENSE", text=True
+        ).stdout.strip()
+        replacement_blob = git(
+            "hash-object", "-w", "--stdin", input=replacement_bytes
+        ).stdout.decode().strip()
+        git("replace", original_blob, replacement_blob)
+        masked = git("cat-file", "blob", f"{head}:LICENSE").stdout
+        self.assertEqual(masked, replacement_bytes)
+        return head
+
+    def test_verify_licenses_cli_git_replace_cannot_mask_bytes(self):
+        # SOL-B1-R2-03: a local git replace ref must not change
+        # what the K4 comparison reads. The pinned upstream blob is
+        # replaced by different bytes in the local repository; the
+        # CLI still compares the original object at the pinned SHA,
+        # so the genuine match passes and the emitted document
+        # records the pinned commit.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            up = self.make_git_repo(root / "up", {"LICENSE": LICENSE_TEXT})
+            pkg = self.make_git_repo(root / "pkg", {"LICENSE": LICENSE_TEXT})
+            pin = self.add_replace_ref(up, LICENSE_TEXT, OTHER_LICENSE)
+            self.assertEqual(pin, self.git_head(up))
+            declaration = self.write_declaration(
+                root,
+                {"repository": "https://example.invalid/up", "commit": pin},
+                {"verifyAgainstUpstream": True, "upstreamPath": "LICENSE"},
+            )
+            result = self.run_cli(
+                *self.verify_args(declaration, 17, up, pkg, self.git_head(pkg))
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            document = json.loads(result.stdout)
+            self.assertEqual(document["upstreamCommit"], pin)
+            self.assertEqual(len(document["licenses"]), 1)
+
+    def test_verify_licenses_cli_git_replace_cannot_create_match(self):
+        # The replace ref must not manufacture a match either: the
+        # packaging side carries different bytes, and replacing the
+        # upstream blob with those bytes would make an unguarded
+        # comparison pass. The CLI compares the original objects,
+        # rejects the mismatch, and emits no evidence document.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            up = self.make_git_repo(root / "up", {"LICENSE": LICENSE_TEXT})
+            pkg = self.make_git_repo(root / "pkg", {"LICENSE": OTHER_LICENSE})
+            pin = self.add_replace_ref(up, LICENSE_TEXT, OTHER_LICENSE)
+            declaration = self.write_declaration(
+                root,
+                {"repository": "https://example.invalid/up", "commit": pin},
+                {"verifyAgainstUpstream": True, "upstreamPath": "LICENSE"},
+            )
+            result = self.run_cli(
+                *self.verify_args(declaration, 17, up, pkg, self.git_head(pkg))
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("licenses", result.stdout)
+
+    def test_verify_licenses_cli_git_replace_on_packaging_side_ignored(self):
+        # The packaging repository is held to the same rule: a
+        # replace ref there cannot substitute the bytes compared
+        # against the trusted packaging commit.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            up = self.make_git_repo(root / "up", {"LICENSE": LICENSE_TEXT})
+            pkg = self.make_git_repo(root / "pkg", {"LICENSE": LICENSE_TEXT})
+            pkg_head = self.add_replace_ref(pkg, LICENSE_TEXT, OTHER_LICENSE)
+            declaration = self.write_declaration(
+                root,
+                {"repository": "https://example.invalid/up", "commit": self.git_head(up)},
+                {"verifyAgainstUpstream": True, "upstreamPath": "LICENSE"},
+            )
+            result = self.run_cli(
+                *self.verify_args(declaration, 17, up, pkg, pkg_head)
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            document = json.loads(result.stdout)
+            self.assertEqual(document["packagingCommit"], pkg_head)
 
 
 if __name__ == "__main__":
