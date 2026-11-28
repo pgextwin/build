@@ -11,6 +11,12 @@ and contention rules of PLAN-F section 5.4:
 * ``extensions/<name>/**`` selects exactly ``<name>``.  Deletions and
   renames evaluate the old path as well as the new one, so a change that
   only touches the old side of a rename still selects the old extension.
+  A syntactically legal ``<name>`` that is not in the registered set
+  selects nothing of its own (B2-SOL-M2): the extension may have been
+  retired or renamed away together with its registry entry, so its
+  impact on the registered set is unknown and the path falls back to
+  every registered extension, like any unclassified path, instead of
+  becoming a lone fictional target.
   A file directly under ``extensions/`` is not extension content (the
   PR-B1 layout rule) and is an extraction failure, as is a case variant
   of the ``extensions/`` root itself, which would collide with it on a
@@ -35,6 +41,17 @@ The router always produces a conclusion for well-formed input: an empty
 target set is a successful routing (``resolver_conclusion`` is
 ``"success"`` and ``pending`` is always 0), so the required check never
 stalls in Pending just because a change touches no extension.
+
+The routed matrix is a launch contract, not a display (B2-SOL-M1):
+``validate.yml`` publishes the router result as the ``resolver`` job
+outputs, and a dependent matrix job consumes the *launch* matrix
+through ``fromJSON`` to call the reusable per-extension workflow
+(``build-extension.yml``) once per launchable extension.  A target is
+launchable only while its packaging subtree ``extensions/<name>/`` is
+present in the tree -- the subtrees land with the F2-2 pilot migrations
+and the F3a waves -- so until then the launch matrix is empty and the
+dependent job is skipped, while the required ``resolver`` check still
+succeeds and no target is silently dropped from the routing itself.
 
 The registered extension set is the union of the central fleet registry
 ``metadata/automation-fleet.json`` (the 26 extensions of CB-73) and any
@@ -211,9 +228,13 @@ def _validate_path(path, origin):
 def classify_path(path, *, registered, smoke):
     """Classify one changed path.
 
-    Returns ``(kind, targets)`` where kind is one of ``extension``,
-    ``documentation``, ``shared`` or ``unclassified`` and targets is a
-    frozenset of extension names the path selects.
+    Returns ``(kind, targets, name)`` where kind is one of
+    ``extension``, ``documentation``, ``shared`` or ``unclassified``,
+    targets is a frozenset of extension names the path selects, and
+    name is the ``extensions/<name>`` component the path was judged
+    under (``None`` for other roots).  The name is reported even when
+    it is unregistered and the path falls back, so the caller can
+    still apply the within-change case-collision rule to it.
 
     The evaluation order matters: the ``extensions/`` root is judged
     first (a case variant of it is an extraction failure, never a
@@ -221,7 +242,8 @@ def classify_path(path, *, registered, smoke):
     file under a shared root is still a shared change), and only then
     documentation, which is limited to ``docs/**`` and Markdown at the
     repository root.  Anything else is unclassified and falls back to
-    every registered extension.
+    every registered extension -- including a legal ``extensions/``
+    name that is not in the registered set (B2-SOL-M2).
     """
     parts = _validate_path(path, "changed path")
     root = parts[0]
@@ -239,12 +261,25 @@ def classify_path(path, *, registered, smoke):
         name = parts[1]
         _validate_extension_name(name, f"changed path {path!r}")
         _check_casefold_collision(name, registered, f"changed path {path!r}")
-        return "extension", frozenset({name})
+        if name in registered:
+            return "extension", frozenset({name}), name
+        # A legal name that is not registered is not a target of its
+        # own (B2-SOL-M2): a deletion or rename can outlive the
+        # registry entry (the extension was retired or renamed away in
+        # the same change), so the impact on the registered set is
+        # unknown and the path takes the safety side -- every
+        # registered extension -- like any unclassified path.
+        # Extraction failure is reserved for input that cannot be
+        # trusted (illegal or colliding names, malformed lists), which
+        # is a different case from an unknown impact: failing the
+        # required check would block the very change that retires or
+        # renames an extension.
+        return "unclassified", frozenset(registered), name
     if root in SHARED_ROOTS:
-        return "shared", frozenset(smoke)
+        return "shared", frozenset(smoke), None
     if root == "docs" or (len(parts) == 1 and path.lower().endswith(".md")):
-        return "documentation", frozenset()
-    return "unclassified", frozenset(registered)
+        return "documentation", frozenset(), None
+    return "unclassified", frozenset(registered), None
 
 
 # The file statuses the GitHub REST API reports for pull-request and
@@ -284,9 +319,13 @@ def route_changes(changes, *, registered, smoke):
         for label, path in (("filename", filename), ("previous_filename", previous)):
             if path is None:
                 continue
-            kind, selected = classify_path(path, registered=registered, smoke=smoke)
-            if kind == "extension":
-                (name,) = selected
+            kind, selected, name = classify_path(
+                path, registered=registered, smoke=smoke)
+            if name is not None:
+                # Every extensions/<name> component in the change --
+                # registered or not -- joins the within-change
+                # case-collision rule: two case variants in one change
+                # would be the same directory on a Windows checkout.
                 _check_casefold_collision(name, selected_names, origin)
                 selected_names.append(name)
             targets |= selected
@@ -308,6 +347,27 @@ def route_changes(changes, *, registered, smoke):
         "resolver_conclusion": "success",
         "classified": classified,
     }
+
+
+def launchable_targets(targets, extensions_root):
+    """Routed targets whose per-extension CI can launch from this tree.
+
+    The dependent matrix job in ``validate.yml`` calls the reusable
+    per-extension workflow (``build-extension.yml``) against the
+    extension's in-tree packaging subtree ``extensions/<name>/``.  A
+    target whose subtree has not landed in the monorepo yet -- the
+    subtrees arrive with the F2-2 pilot migrations and the F3a waves --
+    has nothing for that workflow to build, so the launch matrix is
+    the routed targets intersected with the subtrees present in the
+    tree.  Symbolic-link subtrees never launch: the PR-B1 layout rules
+    already bar them from the registered set.
+    """
+    layout = Path(extensions_root) / "extensions"
+    return sorted(
+        name
+        for name in targets
+        if (layout / name).is_dir() and not (layout / name).is_symlink()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +560,12 @@ def main(argv=None):
         registered = registered_extensions(args.fleet, args.extensions_root)
         smoke = PILOT_SMOKE_EXTENSIONS if args.shared_policy == "smoke" else registered
         result = route_changes(changes, registered=registered, smoke=smoke)
+        launch = launchable_targets(result["targets"], args.extensions_root)
+        result["launch_targets"] = launch
+        result["launch_matrix"] = {
+            "include": [{"extension": name} for name in launch]
+        }
+        result["has_launch_targets"] = bool(launch)
     except RouterError as exc:
         print(f"ci-router: {exc}", file=sys.stderr)
         return 2
@@ -508,6 +574,8 @@ def main(argv=None):
         print(f"matrix={json.dumps(result['matrix'], separators=(',', ':'))}")
         print(f"has_targets={'true' if result['has_targets'] else 'false'}")
         print(f"targets={','.join(result['targets'])}")
+        print(f"launch_matrix={json.dumps(result['launch_matrix'], separators=(',', ':'))}")
+        print(f"has_launch_targets={'true' if result['has_launch_targets'] else 'false'}")
         print(f"resolver_conclusion={result['resolver_conclusion']}")
         print(f"pending={result['pending']}")
     else:

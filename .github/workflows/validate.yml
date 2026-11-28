@@ -22,6 +22,18 @@ concurrency:
 jobs:
   resolver:
     runs-on: ubuntu-latest
+    # F21-02: the selective CI router's result is a launch contract,
+    # not a display.  The route step publishes it as these job outputs
+    # and the dependent extension-ci job consumes the launch matrix
+    # through fromJSON (B2-SOL-M1).
+    outputs:
+      matrix: ${{ steps.route.outputs.matrix }}
+      has_targets: ${{ steps.route.outputs.has_targets }}
+      targets: ${{ steps.route.outputs.targets }}
+      launch_matrix: ${{ steps.route.outputs.launch_matrix }}
+      has_launch_targets: ${{ steps.route.outputs.has_launch_targets }}
+      resolver_conclusion: ${{ steps.route.outputs.resolver_conclusion }}
+      pending: ${{ steps.route.outputs.pending }}
     steps:
       - name: Check out build infrastructure
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -388,6 +400,7 @@ jobs:
         run: python -m unittest -v tests/test-ci-router.py
 
       - name: Route selective CI targets for this change (F21-02)
+        id: route
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -449,10 +462,18 @@ jobs:
           import json, sys
           result = json.load(open(sys.argv[1], encoding="utf-8"))
           targets = result["targets"]
+          launch = result.get("launch_targets", [])
           print("### Selective CI router (F21-02)")
           print(f"- targets ({len(targets)}): {', '.join(targets) if targets else '(none)'}")
+          print(f"- launch targets ({len(launch)}): {', '.join(launch) if launch else '(none)'}")
           print(f"- resolver conclusion: {result['resolver_conclusion']} / pending: {result['pending']}")
           PY
+          # Publish the same routing as the resolver job outputs; the
+          # dependent extension-ci job consumes launch_matrix through
+          # fromJSON (B2-SOL-M1).  The router is deterministic, so this
+          # second run over the same change list yields the same
+          # result as the JSON run above.
+          python3 scripts/ci-router.py --files "$files_json" --format github >> "$GITHUB_OUTPUT"
 
       - name: Validate Test Contract v2 schema and semantics
         run: python tests/test-test-contract.py
@@ -482,6 +503,43 @@ jobs:
       - name: Test matrix resolver
         shell: pwsh
         run: ./tests/test-resolve-matrix.ps1
+
+  extension-ci:
+    name: Selective extension CI (${{ matrix.extension }})
+    needs: resolver
+    # F21-02 launch wiring (B2-SOL-M1): consume the router's launch
+    # matrix through the resolver job outputs and call the reusable
+    # per-extension workflow once per launchable target extension.
+    # The router only marks a target launchable while its packaging
+    # subtree extensions/<name>/ is present in the tree; the subtrees
+    # land with the F2-2 pilot migrations and the F3a waves, so until
+    # then this job is skipped -- safely, after the required resolver
+    # check has concluded -- instead of calling the reusable workflow
+    # against content that is not in the monorepo yet.  The reusable
+    # workflow's own contract is caller-root based (it checks out the
+    # caller repository and resolves the package route and legacy
+    # scripts relative to that root), so the per-subtree launch also
+    # presumes the caller-side adaptation that belongs to the F2-2
+    # migration step; what this job fixes now is the launch contract
+    # itself -- job outputs, the fromJSON matrix, the per-extension
+    # concurrency group -- that the adaptation plugs into.  Live
+    # Check Runs confirmation stays with F2-2 / F2-3 (CB-73).
+    if: ${{ needs.resolver.outputs.has_launch_targets == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+    concurrency:
+      group: ci-${{ matrix.extension }}-pr-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolver.outputs.launch_matrix) }}
+    uses: ./.github/workflows/build-extension.yml
+    with:
+      extension_config_path: extensions/${{ matrix.extension }}/config/extension.json
+      test_contract_path: extensions/${{ matrix.extension }}/config/test-contract.json
 
   windows-package-contract:
     name: Windows package contract

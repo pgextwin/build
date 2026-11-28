@@ -19,6 +19,16 @@ repository-root Markdown), the concurrency_group() value validation and
 router rendering, the status value set and control-character rejection,
 and structural (PyYAML) workflow concurrency checks.  PyYAML is
 installed by validate.yml in the resolver job before this suite runs.
+
+Fix round 2 (Sol audit B2-SOL-M1 / B2-SOL-M2) adds: the unregistered
+extension name rule (a legal but unregistered extensions/ name falls
+back to every registered extension instead of becoming a lone target),
+the launch matrix (routed targets intersected with the packaging
+subtrees present in the tree) in both CLI output formats, and the
+structural checks for the validate.yml launch wiring (resolver job
+outputs, the route step's $GITHUB_OUTPUT publication, and the
+dependent extension-ci matrix job consuming the launch matrix through
+fromJSON).
 """
 
 import importlib.util
@@ -302,6 +312,49 @@ class DeleteRenameTests(unittest.TestCase):
             route([{"filename": "extensions/pg_bigm/extension.json",
                     "status": "renamed"}])
 
+    def test_deleted_unregistered_extension_falls_back_to_all_registered(self):
+        # B2-SOL-M2 (the audit's independent reproduction): the old
+        # directory and its registry entry are already gone, so the
+        # name is legal but unregistered.  It must not become a lone
+        # fictional target; the impact is unknown, so the safety side
+        # (every registered extension) is selected and the resolver
+        # still concludes successfully.
+        result = route([{"filename": "extensions/not_registered_yet/old.txt",
+                         "status": "removed"}])
+        self.assertEqual(result["targets"], REGISTERED)
+        self.assertEqual(result["classified"][0]["kind"], "unclassified")
+        self.assertTrue(result["has_targets"])
+        self.assertEqual(result["resolver_conclusion"], "success")
+        self.assertEqual(result["pending"], 0)
+
+    def test_modified_unregistered_extension_falls_back_to_all_registered(self):
+        result = route([{"filename": "extensions/not_registered_yet/extension.json",
+                         "status": "modified"}])
+        self.assertEqual(result["targets"], REGISTERED)
+        self.assertEqual(result["classified"][0]["kind"], "unclassified")
+
+    def test_rename_with_unregistered_old_side_falls_back(self):
+        # B2-SOL-M2: the old side of a rename is no longer registered
+        # (renamed away together with its registry entry).
+        result = route([{
+            "filename": "extensions/pg_bigm/extension.json",
+            "status": "renamed",
+            "previous_filename": "extensions/retired_ext/extension.json",
+        }])
+        self.assertEqual(result["targets"], REGISTERED)
+
+    def test_rename_to_unregistered_new_side_falls_back(self):
+        # B2-SOL-M2: the new side is not (yet) registered; the old
+        # side's extension is still selected, and the unknown impact
+        # of the new side widens the selection to the safety side.
+        result = route([{
+            "filename": "extensions/renamed_ext/extension.json",
+            "status": "renamed",
+            "previous_filename": "extensions/pg_cron/extension.json",
+        }])
+        self.assertEqual(result["targets"], REGISTERED)
+        self.assertIn("pg_cron", result["targets"])
+
 
 class FallbackAndFailureTests(unittest.TestCase):
     def test_unclassified_path_selects_all_registered_extensions(self):
@@ -363,6 +416,88 @@ class FallbackAndFailureTests(unittest.TestCase):
         ]
         self.assertEqual(json.dumps(route(changes), sort_keys=True),
                          json.dumps(route(changes), sort_keys=True))
+
+
+class LaunchableTargetsTests(unittest.TestCase):
+    """B2-SOL-M1: the launch matrix is the routed targets intersected
+    with the packaging subtrees present in the tree."""
+
+    def make_tree(self, tmp, names):
+        layout = Path(tmp) / "extensions"
+        layout.mkdir()
+        for name in names:
+            (layout / name).mkdir()
+        return Path(tmp)
+
+    def test_launchable_targets_intersect_with_present_subtrees(self):
+        with TemporaryDirectory() as tmp:
+            root = self.make_tree(tmp, ["pg_bigm"])
+            self.assertEqual(
+                router.launchable_targets(["pg_bigm", "pgaudit"], root),
+                ["pg_bigm"])
+
+    def test_launchable_targets_empty_without_subtrees(self):
+        with TemporaryDirectory() as tmp:
+            self.assertEqual(
+                router.launchable_targets(["pg_bigm", "pgaudit"], Path(tmp)), [])
+            # The live tree has no extensions/ subtrees yet either:
+            # routing still reports the targets, the launch matrix is
+            # empty until the F2-2 / F3a subtrees land.
+            self.assertEqual(router.launchable_targets(REGISTERED, ROOT), [])
+
+    def test_launchable_targets_ignore_files_in_place_of_subtrees(self):
+        with TemporaryDirectory() as tmp:
+            layout = Path(tmp) / "extensions"
+            layout.mkdir()
+            (layout / "pg_bigm").write_text("not a directory", encoding="utf-8")
+            self.assertEqual(
+                router.launchable_targets(["pg_bigm"], Path(tmp)), [])
+
+
+class WorkflowWiringTests(unittest.TestCase):
+    """B2-SOL-M1: validate.yml consumes the router result as a launch
+    contract -- resolver job outputs in, fromJSON launch matrix out."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.workflow = yaml.safe_load(
+            (WORKFLOWS / "validate.yml").read_text(encoding="utf-8"))
+
+    def test_resolver_job_publishes_the_router_outputs(self):
+        outputs = self.workflow["jobs"]["resolver"]["outputs"]
+        for key in ("matrix", "has_targets", "targets", "launch_matrix",
+                    "has_launch_targets", "resolver_conclusion", "pending"):
+            with self.subTest(key=key):
+                self.assertEqual(
+                    outputs[key], "${{ steps.route.outputs." + key + " }}")
+
+    def test_route_step_publishes_github_output(self):
+        steps = self.workflow["jobs"]["resolver"]["steps"]
+        route_steps = [step for step in steps
+                       if isinstance(step, dict) and step.get("id") == "route"]
+        self.assertEqual(len(route_steps), 1)
+        run = route_steps[0]["run"]
+        self.assertIn("--format github", run)
+        self.assertIn('>> "$GITHUB_OUTPUT"', run)
+
+    def test_extension_ci_job_consumes_the_launch_matrix(self):
+        job = self.workflow["jobs"]["extension-ci"]
+        needs = job["needs"]
+        self.assertEqual([needs] if isinstance(needs, str) else needs,
+                         ["resolver"])
+        self.assertIn("needs.resolver.outputs.has_launch_targets", job["if"])
+        self.assertEqual(job["strategy"]["matrix"],
+                         "${{ fromJSON(needs.resolver.outputs.launch_matrix) }}")
+        self.assertIs(job["strategy"]["fail-fast"], False)
+        self.assertEqual(job["uses"], "./.github/workflows/build-extension.yml")
+        self.assertEqual(
+            job["with"]["extension_config_path"],
+            "extensions/${{ matrix.extension }}/config/extension.json")
+        self.assertEqual(
+            job["with"]["test_contract_path"],
+            "extensions/${{ matrix.extension }}/config/test-contract.json")
+        self.assertIn("${{ matrix.extension }}", job["concurrency"]["group"])
+        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
 
 
 class ConcurrencyContractTests(unittest.TestCase):
@@ -542,6 +677,59 @@ class CliTests(unittest.TestCase):
         self.assertEqual(lines["resolver_conclusion"], "success")
         self.assertEqual(lines["pending"], "0")
         self.assertEqual(json.loads(lines["matrix"]), {"include": []})
+
+    def test_cli_json_output_includes_the_launch_fields(self):
+        proc = self.run_cli(json.dumps(
+            [{"filename": "extensions/pg_bigm/extension.json", "status": "modified"}]))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        result = json.loads(proc.stdout)
+        # The live tree has no extensions/ subtrees yet, so the routed
+        # target is reported but nothing is launchable (B2-SOL-M1).
+        self.assertEqual(result["launch_targets"], [])
+        self.assertEqual(result["launch_matrix"], {"include": []})
+        self.assertIs(result["has_launch_targets"], False)
+
+    def test_cli_github_output_carries_the_launch_contract(self):
+        # B2-SOL-M1: the $GITHUB_OUTPUT form the resolver job publishes
+        # carries the launch matrix in a fromJSON-ready single line.
+        proc = self.run_cli(json.dumps(
+            [{"filename": "extensions/pg_bigm/extension.json", "status": "modified"}]),
+            "--format", "github")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = dict(line.split("=", 1) for line in proc.stdout.strip().splitlines())
+        self.assertEqual(lines["has_targets"], "true")
+        self.assertEqual(lines["has_launch_targets"], "false")
+        self.assertEqual(json.loads(lines["launch_matrix"]), {"include": []})
+        self.assertEqual(json.loads(lines["matrix"]),
+                         {"include": [{"extension": "pg_bigm"}]})
+
+    def test_cli_launch_matrix_with_a_present_subtree(self):
+        # B2-SOL-M1: with a packaging subtree present in the tree, the
+        # shared-foundation smoke set routes three targets and the one
+        # landed extension becomes the launch matrix.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "extensions" / "pg_bigm").mkdir(parents=True)
+            fleet = root / "fleet.json"
+            fleet.write_text(json.dumps({"entries": [
+                {"repository": "pgextwin/pg_bigm"},
+                {"repository": "pgextwin/pgaudit"},
+            ]}), encoding="utf-8")
+            files = root / "files.json"
+            files.write_text(json.dumps(
+                [{"filename": "scripts/ci-router.py", "status": "modified"}]),
+                encoding="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--files", str(files),
+                 "--fleet", str(fleet), "--extensions-root", str(root),
+                 "--format", "github"],
+                capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = dict(line.split("=", 1) for line in proc.stdout.strip().splitlines())
+        self.assertEqual(lines["has_targets"], "true")
+        self.assertEqual(lines["has_launch_targets"], "true")
+        self.assertEqual(json.loads(lines["launch_matrix"]),
+                         {"include": [{"extension": "pg_bigm"}]})
 
     def test_cli_rejects_malformed_json(self):
         proc = self.run_cli("{not json")
