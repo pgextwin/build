@@ -224,6 +224,30 @@ class CentralNativeSchedulePostmergeTests(unittest.TestCase):
             mod.central.download_original({"id": RUN}, {**artifact, "digest": "sha256:" + "0" * 64},
                                           fixtures.REPO)
 
+    def test_runs_endpoint_passes_allowlist_and_malformed_endpoints_are_denied(self):
+        response = SimpleNamespace(returncode=0,
+                                   stdout=json.dumps({"total_count": 0, "workflow_runs": []}))
+        with patch.object(mod.central.subprocess, "run", return_value=response) as gh:
+            self.assertEqual(mod.central.gh(CENTRAL, RUNS),
+                             {"total_count": 0, "workflow_runs": []})
+            self.assertEqual(len(gh.call_args_list), 1)
+            self.assertEqual(gh.call_args.args[0],
+                             ["gh", "api", "--method", "GET", "repos/" + CENTRAL + "/" + RUNS])
+        malformed = (
+            RUNS.replace("%3A", ":"),  # unencoded colons
+            RUNS.replace("%3A", "%3a"),  # lowercase percent-encoding
+            RUNS.replace("&per_page=100", "&per_page=99"),
+            RUNS.replace("&per_page=100", "&per_page=100&extra=1"),
+            RUNS.replace("2026-01-22T12", "2026-1-22T12"),  # single-digit month
+            RUNS.replace("T12%3A00%3A00Z", "T12%3A00%3A00"),  # missing Z
+        )
+        for endpoint in malformed:
+            with self.subTest(endpoint=endpoint), \
+                 patch.object(mod.central.subprocess, "run", return_value=response) as gh, \
+                 self.assertRaisesRegex(mod.central.Denied, "unallowlisted central schedule GET"):
+                mod.central.gh(CENTRAL, endpoint)
+            self.assertEqual(len(gh.call_args_list), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
