@@ -524,6 +524,17 @@ jobs:
     # itself -- job outputs, the fromJSON matrix, the per-extension
     # concurrency group -- that the adaptation plugs into.  Live
     # Check Runs confirmation stays with F2-2 / F2-3 (CB-73).
+    #
+    # The with: paths follow the PR-B1 single-layout contract for the
+    # central monorepo (extensions/<name>/extension.json and
+    # extensions/<name>/tests/test-contract.json); the legacy per-repo
+    # config/ hierarchy is not part of that layout and the reusable
+    # workflow resolves these paths relative to the caller root
+    # (fix round 3, B2R3-M1).  The concurrency group renders the
+    # router contract templates per event: pr-validation
+    # (ci-<extension>-pr-<number>) for pull requests, postmerge
+    # (postmerge-<extension>) for main pushes and dispatches
+    # (fix round 3, B2R3-N1).
     if: ${{ needs.resolver.outputs.has_launch_targets == 'true' }}
     permissions:
       contents: read
@@ -531,15 +542,15 @@ jobs:
       actions: read
       checks: read
     concurrency:
-      group: ci-${{ matrix.extension }}-pr-${{ github.event.pull_request.number || github.ref }}
+      group: ${{ github.event_name == 'pull_request' && format('ci-{0}-pr-{1}', matrix.extension, github.event.pull_request.number) || format('postmerge-{0}', matrix.extension) }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolver.outputs.launch_matrix) }}
     uses: ./.github/workflows/build-extension.yml
     with:
-      extension_config_path: extensions/${{ matrix.extension }}/config/extension.json
-      test_contract_path: extensions/${{ matrix.extension }}/config/test-contract.json
+      extension_config_path: extensions/${{ matrix.extension }}/extension.json
+      test_contract_path: extensions/${{ matrix.extension }}/tests/test-contract.json
 
   windows-package-contract:
     name: Windows package contract

@@ -29,6 +29,15 @@ structural checks for the validate.yml launch wiring (resolver job
 outputs, the route step's $GITHUB_OUTPUT publication, and the
 dependent extension-ci matrix job consuming the launch matrix through
 fromJSON).
+
+Fix round 3 (Neon re-audit B2R3-M1 / B2R3-N1) adds: the extension-ci
+launch inputs pinned to the PR-B1 single-layout paths
+(extensions/<name>/extension.json and
+extensions/<name>/tests/test-contract.json, never the legacy config/
+hierarchy), the per-event concurrency group rendering in validate.yml
+(pr-validation for pull requests, postmerge otherwise), and the
+launchable_targets() guard against a symbolic-link extensions/ root
+on direct calls.
 """
 
 import importlib.util
@@ -453,6 +462,19 @@ class LaunchableTargetsTests(unittest.TestCase):
             self.assertEqual(
                 router.launchable_targets(["pg_bigm"], Path(tmp)), [])
 
+    def test_launchable_targets_reject_symlinked_extensions_root(self):
+        # B2R3-N1: the guard is self-contained for direct callers --
+        # an extensions/ root that is itself a symbolic link launches
+        # nothing, even though the link target holds a real subtree.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real_layout = root / "real" / "extensions"
+            (real_layout / "pg_bigm").mkdir(parents=True)
+            (root / "extensions").symlink_to(
+                real_layout, target_is_directory=True)
+            self.assertEqual(
+                router.launchable_targets(["pg_bigm"], root), [])
+
 
 class WorkflowWiringTests(unittest.TestCase):
     """B2-SOL-M1: validate.yml consumes the router result as a launch
@@ -490,13 +512,40 @@ class WorkflowWiringTests(unittest.TestCase):
                          "${{ fromJSON(needs.resolver.outputs.launch_matrix) }}")
         self.assertIs(job["strategy"]["fail-fast"], False)
         self.assertEqual(job["uses"], "./.github/workflows/build-extension.yml")
+        # B2R3-M1: the launch inputs follow the PR-B1 single-layout
+        # contract (extension.json at the subtree root, the Test
+        # Contract under tests/), which the reusable workflow resolves
+        # relative to the caller root.  The legacy per-repo config/
+        # hierarchy is not part of that layout -- central-extension.py
+        # rejects a config/ directory outright -- so the inputs must
+        # never point back into it.
         self.assertEqual(
             job["with"]["extension_config_path"],
-            "extensions/${{ matrix.extension }}/config/extension.json")
+            "extensions/${{ matrix.extension }}/extension.json")
         self.assertEqual(
             job["with"]["test_contract_path"],
-            "extensions/${{ matrix.extension }}/config/test-contract.json")
-        self.assertIn("${{ matrix.extension }}", job["concurrency"]["group"])
+            "extensions/${{ matrix.extension }}/tests/test-contract.json")
+        for value in job["with"].values():
+            self.assertNotIn("/config/", value)
+        self.assertIn("extension.json", router.central.ALLOWED_FILES)
+        self.assertNotIn("config", router.central.ALLOWED_DIRS)
+        # B2R3-N1: the group renders the router contract templates
+        # per event -- pr-validation on pull requests, postmerge on
+        # pushes / dispatches -- instead of a pr- group glued to the
+        # ref outside pull requests.
+        group = job["concurrency"]["group"]
+        self.assertIn("github.event_name == 'pull_request'", group)
+        self.assertIn(
+            "format('ci-{0}-pr-{1}', matrix.extension, "
+            "github.event.pull_request.number)", group)
+        self.assertIn("format('postmerge-{0}', matrix.extension)", group)
+        self.assertEqual(
+            router.concurrency_group(
+                "pr-validation", extension="pg_bigm", pr_number=712),
+            "ci-pg_bigm-pr-712")
+        self.assertEqual(
+            router.concurrency_group("postmerge", extension="pg_bigm"),
+            "postmerge-pg_bigm")
         self.assertIs(job["concurrency"]["cancel-in-progress"], False)
 
 

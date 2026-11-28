@@ -360,9 +360,14 @@ def launchable_targets(targets, extensions_root):
     has nothing for that workflow to build, so the launch matrix is
     the routed targets intersected with the subtrees present in the
     tree.  Symbolic-link subtrees never launch: the PR-B1 layout rules
-    already bar them from the registered set.
+    already bar them from the registered set.  The check is
+    self-contained for direct callers: a symbolic-link ``extensions/``
+    root itself (or a missing one) launches nothing, without relying
+    on the registry path having rejected the link first (B2R3-N1).
     """
     layout = Path(extensions_root) / "extensions"
+    if layout.is_symlink() or not layout.is_dir():
+        return []
     return sorted(
         name
         for name in targets
