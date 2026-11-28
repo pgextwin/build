@@ -10,9 +10,35 @@ on:
 permissions:
   contents: read
 
+# F21-02 concurrency contract (DESIGN 2.2 / PLAN-F 5.4 / CB-73): the
+# router workflow is its own processing type.  The group is scoped per
+# pull request, per run for push, and per ref for dispatch, so
+# unrelated changes never share a group, and cancel-in-progress stays
+# false like every other processing-type group in this repository.
+# The per-run push scope matters because GitHub keeps a single
+# pending slot per group: with a per-ref push group, a newer push
+# would displace a waiting run and that push's landing SHA would
+# never be routed (B2-SOL-R3-M1).  A run id is stable across re-runs
+# of the same run, so a re-run keeps its group.
+concurrency:
+  group: ci-router-${{ github.workflow }}-${{ github.event.pull_request.number || github.event_name == 'push' && format('{0}-{1}', github.ref, github.run_id) || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   resolver:
     runs-on: ubuntu-latest
+    # F21-02: the selective CI router's result is a launch contract,
+    # not a display.  The route step publishes it as these job outputs
+    # and the dependent extension-ci job consumes the launch matrix
+    # through fromJSON (B2-SOL-M1).
+    outputs:
+      matrix: ${{ steps.route.outputs.matrix }}
+      has_targets: ${{ steps.route.outputs.has_targets }}
+      targets: ${{ steps.route.outputs.targets }}
+      launch_matrix: ${{ steps.route.outputs.launch_matrix }}
+      has_launch_targets: ${{ steps.route.outputs.has_launch_targets }}
+      resolver_conclusion: ${{ steps.route.outputs.resolver_conclusion }}
+      pending: ${{ steps.route.outputs.pending }}
     steps:
       - name: Check out build infrastructure
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -375,6 +401,123 @@ jobs:
       - name: Validate central packaging and K2/K4 verification foundation (F21-04)
         run: python -m unittest -v tests/test-central-package-foundation.py
 
+      - name: Validate selective CI router and concurrency contract (F21-02)
+        run: python -m unittest -v tests/test-ci-router.py
+
+      - name: Route selective CI targets for this change (F21-02)
+        id: route
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          BEFORE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          files_json="$RUNNER_TEMP/ci-router-files.json"
+          fallback=0
+          # B2-SOL-R2-M1: pin the change list to the commits this run
+          # is about.  A re-run reuses the original event payload --
+          # the GITHUB_SHA checkout and the base/head SHAs below --
+          # while a file list fetched by pull-request number
+          # describes the pull request's *current* state, so an old
+          # checkout could be paired with a newer list and, when the
+          # file counts happen to match, a landed change would
+          # silently drop out of the routing.  The list is therefore
+          # computed locally from the event's own base/head commits
+          # (no API file list, so no API truncation cap either); the
+          # payload count cross-check stays as a second guard, and
+          # anything that cannot be pinned falls back to the safety
+          # side instead of routing an untrusted list.
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            base_sha="$PR_BASE_SHA"
+            head_sha="$PR_HEAD_SHA"
+            # A pull request routes the changes the head introduces
+            # relative to where it diverged from the base: the
+            # three-dot (merge-base) range.
+            diff_range="$base_sha...$head_sha"
+          elif [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            base_sha="$BEFORE_SHA"
+            head_sha="$GITHUB_SHA"
+            # A push routes exactly the before -> after transition:
+            # the two-dot range.  A three-dot range would need a
+            # merge base and, on a rewind push, would describe the
+            # wrong (empty) change set (B2R5-M1).
+            diff_range="$base_sha..$head_sha"
+          else
+            base_sha=""
+            head_sha=""
+            diff_range=""
+          fi
+          zero_sha="0000000000000000000000000000000000000000"
+          if [ -z "$base_sha" ] || [ -z "$head_sha" ] \
+            || [ "$base_sha" = "$zero_sha" ] || [ "$head_sha" = "$zero_sha" ]; then
+            # workflow_dispatch and any other event carry no pinned
+            # change list to route.  Never present that as an empty
+            # change (that would equate "unknown" with "no targets");
+            # fall back to the safety side instead (DESIGN 2.1, B2-M3).
+            fallback=1
+          else
+            name_status="$RUNNER_TEMP/ci-router-name-status.bin"
+            # actions/checkout fetches with fetch-depth: 1, so the
+            # checked-out commit is a shallow root with no parents.
+            # On push that root is the head commit itself, and a
+            # plain fetch leaves its shallow boundary in place, so
+            # the base and head share no reachable ancestor and the
+            # diff below fails with "no merge base" (B2R5-M1).  When
+            # the repository is shallow, complete the history of the
+            # two pinned commits with --unshallow (a complete
+            # repository rejects --unshallow, hence the condition);
+            # the pull_request path takes the same explicit route
+            # instead of relying on its merge-commit checkout not
+            # placing the base/head on the shallow boundary.
+            fetch_args=(--no-tags)
+            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+              fetch_args+=(--unshallow)
+            fi
+            if ! git fetch "${fetch_args[@]}" origin "$base_sha" "$head_sha"; then
+              fallback=1
+            elif ! git diff --name-status -z -M -C "$diff_range" > "$name_status"; then
+              fallback=1
+            elif ! python3 scripts/ci-router.py --name-status "$name_status" > "$files_json"; then
+              fallback=1
+            elif [ "$GITHUB_EVENT_NAME" = "pull_request" ] \
+              && [ -n "$PR_CHANGED_FILES" ] \
+              && [ "$(jq 'length' "$files_json")" != "$PR_CHANGED_FILES" ]; then
+              # The pinned diff must describe exactly the change the
+              # event payload announces; a count mismatch means the
+              # list cannot be trusted as complete (B2-M3 guard).
+              fallback=1
+            fi
+          fi
+          if [ "$fallback" = "1" ] || [ ! -s "$files_json" ]; then
+            # Extraction failure falls back to the safety side (all
+            # registered extensions) instead of stalling the check
+            # (DESIGN 2.1: extraction failure is handled explicitly).
+            echo '[{"filename":"unclassified-fallback","status":"added"}]' > "$files_json"
+            echo "::warning::ci-router: changed-file list unavailable; routing the safety-side fallback"
+          fi
+          if ! python3 scripts/ci-router.py --files "$files_json" > "$RUNNER_TEMP/ci-router-result.json"; then
+            echo "::error::ci-router: failed to route the change list"
+            exit 1
+          fi
+          python3 - "$RUNNER_TEMP/ci-router-result.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          targets = result["targets"]
+          launch = result.get("launch_targets", [])
+          print("### Selective CI router (F21-02)")
+          print(f"- targets ({len(targets)}): {', '.join(targets) if targets else '(none)'}")
+          print(f"- launch targets ({len(launch)}): {', '.join(launch) if launch else '(none)'}")
+          print(f"- resolver conclusion: {result['resolver_conclusion']} / pending: {result['pending']}")
+          PY
+          # Publish the same routing as the resolver job outputs; the
+          # dependent extension-ci job consumes launch_matrix through
+          # fromJSON (B2-SOL-M1).  The router is deterministic, so this
+          # second run over the same change list yields the same
+          # result as the JSON run above.
+          python3 scripts/ci-router.py --files "$files_json" --format github >> "$GITHUB_OUTPUT"
+
       - name: Validate Test Contract v2 schema and semantics
         run: python tests/test-test-contract.py
 
@@ -403,6 +546,60 @@ jobs:
       - name: Test matrix resolver
         shell: pwsh
         run: ./tests/test-resolve-matrix.ps1
+
+  extension-ci:
+    name: Selective extension CI (${{ matrix.extension }})
+    needs: resolver
+    # F21-02 launch wiring (B2-SOL-M1): consume the router's launch
+    # matrix through the resolver job outputs and call the reusable
+    # per-extension workflow once per launchable target extension.
+    # The router only marks a target launchable while its packaging
+    # subtree extensions/<name>/ is present in the tree; the subtrees
+    # land with the F2-2 pilot migrations and the F3a waves, so until
+    # then this job is skipped -- safely, after the required resolver
+    # check has concluded -- instead of calling the reusable workflow
+    # against content that is not in the monorepo yet.  The reusable
+    # workflow's own contract is caller-root based (it checks out the
+    # caller repository and resolves the package route and legacy
+    # scripts relative to that root), so the per-subtree launch also
+    # presumes the caller-side adaptation that belongs to the F2-2
+    # migration step; what this job fixes now is the launch contract
+    # itself -- job outputs, the fromJSON matrix, the per-extension
+    # concurrency group -- that the adaptation plugs into.  Live
+    # Check Runs confirmation stays with F2-2 / F2-3 (CB-73).
+    #
+    # The with: paths follow the PR-B1 single-layout contract for the
+    # central monorepo (extensions/<name>/extension.json and
+    # extensions/<name>/tests/test-contract.json); the legacy per-repo
+    # config/ hierarchy is not part of that layout and the reusable
+    # workflow resolves these paths relative to the caller root
+    # (fix round 3, B2R3-M1).  The concurrency group renders the
+    # router contract templates per event: pr-validation
+    # (ci-<extension>-pr-<number>) for pull requests, a per-run
+    # postmerge variant (postmerge-<extension>-<run id>) for pushes,
+    # and postmerge (postmerge-<extension>) for dispatches.  The
+    # per-run push variant exists for the same reason as the
+    # workflow-level push scope: a waiting job occupies the single
+    # pending slot of its group, so two pushes launching the same
+    # extension would otherwise displace each other's queued job and
+    # the displaced push's landing SHA would lose its per-extension
+    # run (fix round 3, B2R3-N1; fix round 6, B2-SOL-R3-M1).
+    if: ${{ needs.resolver.outputs.has_launch_targets == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('ci-{0}-pr-{1}', matrix.extension, github.event.pull_request.number) || github.event_name == 'push' && format('postmerge-{0}-{1}', matrix.extension, github.run_id) || format('postmerge-{0}', matrix.extension) }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolver.outputs.launch_matrix) }}
+    uses: ./.github/workflows/build-extension.yml
+    with:
+      extension_config_path: extensions/${{ matrix.extension }}/extension.json
+      test_contract_path: extensions/${{ matrix.extension }}/tests/test-contract.json
 
   windows-package-contract:
     name: Windows package contract
