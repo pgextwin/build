@@ -225,6 +225,20 @@ def validate_declaration(declaration, expected_name=None, validator=None):
     if expected_name is not None and name != expected_name:
         errors.append(f"name '{name}' does not match directory '{expected_name}'.")
 
+    schema_version = declaration["schemaVersion"]
+    if (
+        isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version != 1
+    ):
+        # JSON Schema's "const" treats 1.0 as equal to 1; the strict
+        # integer rule (shared with the handoff records in
+        # central-package.py) rejects the decimal notation.
+        errors.append(
+            "schemaVersion must be the integer 1; decimal notation is not accepted."
+        )
+        return errors
+
     majors = declaration["postgresql"]["majors"]
     if any(isinstance(m, bool) or not isinstance(m, int) for m in majors):
         # JSON Schema's "integer" also accepts the decimal notation
@@ -364,8 +378,15 @@ def validate_extension_dir(ext_dir, validator=None):
     inspected tree is the tree that lands in the protected commit), and
     every executable script in the adapter area (adapter.ps1 and tests/
     scripts of any suffix) is statically scanned for privilege-boundary
-    violations, so the set of scripts that may run and the set of
-    scripts that are inspected stay identical.
+    violations, so the executable set stays a subset of the statically
+    scanned set. The layout itself is canonical: allowed directory
+    names must match the standard lowercase form exactly (a Tests/ or
+    Packaging/ directory is not the standard layout, and two paths
+    that differ only in case would collide on a Windows checkout, so
+    both are rejected). The rejection-side classifications (N-16 /
+    N-17 path components, source-lock.json, executable suffixes) stay
+    case-insensitive, because on Windows those names are the same
+    asset whatever their case.
     """
     errors = []
     name = ext_dir.name
@@ -382,6 +403,7 @@ def validate_extension_dir(ext_dir, validator=None):
 
     declaration = _UNSET
     seen_adapter = False
+    seen_folded = {}
     for path in sorted(ext_dir.rglob("*")):
         rel = path.relative_to(ext_dir).as_posix()
         if path.is_symlink():
@@ -390,11 +412,20 @@ def validate_extension_dir(ext_dir, validator=None):
                 "inside an extension directory."
             )
             continue
+        folded_rel = rel.casefold()
+        if folded_rel in seen_folded and seen_folded[folded_rel] != rel:
+            errors.append(
+                f"extensions/{name}/{rel}: path collides with "
+                f"'{seen_folded[folded_rel]}' on a case-insensitive "
+                "filesystem (Windows checkout would overwrite one of them)."
+            )
+        else:
+            seen_folded[folded_rel] = rel
         if path.is_dir():
             if not any(path.iterdir()):
                 errors.append(f"extensions/{name}/{rel}: empty directory is not allowed (N-15).")
             top = rel.split("/", 1)[0]
-            if "/" not in rel and top.casefold() not in ALLOWED_DIRS:
+            if "/" not in rel and top not in ALLOWED_DIRS:
                 cls = _carry_in_class(rel)
                 label = f" ({cls})" if cls else ""
                 errors.append(
@@ -430,9 +461,11 @@ def validate_extension_dir(ext_dir, validator=None):
             )
             continue
         top = rel.split("/", 1)[0]
-        # Directory classification follows Windows semantics: Tests/ and
-        # tests/ are the same directory on the target platform.
-        top_folded = top.casefold()
+        # Layout membership is strict canonical lowercase: Tests/ is
+        # not tests/ in the standard layout (and the pair would
+        # collide on a Windows checkout; the collision itself is
+        # rejected above). This matches the execution side, where
+        # adapter_script_kind also requires the literal "tests".
         suffix = path.suffix.lower()
         if "/" not in rel:
             if rel not in ALLOWED_FILES:
@@ -441,20 +474,20 @@ def validate_extension_dir(ext_dir, validator=None):
                 )
                 continue
         else:
-            if top_folded not in ALLOWED_DIRS:
+            if top not in ALLOWED_DIRS:
                 errors.append(
                     f"extensions/{name}/{rel}: path is outside the standard layout."
                 )
                 continue
-            if top_folded == "patches" and suffix not in (".patch", ".diff"):
+            if top == "patches" and suffix not in (".patch", ".diff"):
                 errors.append(
                     f"extensions/{name}/{rel}: patches/ may contain only .patch/.diff files."
                 )
-            if top_folded in ("packaging", "licenses") and suffix in EXECUTABLE_SUFFIXES:
+            if top in ("packaging", "licenses") and suffix in EXECUTABLE_SUFFIXES:
                 errors.append(
                     f"extensions/{name}/{rel}: executable scripts must not be placed under {top}/."
                 )
-            if suffix in SCRIPT_SUFFIXES and top_folded != "tests":
+            if suffix in SCRIPT_SUFFIXES and top != "tests":
                 errors.append(
                     f"extensions/{name}/{rel}: PowerShell code is allowed only as adapter.ps1 or under tests/."
                 )
@@ -467,10 +500,10 @@ def validate_extension_dir(ext_dir, validator=None):
                     "blank lines and is not a substantive asset (N-15)."
                 )
             _scan_adapter(path, f"extensions/{name}/{rel}", errors)
-        elif top_folded == "tests" and suffix in EXECUTABLE_SUFFIXES:
+        elif top == "tests" and suffix in EXECUTABLE_SUFFIXES:
             # Every executable script in the adapter area is statically
-            # scanned, whatever its suffix, so execution rights and
-            # inspection coverage cannot drift apart (DESIGN 1.3).
+            # scanned, whatever its suffix; the executable set is a
+            # subset of this scanned set (DESIGN 1.3).
             if suffix in SCRIPT_SUFFIXES:
                 text = data.decode("utf-8", errors="replace")
                 if _powershell_effectively_empty(text):
@@ -479,7 +512,7 @@ def validate_extension_dir(ext_dir, validator=None):
                         "or blank lines and is not a substantive asset (N-15)."
                     )
             _scan_adapter(path, f"extensions/{name}/{rel}", errors)
-        if top_folded == "tests" and suffix == ".json" and _json_effectively_empty(data):
+        if top == "tests" and suffix == ".json" and _json_effectively_empty(data):
             errors.append(
                 f"extensions/{name}/{rel}: test asset parses as empty JSON and "
                 "carries no test content (N-15)."

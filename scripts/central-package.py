@@ -45,6 +45,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 SHA40_RE = re.compile(r"^[0-9a-fA-F]{40}\Z")
@@ -85,18 +86,23 @@ def write_deterministic_zip(entries, out_path):
     # Every entry name is validated before the archive is opened, under
     # the same Windows path contract as license paths (Assert-PackagePath
     # in scripts/windows-package.ps1): no backslash separators (Windows
-    # Zip Slip), no Windows-invalid characters, no trailing space / dot
-    # segments, no reserved device names, no absolute names, and no two
-    # names that collide on a case-insensitive filesystem.
-    folded = set()
+    # Zip Slip), no Windows-invalid characters (brackets included), no
+    # trailing space / dot segments, no reserved device names, no
+    # absolute names, and no two names that collide on a
+    # case-insensitive filesystem -- neither as identical names nor as
+    # a file-versus-directory prefix pair (one name a strict path
+    # prefix of another), the same conflict windows-package.ps1
+    # rejects for install destinations.
+    folded = []
     for arcname in entries:
         _validate_relative_path(arcname, "ZIP entry name")
         key = arcname.casefold()
-        if key in folded:
-            raise ValueError(
-                f"ZIP entry names collide on a case-insensitive filesystem: '{arcname}'."
-            )
-        folded.add(key)
+        for existing in folded:
+            if key == existing or key.startswith(existing + "/") or existing.startswith(key + "/"):
+                raise ValueError(
+                    f"ZIP entry names collide on a case-insensitive filesystem: '{arcname}'."
+                )
+        folded.append(key)
     out_path = Path(out_path)
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for arcname in sorted(entries):
@@ -259,7 +265,7 @@ def verify_handoff_chain(records, *, expected_sha256, expected_size,
             raise ValueError(f"Handoff {stage} previousSha256 linkage is broken.")
 
 
-_WINDOWS_INVALID_SEGMENT_CHARS = re.compile(r'[<>:"\\|?*\x00-\x1f]')
+_WINDOWS_INVALID_SEGMENT_CHARS = re.compile(r'[<>:"\\|\[\]?*\x00-\x1f]')
 _WINDOWS_RESERVED_SEGMENT = re.compile(
     r"^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]|CONIN\$|CONOUT\$)(?:\.|$)",
     re.IGNORECASE,
@@ -298,12 +304,27 @@ def _validate_relative_path(path, label):
 # credentials, and anything token / secret / key / auth shaped are
 # never passed, so adapter code cannot reach signing, Publisher, or
 # authorization material through the process environment.
+#
+# The names that locate the account's persistent configuration (home
+# and profile directories, tool config roots, git config switches)
+# are boundary-managed as well: they are never copied from the parent
+# environment and callers may not supply them as extras. Instead,
+# run_adapter_script binds every one of them to a fresh per-run clean
+# home, so tools invoked by adapter code (git, gh, pwsh) cannot reach
+# the parent account's persistent credential stores
+# (~/.config/gh/hosts.yml, ~/.git-credentials, ~/.gitconfig,
+# PowerShell profiles, ...) through the environment.
 ADAPTER_ENV_ALLOWLIST = frozenset({
     "PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR",
-    "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "HOMEDRIVE",
-    "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES",
+    "TEMP", "TMP", "TMPDIR", "PROGRAMFILES",
     "PROGRAMFILES(X86)", "PROGRAMW6432", "NUMBER_OF_PROCESSORS",
     "PROCESSOR_ARCHITECTURE", "OS", "LANG", "LC_ALL", "TZ",
+})
+ADAPTER_ENV_MANAGED_NAMES = frozenset({
+    "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA",
+    "LOCALAPPDATA", "XDG_CONFIG_HOME", "GH_CONFIG_DIR",
+    "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS",
 })
 ADAPTER_ENV_FORBIDDEN_PREFIXES = (
     "ACTIONS_", "GITHUB_", "PUBLISHER_", "LOCAL_AUTH_", "LOCAL-AUTH",
@@ -313,11 +334,20 @@ ADAPTER_ENV_FORBIDDEN_MARKERS = (
     "_KEY", "APIKEY", "AUTH", "JWT", "CERT", "PASSPHRASE", "SIGNING",
     "ADMISSION", "OIDC", "ATTEST",
 )
+_ADAPTER_ENV_KEY_WORD_RE = re.compile(r"(?:^|_)KEY(?:_|$)")
 ADAPTER_ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}\Z")
 
 
 def _adapter_env_key_forbidden(key):
     upper = key.upper()
+    # "PUBLISHER" is forbidden in any position (PUBLISHER,
+    # MY_PUBLISHER, PUBLISHER_TOKEN, ...), and "KEY" as a whole word
+    # (KEY, KEY_PEM, APP_KEY, ...): a prefix/marker list alone let the
+    # bare and infix forms through.
+    if "PUBLISHER" in upper:
+        return True
+    if _ADAPTER_ENV_KEY_WORD_RE.search(upper):
+        return True
     if upper.startswith(ADAPTER_ENV_FORBIDDEN_PREFIXES):
         return True
     return any(marker in upper for marker in ADAPTER_ENV_FORBIDDEN_MARKERS)
@@ -332,13 +362,19 @@ def build_adapter_environment(base_env, extra_values=None):
     from the parent environment). An extra name must be a well-formed
     variable name, must not collide with the base allowlist (base
     variables come from the base environment only, so PATH and friends
-    cannot be overridden into a write path), and must not be
-    credential-shaped; every violation is a hard error (fail-closed)
-    instead of a silent drop, so a caller can never smuggle a signing
-    or Publisher credential into the adapter context.
+    cannot be overridden into a write path), must not be one of the
+    boundary-managed persistent-configuration names (HOME, APPDATA,
+    GH_CONFIG_DIR, git config switches, ... -- run_adapter_script
+    binds those to a clean home), and must not be credential-shaped;
+    every violation is a hard error (fail-closed) instead of a silent
+    drop, so a caller can never smuggle a signing or Publisher
+    credential, or a pointer at the parent account's persistent
+    configuration, into the adapter context.
     """
     env = {}
     for key, value in base_env.items():
+        if key.upper() in ADAPTER_ENV_MANAGED_NAMES:
+            continue
         if key.upper() in ADAPTER_ENV_ALLOWLIST and not _adapter_env_key_forbidden(key):
             env[key] = value
     for key, value in (extra_values or {}).items():
@@ -348,6 +384,11 @@ def build_adapter_environment(base_env, extra_values=None):
             raise ValueError(
                 f"Extra adapter environment variable collides with the base "
                 f"allowlist and cannot be overridden: {key}"
+            )
+        if key.upper() in ADAPTER_ENV_MANAGED_NAMES:
+            raise ValueError(
+                f"Persistent-configuration variable is managed by the "
+                f"adapter boundary and cannot be supplied: {key}"
             )
         if _adapter_env_key_forbidden(key):
             raise ValueError(
@@ -362,18 +403,55 @@ def build_adapter_environment(base_env, extra_values=None):
     return env
 
 
+def _bind_clean_home(env, clean_home):
+    """Bind every persistent-configuration name to a fresh clean home.
+
+    Tools run by adapter code (git, gh, pwsh) locate account
+    configuration through these names; pointing all of them at an
+    empty directory created for this run means the parent account's
+    persistent credential stores are unreachable through the
+    environment, while the tools still find a writable home.
+    """
+    home = str(clean_home)
+    appdata = clean_home / "AppData" / "Roaming"
+    local_appdata = clean_home / "AppData" / "Local"
+    xdg_config = clean_home / ".config"
+    for directory in (appdata, local_appdata, xdg_config):
+        directory.mkdir(parents=True, exist_ok=True)
+    drive, tail = os.path.splitdrive(home)
+    env["HOME"] = home
+    env["USERPROFILE"] = home
+    env["HOMEDRIVE"] = drive
+    env["HOMEPATH"] = tail or home
+    env["APPDATA"] = str(appdata)
+    env["LOCALAPPDATA"] = str(local_appdata)
+    env["XDG_CONFIG_HOME"] = str(xdg_config)
+    env["GH_CONFIG_DIR"] = str(clean_home / "gh")
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_CONFIG_GLOBAL"] = str(clean_home / ".gitconfig")
+
+
 ADAPTER_SCRIPT_SUFFIXES = (".ps1", ".psm1")
 
 
 def adapter_script_kind(script_path, extension_root):
     """Classify an executable adapter-area script, or reject it.
 
-    The common execution entry runs exactly the scripts the tree
-    validator statically scans (DESIGN 1.3): the extension root
-    ``adapter.ps1`` and PowerShell scripts under ``tests/``. Anything
-    else -- other locations, other suffixes, symbolic links, paths
-    escaping the extension root -- is refused, so execution rights and
-    static inspection coverage cannot drift apart.
+    Returns ``(kind, resolved_script, resolved_root)``: the resolved
+    paths are the ones run_adapter_script actually executes with, so
+    the inspected file and the executed file cannot drift apart even
+    when the caller passes relative paths.
+
+    The executable set is a subset of the statically scanned set
+    (DESIGN 1.3): the tree validator statically scans ``adapter.ps1``
+    and every executable script under ``tests/`` (any suffix), while
+    execution through the common entry is limited to PowerShell --
+    the extension root ``adapter.ps1`` and PowerShell scripts under
+    ``tests/``. Anything else -- other locations, other suffixes,
+    symbolic links (the root itself, any intermediate directory, or
+    the script itself), nonexistent files, paths escaping the
+    extension root -- is refused, so executed code always comes from
+    inside the inspected tree.
     """
     root = Path(extension_root)
     if root.is_symlink():
@@ -383,17 +461,41 @@ def adapter_script_kind(script_path, extension_root):
         raise ValueError(f"Adapter script must not be a symbolic link: {script_path}")
     if script.suffix.lower() not in ADAPTER_SCRIPT_SUFFIXES:
         raise ValueError(f"Adapter script must be PowerShell (.ps1/.psm1): {script_path}")
+    # Intermediate directories between the root and the script must
+    # not be symbolic links either: a tests/ subdirectory that links
+    # elsewhere would execute code outside the inspected tree even if
+    # the final resolved path happened to land back inside the root.
+    # The walk uses unresolved absolute paths so it applies to the
+    # path the caller actually named (relative paths included).
+    absolute_root = Path(os.path.abspath(root))
+    absolute_script = Path(os.path.abspath(script))
     try:
-        rel = script.resolve().relative_to(root.resolve())
+        named_rel = absolute_script.relative_to(absolute_root)
+    except ValueError:
+        named_rel = None
+    if named_rel is not None:
+        current = absolute_root
+        for part in named_rel.parts[:-1]:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError(
+                    f"Adapter script path traverses a symbolic link: {script_path}"
+                )
+    try:
+        resolved_root = root.resolve()
+        resolved_script = script.resolve()
+        rel = resolved_script.relative_to(resolved_root)
     except (OSError, ValueError):
         raise ValueError(
             f"Adapter script is outside the extension root: {script_path}"
         ) from None
+    if not resolved_script.is_file():
+        raise ValueError(f"Adapter script does not exist as a file: {script_path}")
     parts = rel.parts
     if parts == ("adapter.ps1",):
-        return "adapter"
+        return "adapter", resolved_script, resolved_root
     if len(parts) >= 2 and parts[0] == "tests":
-        return "test"
+        return "test", resolved_script, resolved_root
     raise ValueError(
         f"Adapter script is outside the executable set (adapter.ps1 or tests/): {script_path}"
     )
@@ -405,17 +507,23 @@ def run_adapter_script(script_path, script_args=(), *, extension_root,
     """Run one adapter-area script through the common execution boundary.
 
     This is the only entry the common foundation uses to execute
-    extension-specific code: the script must belong to the statically
-    scanned set (adapter_script_kind), the child environment is built
-    by build_adapter_environment (no signing / Publisher / local-auth
-    credentials and no Actions file-command variables), and the working
-    directory is the extension root -- never the caller's directory, so
-    settings or credential files sitting in the caller's workspace are
-    not part of the execution context. ``executable`` is a test seam
-    for the PowerShell executable; by default pwsh / powershell is
-    resolved from PATH and invoked with -NoProfile -File.
+    extension-specific code: the script must belong to the executable
+    subset of the statically scanned set (adapter_script_kind), the
+    child environment is built by build_adapter_environment (no
+    signing / Publisher / local-auth credentials and no Actions
+    file-command variables) with every persistent-configuration name
+    rebound to a fresh per-run clean home, and the child runs the
+    resolved script with the resolved extension root as its working
+    directory -- never the caller's directory and never an unresolved
+    path -- so settings or credential files sitting in the caller's
+    workspace, or in the parent account's home, are not part of the
+    execution context. ``executable`` is a test seam for the
+    PowerShell executable; by default pwsh / powershell is resolved
+    from PATH and invoked with -NoProfile -File.
     """
-    adapter_script_kind(script_path, extension_root)
+    _kind, resolved_script, resolved_root = adapter_script_kind(
+        script_path, extension_root
+    )
     env = build_adapter_environment(
         dict(os.environ) if base_env is None else base_env, extra_values
     )
@@ -423,13 +531,15 @@ def run_adapter_script(script_path, script_args=(), *, extension_root,
     if exe is None:
         raise RuntimeError("No PowerShell executable (pwsh / powershell) is available.")
     if executable is None:
-        argv = [exe, "-NoProfile", "-File", str(script_path), *script_args]
+        argv = [exe, "-NoProfile", "-File", str(resolved_script), *script_args]
     else:
-        argv = [exe, str(script_path), *script_args]
-    return subprocess.run(
-        argv, cwd=Path(extension_root), env=env, timeout=timeout,
-        capture_output=True, text=True, check=False,
-    )
+        argv = [exe, str(resolved_script), *script_args]
+    with tempfile.TemporaryDirectory(prefix="pgextwin-adapter-home-") as clean_home:
+        _bind_clean_home(env, Path(clean_home))
+        return subprocess.run(
+            argv, cwd=resolved_root, env=env, timeout=timeout,
+            capture_output=True, text=True, check=False,
+        )
 
 
 def verify_license_entries(entries, upstream, packaging):
@@ -575,6 +685,8 @@ def license_entries_for_major(license_block, pg_major):
         )
     if "perPostgresql" in license_block:
         per_major = license_block["perPostgresql"]
+        if not isinstance(per_major, dict):
+            raise ValueError("license.perPostgresql must be an object.")
         key = str(pg_major)
         if key not in per_major:
             raise ValueError(f"No license entries declared for PostgreSQL {pg_major}.")
@@ -603,18 +715,57 @@ def declared_upstream_commit(declaration, pg_major):
     The central declaration is the only source of truth for source
     pinning: the single-form ``upstream.commit``, or the per-major
     ``upstream.perPostgresql[<major>].commit`` when the declaration is
-    in per-major form. Anything else (missing block, missing major,
-    non-SHA value) is rejected before any repository is touched.
+    in per-major form. The requested major is itself part of the pin
+    binding: it must be a positive integer, and it must be one of the
+    majors the declaration actually declares in
+    ``postgresql.majors`` -- an undeclared major (or a non-integer
+    one) must never ride through on the single-form pin. The upstream
+    block must be in exactly one of the two forms, and a per-major
+    block may not carry pins for majors outside ``postgresql.majors``.
+    Anything else is rejected before any repository is touched.
     """
     if not isinstance(declaration, dict):
         raise ValueError("declaration must be a JSON object.")
+    if isinstance(pg_major, bool) or not isinstance(pg_major, int) or pg_major < 1:
+        raise ValueError(
+            f"PostgreSQL major must be a positive integer, got {pg_major!r}."
+        )
+    postgresql = declaration.get("postgresql")
+    if not isinstance(postgresql, dict):
+        raise ValueError("declaration has no postgresql block.")
+    majors = postgresql.get("majors")
+    if (
+        not isinstance(majors, list)
+        or not majors
+        or any(isinstance(m, bool) or not isinstance(m, int) or m < 1 for m in majors)
+    ):
+        raise ValueError(
+            "declaration postgresql.majors must be a nonempty list of positive integers."
+        )
+    if pg_major not in majors:
+        raise ValueError(
+            f"PostgreSQL {pg_major} is not declared in postgresql.majors "
+            f"{sorted(set(majors))}; the K4 comparison is bound to declared majors only."
+        )
     upstream = declaration.get("upstream")
     if not isinstance(upstream, dict):
         raise ValueError("declaration has no upstream block.")
+    if "commit" in upstream and "perPostgresql" in upstream:
+        raise ValueError(
+            "declaration upstream must be in exactly one form: a single "
+            "commit or perPostgresql, not both."
+        )
     if "perPostgresql" in upstream:
         per_major = upstream["perPostgresql"]
         if not isinstance(per_major, dict):
             raise ValueError("upstream.perPostgresql must be an object.")
+        declared = {str(m) for m in majors}
+        outside = set(per_major) - declared
+        if outside:
+            raise ValueError(
+                f"upstream.perPostgresql majors {sorted(outside)} are outside "
+                "postgresql.majors."
+            )
         key = str(pg_major)
         if key not in per_major:
             raise ValueError(f"No upstream pin declared for PostgreSQL {pg_major}.")

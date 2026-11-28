@@ -18,6 +18,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "central-package.py"
@@ -96,6 +97,7 @@ class ZipTests(unittest.TestCase):
             "C:/evil.dll", "C:evil.dll", "dir/CON.dll", "dir/nul.txt",
             "dir/COM1", "dir/lpt9.dat", "dir /file.dll", "dir./file.dll",
             "dir/file*.dll", "dir/file?.dll",
+            "dir/file[1].dll", "dir/file].dll",
         )
         with TemporaryDirectory() as tmp:
             for arcname in bad:
@@ -117,6 +119,24 @@ class ZipTests(unittest.TestCase):
                     {"lib/Sample.dll": b"x", "lib/sample.DLL": b"y"},
                     Path(tmp) / "evil.zip",
                 )
+
+    def test_prefix_colliding_entries_rejected(self):
+        # A file-versus-directory prefix pair (lib/sample as a file
+        # and lib/sample/a.dll beneath it) cannot coexist on disk;
+        # windows-package.ps1 rejects the same conflict for install
+        # destinations, so the packaging entrance rejects it too
+        # (B1R3-N1), in either order and across case differences.
+        with TemporaryDirectory() as tmp:
+            for entries in (
+                {"lib/sample": b"x", "lib/sample/a.dll": b"y"},
+                {"lib/sample/a.dll": b"y", "lib/sample": b"x"},
+                {"Lib/Sample": b"x", "lib/sample/a.dll": b"y"},
+            ):
+                with self.subTest(entries=sorted(entries)):
+                    with self.assertRaises(ValueError):
+                        package.write_deterministic_zip(
+                            entries, Path(tmp) / "evil.zip"
+                        )
 
 
 class HandoffChainTests(unittest.TestCase):
@@ -344,12 +364,47 @@ class AdapterEnvironmentTests(unittest.TestCase):
             "GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_RUNTIME_TOKEN",
             "GITHUB_ENV", "GITHUB_OUTPUT", "PUBLISHER_TOKEN", "LOCAL_AUTH_SECRET",
             "APP_PRIVATE_KEY", "SOME_API_KEY", "PG_AUTH_TICKET", "SIGNING_KEY_PEM",
+            # Bare and infix forms: "PUBLISHER" as a substring and
+            # "KEY" as a whole word must not slip past a prefix /
+            # marker list (B1R3-M2).
+            "PUBLISHER", "MY_PUBLISHER", "KEY", "KEY_PEM",
         ):
             with self.subTest(key=key):
                 with self.assertRaises(ValueError):
                     package.build_adapter_environment(
                         self.base_env(), extra_values={key: "x"}
                     )
+
+    def test_managed_persistent_config_names_rejected_as_extras(self):
+        # Persistent-configuration names are owned by the boundary:
+        # a caller may not point the child at the parent account's
+        # home or tool config through an extra value (B1R3-M2).
+        for key in (
+            "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+            "XDG_CONFIG_HOME", "GH_CONFIG_DIR", "GIT_CONFIG_NOSYSTEM",
+            "GIT_CONFIG_GLOBAL",
+        ):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    package.build_adapter_environment(
+                        self.base_env(), extra_values={key: "C:\\parent"}
+                    )
+
+    def test_persistent_config_not_copied_from_parent(self):
+        base = self.base_env()
+        base.update({
+            "HOME": "/parent/home",
+            "USERPROFILE": "C:\\Users\\parent",
+            "APPDATA": "C:\\Users\\parent\\AppData\\Roaming",
+            "LOCALAPPDATA": "C:\\Users\\parent\\AppData\\Local",
+            "GH_CONFIG_DIR": "/parent/gh",
+        })
+        env = package.build_adapter_environment(base)
+        for key in (
+            "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+            "APPDATA", "LOCALAPPDATA", "GH_CONFIG_DIR",
+        ):
+            self.assertNotIn(key, env)
 
     def test_malformed_extra_values_rejected(self):
         for extra in (
@@ -443,6 +498,117 @@ class AdapterExecutionTests(unittest.TestCase):
             self.assertTrue(observed["cwd_is_extension_root"])
             self.assertEqual(observed["flag"], "1")
             self.assertFalse(observed["caller_credentials_in_cwd"])
+
+    def test_relative_extension_root_executes(self):
+        # CI calls with relative paths are standard: the inspected
+        # file, the executed file, and the child's working directory
+        # must still be one and the same resolved location (B1R3-M2).
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ext = self.make_tree(root)
+            probe = ext / "tests" / "probe.ps1"
+            probe.write_text(
+                "import json\n"
+                "from pathlib import Path\n"
+                "print(json.dumps({'cwd': str(Path.cwd())}))\n",
+                encoding="utf-8",
+            )
+            previous = Path.cwd()
+            os.chdir(root)
+            try:
+                result = package.run_adapter_script(
+                    Path("extensions/sample/tests/probe.ps1"),
+                    extension_root=Path("extensions/sample"),
+                    executable=sys.executable,
+                )
+            finally:
+                os.chdir(previous)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = json.loads(result.stdout)
+            self.assertEqual(Path(observed["cwd"]), ext.resolve())
+
+    def test_intermediate_symlink_rejected(self):
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            (ext / "packaging" / "real.ps1").write_text(
+                "payload\n", encoding="utf-8"
+            )
+            try:
+                os.symlink(
+                    ext / "packaging", ext / "tests" / "sub",
+                    target_is_directory=True,
+                )
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            with self.assertRaises(ValueError):
+                package.run_adapter_script(
+                    ext / "tests" / "sub" / "real.ps1",
+                    extension_root=ext, executable=sys.executable,
+                )
+
+    def test_missing_script_rejected(self):
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            with self.assertRaises(ValueError):
+                package.run_adapter_script(
+                    ext / "tests" / "missing.ps1",
+                    extension_root=ext, executable=sys.executable,
+                )
+
+    def test_persistent_config_isolated_from_parent_home(self):
+        # The parent account's home holds dummy persistent credential
+        # stores; through the common entry the child must not reach
+        # them: every persistent-configuration name is rebound to a
+        # fresh clean home for the run (B1R3-M2).
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ext = self.make_tree(root)
+            parent_home = root / "parent-home"
+            gh_dir = parent_home / ".config" / "gh"
+            gh_dir.mkdir(parents=True)
+            (gh_dir / "hosts.yml").write_text(
+                "github.com:\n  oauth_token: dummy\n", encoding="utf-8"
+            )
+            (parent_home / ".git-credentials").write_text(
+                "https://dummy.invalid\n", encoding="utf-8"
+            )
+            probe = ext / "tests" / "probe.ps1"
+            probe.write_text(
+                "import json, os\n"
+                "from pathlib import Path\n"
+                "home = Path(os.environ['HOME'])\n"
+                "gh_config = Path(os.environ['GH_CONFIG_DIR'])\n"
+                "print(json.dumps({\n"
+                "    'home_is_parent': home == Path("
+                f"{str(parent_home)!r}),\n"
+                "    'gh_hosts_via_home': (home / '.config' / 'gh' / 'hosts.yml').exists(),\n"
+                "    'git_credentials_via_home': (home / '.git-credentials').exists(),\n"
+                "    'gh_hosts_via_config_dir': (gh_config / 'hosts.yml').exists(),\n"
+                "    'git_config_nosystem': os.environ.get('GIT_CONFIG_NOSYSTEM'),\n"
+                "    'appdata_is_parent': os.environ.get('APPDATA', '').startswith("
+                f"{str(parent_home)!r}),\n"
+                "}))\n",
+                encoding="utf-8",
+            )
+            base_env = dict(os.environ)
+            base_env.update({
+                "HOME": str(parent_home),
+                "USERPROFILE": str(parent_home),
+                "APPDATA": str(parent_home / "AppData" / "Roaming"),
+                "LOCALAPPDATA": str(parent_home / "AppData" / "Local"),
+            })
+            result = package.run_adapter_script(
+                probe, extension_root=ext, base_env=base_env,
+                executable=sys.executable,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = json.loads(result.stdout)
+            self.assertFalse(observed["home_is_parent"])
+            self.assertFalse(observed["gh_hosts_via_home"])
+            self.assertFalse(observed["git_credentials_via_home"])
+            self.assertFalse(observed["gh_hosts_via_config_dir"])
+            self.assertEqual(observed["git_config_nosystem"], "1")
+            self.assertFalse(observed["appdata_is_parent"])
 
 
 class LicenseTests(unittest.TestCase):
@@ -669,6 +835,55 @@ class LicenseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             package.verify_declaration_licenses(block, 19, upstream, {})
 
+    def test_license_per_postgresql_non_object_rejected(self):
+        # A non-object perPostgresql block is a declaration defect and
+        # must surface as ValueError, not a raw TypeError (B1R3-N3).
+        block = {"verifyAgainstUpstream": True, "perPostgresql": "17"}
+        with self.assertRaises(ValueError):
+            package.verify_declaration_licenses(
+                block, 17, {"LICENSE": LICENSE_TEXT}, {"LICENSE": LICENSE_TEXT}
+            )
+
+    def test_declared_upstream_commit_major_binding(self):
+        # The pin selection is bound to postgresql.majors: the major
+        # must be a positive integer and one of the declared majors,
+        # in single and per-major form alike (B1R3-M1).
+        single = {
+            "postgresql": {"majors": [15, 16, 17, 18, 19]},
+            "upstream": {"commit": DECLARED},
+        }
+        self.assertEqual(package.declared_upstream_commit(single, 17), DECLARED)
+        for bad_major in (14, 99, 0, -1, True, "17", 17.0):
+            with self.subTest(major=bad_major):
+                with self.assertRaises(ValueError):
+                    package.declared_upstream_commit(single, bad_major)
+        # A declaration without a postgresql block cannot bind a pin.
+        with self.assertRaises(ValueError):
+            package.declared_upstream_commit({"upstream": {"commit": DECLARED}}, 17)
+        # The single and per-major forms are exclusive.
+        mixed = {
+            "postgresql": {"majors": [17]},
+            "upstream": {
+                "commit": DECLARED,
+                "perPostgresql": {"17": {"commit": DECLARED}},
+            },
+        }
+        with self.assertRaises(ValueError):
+            package.declared_upstream_commit(mixed, 17)
+        # A per-major pin for a major outside postgresql.majors makes
+        # the declaration itself inconsistent and is rejected.
+        outside = {
+            "postgresql": {"majors": [17]},
+            "upstream": {
+                "perPostgresql": {
+                    "17": {"commit": DECLARED},
+                    "18": {"commit": DECLARED},
+                },
+            },
+        }
+        with self.assertRaises(ValueError):
+            package.declared_upstream_commit(outside, 17)
+
 
 class CliTests(unittest.TestCase):
     def run_cli(self, *args):
@@ -725,13 +940,17 @@ class CliTests(unittest.TestCase):
         git("commit", "-qm", message)
         return self.git_head(repo)
 
-    def write_declaration(self, root, upstream, license_block, name="declaration.json"):
-        path = root / name
-        path.write_text(json.dumps({
+    def write_declaration(self, root, upstream, license_block, name="declaration.json",
+                          majors=(15, 16, 17, 18, 19)):
+        declaration = {
             "name": "sample",
             "upstream": upstream,
             "license": license_block,
-        }), encoding="utf-8")
+        }
+        if majors is not None:
+            declaration["postgresql"] = {"majors": list(majors)}
+        path = root / name
+        path.write_text(json.dumps(declaration), encoding="utf-8")
         return path
 
     def git_checkout(self, repo, ref):
@@ -869,6 +1088,127 @@ class CliTests(unittest.TestCase):
             missing = self.run_cli(*self.verify_args(declaration, 19, up, pkg, pkg_head))
             self.assertEqual(missing.returncode, 1)
             self.assertIn("No upstream pin declared", missing.stderr)
+
+    def test_verify_licenses_cli_undeclared_major_rejected(self):
+        # B1R3-M1: the single-form pin must not cover majors the
+        # declaration does not declare. Undeclared majors (14 / 99)
+        # and non-positive majors (0 / -1) are rejected at the
+        # entrance, before any Git access, with no traceback.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            up = self.make_git_repo(root / "up", {"LICENSE": LICENSE_TEXT})
+            pkg = self.make_git_repo(root / "pkg", {"LICENSE": LICENSE_TEXT})
+            declaration = self.write_declaration(
+                root,
+                {"repository": "https://example.invalid/up", "commit": self.git_head(up)},
+                {"verifyAgainstUpstream": True, "upstreamPath": "LICENSE"},
+            )
+            pkg_head = self.git_head(pkg)
+            for major in (14, 99):
+                with self.subTest(major=major):
+                    result = self.run_cli(
+                        *self.verify_args(declaration, major, up, pkg, pkg_head)
+                    )
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("not declared in postgresql.majors", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+            for major in (0, -1):
+                with self.subTest(major=major):
+                    result = self.run_cli(
+                        *self.verify_args(declaration, major, up, pkg, pkg_head)
+                    )
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("positive integer", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+            # The declared majors still verify.
+            ok = self.run_cli(*self.verify_args(declaration, 17, up, pkg, pkg_head))
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+
+    def test_verify_licenses_cli_per_postgresql_major_outside_majors_rejected(self):
+        # B1R3-M1: a per-major pin for a major outside
+        # postgresql.majors does not make that major verifiable.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            up = self.make_git_repo(root / "up", {"LICENSE": LICENSE_TEXT})
+            pin17 = self.git_head(up)
+            self.git_commit_files(up, {"LICENSE": OTHER_LICENSE}, "for-18")
+            pin18 = self.git_head(up)
+            pkg = self.make_git_repo(root / "pkg", {"LICENSE": LICENSE_TEXT})
+            declaration = self.write_declaration(
+                root,
+                {
+                    "repository": "https://example.invalid/up",
+                    "perPostgresql": {
+                        "17": {"commit": pin17},
+                        "18": {"commit": pin18},
+                    },
+                },
+                {"verifyAgainstUpstream": True, "upstreamPath": "LICENSE"},
+                majors=(17,),
+            )
+            self.git_checkout(up, pin18)
+            result = self.run_cli(
+                *self.verify_args(declaration, 18, up, pkg, self.git_head(pkg))
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("postgresql.majors", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_verify_licenses_cli_same_bytes_other_commit_rejected(self):
+        # B1R3-M1: equal bytes at a different commit do not satisfy
+        # the pin. The second commit changes only an unrelated file,
+        # so the LICENSE bytes are identical; the entrance still
+        # rejects it because the resolved HEAD is not the declared
+        # commit.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            up = self.make_git_repo(root / "up", {"LICENSE": LICENSE_TEXT})
+            pin = self.git_head(up)
+            self.git_commit_files(up, {"README": b"unrelated\n"}, "unrelated")
+            self.assertNotEqual(self.git_head(up), pin)
+            pkg = self.make_git_repo(root / "pkg", {"LICENSE": LICENSE_TEXT})
+            declaration = self.write_declaration(
+                root,
+                {"repository": "https://example.invalid/up", "commit": pin},
+                {"verifyAgainstUpstream": True, "upstreamPath": "LICENSE"},
+            )
+            result = self.run_cli(
+                *self.verify_args(declaration, 17, up, pkg, self.git_head(pkg))
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("commit mismatch", result.stderr)
+
+    def test_verify_licenses_blobs_read_at_resolved_sha(self):
+        # B1R3-M1: once the entrance has resolved HEAD to the declared
+        # pin, a HEAD that moves afterwards cannot change the
+        # comparison -- every blob is read at the resolved SHA.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            up = self.make_git_repo(root / "up", {"LICENSE": LICENSE_TEXT})
+            pkg = self.make_git_repo(root / "pkg", {"LICENSE": LICENSE_TEXT})
+            pin = self.git_head(up)
+            license_block = {"verifyAgainstUpstream": True, "upstreamPath": "LICENSE"}
+            original_resolve = package._git_resolve_head
+            moved = []
+
+            def resolve_then_move(repo):
+                resolved = original_resolve(repo)
+                if Path(repo) == up and not moved:
+                    moved.append(True)
+                    self.git_commit_files(up, {"LICENSE": OTHER_LICENSE}, "moved")
+                return resolved
+
+            with mock.patch.object(
+                package, "_git_resolve_head", side_effect=resolve_then_move
+            ):
+                document = package.verify_declaration_licenses_from_git(
+                    license_block, 17, up, pkg,
+                    expected_upstream_commit=pin,
+                    expected_packaging_commit=self.git_head(pkg),
+                )
+            self.assertEqual(document["upstreamCommit"], pin)
+            self.assertEqual(len(document["licenses"]), 1)
+            self.assertNotEqual(self.git_head(up), pin)
 
     def test_verify_licenses_cli_malformed_entry_rejected_before_git(self):
         # Entry shapes are validated before any Git call, with the same

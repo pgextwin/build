@@ -228,6 +228,27 @@ class DeclarationSchemaTests(unittest.TestCase):
         errors = central.validate_declaration(decl, "pg_permissions")
         self.assertTrue(any("decimal notation" in e for e in errors), errors)
 
+    def test_schema_version_decimal_rejected(self):
+        # The strict integer rule for schemaVersion matches the
+        # handoff records in central-package.py: JSON Schema's "const"
+        # accepts 1.0 as equal to 1, direct validation must not
+        # (B1R3-N3).
+        decl = copy.deepcopy(self.base)
+        decl["schemaVersion"] = 1.0
+        errors = central.validate_declaration(decl, "pg_permissions")
+        self.assertTrue(any("schemaVersion" in e for e in errors), errors)
+
+    def test_per_postgresql_decimal_key_rejected(self):
+        # A per-major dictionary keyed by a decimal notation ("17.0")
+        # names no declared major and leaves the real major unpinned.
+        decl = convert("pgaudit")
+        per_major = decl["upstream"]["perPostgresql"]
+        per_major["17.0"] = per_major.pop("17")
+        errors = central.validate_declaration(decl, "pgaudit")
+        self.assertTrue(
+            any("perPostgresql" in e for e in errors), errors
+        )
+
     def test_watch_strategy_exclusivity(self):
         decl = copy.deepcopy(self.base)
         decl["watch"]["perPostgresql"] = {"17": {"tagPattern": "^v17"}}
@@ -610,6 +631,44 @@ class TreeValidationTests(unittest.TestCase):
         self.assertTrue(any("adapter area contains" in e for e in errors), errors)
 
 
+    def test_uppercase_top_level_directories_rejected(self):
+        # The layout is canonical lowercase: Tests/ and Packaging/
+        # are not the standard tests/ and packaging/ directories,
+        # even though Windows would treat them as the same directory
+        # (B1R3-M3 regression: the allowlist check must not be
+        # case-folded; the rejection-side classification stays
+        # case-insensitive).
+        for rel in ("Tests/extra.ps1", "Packaging/note.txt"):
+            with self.subTest(path=rel):
+                def build(root, rel=rel):
+                    ext = valid_tree(root)
+                    write_file(ext, rel, "payload\n")
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("standard layout" in e for e in errors),
+                    f"uppercase directory '{rel}' not rejected: {errors}",
+                )
+
+    def test_case_colliding_paths_rejected(self):
+        # Two paths that differ only in case collide on a Windows
+        # checkout; the tree must reject the pair (B1R3-M3).
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "packaging/a.txt", "one\n")
+            write_file(ext, "packaging/A.txt", "two\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("collides" in e for e in errors), errors)
+
+    def test_uppercase_bin_directory_rejected_n17(self):
+        # The rejection-side path-component classification stays
+        # case-insensitive: BIN/ is bin/ for N-17 purposes (B1R3-M3).
+        def build(root):
+            ext = valid_tree(root)
+            write_file(ext, "packaging/BIN/a.dll", b"payload\n")
+        errors = self.errors_for(build)
+        self.assertTrue(any("N-17" in e for e in errors), errors)
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run(
@@ -640,6 +699,17 @@ class CliTests(unittest.TestCase):
             bad = self.run_cli("validate", "--root", str(root))
             self.assertEqual(bad.returncode, 1)
             self.assertIn("N-02", bad.stderr)
+
+    def test_validate_cli_null_extension_json_rejected(self):
+        # A JSON null extension.json is a declaration failure through
+        # the CLI as well, never a pass (SOL-B1-01 completeness).
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ext = valid_tree(root)
+            (ext / "extension.json").write_text("null\n", encoding="utf-8")
+            result = self.run_cli("validate", "--root", str(root))
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("not a JSON object", result.stderr)
 
 
 if __name__ == "__main__":
