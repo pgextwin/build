@@ -334,8 +334,17 @@ def verify_handoff_chain(records, *, expected_sha256, expected_size,
 
 
 _WINDOWS_INVALID_SEGMENT_CHARS = re.compile(r'[<>:"\\|\[\]?*\x00-\x1f]')
+# The reserved-name set starts from Assert-PackagePath in
+# scripts/windows-package.ps1 and extends it where Win32 path
+# resolution itself is stricter: the base name is judged after
+# trimming trailing spaces (RtlIsDosDeviceName_U treats
+# "aux .txt" as the AUX device), and COM0 / LPT0 are reserved
+# device names in the Microsoft naming specification. Windows'
+# actual behaviour is authoritative here, so the packaging
+# entrance is deliberately stricter than the existing baseline
+# (Neon B1R6-M3; the set difference is recorded in CB-71).
 _WINDOWS_RESERVED_SEGMENT = re.compile(
-    r"^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]|CONIN\$|CONOUT\$)(?:\.|$)",
+    r"^(?:CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]|CONIN\$|CONOUT\$)(?: *\.| *$)",
     re.IGNORECASE,
 )
 
@@ -344,11 +353,12 @@ def _validate_relative_path(path, label):
     if not isinstance(path, str) or not path or "\\" in path or path.startswith("/"):
         raise ValueError(f"Invalid {label} '{path}'.")
     for part in path.split("/"):
-        # Same segment contract as Assert-PackagePath in
-        # scripts/windows-package.ps1: no empty / "." / ".." segments,
-        # no Windows-invalid characters (which also rejects drive-letter
-        # forms such as "C:"), no trailing space or dot, and no reserved
-        # device names.
+        # Segment contract aligned with Assert-PackagePath in
+        # scripts/windows-package.ps1 (the reserved-name set is the
+        # extended one defined at _WINDOWS_RESERVED_SEGMENT): no
+        # empty / "." / ".." segments, no Windows-invalid characters
+        # (which also rejects drive-letter forms such as "C:"), no
+        # trailing space or dot, and no reserved device names.
         if (
             not part or part in (".", "..")
             or _WINDOWS_INVALID_SEGMENT_CHARS.search(part)
@@ -514,8 +524,10 @@ def decode_powershell_script(data):
     PowerShell 5.1 would read them as the legacy ANSI code page,
     so the executed text would differ from the inspected text --
     and 5.1 is not a supported host at this entry at all,
-    SOL-B1-R3-02), a doubled byte-order mark, and an embedded NUL
-    character (SOL-B1-R3-03).
+    SOL-B1-R3-02), a U+FEFF character anywhere beyond the leading
+    signature (a doubled byte-order mark, or a stray one after
+    blanks or newlines -- SOL-B1-R3-03, Neon B1R6-M1), and an
+    embedded NUL character (SOL-B1-R3-03).
     """
     try:
         if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
@@ -532,11 +544,11 @@ def decode_powershell_script(data):
             "(UTF-8, or UTF-16/UTF-32 with a byte-order mark): "
             f"{error}"
         ) from None
-    if text.startswith("\ufeff"):
+    if "\ufeff" in text:
         raise ValueError(
-            "script carries more than one byte-order mark; the "
-            "residual U+FEFF is not part of the executed text the "
-            "scan inspects."
+            "script carries a U+FEFF character beyond the leading "
+            "byte-order mark; the host does not execute it as part "
+            "of the inspected text."
         )
     if "\x00" in text:
         raise ValueError(
@@ -555,10 +567,11 @@ def assert_adapter_script_encoding(script_path):
     decoding to the resolved script before the host is invoked, so
     a script the scan cannot interpret the way the host does never
     executes through the common entry. The shared decoding also
-    refuses a doubled byte-order mark and an embedded NUL, the two
-    byte forms under which the host reports an error yet exits 0
-    (SOL-B1-R3-03): they never reach the host through this entry,
-    so that silent-success path is closed here.
+    refuses a U+FEFF beyond the leading byte-order mark and an
+    embedded NUL, the byte forms under which the host reports an
+    error yet exits 0 (SOL-B1-R3-03, Neon B1R6-M1): they never
+    reach the host through this entry, so that silent-success
+    path is closed here.
     """
     decode_powershell_script(Path(script_path).read_bytes())
 

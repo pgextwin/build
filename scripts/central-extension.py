@@ -112,10 +112,17 @@ def _carry_in_class(rel):
 # trailing space or dot is stripped by Windows (two distinct Linux
 # names become one Windows name), the reserved device names are
 # unavailable with any extension, and the Win32-invalid characters
-# cannot appear at all. The reserved-name set mirrors
-# Assert-PackagePath in scripts/windows-package.ps1.
+# cannot appear at all. The reserved-name set starts from
+# Assert-PackagePath in scripts/windows-package.ps1 and extends it
+# where Win32 path resolution itself is stricter: the base name is
+# judged after trimming trailing spaces (RtlIsDosDeviceName_U
+# treats "aux .txt" as the AUX device), and COM0 / LPT0 are
+# reserved device names in the Microsoft naming specification.
+# Windows' actual behaviour is authoritative here, so the central
+# entry is deliberately stricter than the existing baseline
+# (Neon B1R6-M3; the set difference is recorded in CB-71).
 WINDOWS_RESERVED_SEGMENT = re.compile(
-    r"^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]|CONIN\$|CONOUT\$)(?:\.|$)",
+    r"^(?:CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]|CONIN\$|CONOUT\$)(?: *\.| *$)",
     re.IGNORECASE,
 )
 WINDOWS_INVALID_NAME_CHARS = re.compile(r'[<>:"\\|?*\x00-\x1f]')
@@ -352,12 +359,14 @@ def decode_powershell_script(data):
     Three byte forms are outside the contract and raise ValueError
     here (and are refused at the execution entry too): BOM-less
     bytes that are not valid UTF-8 (no single inspected text
-    corresponds to the executed text), a doubled byte-order mark
-    (a second BOM survives decoding as a U+FEFF character the host
-    does not treat as a signature), and an embedded NUL character
-    (the host reports an error yet exits 0, so a substance or
-    privilege judgement on such bytes is meaningless) -- the last
-    two are SOL-B1-R3-03.
+    corresponds to the executed text), a U+FEFF character anywhere
+    beyond the leading signature (a doubled byte-order mark, or a
+    stray one after blanks or newlines: it survives decoding as a
+    character the host does not treat as a signature, reports an
+    error for, yet exits 0), and an embedded NUL character (the
+    host reports an error yet exits 0, so a substance or privilege
+    judgement on such bytes is meaningless) -- the last two are
+    SOL-B1-R3-03 and Neon B1R6-M1.
     """
     try:
         if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
@@ -374,11 +383,11 @@ def decode_powershell_script(data):
             "(UTF-8, or UTF-16/UTF-32 with a byte-order mark): "
             f"{error}"
         ) from None
-    if text.startswith("\ufeff"):
+    if "\ufeff" in text:
         raise ValueError(
-            "script carries more than one byte-order mark; the "
-            "residual U+FEFF is not part of the executed text the "
-            "scan inspects."
+            "script carries a U+FEFF character beyond the leading "
+            "byte-order mark; the host does not execute it as part "
+            "of the inspected text."
         )
     if "\x00" in text:
         raise ValueError(
@@ -428,12 +437,44 @@ def _readme_effectively_empty(text):
     empty), and the root README after removing heading-only lines and
     HTML comments.
     """
+    # A residual U+FEFF (e.g. from a doubled byte-order mark) is a
+    # signature artefact, not substance; drop it before judging.
+    text = text.replace("\ufeff", "")
     without_comments = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
     for line in without_comments.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             return False
     return True
+
+
+def _bom_decoded_text(data):
+    """Decode bytes honouring a leading byte-order mark.
+
+    A byte-order mark is a signature, not content: UTF-32 / UTF-16
+    when their BOM is present, UTF-8 (with its BOM stripped)
+    otherwise. Undecodable bytes become replacement characters, so
+    genuinely binary content never decodes to an empty string.
+    """
+    if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        return data.decode("utf-32", errors="replace")
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", errors="replace")
+    return data.decode("utf-8-sig", errors="replace")
+
+
+def _file_effectively_empty(data):
+    """True when file bytes hold nothing beyond a BOM and whitespace.
+
+    The judgement runs on the BOM-decoded text, not the raw bytes:
+    a file that is only a byte-order mark (in UTF-8 / UTF-16 /
+    UTF-32 form), or a mark plus blanks, is as empty as a
+    zero-length file even though its raw bytes do not strip to
+    nothing (Neon B1R6-M2).
+    """
+    if not data.strip():
+        return True
+    return not _bom_decoded_text(data).replace("\ufeff", "").strip()
 
 
 def _decode_json_text(data):
@@ -445,17 +486,18 @@ def _decode_json_text(data):
     empty {} / [] slips past the N-15 judgement as "not JSON at
     all" (SOL-B1-R3-03, Neon B1R5-O1).
     """
-    if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
-        return data.decode("utf-32", errors="replace")
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return data.decode("utf-16", errors="replace")
-    return data.decode("utf-8-sig", errors="replace")
+    return _bom_decoded_text(data)
 
 
 def _json_effectively_empty(data):
     """True when bytes parse as JSON with no content ({} / [] / "" / null)."""
+    text = _decode_json_text(data).lstrip("\ufeff")
+    if not text.strip():
+        # Nothing but a byte-order mark and blanks: no JSON value
+        # at all, hence no content (Neon B1R6-M2).
+        return True
     try:
-        value = json.loads(_decode_json_text(data).lstrip("\ufeff"))
+        value = json.loads(text)
     except json.JSONDecodeError:
         return False
     if isinstance(value, (dict, list, str)):
@@ -590,7 +632,7 @@ def validate_extension_dir(ext_dir, validator=None):
         except OSError as error:
             errors.append(f"extensions/{name}/{rel}: cannot read file: {error}")
             continue
-        if not data.strip():
+        if _file_effectively_empty(data):
             errors.append(
                 f"extensions/{name}/{rel}: empty or whitespace-only file is not allowed (N-15)."
             )
@@ -673,8 +715,10 @@ def validate_extension_dir(ext_dir, validator=None):
                 "carries no test content (N-15)."
             )
         if rel == "README.md":
-            # utf-8-sig: a leading byte-order mark is not substance.
-            text = data.decode("utf-8-sig", errors="replace")
+            # BOM-aware decoding (UTF-8 / UTF-16 / UTF-32): a
+            # byte-order mark is a signature, not substance, in
+            # whichever encoding the file carries (Neon B1R6-M2).
+            text = _bom_decoded_text(data)
             if _readme_effectively_empty(text):
                 errors.append(
                     f"extensions/{name}/{rel}: README.md holds only headings or "

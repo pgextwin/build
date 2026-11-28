@@ -900,7 +900,7 @@ class TreeValidationTests(unittest.TestCase):
             )
         errors = self.errors_for(build_double_bom)
         self.assertTrue(
-            any("more than one byte-order mark" in e for e in errors), errors
+            any("U+FEFF" in e for e in errors), errors
         )
 
         def build_nul(root):
@@ -908,6 +908,156 @@ class TreeValidationTests(unittest.TestCase):
             write_file(ext, "tests/smoke-test.ps1", b"# comment\x00\nWrite-Host 'smoke'\n")
         errors = self.errors_for(build_nul)
         self.assertTrue(any("embedded NUL" in e for e in errors), errors)
+
+    def test_nonleading_feff_scripts_rejected(self):
+        # Neon B1R6-M1 (SOL-B1-R3-03 residual): the shared decoding
+        # used to inspect only a leading U+FEFF, so a stray one
+        # after blanks or newlines -- or a second mark on the next
+        # line -- passed both the N-15 judgement and the common
+        # entry, and the real host reported an error yet exited 0.
+        # Any U+FEFF beyond the leading signature is now outside
+        # the script contract, for the adapter and the smoke test
+        # alike (the audit's four reproductions).
+        cases = {
+            "adapter second BOM": (
+                "adapter",
+                b"\xef\xbb\xbf\n\xef\xbb\xbf# comment\n",
+            ),
+            "adapter stray FEFF": (
+                "adapter",
+                b" \xef\xbb\xbf# comment\n",
+            ),
+            "smoke stray FEFF after newline": (
+                "smoke",
+                b"\n\xef\xbb\xbf# comment\n",
+            ),
+            "smoke utf-16 stray FEFF": (
+                "smoke",
+                " \ufeff# comment\n".encode("utf-16"),
+            ),
+        }
+        for label, (kind, data) in cases.items():
+            with self.subTest(label=label):
+                if kind == "adapter":
+                    def build(root, data=data):
+                        valid_tree(root, "pg_bigm", adapter_content=data)
+                else:
+                    def build(root, data=data):
+                        ext = valid_tree(root)
+                        write_file(ext, "tests/smoke-test.ps1", data)
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("U+FEFF" in e for e in errors), (label, errors)
+                )
+
+    def test_single_bom_substantive_adapter_accepted(self):
+        # The U+FEFF ban targets stray marks beyond the signature:
+        # one leading byte-order mark on a substantive script stays
+        # inside the contract.
+        def build(root):
+            valid_tree(
+                root, "pg_bigm",
+                adapter_content=b"\xef\xbb\xbfWrite-Host 'adapter'\n",
+            )
+        self.assertEqual(self.errors_for(build), [])
+
+    def test_bom_only_and_bom_blank_assets_rejected(self):
+        # Neon B1R6-M2 (SOL-B1-R3-03 residual): emptiness used to
+        # be judged on the raw bytes, so a file holding only a
+        # byte-order mark (or a mark plus blanks) in any encoding
+        # was "non-empty" and slipped past N-15; a heading-only
+        # README in double-BOM / UTF-16 form slipped past the
+        # heading judgement the same way. Emptiness is now judged
+        # on the BOM-decoded text for every asset kind (the audit's
+        # eight reproductions plus the UTF-16 README form).
+        cases = {
+            "patch BOM only": ("patches/empty.patch", b"\xef\xbb\xbf"),
+            "patch BOM plus blanks": ("patches/ws.patch", b"\xef\xbb\xbf   \n"),
+            "packaging BOM only": ("packaging/empty.txt", b"\xef\xbb\xbf"),
+            "licenses BOM plus newline": ("licenses/empty.txt", b"\xef\xbb\xbf\n"),
+            "json BOM only": ("tests/samples/empty.json", b"\xef\xbb\xbf"),
+            "json BOM plus blanks": ("tests/samples/ws.json", b"\xef\xbb\xbf \t\r\n"),
+            "json utf-16 blanks": (
+                "tests/samples/utf16-ws.json", " \n".encode("utf-16")
+            ),
+            "readme double BOM heading": (
+                "README.md", b"\xef\xbb\xbf\xef\xbb\xbf# Heading only\n"
+            ),
+            "readme utf-16 heading": (
+                "README.md", "# Heading only\n".encode("utf-16")
+            ),
+        }
+        for label, (rel, data) in cases.items():
+            with self.subTest(label=label):
+                def build(root, rel=rel, data=data):
+                    ext = valid_tree(root)
+                    write_file(ext, rel, data)
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("N-15" in e for e in errors), (label, errors)
+                )
+
+    def test_bom_coded_substantive_assets_accepted(self):
+        # The BOM-aware judgement rejects emptiness, not the mark:
+        # substantive BOM-coded assets keep passing in every form.
+        def build(root):
+            ext = valid_tree(root)
+            write_file(
+                ext, "patches/real.patch",
+                b"\xef\xbb\xbf--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n",
+            )
+            write_file(ext, "packaging/notes.txt", "notes\n".encode("utf-16"))
+            write_file(
+                ext, "README.md",
+                "# Title\n\nReal documentation body.\n".encode("utf-16"),
+            )
+        self.assertEqual(self.errors_for(build), [])
+
+    def test_reserved_names_with_pre_dot_spaces_and_zero_rejected(self):
+        # Neon B1R6-M3 (SOL-B1-R3-01 residual): Win32 trims
+        # trailing spaces from the base name before the
+        # reserved-device check (RtlIsDosDeviceName_U), so
+        # "aux .txt" is the AUX device; COM0 / LPT0 are reserved
+        # in the Microsoft naming specification. Both forms are
+        # rejected like any other reserved name.
+        for rel in (
+            "tests/aux .txt",
+            "tests/NUL   .json",
+            "tests/COM0.txt",
+            "tests/LPT0.txt",
+        ):
+            with self.subTest(rel=rel):
+                def build(root, rel=rel):
+                    ext = valid_tree(root)
+                    write_file(
+                        ext, rel,
+                        '{"a": 1}\n' if rel.endswith(".json") else "x\n",
+                    )
+                errors = self.errors_for(build)
+                self.assertTrue(
+                    any("cannot be used on Windows" in e for e in errors),
+                    (rel, errors),
+                )
+
+    def test_reserved_extension_root_com0_rejected(self):
+        # Neon B1R6-M3: the root name itself is judged by the same
+        # reserved set -- COM0 cannot be an extension root.
+        def build(root):
+            decl = convert("pg_permissions")
+            decl["name"] = "COM0"
+            ext = root / "extensions" / "COM0"
+            ext.mkdir(parents=True)
+            write_file(ext, "extension.json", json.dumps(decl, indent=2) + "\n")
+            write_file(
+                ext, "tests/test-contract.json",
+                '{"version": 1, "checks": ["smoke"]}\n',
+            )
+            write_file(ext, "tests/smoke-test.ps1", "Write-Host 'smoke'\n")
+        errors = self.errors_for(build)
+        self.assertTrue(
+            any("cannot be used" in e and "Windows" in e for e in errors),
+            errors,
+        )
 
 
 class CliTests(unittest.TestCase):

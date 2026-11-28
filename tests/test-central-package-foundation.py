@@ -113,6 +113,32 @@ class ZipTests(unittest.TestCase):
             )
             self.assertEqual(good["fileName"], "good.zip")
 
+    def test_windows_reserved_names_with_spaces_and_zero_rejected(self):
+        # Neon B1R6-M3 (SOL-B1-R3-01 residual): Win32 trims
+        # trailing spaces from the base name before the
+        # reserved-device check (RtlIsDosDeviceName_U), so
+        # "aux .txt" is the AUX device, and COM0 / LPT0 are
+        # reserved in the Microsoft naming specification. The
+        # packaging entrance rejects both forms; lookalike names
+        # that merely start with a reserved word, or carry a
+        # two-digit COM number, stay valid.
+        bad = (
+            "tests/aux .txt", "tests/NUL   .json",
+            "tests/COM0.txt", "tests/LPT0.txt", "dir/COM0",
+        )
+        with TemporaryDirectory() as tmp:
+            for arcname in bad:
+                with self.subTest(arcname=arcname):
+                    with self.assertRaises(ValueError):
+                        package.write_deterministic_zip(
+                            {arcname: b"x"}, Path(tmp) / "evil.zip"
+                        )
+            good = package.write_deterministic_zip(
+                {"dir/com10.txt": b"x", "dir/console.txt": b"y"},
+                Path(tmp) / "good.zip",
+            )
+            self.assertEqual(good["fileName"], "good.zip")
+
     def test_case_colliding_entries_rejected(self):
         with TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
@@ -764,6 +790,47 @@ class AdapterExecutionTests(unittest.TestCase):
                             extension_root=ext,
                             executable=sys.executable,
                         )
+
+    def test_entry_rejects_nonleading_feff_scripts(self):
+        # Neon B1R6-M1 (SOL-B1-R3-03 residual): a U+FEFF anywhere
+        # beyond the leading signature -- after blanks, after a
+        # newline, or as a second mark -- is outside the encoding
+        # contract, so the entry's gate refuses it before the host
+        # can report an error yet exit 0 (the audit's four
+        # reproductions).
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            for data in (
+                b" \xef\xbb\xbf# comment\n",
+                b"\n\xef\xbb\xbf# comment\n",
+                b"\xef\xbb\xbf\n\xef\xbb\xbf# comment\n",
+                " \ufeff# comment\n".encode("utf-16"),
+            ):
+                script = ext / "tests" / "bad.ps1"
+                script.write_bytes(data)
+                with self.subTest(data=data[:8]):
+                    with self.assertRaises(ValueError):
+                        package.run_adapter_script(
+                            script,
+                            extension_root=ext,
+                            executable=sys.executable,
+                        )
+
+    def test_utf16_bom_script_executes_through_default_entry(self):
+        # Neon B1R6-N2: the production default branch of
+        # run_adapter_script (executable=None -> pwsh resolved
+        # from PATH, invoked with -NoProfile -File) also executes
+        # a BOM-coded script, not only the explicit-executable
+        # seam used by the neighbouring test.
+        if shutil.which("pwsh") is None:
+            self.skipTest("PowerShell 7 host not available")
+        with TemporaryDirectory() as tmp:
+            ext = self.make_tree(Path(tmp))
+            script = ext / "tests" / "bom.ps1"
+            script.write_bytes("Write-Output 'bom-ok'\n".encode("utf-16"))
+            result = package.run_adapter_script(script, extension_root=ext)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("bom-ok", result.stdout)
 
     def test_utf16_bom_script_executes_under_real_powershell(self):
         # The permitted form really executes: a substantive UTF-16
